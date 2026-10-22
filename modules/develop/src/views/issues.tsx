@@ -278,7 +278,7 @@ function IssueRow({ issue: i, showRepo, onOpen, onRepo, onAuthor, onLabel }: {
       <span className='mt-0.5'><IssueStateIcon state={i.state} /></span>
       <div className='min-w-0 flex-1'>
         <div className='flex flex-wrap items-center gap-x-2 gap-y-1'>
-          {showRepo ? <button type='button' onClick={stop(onRepo)} className='text-[12px] font-medium text-content-muted hover:text-brand-700 hover:underline'>{i.repo}</button> : null}
+          {showRepo ? <button type='button' onClick={stop(onRepo)} className='text-[12px] font-medium text-content-muted hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{i.repo}</button> : null}
           <span className='text-sm font-semibold text-content group-hover:text-brand-700 dark:group-hover:text-brand-300'>{i.title}</span>
           {i.labels.map((l) => <span key={l.name} onClick={stop(() => onLabel(l.name))}><LabelPill name={l.name} color={l.color} /></span>)}
         </div>

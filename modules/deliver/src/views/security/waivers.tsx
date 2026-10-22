@@ -17,6 +17,7 @@ import { daysLeft, isExpiringSoon, toSeverity, waiversCsv } from '../../data/sec
 import { securityLink, useSecurityParams, useSetSecurityParams } from '../../data/security-nav.ts'
 import type { SecurityModel } from '../../data/security-model.ts'
 import { DecisionModal, type DecisionMode, ExtendModal } from './dialogs.tsx'
+import { useCanRequestWaiver, useScanGovernanceAccess } from '../../data/security-access.ts'
 import { download, Drawer, fmtDate, fmtDateTime, KV, Loading, Notice, Section, SevChip, shortDigest, TableWrap, TD, TH, WaiverStatusChip } from './shared.tsx'
 
 /** Waivers registry: every waiver, filterable, exportable, each with its audit trail. */
@@ -31,7 +32,7 @@ export function WaiversRegistry({ model }: { model: SecurityModel }) {
   const [soon, setSoon] = useState(false)
   const [search, setSearch] = useState('')
   const now = Date.now()
-  const me = model.waivers.data?.me
+  const access = useScanGovernanceAccess()
   const all = model.waiverItems
 
   if (model.waivers.isLoading) return <Loading text="Loading waivers…" />
@@ -104,7 +105,7 @@ export function WaiversRegistry({ model }: { model: SecurityModel }) {
           Expiring soon ({soonCount})
         </button>
         <div className="ml-auto flex gap-2">
-          {me?.canApprove ? <Button size="sm" onClick={doResync} loading={resync.isPending}>Re-sync to cluster</Button> : null}
+          {access.canApprove ? <Button size="sm" onClick={doResync} loading={resync.isPending}>Re-sync to cluster</Button> : null}
           <Button size="sm" onClick={() => download(`waivers-${new Date().toISOString().slice(0, 10)}.csv`, waiversCsv(rows))} disabled={!rows.length}>Export CSV</Button>
         </div>
       </div>
@@ -180,6 +181,9 @@ export function WaiverDrawer({ waiver: w, model, onClose }: { waiver: Waiver; mo
   const setParams = useSetSecurityParams()
   const act = useWaiverAction()
   const me = model.waivers.data?.me
+  const access = useScanGovernanceAccess()
+  // Extending files a new request in the waiver's project namespace.
+  const canExtend = useCanRequestWaiver([w.target.project])
   const [mode, setMode] = useState<DecisionMode | null>(null)
   const [extend, setExtend] = useState(false)
   const [comment, setComment] = useState('')
@@ -214,15 +218,15 @@ export function WaiverDrawer({ waiver: w, model, onClose }: { waiver: Waiver; mo
       subtitle={<span className="flex flex-wrap items-center gap-2"><WaiverStatusChip status={w.status} expiringSoon={isExpiringSoon(w, now)} /> {SCOPE_LABEL[w.scope]} · until {fmtDate(w.expiresAt)}</span>}
       actions={
         <>
-          {w.status === 'requested' && me?.canApprove ? (
+          {w.status === 'requested' && access.canApprove ? (
             <>
               <Button size="sm" variant="primary" onClick={() => setMode('approve')}>Approve</Button>
               <Button size="sm" variant="danger" onClick={() => setMode('reject')}>Reject</Button>
             </>
           ) : null}
           {w.status === 'requested' && mine ? <Button size="sm" onClick={() => setMode('withdraw')}>Withdraw</Button> : null}
-          {(w.status === 'approved' || w.status === 'expired') && !w.supersededBy ? <Button size="sm" onClick={() => setExtend(true)}>Extend</Button> : null}
-          {w.status === 'approved' && (me?.canApprove || mine) ? <Button size="sm" variant="danger" onClick={() => setMode('revoke')}>Revoke</Button> : null}
+          {(w.status === 'approved' || w.status === 'expired') && !w.supersededBy && canExtend ? <Button size="sm" onClick={() => setExtend(true)}>Extend</Button> : null}
+          {w.status === 'approved' && (access.canApprove || mine) ? <Button size="sm" variant="danger" onClick={() => setMode('revoke')}>Revoke</Button> : null}
           {w.kind === 'vuln' ? <Button size="sm" variant="ghost" onClick={() => setParams({ tab: 'findings', finding: w.target.package ? `${w.findingId}|${w.target.package}` : w.findingId, waiver: undefined }, { push: true })}>View finding</Button> : null}
           <Button size="sm" variant="ghost" onClick={copy}>Copy link</Button>
         </>

@@ -1,6 +1,7 @@
 import { env } from '@adhar/utils'
 import { openStore } from './workspace/store.ts'
-import { emitNotification, type NotificationDoc } from './notify.ts'
+import { emitNotificationResult, type NotificationDoc } from './notify.ts'
+import { observeNotification } from './support/service.ts'
 
 /**
  * `POST /api/alerts/alertmanager` — the platform's Alertmanager receiver.
@@ -112,6 +113,14 @@ export function toNotification(a: AmAlert, externalURL?: string): NotificationDo
   return {
     kind,
     source: sourceOf(a),
+    // The alert's own identity, for the support-ticket pipeline (which pods,
+    // which workload, which severity label). Bounded: label sets are small,
+    // but nothing here should trust that.
+    alert: {
+      name,
+      fingerprint: a.fingerprint,
+      labels: Object.fromEntries(Object.entries(a.labels ?? {}).slice(0, 30).map(([k, v]) => [k, String(v).slice(0, 200)])),
+    },
     title,
     description: lines.join('\n').slice(0, 2000) || undefined,
     href: a.generatorURL || externalURL || undefined,
@@ -150,15 +159,18 @@ export async function handleAlertmanagerWebhook(req: Request): Promise<Response>
 
   // Platform alerts belong to the shared space, which is what every session
   // falls back to when it has no tenant of its own (request-user.ts).
-  const store = await openStore(env('ALERTMANAGER_TENANT') ?? 'default')
+  const tenant = env('ALERTMANAGER_TENANT') ?? 'default'
+  const store = await openStore(tenant)
   if (!store) return Response.json({ ok: false, error: 'store_unavailable' }, { status: 503 })
 
   let created = 0
   for (const a of alerts) {
     // Watchdog is Alertmanager's own "I am alive" heartbeat; it is not news.
     if (a.labels?.alertname === 'Watchdog') continue
-    const id = await emitNotification(store, toNotification(a, payload.externalURL), 'alertmanager')
-    if (id) created++
+    const doc = toNotification(a, payload.externalURL)
+    const res = await emitNotificationResult(store, doc, 'alertmanager')
+    if (res.id) created++
+    observeNotification({ tenant, notificationId: res.id, doc, created: res.created, origin: 'alertmanager' })
   }
   return Response.json({ ok: true, received: alerts.length, created })
 }

@@ -200,7 +200,7 @@ function HelpPage() {
           </div>
           <div className="mt-4 flex flex-wrap gap-2 text-[12px]">
             <Link to="/status" className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 font-medium ring-1 ring-inset ring-white/25 hover:bg-white/25">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" /> Platform status
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/70" /> Platform status
             </Link>
             <Link to="/changelog" className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 font-medium ring-1 ring-inset ring-white/25 hover:bg-white/25">
               What&apos;s new{version ? ` · ${version === 'dev' ? 'dev' : `v${version}`}` : ''}
@@ -307,11 +307,11 @@ function HelpPage() {
           {trouble.length ? (
             <Section title="Troubleshooting" subtitle="The failure modes the console's own diagnostics report.">
               <div className="space-y-2">
-                {trouble.map((t, i) => <Faq key={t.q} q={t.q} a={t.a} tone={(['rose', 'amber', 'violet', 'sky', 'teal'] as Tone[])[i % 5]} defaultOpen={Boolean(needle)} />)}
+                {trouble.map((t, i) => <Faq key={`${t.q}|${Boolean(needle)}`} q={t.q} a={t.a} tone={(['rose', 'amber', 'violet', 'sky', 'teal'] as Tone[])[i % 5]} defaultOpen={Boolean(needle)} />)}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link to="/status" className="inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-[12px] font-medium text-content shadow-sm hover:border-edge-strong">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Platform status
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-content-subtle" /> Platform status
                 </Link>
                 <a href="/api/diagnostics" target="_blank" rel="noreferrer" className="rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-[12px] font-medium text-content shadow-sm hover:border-edge-strong">
                   Connectivity diagnostics ↗

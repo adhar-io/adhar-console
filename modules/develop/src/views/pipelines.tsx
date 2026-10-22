@@ -153,7 +153,7 @@ export function Pipelines() {
               <IconRefresh />
             </Button>
             {airbyteUrl ? (
-              <a href={airbyteUrl} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1 rounded-md bg-brand-600 px-2.5 text-sm font-medium text-white hover:bg-brand-700">
+              <a href={airbyteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md bg-brand-600 px-2.5 text-sm font-medium text-white hover:bg-brand-700">
                 New connection in Airbyte <IconExternal />
               </a>
             ) : null}
@@ -634,7 +634,7 @@ function ConnectionDrawerBody({ conn: c, jobs, airbyteUrl, onClose, tab, setTab 
           { id: 'jobs', label: 'Jobs', badge: { kind: 'unknown', value: list.length } },
           { id: 'streams', label: 'Streams', badge: { kind: 'unknown', value: c.streams_count } },
         ]}
-        actions={airbyteUrl ? <a href={airbyteUrl} target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300">Airbyte <IconExternal /></a> : undefined}
+        actions={airbyteUrl ? <a href={airbyteUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[12px] font-medium text-brand-700 hover:underline dark:text-brand-300">Airbyte <IconExternal /></a> : undefined}
       >
         {(active) => (
           <div className="pt-3">

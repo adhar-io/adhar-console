@@ -14,13 +14,16 @@ import {
   useOverlayDismiss,
   DrawerWidenButton,
   useDrawerWidth,
+  canResource,
+  useAccessReview,
+  useCan,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
 import { useDecodedRelease, useHelmReleases, type HelmRelease } from '../data/releases.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sPermissionDenied, K8sRolePill } from '../components/role-gate.tsx'
+import { AccessDenied } from '../components/role-gate.tsx'
 import { age } from '../data/format.ts'
 import { ListShell, matchesSearch } from './list-shell.tsx'
 
@@ -31,7 +34,8 @@ import { ListShell, matchesSearch } from './list-shell.tsx'
  * it needs no decompression and no new dependency; chart + app version are
  * decoded in-browser with the native `DecompressionStream` when available,
  * with an honest "can't decode" fallback otherwise. Uninstall deletes the
- * release's Secrets behind a typed confirm.
+ * release's Secrets behind a typed confirm — so reading needs `list secrets`
+ * and Uninstall (hidden otherwise) `delete secrets` in the release namespace.
  */
 
 const STATUS_KIND: Record<string, StatusKind> = {
@@ -50,9 +54,12 @@ function ReleaseStatusBadge({ status }: { status: string }) {
 }
 
 export function ReleasesView({ namespace }: { namespace?: string }) {
-  const canRead = useHasK8sPermission('secrets.read')
-  if (!canRead) {
-    return <K8sPermissionDenied perm="secrets.read" />
+  const check = canResource(GVRS.secrets, 'list', { namespace })
+  const read = useAccessReview(check)
+  // The notice only once RBAC has definitely said no; while asking (or if the
+  // check itself failed) the list renders and reports its own errors.
+  if (!read.loading && read.results[0] === false) {
+    return <AccessDenied what="Helm releases (they are stored as Secrets)" check={check} />
   }
   return <ReleasesList namespace={namespace} />
 }
@@ -181,7 +188,8 @@ function ChartCell({ release }: { release: HelmRelease }) {
 
 function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): void }) {
   const width = useDrawerWidth('platform.helm-release', { base: 'max-w-2xl' })
-  const canUninstall = useHasK8sPermission('secrets.write')
+  // Uninstall deletes every revision Secret of the release in its namespace.
+  const canUninstall = useCan(canResource(GVRS.secrets, 'delete', { namespace: release.namespace }))
   const decoded = useDecodedRelease(release.latest.secret)
   const [confirming, setConfirming] = useState(false)
 
@@ -189,7 +197,7 @@ function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): 
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -200,22 +208,18 @@ function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): 
               {release.namespace} · revision {release.latest.revision}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <ReleaseStatusBadge status={release.latest.status} />
             {canUninstall ? (
               <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>
                 Uninstall
               </Button>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-                Uninstall <K8sRolePill perm="secrets.write" />
-              </span>
-            )}
+            ) : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-content-muted hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
               aria-label="Close"
             >
               ✕
@@ -327,7 +331,7 @@ function ReleaseDrawer({ release, onClose }: { release: HelmRelease; onClose(): 
           </Card>
         </div>
 
-        {confirming ? (
+        {confirming && canUninstall ? (
           <UninstallBar release={release} onCancel={() => setConfirming(false)} onDone={onClose} />
         ) : null}
       </aside>
@@ -357,6 +361,7 @@ function UninstallBar({
   onDone(): void
 }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const [typed, setTyped] = useState('')
 
   const mut = useMutation({
@@ -374,8 +379,14 @@ function UninstallBar({
       if (failures.length) throw new Error(`Some Secrets weren't deleted — ${failures.join('; ')}`)
     },
     onSuccess: () => {
+      toast.success(`Release ${release.name} removed from Helm`)
       qc.invalidateQueries({ queryKey: ['k8s'] })
       onDone()
+    },
+    onError: (e) => {
+      // Partial failures still removed some Secrets — refresh what's shown.
+      qc.invalidateQueries({ queryKey: ['k8s'] })
+      toast.error(`Couldn't fully uninstall ${release.name}`, { description: (e as Error).message })
     },
   })
 
@@ -414,9 +425,6 @@ function UninstallBar({
           {mut.isPending ? 'Removing…' : 'Uninstall'}
         </Button>
       </div>
-      {mut.isError ? (
-        <div className="mt-2 text-xs text-rose-700 dark:text-rose-300">{(mut.error as Error).message}</div>
-      ) : null}
     </div>
   )
 }

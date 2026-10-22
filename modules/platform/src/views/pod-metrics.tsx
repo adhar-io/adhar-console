@@ -11,7 +11,7 @@ import {
   useLiveRefetch,
   type SeriesPoint,
 } from '@adhar/shell-ui'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 import { GVRS } from '../data/gvr.ts'
 import { lastValue, promRange, toPoints, type PromMatrix } from '../data/prom.ts'
@@ -148,23 +148,24 @@ export function PodMetricsPanel({
   podName: string
   containers: ContainerResources[]
 }) {
+  const { cluster } = useActiveCluster()
   const [range, setRange] = useState<RangeKey>('1h')
   const cfg = RANGES.find((r) => r.label === range) ?? RANGES[1]
 
   // Live instantaneous snapshot (metrics-server).
   const live = useQuery({
-    queryKey: ['k8s', 'pod-metrics', namespace, podName],
-    queryFn: () => client.podMetrics(LOCAL_CLUSTER, namespace, podName),
+    queryKey: ['k8s', 'pod-metrics', namespace, podName, cluster],
+    queryFn: () => client.podMetrics(cluster, namespace, podName),
     refetchInterval: POLL_MS,
     retry: false,
   })
 
   // Pod status for restart / OOM indicators (dedupes with the drawer's pod query).
-  const podKey = ['k8s', 'pod', namespace, podName]
+  const podKey = ['k8s', 'pod', namespace, podName, cluster]
   const podQ = useQuery({
     queryKey: podKey,
-    queryFn: () => client.getPod(LOCAL_CLUSTER, namespace, podName),
-    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace }, [podKey], 15_000),
+    queryFn: () => client.getPod(cluster, namespace, podName),
+    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace, cluster: clusterParam(cluster) }, [podKey], 15_000),
     retry: false,
   })
 
@@ -363,7 +364,7 @@ function RestartStrip({ pod, promRestarts }: { pod?: PodStatusLite; promRestarts
 
 /* ───── Prometheus charts ───── */
 
-function PromCharts({ prom, containers }: { prom: PromData; containers: ContainerResources[] }) {
+function PromCharts({ prom, containers: _containers }: { prom: PromData; containers: ContainerResources[] }) {
   const cpuCur = lastValue(prom.cpuTotal)
   const memCur = lastValue(prom.memTotal)
   const throttleCur = lastValue(prom.cpuThrottle)

@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert'
+import { assertEquals } from 'jsr:@std/assert@^1'
 import { orderStages, shortFreight, stageStatus } from './stage-order.ts'
 import type { kargo } from '@adhar/api-clients'
 

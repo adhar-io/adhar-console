@@ -34,8 +34,9 @@ import {
   toCsv,
   toJson,
   toTsv,
+  writeVerb,
 } from '../data/bi-sql.ts'
-import { collectionIdForApi, copyText, downloadText, ensureBiStyles, Icon, IconButton, Menu, Segmented } from '../components/bi-kit.tsx'
+import { collectionIdForApi, ConfirmDialog, copyText, downloadText, ensureBiStyles, Icon, IconButton, Menu, Segmented } from '../components/bi-kit.tsx'
 import { SaveCardModal } from '../components/bi-dialogs.tsx'
 import { Visualization } from '../components/bi-viz.tsx'
 import { DataGrid } from '../components/bi-table.tsx'
@@ -111,6 +112,8 @@ export function SqlEditor() {
   const [history, setHistory] = useState<HistoryEntry[]>([])
   const [saving, setSaving] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** A statement that writes, held until the user confirms it. */
+  const [pendingWrite, setPendingWrite] = useState<{ text: string; verb: string } | null>(null)
   const [newSnippet, setNewSnippet] = useState<string | null>(null)
   const editorRef = useRef<MonacoEditorInstance | null>(null)
   const monacoRef = useRef<MonacoApi | null>(null)
@@ -162,6 +165,7 @@ export function SqlEditor() {
   useEffect(() => () => disposers.current.forEach((d) => d.dispose()), [])
 
   const runRef = useRef<(selectionOnly: boolean) => void>(() => {})
+  const runSeq = useRef(0)
 
   const onMount = useCallback((ed: MonacoEditorInstance, m: MonacoApi) => {
     editorRef.current = ed
@@ -179,8 +183,11 @@ export function SqlEditor() {
     if (m && model) m.editor.setModelMarkers(model, 'bi-sql', [])
   }
 
-  const execute = async (text: string, label?: string) => {
+  const execute = async (text: string, label?: string, confirmed = false) => {
     if (dbId == null) return toast.warning('Pick a database first')
+    // Metabase runs native SQL with its connection's full rights — a write gets a second look.
+    const verb = label || confirmed ? null : writeVerb(text)
+    if (verb) return setPendingWrite({ text, verb })
     const runVars = parseSqlVariables(text)
     const missing = missingRequired(runVars, values)
     if (missing.length) return toast.warning(`Fill in ${missing.join(', ')}`, { description: 'Required variables are outside [[ … ]] optional clauses.' })
@@ -188,12 +195,15 @@ export function SqlEditor() {
     if (bad.length) return toast.warning(`${bad.join(', ')} must be a number`)
     clearMarkers()
     const startedAt = performance.now()
+    // Runs can overlap (⌘↵ twice, Explain mid-run); only the latest may write results.
+    const seq = ++runSeq.current
     setRun({ status: 'running', sql: text, startedAt })
     try {
       const ds = await metabaseClient.runNative(dbId, text, {
         templateTags: buildTemplateTags(runVars, types, { prev: editing.data?.dataset_query?.native?.['template-tags'], snippets: snippets.data }),
         parameters: buildParameterValues(runVars, values, types),
       })
+      if (seq !== runSeq.current) return
       const elapsed = Math.round(performance.now() - startedAt)
       const err = datasetError(ds)
       setRun({ status: 'done', ds, sql: text, elapsed })
@@ -205,6 +215,7 @@ export function SqlEditor() {
         saveHistory(globalThis.localStorage, userKey, next)
       }
     } catch (e) {
+      if (seq !== runSeq.current) return
       setRun({ status: 'error', error: e, sql: text, elapsed: Math.round(performance.now() - startedAt) })
     }
   }
@@ -338,7 +349,7 @@ export function SqlEditor() {
     return (
       <div className="space-y-3">
         <EmptyState
-          icon={<Icon name="database" size={34} className="text-content-subtle" />}
+          icon={<Icon name="database" size={22} />}
           title={(dbs.data ?? []).length ? 'No database allows native SQL for your account' : 'No databases connected to Metabase'}
           description={(dbs.data ?? []).length ? 'Ask a Metabase admin for native query permission on a database.' : 'Connect a database in Metabase (Admin → Databases) to query it here.'}
         />
@@ -549,6 +560,19 @@ export function SqlEditor() {
         ) : null}
       </div>
 
+      <ConfirmDialog
+        open={!!pendingWrite}
+        title={`Run a ${pendingWrite?.verb ?? ''} statement?`}
+        body={<>This query changes data or schema in <b>{db?.name ?? 'the selected database'}</b>, using Metabase's connection. It can't be undone from here.</>}
+        confirmLabel="Run it"
+        danger
+        onConfirm={() => {
+          const p = pendingWrite
+          setPendingWrite(null)
+          if (p) void execute(p.text, undefined, true)
+        }}
+        onClose={() => setPendingWrite(null)}
+      />
       <SaveCardModal open={saving} onClose={() => setSaving(false)} title="Save as question" initialName={editing.data ? `${editing.data.name} (copy)` : ''} busy={busy} onSave={saveNew} />
       <NewSnippetModal
         content={newSnippet}

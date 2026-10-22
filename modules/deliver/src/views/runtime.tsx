@@ -79,7 +79,6 @@ export function Runtime() {
   const [tab, setTab] = useState<Tab>('overview')
   const agents = useRuntimeAgents()
   const tetragon = agents.engines.find((e) => e.engine === 'tetragon')
-  const falco = agents.engines.find((e) => e.engine === 'falco')
   const anyInstalled = agents.engines.some((e) => e.installed)
 
   const feed = useRuntimeEvents(agents.engines)
@@ -750,7 +749,7 @@ function EventDrawer({ event: e, onClose }: { event: RuntimeEvent; onClose(): vo
   const rows = Object.entries(e.fields).filter(([, v]) => v !== '')
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -997,7 +996,7 @@ function PolicyDrawer({ policy: p, onClose }: { policy: PolicyView; onClose(): v
   if (typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">

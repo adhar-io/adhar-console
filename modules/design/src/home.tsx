@@ -1,16 +1,21 @@
-import { PageHeader } from '@adhar/shell-ui'
-import { Dashboard } from './views/dashboard.tsx'
-import { Adrs } from './views/adrs.tsx'
-import { Diagrams } from './views/diagrams.tsx'
-import { Whiteboard } from './views/whiteboard.tsx'
-import { Personas } from './views/personas.tsx'
-import { Journeys } from './views/journeys.tsx'
-import { Wireframes } from './views/wireframes.tsx'
-import { Tokens } from './views/tokens.tsx'
-import { ApiSchemas } from './views/api-schemas.tsx'
-import { Catalog } from './views/catalog.tsx'
-import { Builder } from './views/builder.tsx'
+import { lazy, Suspense } from 'react'
+import { PageHeader, Spinner } from '@adhar/shell-ui'
 import { ScopePicker } from './components/scope-picker.tsx'
+
+// One chunk per section: the remote's entry used to carry every view (the
+// Visual Designer engine, whiteboard, OpenAPI editor…) — ~1 MB before the
+// first paint of whichever single section the URL asked for.
+const Dashboard = lazy(() => import('./views/dashboard.tsx').then((m) => ({ default: m.Dashboard })))
+const Adrs = lazy(() => import('./views/adrs.tsx').then((m) => ({ default: m.Adrs })))
+const Diagrams = lazy(() => import('./views/diagrams.tsx').then((m) => ({ default: m.Diagrams })))
+const Whiteboard = lazy(() => import('./views/whiteboard.tsx').then((m) => ({ default: m.Whiteboard })))
+const Personas = lazy(() => import('./views/personas.tsx').then((m) => ({ default: m.Personas })))
+const Journeys = lazy(() => import('./views/journeys.tsx').then((m) => ({ default: m.Journeys })))
+const Wireframes = lazy(() => import('./views/wireframes.tsx').then((m) => ({ default: m.Wireframes })))
+const Tokens = lazy(() => import('./views/tokens.tsx').then((m) => ({ default: m.Tokens })))
+const ApiSchemas = lazy(() => import('./views/api-schemas.tsx').then((m) => ({ default: m.ApiSchemas })))
+const Catalog = lazy(() => import('./views/catalog.tsx').then((m) => ({ default: m.Catalog })))
+const Builder = lazy(() => import('./views/builder.tsx').then((m) => ({ default: m.Builder })))
 
 /** Sections narrowed by the project scope (Org → Team → Project) — they show the picker. */
 const PROJECT_SCOPED = new Set<string>(['dashboard', 'personas', 'journeys', 'wireframes', 'tokens', 'catalog'])
@@ -75,23 +80,30 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
 }
 
+/** Shown while a section's chunk downloads (spinner only — no status text). */
+function SectionFallback() {
+  return <div className="flex justify-center py-16 text-content-subtle" aria-busy="true"><Spinner size={16} /></div>
+}
+
 export default function DesignHome({ section }: { section?: string } = {}) {
   const active = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section
   const def = SECTIONS[active]
   return (
     <div className="space-y-6">
       {active === 'builder' ? null : <PageHeader title={def.label} actions={PROJECT_SCOPED.has(active) ? <ScopePicker /> : undefined} />}
-      {active === 'dashboard' && <Dashboard />}
-      {active === 'adrs' && <Adrs />}
-      {active === 'diagrams' && <Diagrams />}
-      {active === 'whiteboard' && <Whiteboard />}
-      {active === 'personas' && <Personas />}
-      {active === 'journeys' && <Journeys />}
-      {active === 'wireframes' && <Wireframes />}
-      {active === 'tokens' && <Tokens />}
-      {active === 'api-schemas' && <ApiSchemas />}
-      {active === 'catalog' && <Catalog />}
-      {active === 'builder' && <Builder />}
+      <Suspense fallback={<SectionFallback />}>
+        {active === 'dashboard' && <Dashboard />}
+        {active === 'adrs' && <Adrs />}
+        {active === 'diagrams' && <Diagrams />}
+        {active === 'whiteboard' && <Whiteboard />}
+        {active === 'personas' && <Personas />}
+        {active === 'journeys' && <Journeys />}
+        {active === 'wireframes' && <Wireframes />}
+        {active === 'tokens' && <Tokens />}
+        {active === 'api-schemas' && <ApiSchemas />}
+        {active === 'catalog' && <Catalog />}
+        {active === 'builder' && <Builder />}
+      </Suspense>
     </div>
   )
 }

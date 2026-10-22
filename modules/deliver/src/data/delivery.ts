@@ -66,15 +66,6 @@ export function useApplications() {
   })
 }
 
-export function useApplication(name?: string) {
-  return useQuery({
-    queryKey: ['argocd', 'app', name],
-    queryFn: () => argocdClient.getApplication(name!),
-    enabled: !!name,
-    refetchInterval: usePollingInterval(REFRESH_MS),
-  })
-}
-
 /**
  * Options-aware sync. Threads the ArgoCD `sync` dialog options (prune / dry-run
  * / force) through to the real ArgoCD REST API via the module-scoped helper.
@@ -307,15 +298,6 @@ export function useRetryRollout() {
 }
 
 /* ─────────── Harbor ─────────── */
-
-export function useRepositories() {
-  const project = useHarborProject()
-  return useQuery({
-    queryKey: ['harbor', 'repos', project],
-    queryFn: () => harborClient.listRepositories(project),
-    staleTime: 30_000,
-  })
-}
 
 /** `repo` is Harbor's full name (`<project>/<path>`); the project is taken from it. */
 export function useArtifacts(repo?: string) {
@@ -634,22 +616,6 @@ export function useScans(filter?: { target?: trivy.ScanTarget; namespace?: strin
     // Reports are CRDs and the watch above already pushes on change, so the
     // minute-long timer is only needed when the socket is down.
     refetchInterval: usePollingInterval(60_000),
-  })
-}
-
-export function useScan(id?: string) {
-  return useQuery({
-    queryKey: ['trivy', 'report', id],
-    queryFn: () => trivyClient.getReport(id!),
-    enabled: !!id,
-  })
-}
-
-export function useRescan() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => trivyClient.rescan(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['trivy'] }),
   })
 }
 

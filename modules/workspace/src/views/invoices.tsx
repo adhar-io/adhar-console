@@ -1,4 +1,13 @@
-import { DataTable, EmptyState, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  DataTable,
+  EmptyState,
+  StatusBadge,
+  type StatusKind,
+  useAccessReview,
+  useCan,
+  useToast,
+} from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   downloadInvoice,
@@ -40,9 +49,18 @@ function exportCsv(rows: Invoice[]) {
 }
 
 export function Invoices() {
+  const toast = useToast()
   const q = useBillingInvoices()
   const generate = useGenerateInvoice()
   const pay = usePayInvoice()
+  // Reads need `get billing`; generating and paying invoices need `update billing`.
+  const read = useAccessReview(CONSOLE_PERMISSIONS.billingView)
+  const readDenied = read.results.some((r) => r === false)
+  const canManage = useCan(CONSOLE_PERMISSIONS.billingManage)
+  const runGenerate = () =>
+    generate.mutate(undefined, {
+      onError: (e) => toast.error('Could not generate the invoice', { description: (e as Error)?.message }),
+    })
 
   const all = q.data ?? []
   const open = all.filter((i) => i.status === 'open')
@@ -57,19 +75,28 @@ export function Invoices() {
     <ViewShell
       title="Invoices"
       description="Generated per period from the persisted subscription plus metered usage overage — full line-item breakdown, idempotent per month."
-      required={['billing', 'finance', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.billingManage}
       actions={
-        <>
-          <SecondaryButton onClick={() => exportCsv(all)} disabled={all.length === 0}>
-            <IconDownload /> Export CSV
-          </SecondaryButton>
-          <PrimaryButton onClick={() => generate.mutate(undefined)} disabled={generate.isPending || dbGone}>
-            {generate.isPending ? 'Generating…' : 'Generate current period'}
-          </PrimaryButton>
-        </>
+        readDenied ? null : (
+          <>
+            <SecondaryButton onClick={() => exportCsv(all)} disabled={all.length === 0}>
+              <IconDownload /> Export CSV
+            </SecondaryButton>
+            {canManage ? (
+              <PrimaryButton onClick={runGenerate} disabled={generate.isPending || dbGone}>
+                {generate.isPending ? 'Generating…' : 'Generate current period'}
+              </PrimaryButton>
+            ) : null}
+          </>
+        )
       }
     >
-      {dbGone ? (
+      {readDenied ? (
+        <EmptyState
+          title="No billing access"
+          description="Ask a workspace admin for billing access to see and download invoices."
+        />
+      ) : dbGone ? (
         <EmptyState
           title="Connect a database"
           description="Invoices are persisted in Postgres. Set DATABASE_URL for the console server to generate and store invoices."
@@ -92,12 +119,6 @@ export function Invoices() {
             <StatTile label="Invoices" value={all.length} hint="one per period" />
           </div>
 
-          {generate.isError ? (
-            <p className="text-[12px] text-rose-600">
-              {generate.error instanceof Error ? generate.error.message : 'Generation failed.'}
-            </p>
-          ) : null}
-
           <SettingsCard title="History">
             <DataTable
               loading={q.isLoading}
@@ -106,11 +127,17 @@ export function Invoices() {
               empty={
                 <EmptyState
                   title="No invoices yet"
-                  description="Generate the current period to create the first invoice from your subscription and metered usage."
+                  description={
+                    canManage
+                      ? 'Generate the current period to create the first invoice from your subscription and metered usage.'
+                      : 'Invoices appear here once a billing admin generates the first period.'
+                  }
                   action={
-                    <PrimaryButton onClick={() => generate.mutate(undefined)} disabled={generate.isPending}>
-                      Generate invoice
-                    </PrimaryButton>
+                    canManage ? (
+                      <PrimaryButton onClick={runGenerate} disabled={generate.isPending}>
+                        Generate invoice
+                      </PrimaryButton>
+                    ) : undefined
                   }
                 />
               }
@@ -151,7 +178,7 @@ export function Invoices() {
                   key: 'due',
                   header: 'Due',
                   cell: (i) => (
-                    <span className={isOverdue(i) ? 'text-rose-700' : ''}>
+                    <span className={isOverdue(i) ? 'text-rose-700 dark:text-rose-400' : ''}>
                       {formatRelative(i.dueAt)}
                     </span>
                   ),
@@ -166,11 +193,11 @@ export function Invoices() {
                   header: '',
                   cell: (i) => (
                     <div className="flex justify-end gap-1.5">
-                      <SecondaryButton onClick={() => void downloadInvoice(i.id)}>
+                      <SecondaryButton onClick={() => downloadInvoice(i.id).catch((e) => toast.error('Could not download the invoice', { description: (e as Error)?.message }))}>
                         <IconDownload /> Download
                       </SecondaryButton>
-                      {i.status === 'open' ? (
-                        <SecondaryButton onClick={() => pay.mutate(i.id)} disabled={pay.isPending}>
+                      {canManage && i.status === 'open' ? (
+                        <SecondaryButton onClick={() => pay.mutate(i.id, { onError: (e) => toast.error('Could not mark the invoice paid', { description: (e as Error)?.message }) })} disabled={pay.isPending}>
                           Mark paid
                         </SecondaryButton>
                       ) : null}
@@ -186,7 +213,7 @@ export function Invoices() {
               title={`Latest invoice — ${latest.number}`}
               description="Per-line breakdown exactly as it appears on the downloadable document."
             >
-              <div className="overflow-hidden rounded-lg border border-edge-subtle">
+              <div className="overflow-x-auto rounded-lg border border-edge-subtle">
                 <table className="w-full text-sm">
                   <thead className="bg-surface-sunken text-[11px] uppercase tracking-wider text-content-subtle">
                     <tr>

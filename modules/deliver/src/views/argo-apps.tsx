@@ -9,6 +9,8 @@ import {
   EmptyState,
   Spinner,
   StatusBadge,
+  useAccessReview,
+  useCan,
   useToast,
   type StatusKind,
   DrawerWidenButton,
@@ -31,7 +33,8 @@ import {
 } from '../data/delivery.ts'
 
 import { shortRepo, sourceRef } from '../data/source-ref.ts'
-import { categoryTally, CUSTOM, matchesCategory } from '../data/app-category.ts'
+import { argoAppCheck } from '../data/access.ts'
+import { categoryTally, matchesCategory } from '../data/app-category.ts'
 
 const HEALTH_KIND: Record<string, StatusKind> = {
   Healthy: 'healthy',
@@ -166,6 +169,11 @@ export function ArgoApps() {
   const all = useMemo(() => q.data ?? [], [q.data])
   const projects = useMemo(() => [...new Set(all.map((a) => a.spec.project))].sort(), [all])
   const namespaces = useMemo(() => [...new Set(all.map((a) => a.spec.destination.namespace).filter(Boolean))].sort(), [all])
+  // Sync / refresh / terminate patch the Application. Asked once per namespace
+  // the Applications live in (usually just `argocd`), not once per app.
+  const appNamespaces = useMemo(() => [...new Set(all.map((a) => a.metadata.namespace || 'argocd'))].sort(), [all])
+  const writeAccess = useAccessReview(appNamespaces.map((ns) => argoAppCheck('patch', ns)))
+  const canPatch = (a: argocd.Application) => writeAccess.results[appNamespaces.indexOf(a.metadata.namespace || 'argocd')] === true
 
   const stats = useMemo(() => {
     const s = { synced: 0, outOfSync: 0, healthy: 0, degraded: 0, progressing: 0, suspended: 0, auto: 0, running: 0, failed: 0 }
@@ -320,9 +328,10 @@ export function ArgoApps() {
         <StatTile label="Operations" value={stats.running} hint={stats.failed ? `${stats.failed} failed` : 'running now'} tone={stats.failed ? 'failed' : stats.running ? 'progressing' : undefined} />
       </div>
 
-      {/* ── search · filters · sort · layout ── */}
+      {/* ── search · filters · sort · layout — only once there is something to narrow ── */}
+      {all.length ? (
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-edge-default bg-surface-raised px-3 py-2 shadow-sm">
-        <div className="min-w-56 flex-1">
+        <div className="min-w-48 flex-1 basis-56">
           <SearchInput value={search} onChange={setSearch} placeholder="Search name, namespace, repo, path, image, label…" />
         </div>
         <Select value={syncF} onChange={(v) => setSyncF(v as SyncFilter)} title="Sync status" options={[['all', 'Sync: all'], ['Synced', 'Synced'], ['OutOfSync', 'Out of sync'], ['Unknown', 'Unknown']]} />
@@ -345,19 +354,21 @@ export function ArgoApps() {
           </button>
         ) : null}
       </div>
+      ) : null}
 
       {/* ── bulk bar ── */}
       {selected.size > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand-200 bg-brand-50/60 px-3 py-2 text-[12px] dark:border-brand-500/30 dark:bg-brand-500/10">
           <span className="font-medium text-content">{selected.size} selected</span>
-          <Button size="sm" onClick={bulkSync} loading={sync.isPending} leading={<IconSync />}>
+          <Button size="sm" variant="primary" onClick={bulkSync} loading={sync.isPending} leading={<IconSync />}>
             Sync selected
           </Button>
-          <button type="button" onClick={() => setSelected(new Set(list.map((a) => a.metadata.name)))} className="text-[11px] text-content-muted hover:text-content">select all visible</button>
+          <button type="button" onClick={() => setSelected(new Set(list.filter(canPatch).map((a) => a.metadata.name)))} className="text-[11px] text-content-muted hover:text-content">select all visible</button>
           <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-[11px] text-content-muted hover:text-content">clear</button>
         </div>
       ) : null}
 
+      {all.length ? (
       <CategoryBar
         tally={tally}
         hasCustom={hasCustom}
@@ -373,12 +384,15 @@ export function ArgoApps() {
             return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
           })}
       />
+      ) : null}
 
-      <div className="text-[11px] text-content-subtle">
-        {list.length === all.length
-          ? `${all.length} application${all.length === 1 ? '' : 's'}`
-          : `${list.length} of ${all.length} applications`}
-      </div>
+      {all.length ? (
+        <div className="text-[11px] text-content-subtle">
+          {list.length === all.length
+            ? `${all.length} application${all.length === 1 ? '' : 's'}`
+            : `${list.length} of ${all.length} applications`}
+        </div>
+      ) : null}
 
       {/* Two genuinely different empty states. Saying "ArgoCD has no
           Applications" when a filter is what hid them would send people
@@ -394,7 +408,7 @@ export function ArgoApps() {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="rounded-lg border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content hover:border-brand-400"
+                className="rounded-lg border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content transition-colors hover:border-brand-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
               >
                 Clear filters
               </button>
@@ -413,6 +427,7 @@ export function ArgoApps() {
               onSync={() => act(`Sync requested for ${a.metadata.name}.`, () => sync.mutateAsync({ name: a.metadata.name }))}
               onRefresh={(hard) => act(`${hard ? 'Hard refresh' : 'Refresh'} requested for ${a.metadata.name}.`, () => refresh.mutateAsync({ name: a.metadata.name, hard }))}
               onTerminate={() => act(`Operation on ${a.metadata.name} terminated.`, () => terminate.mutateAsync({ name: a.metadata.name }))}
+              canWrite={canPatch(a)}
               busy={(sync.isPending && sync.variables?.name === a.metadata.name) || (refresh.isPending && refresh.variables?.name === a.metadata.name)}
             />
           ))}
@@ -423,6 +438,7 @@ export function ArgoApps() {
           selected={selected}
           onSelect={toggleSelected}
           onOpen={setOpenName}
+          canWrite={canPatch}
           onSync={(name) => act(`Sync requested for ${name}.`, () => sync.mutateAsync({ name }))}
           onRefresh={(name) => act(`Refresh requested for ${name}.`, () => refresh.mutateAsync({ name }))}
         />
@@ -613,6 +629,7 @@ function AppCard({
   onSync,
   onRefresh,
   onTerminate,
+  canWrite,
   busy,
 }: {
   app: argocd.Application
@@ -622,6 +639,8 @@ function AppCard({
   onSync(): void
   onRefresh(hard: boolean): void
   onTerminate(): void
+  /** RBAC: may patch this Application — sync/refresh/terminate and bulk selection are hidden otherwise. */
+  canWrite: boolean
   busy: boolean
 }) {
   const sync = a.status.sync.status
@@ -646,7 +665,7 @@ function AppCard({
     >
       <div className="flex flex-1 flex-col p-4">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5"><Checkbox checked={selected} onChange={onSelect} aria-label={`Select ${a.metadata.name}`} /></span>
+          {canWrite ? <span className="mt-0.5"><Checkbox checked={selected} onChange={onSelect} aria-label={`Select ${a.metadata.name}`} /></span> : null}
           <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
             <span className="block truncate text-[15px] font-semibold leading-tight text-content hover:text-brand-700 dark:hover:text-brand-300" title={a.metadata.name}>
               {a.metadata.name}
@@ -666,8 +685,8 @@ function AppCard({
               <>
                 <div className="fixed inset-0 z-55" aria-hidden onClick={() => setMenu(false)} />
                 <div className="absolute right-0 top-full z-56 mt-1 w-44 rounded-xl border border-edge-default bg-surface-raised p-1 shadow-xl">
-                  <MenuItem onClick={() => { setMenu(false); onRefresh(true) }}>Hard refresh</MenuItem>
-                  <MenuItem onClick={() => { setMenu(false); onOpen() }}>Sync with options…</MenuItem>
+                  {canWrite ? <MenuItem onClick={() => { setMenu(false); onRefresh(true) }}>Hard refresh</MenuItem> : null}
+                  {canWrite ? <MenuItem onClick={() => { setMenu(false); onOpen() }}>Sync with options…</MenuItem> : null}
                   <MenuItem onClick={() => { setMenu(false); onOpen() }}>Resources & history</MenuItem>
                 </div>
               </>
@@ -747,14 +766,16 @@ function AppCard({
             {a.status.images.length ? `${a.status.images.length} image${a.status.images.length === 1 ? '' : 's'}` : ''}
           </span>
         ) : null}
-        <div className="ml-auto flex items-center gap-1.5">
-          <Button size="xs" variant="ghost" onClick={() => onRefresh(false)} disabled={busy} leading={<IconRefresh />}>Refresh</Button>
-          {running ? (
-            <Button size="xs" variant="secondary" onClick={onTerminate} leading={<IconStop />}>Terminate</Button>
-          ) : (
-            <Button size="xs" variant={sync === 'Synced' && !failedOp ? 'secondary' : 'primary'} onClick={onSync} loading={busy} disabled={sync === 'Synced' && !failedOp} leading={<IconSync />}>Sync</Button>
-          )}
-        </div>
+        {canWrite ? (
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button size="xs" variant="ghost" onClick={() => onRefresh(false)} disabled={busy} leading={<IconRefresh />}>Refresh</Button>
+            {running ? (
+              <Button size="xs" variant="secondary" onClick={onTerminate} leading={<IconStop />}>Terminate</Button>
+            ) : (
+              <Button size="xs" variant={sync === 'Synced' && !failedOp ? 'secondary' : 'primary'} onClick={onSync} loading={busy} disabled={sync === 'Synced' && !failedOp} leading={<IconSync />}>Sync</Button>
+            )}
+          </div>
+        ) : null}
       </div>
     </Card>
   )
@@ -762,7 +783,7 @@ function AppCard({
 
 /* ─────────── compact table layout ─────────── */
 
-function AppTable({ apps, selected, onSelect, onOpen, onSync, onRefresh }: { apps: argocd.Application[]; selected: Set<string>; onSelect(name: string): void; onOpen(name: string): void; onSync(name: string): void; onRefresh(name: string): void }) {
+function AppTable({ apps, selected, onSelect, onOpen, onSync, onRefresh, canWrite }: { apps: argocd.Application[]; selected: Set<string>; onSelect(name: string): void; onOpen(name: string): void; onSync(name: string): void; onRefresh(name: string): void; canWrite(a: argocd.Application): boolean }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
       <table className="w-full text-[12px]">
@@ -784,11 +805,11 @@ function AppTable({ apps, selected, onSelect, onOpen, onSync, onRefresh }: { app
             const op = a.status.operationState
             return (
               <tr key={a.metadata.name} className="hover:bg-surface-sunken/40">
-                <td className="px-3 py-2"><Checkbox checked={selected.has(a.metadata.name)} onChange={() => onSelect(a.metadata.name)} aria-label={`Select ${a.metadata.name}`} /></td>
-                <td className="px-3 py-2">
-                  <button type="button" onClick={() => onOpen(a.metadata.name)} className="text-left">
-                    <div className="font-semibold text-content">{a.metadata.name}</div>
-                    <div className="text-[11px] text-content-subtle">{a.spec.destination.namespace || '—'} · {a.spec.project}</div>
+                <td className="px-3 py-2">{canWrite(a) ? <Checkbox checked={selected.has(a.metadata.name)} onChange={() => onSelect(a.metadata.name)} aria-label={`Select ${a.metadata.name}`} /> : null}</td>
+                <td className="max-w-64 px-3 py-2">
+                  <button type="button" onClick={() => onOpen(a.metadata.name)} className="block max-w-full text-left">
+                    <div className="truncate font-semibold text-content hover:text-brand-700 dark:hover:text-brand-300" title={a.metadata.name}>{a.metadata.name}</div>
+                    <div className="truncate text-[11px] text-content-subtle">{a.spec.destination.namespace || '—'} · {a.spec.project}</div>
                   </button>
                 </td>
                 <td className="px-3 py-2"><StatusBadge kind={SYNC_KIND[a.status.sync.status] ?? 'unknown'}>{a.status.sync.status === 'OutOfSync' ? 'Out of sync' : a.status.sync.status}</StatusBadge></td>
@@ -798,10 +819,12 @@ function AppTable({ apps, selected, onSelect, onOpen, onSync, onRefresh }: { app
                 <td className="px-3 py-2 font-mono text-[11px] text-content-subtle">{a.status.sync.revision?.slice(0, 8) ?? '—'}</td>
                 <td className="px-3 py-2 text-[11px] text-content-muted">{op ? `${op.phase}${op.finishedAt ?? op.startedAt ? ` · ${formatRelative(op.finishedAt ?? op.startedAt!)}` : ''}` : '—'}</td>
                 <td className="px-3 py-2 text-right">
-                  <div className="inline-flex gap-1">
-                    <Button size="sm" onClick={() => onSync(a.metadata.name)} disabled={a.status.sync.status === 'Synced'} leading={<IconSync />}>Sync</Button>
-                    <Button size="sm" variant="secondary" onClick={() => onRefresh(a.metadata.name)} leading={<IconRefresh />}>Refresh</Button>
-                  </div>
+                  {canWrite(a) ? (
+                    <div className="inline-flex gap-1">
+                      <Button size="xs" variant="ghost" onClick={() => onRefresh(a.metadata.name)} leading={<IconRefresh />}>Refresh</Button>
+                      <Button size="xs" variant={a.status.sync.status === 'Synced' ? 'secondary' : 'primary'} onClick={() => onSync(a.metadata.name)} disabled={a.status.sync.status === 'Synced'} leading={<IconSync />}>Sync</Button>
+                    </div>
+                  ) : null}
                 </td>
               </tr>
             )
@@ -847,6 +870,9 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
   const terminate = useTerminateOperation()
   const del = useDeleteApplication()
   const toast = useToast()
+  const appNs = a.metadata.namespace || 'argocd'
+  const canPatch = useCan(argoAppCheck('patch', appNs, name))
+  const canDelete = useCan(argoAppCheck('delete', appNs, name))
   const resources = useAppResources(name)
   const history = useAppHistory(name)
   const [opts, setOpts] = useState<SyncOptions>({ prune: false, dryRun: false, force: false })
@@ -866,8 +892,8 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [onClose])
   if (typeof document === 'undefined') return null
 
@@ -876,7 +902,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
   const unhealthy = countTree(nodes, (n) => n.health === 'Degraded' || n.health === 'Missing')
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -913,24 +939,32 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
               </button>
             </div>
           </div>
-          {/* actions — title/description left, buttons right */}
+          {/* actions — title/description left, buttons right; hidden without RBAC */}
+          {canPatch || canDelete ? (
           <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
-            {running ? (
+            {running && canPatch ? (
               <Button size="sm" variant="secondary" onClick={() => run('Operation terminated.', () => terminate.mutateAsync({ name }))} loading={terminate.isPending} leading={<IconStop />}>
                 Terminate operation
               </Button>
             ) : null}
-            <Button size="sm" variant="secondary" onClick={() => run('Refresh requested.', () => refresh.mutateAsync({ name }))} loading={refresh.isPending && !refresh.variables?.hard} leading={<IconRefresh />}>
-              Refresh
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => run('Hard refresh requested — manifest cache dropped.', () => refresh.mutateAsync({ name, hard: true }))} loading={refresh.isPending && !!refresh.variables?.hard}>
-              Hard refresh
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setConfirmDelete({ cascade: true })} leading={<IconTrash />}>
-              Delete
-            </Button>
+            {canPatch ? (
+              <>
+                <Button size="sm" variant="secondary" onClick={() => run('Refresh requested.', () => refresh.mutateAsync({ name }))} loading={refresh.isPending && !refresh.variables?.hard} leading={<IconRefresh />}>
+                  Refresh
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => run('Hard refresh requested — manifest cache dropped.', () => refresh.mutateAsync({ name, hard: true }))} loading={refresh.isPending && !!refresh.variables?.hard}>
+                  Hard refresh
+                </Button>
+              </>
+            ) : null}
+            {canDelete ? (
+              <Button size="sm" variant="secondary" onClick={() => setConfirmDelete({ cascade: true })} leading={<IconTrash />}>
+                Delete
+              </Button>
+            ) : null}
           </div>
-          {confirmDelete ? (
+          ) : null}
+          {confirmDelete && canDelete ? (
             <div className="mt-3 rounded-xl border border-rose-200/70 bg-rose-50/40 p-3 text-[12px] dark:border-rose-500/30 dark:bg-rose-500/10">
               <div className="font-semibold text-rose-800 dark:text-rose-200">Delete {name}?</div>
               <p className="mt-0.5 text-content-muted">
@@ -941,7 +975,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
               </label>
               <div className="mt-2 flex justify-end gap-1.5">
                 <Button size="sm" variant="secondary" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-                <Button size="sm" onClick={() => run(`Deleting ${name}…`, () => del.mutateAsync({ name, cascade: confirmDelete.cascade }), onClose)} loading={del.isPending}>
+                <Button size="sm" variant="danger" onClick={() => run(`Deleting ${name}…`, () => del.mutateAsync({ name, cascade: confirmDelete.cascade }), onClose)} loading={del.isPending}>
                   Delete application
                 </Button>
               </div>
@@ -962,7 +996,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
           {a.status.operationState ? (
             <Card className={cn(a.status.operationState.phase === 'Failed' || a.status.operationState.phase === 'Error' ? 'border-rose-200/60 bg-rose-50/30 dark:border-rose-500/30 dark:bg-rose-500/10' : '')}>
               <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">Last operation</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">Last operation</div>
               </CardHeader>
               <CardBody className="space-y-1.5 text-[12px]">
                 <Row label="Phase" value={a.status.operationState.phase} />
@@ -994,7 +1028,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
           {a.status.images.length ? (
             <Card>
               <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">Images ({a.status.images.length})</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">Images ({a.status.images.length})</div>
               </CardHeader>
               <CardBody>
                 <ul className="space-y-1 font-mono text-[11px] text-content-muted">
@@ -1007,28 +1041,23 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
           ) : null}
 
           {/* ── Sync with options ── */}
+          {canPatch ? (
           <SyncPanel
             appSynced={a.status.sync.status === 'Synced'}
             opts={opts}
             onChange={setOpts}
-            onSync={() => sync.mutate({ name, options: opts })}
+            // Label captured at click time: the options can change while the
+            // request is in flight and the toast must describe what was sent.
+            onSync={() => run(opts.dryRun ? 'Dry-run completed — no changes applied.' : 'Sync requested.', () => sync.mutateAsync({ name, options: opts }))}
             busy={sync.isPending}
-            result={
-              sync.isSuccess
-                ? opts.dryRun
-                  ? 'Dry-run completed — no changes applied.'
-                  : 'Sync requested.'
-                : sync.isError
-                  ? 'Sync failed.'
-                  : null
-            }
           />
+          ) : null}
 
           {/* ── Managed resources tree ── */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">
                   Managed resources
                 </div>
                 {resources.data ? (
@@ -1058,7 +1087,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
           {/* ── History + rollback ── */}
           <Card>
             <CardHeader>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">
                 Deployment history
               </div>
             </CardHeader>
@@ -1075,7 +1104,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
                     <HistoryRow
                       key={h.id}
                       entry={h}
-                      onRollback={() => rollback.mutate({ name, id: h.id })}
+                      onRollback={canPatch ? () => run(`Rollback to ${h.revision.slice(0, 10)} requested.`, () => rollback.mutateAsync({ name, id: h.id })) : undefined}
                       busy={rollback.isPending && rollback.variables?.id === h.id}
                       disabled={rollback.isPending}
                     />
@@ -1087,7 +1116,7 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
 
           <Card>
             <CardHeader>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">
                 Source & destination
               </div>
             </CardHeader>
@@ -1104,9 +1133,9 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
           </Card>
 
           {a.status.health.message ? (
-            <Card className="border-rose-200/60 bg-rose-50/30">
+            <Card className="border-rose-200/60 bg-rose-50/30 dark:bg-rose-500/10 dark:border-rose-500/30">
               <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-rose-700">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-rose-700 dark:text-rose-300">
                   Health message
                 </div>
               </CardHeader>
@@ -1129,19 +1158,17 @@ function SyncPanel({
   onChange,
   onSync,
   busy,
-  result,
 }: {
   appSynced: boolean
   opts: SyncOptions
   onChange(o: SyncOptions): void
   onSync(): void
   busy: boolean
-  result: string | null
 }) {
   return (
     <Card>
       <CardHeader>
-        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">
           Sync
         </div>
       </CardHeader>
@@ -1167,7 +1194,7 @@ function SyncPanel({
           />
         </div>
         <div className="flex items-center gap-3">
-          <Button size="sm" onClick={onSync} loading={busy} leading={<IconSync />}>
+          <Button size="sm" variant="primary" onClick={onSync} loading={busy} leading={<IconSync />}>
             {opts.dryRun ? 'Dry-run sync' : 'Synchronize'}
           </Button>
           {appSynced && !opts.dryRun ? (
@@ -1175,7 +1202,6 @@ function SyncPanel({
               App is already in sync — this re-applies the manifests.
             </span>
           ) : null}
-          {result ? <span className="text-[11px] text-content-muted">{result}</span> : null}
         </div>
       </CardBody>
     </Card>
@@ -1206,7 +1232,7 @@ function ResourceRow({ node, depth }: { node: ResourceNode; depth: number }) {
       </li>
       {node.message ? (
         <li
-          className="text-[11px] text-rose-700"
+          className="text-[11px] text-rose-700 dark:text-rose-300"
           style={{ paddingLeft: `${depth * 16 + 36}px` }}
         >
           {node.message}
@@ -1227,15 +1253,20 @@ function HistoryRow({
   disabled,
 }: {
   entry: RevisionHistoryEntry
-  onRollback(): void
+  /** Absent when the user may not patch the Application — the row is read-only. */
+  onRollback?: () => void
   busy: boolean
   disabled: boolean
 }) {
+  // Rolling back redeploys an older revision onto the live cluster, so the
+  // first click only arms the action.
+  const [armed, setArmed] = useState(false)
   return (
     <li
-      className={`flex items-center gap-3 rounded-md border p-2.5 ${
-        h.current ? 'border-brand-300 bg-brand-50/40' : 'border-edge-subtle bg-surface-raised'
-      }`}
+      className={cn(
+        'flex items-center gap-3 rounded-lg border p-2.5',
+        h.current ? 'border-brand-300 bg-brand-50/40 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-edge-subtle bg-surface-raised',
+      )}
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
@@ -1251,16 +1282,34 @@ function HistoryRow({
           {h.author} · {formatRelative(h.deployedAt)} · {formatAbsolute(h.deployedAt)}
         </div>
       </div>
-      <Button
-        size="xs"
-        variant="secondary"
-        onClick={onRollback}
-        loading={busy}
-        disabled={disabled || h.current}
-        leading={<IconRollback />}
-      >
-        Rollback
-      </Button>
+      {!onRollback ? null : armed ? (
+        <div className="flex shrink-0 items-center gap-1">
+          <Button size="xs" variant="ghost" onClick={() => setArmed(false)}>Cancel</Button>
+          <Button
+            size="xs"
+            variant="danger"
+            onClick={() => {
+              setArmed(false)
+              onRollback()
+            }}
+            disabled={disabled}
+            leading={<IconRollback />}
+          >
+            Confirm rollback
+          </Button>
+        </div>
+      ) : (
+        <Button
+          size="xs"
+          variant="secondary"
+          onClick={() => setArmed(true)}
+          loading={busy}
+          disabled={disabled || h.current}
+          leading={<IconRollback />}
+        >
+          Rollback
+        </Button>
+      )}
     </li>
   )
 }
@@ -1317,7 +1366,7 @@ function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="block h-9 w-44 rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-sm placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 sm:w-56"
+        className="block h-8 w-full rounded-lg border border-edge-default bg-surface-raised pl-7 pr-2 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
       />
     </div>
   )

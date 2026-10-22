@@ -2,6 +2,8 @@ import { env } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { openStore } from './workspace/store.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
+import { requirePermission } from './k8s/access.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 import { emitNotification, NOTIFICATION_KIND, type NotificationDoc } from './notify.ts'
 
 /**
@@ -44,7 +46,15 @@ export async function handleNotificationsApi(req: Request, subpath: string): Pro
     } catch {
       return Response.json({ error: 'invalid_json' }, { status: 400 })
     }
-    if (typeof body.title === 'string') return withCookie(await create(auth, body), auth.refreshedCookie)
+    if (typeof body.title === 'string') {
+      // A broadcast lands in every member's feed: RBAC
+      // `create notifications-broadcast.console.adhar.io`. Private notes don't.
+      if (body.broadcast === true) {
+        const denied = await requirePermission(req, CONSOLE_PERMISSIONS.notificationsBroadcast)
+        if (denied) return withCookie(denied, auth.refreshedCookie)
+      }
+      return withCookie(await create(auth, body), auth.refreshedCookie)
+    }
     return withCookie(await patchState(auth, body), auth.refreshedCookie)
   }
   return new Response('Method Not Allowed', { status: 405 })
@@ -91,25 +101,47 @@ async function list(req: Request, auth: Auth): Promise<Response> {
   })
 }
 
+const SEVERITIES = new Set(['critical', 'high', 'medium', 'low'])
+
+/**
+ * A notification link is an in-console route. Anything else — `javascript:`,
+ * `//evil.example`, an absolute URL — is dropped: the link renders in other
+ * people's feeds with the console's trust.
+ */
+export function safeHref(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const href = v.trim().slice(0, 500)
+  return href.startsWith('/') && !href.startsWith('//') && !href.startsWith('/\\') ? href : undefined
+}
+
 async function create(auth: Auth, body: Record<string, unknown>): Promise<Response> {
   const store = await openStore(auth.activeTenant)
   if (!store) return Response.json({ ok: false, persisted: false }, { status: 503 })
   const kind = String(body.kind ?? 'info')
   const source = String(body.source ?? 'user')
+  const broadcast = body.broadcast === true
+  // Broadcasts land in every member's feed, so a member must not be able to
+  // dress one up as the platform: only `workspace` / `user` sources, and no
+  // `prompt` (it is handed to the RECIPIENT's assistant as their own question).
+  const sources = broadcast
+    ? ['workspace', 'user']
+    : ['workspace', 'platform', 'gitops', 'policy', 'security', 'ai', 'system', 'user']
   const doc: NotificationDoc = {
     kind: (['info', 'success', 'warning', 'error', 'insight'].includes(kind) ? kind : 'info') as NotificationDoc['kind'],
-    source: (['workspace', 'platform', 'gitops', 'policy', 'security', 'ai', 'system', 'user'].includes(source) ? source : 'user') as NotificationDoc['source'],
+    source: (sources.includes(source) ? source : 'user') as NotificationDoc['source'],
     title: String(body.title).slice(0, 200),
     description: typeof body.description === 'string' ? body.description.slice(0, 2000) : undefined,
-    href: typeof body.href === 'string' ? body.href.slice(0, 500) : undefined,
+    href: safeHref(body.href),
     key: typeof body.key === 'string' ? body.key.slice(0, 200) : undefined,
-    severity: typeof body.severity === 'string' ? (body.severity as NotificationDoc['severity']) : undefined,
-    prompt: typeof body.prompt === 'string' ? body.prompt.slice(0, 2000) : undefined,
+    severity: typeof body.severity === 'string' && SEVERITIES.has(body.severity)
+      ? (body.severity as NotificationDoc['severity'])
+      : undefined,
+    prompt: !broadcast && typeof body.prompt === 'string' ? body.prompt.slice(0, 2000) : undefined,
     target: body.target && typeof body.target === 'object' ? (body.target as NotificationDoc['target']) : undefined,
     actor: { id: auth.user.id, label: auth.user.name },
     // Client-created notifications are private to their creator unless the
-    // caller explicitly broadcasts (only meaningful for admins; kept simple).
-    audience: body.broadcast === true ? undefined : [auth.user.id],
+    // caller explicitly broadcasts (RBAC-gated in the handler above).
+    audience: broadcast ? undefined : [auth.user.id],
     at: new Date().toISOString(),
   }
   const id = await emitNotification(store, doc, auth.user.id)
@@ -123,6 +155,7 @@ async function patchState(auth: Auth, body: Record<string, unknown>): Promise<Re
   }
   if (patch.read === undefined && patch.dismissed === undefined) return Response.json({ error: 'nothing_to_update' }, { status: 400 })
   const ids = (Array.isArray(body.ids) ? (body.ids as string[]) : typeof body.id === 'string' ? [body.id] : []).filter((x) => typeof x === 'string')
+  if (ids.length > 1000) return Response.json({ error: 'too_many_ids', max: 1000 }, { status: 400 })
   if (ids.length === 0) return Response.json({ error: 'missing_id' }, { status: 400 })
   const { getMigratedDb, setNotificationState, setNotificationStateBulk, touchUser } = await db()
   const conn = await getMigratedDb()
@@ -136,6 +169,7 @@ async function patchState(auth: Auth, body: Record<string, unknown>): Promise<Re
 /* ─────────── insights scan ─────────── */
 
 const SCAN_COOLDOWN_MS = 60_000
+const FORCED_SCAN_COOLDOWN_MS = 10_000
 const lastScan = new Map<string, number>()
 
 interface KEvent {
@@ -151,8 +185,16 @@ async function scan(req: Request, auth: Auth): Promise<Response> {
   const now = Date.now()
   const last = lastScan.get(auth.user.id) ?? 0
   const url = new URL(req.url)
-  if (now - last < SCAN_COOLDOWN_MS && url.searchParams.get('force') !== '1') {
-    return Response.json({ ok: true, skipped: true, nextInMs: SCAN_COOLDOWN_MS - (now - last) })
+  // `force` (the "scan now" button) shortens the cooldown, never removes it:
+  // each scan fans out cluster-wide LISTs, and a loop on `?force=1` would
+  // otherwise turn one user into a steady apiserver load.
+  const cooldown = url.searchParams.get('force') === '1' ? FORCED_SCAN_COOLDOWN_MS : SCAN_COOLDOWN_MS
+  if (now - last < cooldown) {
+    return Response.json({ ok: true, skipped: true, nextInMs: cooldown - (now - last) })
+  }
+  // Bounded: one entry per user who scanned recently; older ones can go.
+  if (lastScan.size > 5_000) {
+    for (const [k, t] of lastScan) if (now - t > SCAN_COOLDOWN_MS) lastScan.delete(k)
   }
   lastScan.set(auth.user.id, now)
   const id = await resolveIdentity(req)

@@ -147,7 +147,7 @@ function SubscriptionList({ query, tz, onEdit }: { query: ReturnType<typeof useS
   if (!list.length) {
     return (
       <EmptyState
-        icon={<Icon name="mail" size={34} className="text-content-subtle" />}
+        icon={<Icon name="mail" size={22} />}
         title="No dashboard subscriptions"
         description="Send a dashboard to email or Slack on a schedule — hourly, daily, weekly or monthly."
       />
@@ -253,7 +253,7 @@ function AlertList({ query, tz, onEdit }: { query: ReturnType<typeof useAlerts>;
   if (!list.length) {
     return (
       <EmptyState
-        icon={<Icon name="bell" size={34} className="text-content-subtle" />}
+        icon={<Icon name="bell" size={22} />}
         title="No question alerts"
         description="Get notified when a saved question returns rows, or when a number crosses its goal."
       />

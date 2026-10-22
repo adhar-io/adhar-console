@@ -364,7 +364,7 @@ function ToolBtn({
       title={label}
       aria-label={label}
       className={cn(
-        'inline-flex h-7 w-7 items-center justify-center rounded-md transition',
+        'inline-flex h-7 w-7 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
         active
           ? 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300'
           : 'text-content-subtle hover:bg-surface-sunken hover:text-content',

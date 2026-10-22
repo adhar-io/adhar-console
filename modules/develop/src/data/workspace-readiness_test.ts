@@ -1,4 +1,4 @@
-import { assert, assertEquals } from 'jsr:@std/assert'
+import { assert, assertEquals } from 'jsr:@std/assert@^1'
 import { primaryAgent, tallyReadiness, workspaceState } from './workspace-readiness.ts'
 import type { coder } from '@adhar/api-clients'
 

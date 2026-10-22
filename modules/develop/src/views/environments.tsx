@@ -295,10 +295,10 @@ export function Environments() {
             <LayoutBtn on={prefs.layout === 'table'} onClick={() => setPrefs((p) => ({ ...p, layout: 'table' }))} title="Table"><IconList /></LayoutBtn>
           </div>
           {dashboard ? (
-            <a href={dashboard} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700">Coder <IconExternal /></a>
+            <a href={dashboard} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300">Coder <IconExternal /></a>
           ) : null}
           <Button size="sm" variant="secondary" onClick={() => { q.refetch(); tpls.refetch() }} title="Refresh"><IconRefresh /></Button>
-          <Button size="sm" onClick={() => setCreateOpen({})} disabled={!tpls.data?.length} title={tpls.data?.length ? undefined : 'Publish a template in Coder first'}>
+          <Button size="sm" variant="primary" onClick={() => setCreateOpen({})} disabled={!tpls.data?.length} title={tpls.data?.length ? undefined : 'Publish a template in Coder first'}>
             <IconPlus /> New environment
           </Button>
         </div>
@@ -311,7 +311,7 @@ export function Environments() {
           description={all.length === 0
             ? (tpls.data?.length ? 'Create the first cloud development environment from a template below.' : 'No templates are published in Coder yet — the platform seeds a Kubernetes starter on the next sync, or push one with `coder templates push`.')
             : 'Try a different status, template or search term.'}
-          action={all.length === 0 && tpls.data?.length ? <Button size="sm" onClick={() => setCreateOpen({})}><IconPlus /> New environment</Button> : undefined}
+          action={all.length === 0 && tpls.data?.length ? <Button size="sm" variant="primary" onClick={() => setCreateOpen({})}><IconPlus /> New environment</Button> : undefined}
         />
       ) : prefs.layout === 'grid' ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -320,7 +320,7 @@ export function Environments() {
           ))}
         </div>
       ) : (
-        <WorkspaceTable rows={list} dashboard={dashboard} onOpen={(w) => setOpenId(w.id)} actions={actions} />
+        <WorkspaceTable rows={list} onOpen={(w) => setOpenId(w.id)} actions={actions} />
       )}
 
       {/* ── templates ── */}
@@ -412,7 +412,7 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
                   {s === 'running' ? <MenuItem onClick={() => { setMenu(false); actions.restart() }}>Restart</MenuItem> : null}
                   {w.outdated ? <MenuItem onClick={() => { setMenu(false); actions.update() }}>Update to latest template</MenuItem> : null}
                   <MenuItem onClick={() => { setMenu(false); actions.favorite() }}>{w.favorite ? 'Unfavourite' : 'Favourite'}</MenuItem>
-                  {dashboard ? <MenuItem onClick={() => { setMenu(false); window.open(coder.workspaceUrl(dashboard, w), '_blank', 'noopener') }}>Open in Coder ↗</MenuItem> : null}
+                  {dashboard ? <MenuItem onClick={() => { setMenu(false); globalThis.open(coder.workspaceUrl(dashboard, w), '_blank', 'noopener') }}>Open in Coder ↗</MenuItem> : null}
                   <div className="my-1 border-t border-edge-subtle" />
                   <MenuItem danger onClick={() => { setMenu(false); actions.delete() }}>Delete…</MenuItem>
                 </div>
@@ -473,7 +473,7 @@ function WorkspaceCard({ workspace: w, dashboard, myOwner, onOpen, actions, pend
   )
 }
 
-function WorkspaceTable({ rows, dashboard, onOpen, actions }: { rows: coder.Workspace[]; dashboard: string; onOpen(w: coder.Workspace): void; actions(w: coder.Workspace): Actions }) {
+function WorkspaceTable({ rows, onOpen, actions }: { rows: coder.Workspace[]; onOpen(w: coder.Workspace): void; actions(w: coder.Workspace): Actions }) {
   const openIn = useOpenInWorkspace()
   return (
     <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised">
@@ -532,7 +532,7 @@ function TemplatesSection({ templates, loading, workspaces, dashboard, onCreate 
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-content">Templates <span className="rounded-md bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted">{templates.length}</span>{loading ? <Spinner size={10} /> : null}</div>
-          {dashboard ? <a href={`${dashboard}/templates`} target="_blank" rel="noopener" className="text-[11px] text-brand-700 hover:underline dark:text-brand-300">Manage in Coder ↗</a> : null}
+          {dashboard ? <a href={`${dashboard}/templates`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-brand-700 hover:underline dark:text-brand-300">Manage in Coder ↗</a> : null}
         </div>
       </CardHeader>
       <CardBody>
@@ -559,7 +559,7 @@ function TemplatesSection({ templates, loading, workspaces, dashboard, onCreate 
                 </div>
                 <div className="mt-3 flex items-center gap-1.5">
                   <Button size="xs" onClick={() => onCreate(t.id)} disabled={t.deprecated}><IconPlus size={12} /> Create</Button>
-                  {dashboard ? <a href={`${dashboard}/templates/${t.organization_name ?? 'default'}/${t.name}`} target="_blank" rel="noopener" className="text-[11px] text-content-muted hover:text-content">Details ↗</a> : null}
+                  {dashboard ? <a href={`${dashboard}/templates/${t.organization_name ?? 'default'}/${t.name}`} target="_blank" rel="noopener noreferrer" className="text-[11px] text-content-muted hover:text-content">Details ↗</a> : null}
                 </div>
               </div>
             ))}
@@ -645,7 +645,7 @@ function CreateWorkspaceModal({ open, initialTemplateId, onClose, templates, onC
           </span>
           <div className="flex gap-2">
             <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
-            <Button size="sm" onClick={submit} disabled={!valid || !orgId || create.isPending} loading={create.isPending}>Create environment</Button>
+            <Button size="sm" variant="primary" onClick={submit} disabled={!valid || !orgId || create.isPending} loading={create.isPending}>Create environment</Button>
           </div>
         </div>
       }
@@ -718,8 +718,8 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [onClose])
 
   if (typeof document === 'undefined') return null
@@ -737,7 +737,7 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -756,7 +756,7 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
             {s === 'running' ? <Button size="sm" variant="secondary" onClick={actions.stop}>Stop</Button> : STARTABLE.has(s) ? <Button size="sm" onClick={actions.start}>Start</Button> : BUSY.has(s) ? <Button size="sm" variant="secondary" disabled={cancel.isPending} onClick={() => act('Cancelling build', () => cancel.mutateAsync(w.latest_build.id))}>Cancel build</Button> : null}
             {s === 'running' && agent && code ? <Button size="sm" onClick={() => openIn(w, agent.name, { app: code.slug, label: 'VS Code' })}>VS Code</Button> : null}
             {s === 'running' && agent && jetbrains ? <Button size="sm" variant="secondary" title="Opens JetBrains Gateway on your machine" onClick={() => openIn(w, agent.name, { app: jetbrains.slug, label: 'IntelliJ IDEA' })}>IntelliJ</Button> : null}
-            {dashboard ? <a href={coder.workspaceUrl(dashboard, w)} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700">Coder <IconExternal /></a> : null}
+            {dashboard ? <a href={coder.workspaceUrl(dashboard, w)} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300">Coder <IconExternal /></a> : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"><IconClose /></button>
           </div>
@@ -960,7 +960,7 @@ function StatTile({ label, value, hint, tone = 'slate', on = false, onClick, mon
   const color = { slate: 'text-content', brand: 'text-brand-700 dark:text-brand-300', amber: 'text-amber-700 dark:text-amber-300', emerald: 'text-emerald-700 dark:text-emerald-300', rose: 'text-rose-700 dark:text-rose-300', violet: 'text-violet-700 dark:text-violet-300' }[tone]
   const Tag = onClick ? 'button' : 'div'
   return (
-    <Tag type={onClick ? 'button' : undefined} onClick={onClick} aria-pressed={onClick ? on : undefined} className={cn('flex flex-col gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors', on ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-400/20 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised', onClick && 'hover:border-brand-300')}>
+    <Tag type={onClick ? 'button' : undefined} onClick={onClick} aria-pressed={onClick ? on : undefined} className={cn('flex flex-col gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors', on ? 'border-brand-400 bg-brand-50/60 ring-2 ring-brand-400/20 dark:bg-brand-500/10' : 'border-edge-default bg-surface-raised', onClick && 'hover:border-brand-300 dark:hover:border-brand-500/30')}>
       <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</span>
       <span className={cn('truncate text-lg font-semibold leading-none tracking-tight tabular-nums', mono && 'font-mono text-[13px] leading-5', color)}>{value}</span>
       {hint ? <span className="truncate text-[10px] text-content-subtle">{hint}</span> : <span className="text-[10px]">&nbsp;</span>}

@@ -47,7 +47,16 @@ export function parseCookies(header: string | null | undefined): Record<string, 
     if (idx === -1) continue
     const k = pair.slice(0, idx).trim()
     const v = pair.slice(idx + 1).trim()
-    if (k) out[k] = decodeURIComponent(v)
+    if (!k) continue
+    // A malformed `%` sequence makes decodeURIComponent throw (URIError). The
+    // Cookie header carries every cookie for the host — including ones set by
+    // sibling apps we don't control — so one bad value must not 500 every
+    // request; keep it raw instead.
+    try {
+      out[k] = decodeURIComponent(v)
+    } catch {
+      out[k] = v
+    }
   }
   return out
 }

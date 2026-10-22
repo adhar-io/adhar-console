@@ -19,6 +19,13 @@ export interface OidcEndpoints {
 }
 
 const discoveryCache = new Map<string, Promise<OidcEndpoints>>()
+
+/**
+ * Upper bound for any backchannel call to Keycloak (discovery, token, revoke).
+ * Without it a hung Keycloak held login, logout and — via the shared refresh
+ * single-flight — every request whose session was due a refresh, indefinitely.
+ */
+export const OIDC_FETCH_TIMEOUT_MS = 10_000
 const jwksCache = new Map<string, JWTVerifyGetKey>()
 
 /** Replace an endpoint's origin (protocol+host) with `originUrl`'s, keep its path. */
@@ -43,7 +50,10 @@ export function getDiscovery(cfg: ServerAuthConfig): Promise<OidcEndpoints> {
     // well-known lives under /realms/<realm>/.
     const base = cfg.internalUrl ? `${cfg.internalUrl}/realms/${cfg.realm}` : cfg.issuer
     const url = `${base}/.well-known/openid-configuration`
-    const res = await fetch(url, { headers: { accept: 'application/json' } })
+    const res = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS),
+    })
     if (!res.ok) {
       throw new Error(`OIDC discovery failed (${res.status}) at ${url}`)
     }

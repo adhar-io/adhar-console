@@ -9,6 +9,7 @@ import {
 } from '@adhar/shell-ui'
 import { forgetLastUser, getDemoSession, getLastUser, useAuth } from '@adhar/auth'
 import { z } from 'zod'
+import { splitReturnTo } from '~/data/return-to.ts'
 
 /**
  * Sign-in page — a brand-saturated story panel floating beside an SSO-first
@@ -191,9 +192,9 @@ function LoginPage() {
     setSession(getDemoSession())
     // `returnTo` may carry a query string (`/deliver?section=flow`); the router
     // wants path and search separately, so split them instead of dropping it.
-    const [path, query = ''] = (returnTo ?? '/').split('?')
-    const search = Object.fromEntries(new URLSearchParams(query))
-    nav({ to: path || '/', search: search as never, replace: true })
+    // It is attacker-controllable, so only same-origin paths are honoured.
+    const { to, search } = splitReturnTo(returnTo)
+    nav({ to, search: search as never, replace: true })
   }
 
   const redirecting = busy === 'login' || busy === 'register'

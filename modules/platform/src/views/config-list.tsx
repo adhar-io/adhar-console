@@ -7,13 +7,14 @@ import {
   StatusBadge,
   Tabs,
   type TabDef,
+  canResource,
+  useCan,
+  useToast,
 } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import { useConfigMaps, useSecrets } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
 import { DrawerSection, ResourceDrawer } from './resource-drawer.tsx'
 import { ListShell, matchesSearch } from './list-shell.tsx'
 import { CodeEditor, type CodeLanguage } from '../components/code-editor.tsx'
@@ -188,9 +189,11 @@ function ConfigMapDrawer({
   configMap: ConfigMapObj
   onClose(): void
 }) {
-  const canEdit = useHasK8sPermission('configmaps.write')
   const qc = useQueryClient()
+  const toast = useToast()
   const ns = configMap.metadata.namespace ?? 'default'
+  // The save is a merge PATCH on the ConfigMap.
+  const canEdit = useCan(canResource(GVRS.configmaps, 'patch', { namespace: ns, name: configMap.metadata.name }))
   // Saved values overlay the (possibly stale) row data until the refetch lands.
   const [saved, setSaved] = useState<Record<string, string>>({})
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -214,8 +217,10 @@ function ConfigMapDrawer({
     onSuccess: ({ key, value }) => {
       setSaved((prev) => ({ ...prev, [key]: value }))
       setEditingKey(null)
+      toast.success(`Saved ${key}`)
       qc.invalidateQueries({ queryKey: ['k8s', 'configmaps'] })
     },
+    onError: (e) => toast.error("Couldn't save the value", { description: (e as Error).message }),
   })
 
   return (
@@ -226,15 +231,7 @@ function ConfigMapDrawer({
     >
       <DrawerSection
         title="Data"
-        actions={
-          canEdit ? (
-            <span className="text-xs text-content-subtle">{keys.length} keys</span>
-          ) : (
-            <span className="flex items-center gap-1.5 text-[11px] text-content-muted">
-              Editing requires <K8sRolePill perm="configmaps.write" />
-            </span>
-          )
-        }
+        actions={<span className="text-xs text-content-subtle">{keys.length} keys</span>}
       >
         {keys.length ? (
           <ul className="divide-y divide-edge-subtle">
@@ -243,7 +240,7 @@ function ConfigMapDrawer({
               return (
                 <li key={k} className="space-y-2 px-1 py-3">
                   <div className="flex items-center justify-between gap-3">
-                    <code className="font-mono text-xs font-semibold text-content">{k}</code>
+                    <code className="min-w-0 truncate font-mono text-xs font-semibold text-content" title={k}>{k}</code>
                     {canEdit && !editing ? (
                       <Button
                         size="xs"
@@ -281,17 +278,13 @@ function ConfigMapDrawer({
                         </Button>
                         <Button
                           size="xs"
+                          variant="primary"
                           disabled={saveMut.isPending || draft === data[k]}
                           onClick={() => saveMut.mutate({ key: k, value: draft })}
                         >
                           {saveMut.isPending ? 'Saving…' : 'Save'}
                         </Button>
                       </div>
-                      {saveMut.isError ? (
-                        <p className="text-[11px] text-rose-700 dark:text-rose-300">
-                          Error: {(saveMut.error as Error).message}
-                        </p>
-                      ) : null}
                     </div>
                   ) : (
                     <CodeEditor
@@ -438,10 +431,14 @@ function SecretsTable({ namespace }: { namespace?: string }) {
 }
 
 function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void }) {
-  const canReveal = useHasK8sPermission('secrets.read')
-  const canEdit = useHasK8sPermission('secrets.write')
   const qc = useQueryClient()
+  const toast = useToast()
   const ns = secret.metadata.namespace ?? 'default'
+  const target = { namespace: ns, name: secret.metadata.name }
+  // Revealing decodes a value the list already fetched — still a read of the
+  // Secret, so it follows `get secrets`. Saving is a merge PATCH.
+  const canReveal = useCan(canResource(GVRS.secrets, 'get', target))
+  const canEdit = useCan(canResource(GVRS.secrets, 'patch', target))
   const [saved, setSaved] = useState<Record<string, string>>({}) // key → base64
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
   const [copied, setCopied] = useState<string | null>(null)
@@ -466,8 +463,10 @@ function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void 
     onSuccess: ({ key, encoded }) => {
       setSaved((prev) => ({ ...prev, [key]: encoded }))
       setEditingKey(null)
+      toast.success(`Saved ${key}`)
       qc.invalidateQueries({ queryKey: ['k8s', 'secrets'] })
     },
+    onError: (e) => toast.error("Couldn't save the value", { description: (e as Error).message }),
   })
 
   const copyValue = async (key: string, text: string) => {
@@ -508,8 +507,8 @@ function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void 
               return (
                 <li key={k} className="space-y-2 px-1 py-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <code className="font-mono text-xs font-semibold text-content">{k}</code>
-                    <div className="flex items-center gap-1.5">
+                    <code className="min-w-0 truncate font-mono text-xs font-semibold text-content" title={k}>{k}</code>
+                    <div className="flex shrink-0 items-center gap-1.5">
                       {canReveal ? (
                         <Button
                           size="xs"
@@ -519,9 +518,7 @@ function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void 
                         >
                           {isRevealed ? 'Hide' : 'Reveal'}
                         </Button>
-                      ) : (
-                        <K8sRolePill perm="secrets.read" />
-                      )}
+                      ) : null}
                       {isRevealed ? (
                         <Button
                           size="xs"
@@ -574,17 +571,13 @@ function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void 
                         </Button>
                         <Button
                           size="xs"
+                          variant="primary"
                           disabled={saveMut.isPending || draft === decoded.text}
                           onClick={() => saveMut.mutate({ key: k, value: draft })}
                         >
                           {saveMut.isPending ? 'Saving…' : 'Save'}
                         </Button>
                       </div>
-                      {saveMut.isError ? (
-                        <p className="text-[11px] text-rose-700 dark:text-rose-300">
-                          Error: {(saveMut.error as Error).message}
-                        </p>
-                      ) : null}
                     </div>
                   ) : isRevealed ? (
                     <CodeEditor
@@ -611,12 +604,6 @@ function SecretDrawer({ secret, onClose }: { secret: SecretObj; onClose(): void 
         ) : (
           <EmptyState compact title="No data keys" />
         )}
-
-        {!canEdit ? (
-          <p className="mt-3 flex items-center gap-1.5 text-[11px] text-content-muted">
-            Editing secret values requires <K8sRolePill perm="secrets.write" />
-          </p>
-        ) : null}
       </DrawerSection>
     </ResourceDrawer>
   )

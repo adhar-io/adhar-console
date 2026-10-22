@@ -1,5 +1,13 @@
 import type { ReactNode } from 'react'
-import { EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  EmptyState,
+  Spinner,
+  StatusBadge,
+  useAccessReview,
+  useCan,
+  useToast,
+} from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   fmtMoney,
@@ -27,6 +35,13 @@ export function Plan() {
   const plansQ = usePlans()
   const subQ = useSubscription()
   const update = useUpdateSubscription()
+  const toast = useToast()
+  // Reads need `get billing`; plan and seat changes need `update billing`.
+  const read = useAccessReview(CONSOLE_PERMISSIONS.billingView)
+  const readDenied = read.results.some((r) => r === false)
+  const canManage = useCan(CONSOLE_PERMISSIONS.billingManage)
+  const onUpdateError = (e: unknown) =>
+    toast.error('Could not update the subscription', { description: (e as Error)?.message })
 
   const summary = subQ.data
   const sub = summary?.item
@@ -36,12 +51,20 @@ export function Plan() {
     <ViewShell
       title="Plan & subscription"
       description="Pricing is public and versioned. The plan covers managed operations, SLAs, and support — every capability is also available in the open-source stack."
-      required={['billing', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.billingManage}
     >
       {children}
     </ViewShell>
   )
 
+  if (readDenied) {
+    return shell(
+      <EmptyState
+        title="No billing access"
+        description="Ask a workspace admin for billing access to see the plan, seats and limits."
+      />,
+    )
+  }
   if (subQ.isLoading || plansQ.isLoading) {
     return shell(
       <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
@@ -68,11 +91,11 @@ export function Plan() {
 
   const manageSeats = () => {
     if (!sub) return
-    const raw = window.prompt('Seats to purchase:', String(sub.seatsPurchased))
+    const raw = globalThis.prompt('Seats to purchase:', String(sub.seatsPurchased))
     if (!raw) return
     const seats = Number(raw)
     if (!Number.isInteger(seats) || seats < 1) return
-    update.mutate({ seatsPurchased: seats })
+    update.mutate({ seatsPurchased: seats }, { onError: onUpdateError })
   }
 
   return shell(
@@ -128,44 +151,41 @@ export function Plan() {
                 <ul className="mt-4 space-y-1.5 text-[12px] text-content">
                   {t.includes.map((x) => (
                     <li key={x} className="flex items-start gap-2">
-                      <span className="mt-1 text-emerald-600">
+                      <span className="mt-1 text-emerald-600 dark:text-emerald-400">
                         <CheckGlyph />
                       </span>
                       {x}
                     </li>
                   ))}
                 </ul>
+                <div className="mt-4 flex empty:hidden">
                 {!active ? (
                   t.contactSales ? (
                     <PrimaryButton
                       onClick={() => {
-                        window.location.href = 'mailto:sales@adhar.io?subject=Enterprise plan'
+                        globalThis.location.href = 'mailto:sales@adhar.io?subject=Enterprise plan'
                       }}
                     >
                       Contact sales
                     </PrimaryButton>
-                  ) : (
+                  ) : canManage ? (
                     <PrimaryButton
                       disabled={update.isPending}
-                      onClick={() => update.mutate({ tier: t.id })}
+                      onClick={() => update.mutate({ tier: t.id }, { onError: onUpdateError })}
                     >
                       {update.isPending ? 'Switching…' : `Switch to ${t.name}`}
                     </PrimaryButton>
-                  )
-                ) : (
+                  ) : null
+                ) : canManage ? (
                   <SecondaryButton onClick={manageSeats} disabled={update.isPending}>
                     Manage seats
                   </SecondaryButton>
-                )}
+                ) : null}
+                </div>
               </div>
             )
           })}
         </div>
-        {update.isError ? (
-          <p className="mt-3 text-[12px] text-rose-600">
-            {update.error instanceof Error ? update.error.message : 'Update failed.'}
-          </p>
-        ) : null}
       </SettingsCard>
 
       <SettingsCard title="Plan limits">

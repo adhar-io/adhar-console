@@ -222,7 +222,7 @@ function DashboardLibrary() {
 
           {list.length === 0 ? (
             <EmptyState
-              icon={<Icon name="dashboard" size={36} className="text-content-subtle" />}
+              icon={<Icon name="dashboard" size={22} />}
               title={
                 all.length === 0
                   ? 'No dashboards in Metabase yet'
@@ -259,7 +259,7 @@ function DashboardLibrary() {
             </div>
           )}
           <div className="text-[11px] text-content-subtle">
-            {list.length} of {all.length} dashboards{index.isFetching ? ' · refreshing…' : ''}
+            {list.length} of {all.length} dashboards
           </div>
         </div>
       </div>
@@ -430,8 +430,24 @@ function DashboardViewer({ id }: { id: number }) {
 
   useEffect(() => {
     if (!auto) return
-    const t = setInterval(refresh, auto * 1000)
-    return () => clearInterval(t)
+    // Each refresh re-runs every card, so a backgrounded tab must not keep
+    // hammering Metabase; catch up once when the tab becomes visible again.
+    let missed = false
+    const t = setInterval(() => {
+      if (document.hidden) missed = true
+      else refresh()
+    }, auto * 1000)
+    const onVisible = () => {
+      if (!document.hidden && missed) {
+        missed = false
+        refresh()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [auto, refresh])
 
   // Keyboard: r = refresh, f = full-screen.
@@ -586,7 +602,7 @@ function DashboardViewer({ id }: { id: number }) {
 
         {cards.length === 0 ? (
           <EmptyState
-            icon={<Icon name="dashboard" size={32} className="text-content-subtle" />}
+            icon={<Icon name="dashboard" size={22} />}
             title={activeTab ? 'This tab is empty' : 'This dashboard is empty'}
             description="Add saved questions to it here, or arrange cards in Metabase."
             action={d.can_write !== false ? <Button variant="primary" size="sm" onClick={() => setAdding(true)}>Add a saved question</Button> : undefined}

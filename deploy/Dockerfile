@@ -134,7 +134,18 @@ COPY --from=runtime-deps /build/apps/console/app ./app
 COPY --from=builder /build/apps/console/dist ./dist
 
 EXPOSE 3000
-USER deno
+# Numeric UID:GID of the base image's `deno` user. A NAMED user can't be
+# verified by the kubelet, so a pod with `runAsNonRoot: true` (as in
+# deploy/k8s/deployment.yaml) and no explicit `runAsUser` fails with
+# "image has non-numeric user (deno), cannot verify user is non-root".
+USER 1993:1993
+
+# Container-level liveness for plain Docker / Compose (Kubernetes ignores this
+# and uses the Deployment's probes). `/healthz` is dependency-free; a fresh
+# `deno eval` is used because the image ships no curl/wget. `--no-config` keeps
+# it from resolving the workspace config, so it works on a read-only rootfs.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD ["deno", "eval", "--no-config", "const r = await fetch('http://127.0.0.1:' + (Deno.env.get('PORT') ?? '3000') + '/healthz'); Deno.exit(r.ok ? 0 : 1)"]
 
 # Keep the base image's tini + docker-entrypoint.sh (proper PID-1 signal
 # forwarding); it prepends `deno` to these CMD args → `deno run …`.

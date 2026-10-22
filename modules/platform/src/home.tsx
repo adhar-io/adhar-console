@@ -1,7 +1,7 @@
-import { PageHeader, XR_SECTION_BY_ID } from '@adhar/shell-ui'
+import { lazy, Suspense } from 'react'
+import { PageHeader, Spinner, XR_SECTION_BY_ID } from '@adhar/shell-ui'
 import { ConnectionGate } from './components/connection-banner.tsx'
 import { ChaosView } from './views/chaos.tsx'
-import { KnowledgeGraph } from './views/knowledge-graph.tsx'
 import { PlatformDashboard } from './views/dashboard.tsx'
 import { ClusterView } from './views/cluster-list.tsx'
 import { NodesView } from './views/nodes-list.tsx'
@@ -48,6 +48,10 @@ import { QuotasView } from './views/quotas-view.tsx'
 import { ReleasesView } from './views/releases-list.tsx'
 import { ClusterProvider } from './components/cluster-picker.tsx'
 import { useActiveNamespace } from './data/client.ts'
+
+// The knowledge graph pulls in @xyflow (+ its stylesheet) — the heaviest
+// dependency in Home that only one section uses — so it loads on demand.
+const KnowledgeGraph = lazy(() => import('./views/knowledge-graph.tsx').then((m) => ({ default: m.KnowledgeGraph })))
 
 type Section =
   | 'dashboard'
@@ -448,7 +452,11 @@ function SectionBody({
     case 'explore':
       return <ResourceBrowser namespace={namespace} />
     case 'graph':
-      return <KnowledgeGraph namespace={namespace} />
+      return (
+        <Suspense fallback={<div className="flex justify-center py-16 text-content-subtle" aria-busy="true"><Spinner size={16} /></div>}>
+          <KnowledgeGraph namespace={namespace} />
+        </Suspense>
+      )
     case 'chaos':
       return <ChaosView namespace={namespace} />
     case 'shell':

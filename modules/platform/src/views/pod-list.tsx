@@ -60,9 +60,7 @@ export function PodsView({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
-        isFetching={q.isFetching}
         onRefresh={() => q.refetch()}
-        lastUpdatedAt={q.dataUpdatedAt}
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search pods, namespaces, nodes…"

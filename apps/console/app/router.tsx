@@ -1,6 +1,7 @@
 import { createRouter } from '@tanstack/react-router'
 import { QueryClient } from '@tanstack/react-query'
 import { routeTree } from './routeTree.gen.ts'
+import { RouteError, RouteNotFound } from './components/route-fallbacks.tsx'
 
 /**
  * Single shared QueryClient. Created at module-init so `main.tsx` can wrap
@@ -25,6 +26,8 @@ export async function getRouter() {
     context: { queryClient, session: null, tenant: null },
     defaultPreload: 'intent',
     defaultPreloadStaleTime: 0,
+    defaultErrorComponent: RouteError,
+    defaultNotFoundComponent: RouteNotFound,
   })
 }
 

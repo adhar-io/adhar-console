@@ -130,6 +130,11 @@ export function DraggableGrid<T extends { id: string }>({
 
   const renderOrder = drag && virtualOrder ? virtualOrder : items
 
+  // Unmounting mid-drag (or mid long-press) left the window listeners, the
+  // hold timer and `cursor-grabbing select-none` on <body> behind for good.
+  const abortDragRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => abortDragRef.current?.(), [])
+
   /**
    * `mode`: `immediate` starts the drag after DRAG_THRESHOLD of movement
    * (mouse, or the grip handle on any pointer); `longpress` waits for the
@@ -287,6 +292,7 @@ export function DraggableGrid<T extends { id: string }>({
     }
 
     const finish = (commit: boolean) => {
+      abortDragRef.current = null
       globalThis.removeEventListener('pointermove', onMove)
       globalThis.removeEventListener('pointerup', onUp)
       globalThis.removeEventListener('pointercancel', onCancel)
@@ -320,6 +326,7 @@ export function DraggableGrid<T extends { id: string }>({
       if (ev.key === 'Escape') finish(false)
     }
 
+    abortDragRef.current = () => finish(false)
     globalThis.addEventListener('pointermove', onMove)
     globalThis.addEventListener('pointerup', onUp)
     globalThis.addEventListener('pointercancel', onCancel)

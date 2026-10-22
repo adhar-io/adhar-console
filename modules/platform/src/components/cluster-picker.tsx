@@ -131,7 +131,7 @@ export function ClusterPicker() {
                       setOpen(false)
                     }}
                     className={cn(
-                      'flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
+                      'flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
                       selected
                         ? 'bg-brand-50/70 dark:bg-brand-500/10'
                         : 'hover:bg-surface-sunken',

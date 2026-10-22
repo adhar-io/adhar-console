@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { argocd, k8s } from '@adhar/api-clients'
-import { useGiteaOrg, useTeamScope } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, useCan, useGiteaOrg, useTeamScope } from '@adhar/shell-ui'
 import { giteaClient, unb64, useGiteaRepos } from './gitea.ts'
 import {
   type AppXR,
@@ -201,6 +201,9 @@ export function usePlatformCatalog(enabled = true): PlatformCatalog {
     },
     ...LIVE,
     staleTime: 5 * 60_000,
+    // The key already changes when any repo is pushed (`updated_at`), so polling
+    // only re-reads up to 2×MAX_DESCRIPTOR_REPOS unchanged files every minute.
+    refetchInterval: false,
   })
   return useMemo(() => {
     const fromApps = entitiesFromApplications((apps.data ?? []) as AppXR[])
@@ -333,6 +336,17 @@ export async function notifyOrg(n: { title: string; description?: string; href?:
   } catch {
     return false
   }
+}
+
+/**
+ * `notifyOrg` gated on RBAC: a broadcast needs `create notifications-broadcast`
+ * (docs/rbac.md), which the BFF enforces. Without it the post is skipped —
+ * resolving false like an unavailable feed — rather than sent to be refused.
+ */
+export function useNotifyOrg(): { notify: typeof notifyOrg; canBroadcast: boolean } {
+  const canBroadcast = useCan(CONSOLE_PERMISSIONS.notificationsBroadcast)
+  const notify = useCallback<typeof notifyOrg>((n) => (canBroadcast ? notifyOrg(n) : Promise.resolve(false)), [canBroadcast])
+  return { notify, canBroadcast }
 }
 
 /* ───────────────────────── snapshot for generators ───────────────────────── */

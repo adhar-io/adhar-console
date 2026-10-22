@@ -180,6 +180,7 @@ export function Whiteboard() {
     return (
       <div className="space-y-5">
         <EmptyState
+          icon={<Icon name="board" size={22} />}
           title="Think on an infinite canvas"
           description="No boards yet. Sticky notes, shapes, connectors, frames and freehand ink — for retros, story maps and architecture sketches. Start blank or from a template:"
         />
@@ -289,7 +290,15 @@ function TemplateThumb({ t }: { t: BoardTemplate }) {
             />
           )
       )}
-      {els.length === 0 ? <text x={b.x + 100} y={b.y + 70} textAnchor="middle" fontSize={22} fill="currentColor" opacity={0.4}>Blank</text> : null}
+      {/* Blank: a centred "+" on a dashed sheet, not a stray caption in the corner. */}
+      {els.length === 0
+        ? (
+          <g stroke="currentColor" fill="none" opacity={0.35} strokeLinecap="round">
+            <rect x={b.x + 40} y={b.y + 30} width={b.w - 80} height={b.h - 60} rx={16} strokeWidth={4} strokeDasharray="14 12" />
+            <path d={`M${b.x + b.w / 2 - 28} ${b.y + b.h / 2}h56M${b.x + b.w / 2} ${b.y + b.h / 2 - 28}v56`} strokeWidth={8} />
+          </g>
+        )
+        : null}
     </svg>
   )
 }
@@ -1344,7 +1353,7 @@ function BoardCanvas({
                     ? <button type="button" className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-500/10" onClick={() => setWorkOpen(true)}>To Plane ({workStickies.length})</button>
                     : null}
                   {selectedEls.some((e) => isShape(e) && e.embed)
-                    ? <button type="button" className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content" onClick={refreshEmbeds}>{refreshing ? 'Refreshing…' : 'Refresh snapshot'}</button>
+                    ? <button type="button" className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-content-muted hover:bg-surface-sunken hover:text-content" onClick={refreshEmbeds} disabled={refreshing} aria-busy={refreshing}>Refresh snapshot</button>
                     : null}
                 </>
               }

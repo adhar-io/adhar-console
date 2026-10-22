@@ -147,7 +147,8 @@ function Report({ report: r }: { report: ReadinessReport }) {
     try {
       // Its own chunk: the PDF writer loads only when someone asks for a PDF.
       const { perfReportPdf } = await import('../data/perf-report-pdf.ts')
-      save(perfReportPdf(r, meta()), 'application/pdf', 'pdf')
+      // The writer allocates a plain ArrayBuffer-backed array; the cast only narrows the type.
+      save(perfReportPdf(r, meta()) as Uint8Array<ArrayBuffer>, 'application/pdf', 'pdf')
     } catch (err) {
       toast.error('Could not build the PDF', { description: err instanceof Error ? err.message : String(err) })
     } finally {

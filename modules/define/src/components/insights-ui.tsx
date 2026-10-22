@@ -52,7 +52,9 @@ export function Stat({ label, value, hint, onClick, tone }: { label: string; val
   )
   return onClick
     ? (
-      <button type="button" onClick={onClick} className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3 text-left transition-colors hover:border-edge-strong hover:bg-surface-sunken">
+      // A button centres its content vertically; in a stretched grid row that
+      // dropped the label of hint-less tiles below their neighbours'. Top-align.
+      <button type="button" onClick={onClick} className="flex flex-col justify-start rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3 text-left transition-colors hover:border-edge-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40">
         {body}
       </button>
     )
@@ -76,10 +78,10 @@ const KIND_TITLE: Record<ErrorKind, string> = {
 }
 
 /** An honest inline state for a failed source. */
-export function SourceNote({ kind, message, compact }: { kind: ErrorKind; message: string; compact?: boolean }) {
+export function SourceNote({ kind, message, compact, title }: { kind: ErrorKind; message: string; compact?: boolean; title?: string }) {
   return (
     <div className={cn('rounded-lg border px-3 py-2 text-[12px]', kind === 'rate' ? 'border-amber-300/60 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200' : 'border-edge-default bg-surface-sunken/60 text-content-muted')}>
-      <span className="font-semibold">{KIND_TITLE[kind]}.</span>
+      <span className="font-semibold">{title ?? KIND_TITLE[kind]}.</span>
       {compact ? null : kind === 'rate' ? <> The console shares one Plane API key (60 requests a minute); data refreshes on its own once the minute passes.</> : <> {message}</>}
     </div>
   )
@@ -103,7 +105,7 @@ const PRIORITY_DOT: Record<string, string> = {
   high: 'bg-orange-500',
   medium: 'bg-amber-400',
   low: 'bg-sky-400',
-  none: 'bg-slate-300 dark:bg-slate-600',
+  none: 'bg-slate-400',
 }
 
 export function PriorityMark({ p }: { p: string }) {

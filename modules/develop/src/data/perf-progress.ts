@@ -124,7 +124,7 @@ export function parseProgress(lines: readonly string[]): ProgressSeries {
 /** Drop ANSI colour so the field regexes see plain text. */
 function stripAnsi(s: string): string {
   // deno-lint-ignore no-control-regex
-  return s.replace(/\[[0-9;]*[A-Za-z]/g, '')
+  return s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
 }
 
 /* ─────────────────────────── stage timings ─────────────────────────── */

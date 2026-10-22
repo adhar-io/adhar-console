@@ -1,4 +1,6 @@
+import { CONSOLE_PERMISSIONS, type ConsolePermission } from '@adhar/auth/server'
 import { getRequestUser, unauthorized } from './request-user.ts'
+import { requirePermission } from './k8s/access.ts'
 
 /**
  * Framework-agnostic handlers for the Postgres-backed preferences and
@@ -13,8 +15,64 @@ const db = () => import('@adhar/db')
 const SCOPE_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 /** Collection namespace, e.g. `okr.objective`, `design.adr`, `workspace.webhook`. */
 const KIND_RE = /^[a-z0-9][a-z0-9.-]{0,63}$/
-/** Kinds only server handlers may touch (see `scan-waivers.ts`, `resilience-reports.ts`). */
-const RESERVED_KIND = /^(security|resilience)\./
+/**
+ * Kinds only server handlers may touch. Every one of these is something an
+ * authorization decision or a credential lives in, so letting a tenant member
+ * write it through this generic store bypasses the handler that guards it:
+ *   - `auth.*`        server-side sessions, tokens included (session-store-db.ts);
+ *   - `billing.*`     subscription / invoices / payment methods (billing/);
+ *   - `console.*`     notifications and provisioning jobs;
+ *   - `security.*`    scan waivers the CI enforces (scan-waivers.ts);
+ *   - `resilience.*`  chaos run evidence for promotions (resilience-reports.ts);
+ *   - the workspace API's own records — `workspace.member` carries the caller's
+ *     ROLE (a member PUTting `{role:'owner'}` became owner), `workspace.invitation`
+ *     the accept-token hash, `workspace.audit` the audit trail.
+ * Other `workspace.*` kinds (settings pages: theme, webhooks, roles, …) are
+ * client-owned documents and stay available.
+ */
+const RESERVED_KIND = /^(auth|billing|console|security|resilience)\./
+const RESERVED_WORKSPACE_KINDS = new Set([
+  'workspace.org',
+  'workspace.member',
+  'workspace.invitation',
+  'workspace.team',
+  'workspace.project',
+  'workspace.api-token',
+  'workspace.approval',
+  'workspace.audit',
+])
+
+/**
+ * Client-owned kinds whose WRITES are still permissions: custom workspace roles
+ * define what people may do, so creating/editing/deleting them is RBAC on
+ * `workspace-roles.console.adhar.io` — the check Workspace → Roles hides on.
+ */
+const GUARDED_KIND_WRITES: Record<string, Partial<Record<'POST' | 'PUT' | 'DELETE', ConsolePermission>>> = {
+  'workspace.role': {
+    POST: CONSOLE_PERMISSIONS.rolesCreate,
+    PUT: CONSOLE_PERMISSIONS.rolesUpdate,
+    DELETE: CONSOLE_PERMISSIONS.rolesDelete,
+  },
+  // Support-ticket settings decide what evidence the console ships to Plane
+  // and where — an organisation setting, like the routing table beside it.
+  'workspace.support-tickets': {
+    POST: CONSOLE_PERMISSIONS.orgUpdate,
+    PUT: CONSOLE_PERMISSIONS.orgUpdate,
+    DELETE: CONSOLE_PERMISSIONS.orgUpdate,
+  },
+}
+
+/** True for a document kind `/api/store` must refuse. */
+export function isReservedKind(kind: string): boolean {
+  return RESERVED_KIND.test(kind) || RESERVED_WORKSPACE_KINDS.has(kind)
+}
+
+/**
+ * Preference scopes that are server-owned. `organizations` is the registry of
+ * tenants a user may activate (organizations.ts) — writable here, a user could
+ * list any tenant id (including the `auth` session tenant) and switch into it.
+ */
+const RESERVED_SCOPES = new Set(['organizations'])
 /** Document id — client-chosen slug/uuid. */
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 
@@ -38,6 +96,12 @@ export async function handlePreferences(req: Request, scope: string): Promise<Re
   }
 
   if (method === 'PUT') {
+    if (RESERVED_SCOPES.has(scope)) {
+      return withCookie(
+        Response.json({ error: 'reserved_scope', detail: `${scope} is managed by the console server.` }, { status: 403 }),
+        auth.refreshedCookie,
+      )
+    }
     let body: { data?: unknown }
     try {
       body = (await req.json()) as { data?: unknown }
@@ -78,9 +142,9 @@ export async function handleDocuments(
 ): Promise<Response> {
   if (!KIND_RE.test(kind)) return Response.json({ error: 'invalid_kind' }, { status: 400 })
   // Server-owned collections: scan waivers carry approvals the CI enforces, so
-  // they are only ever written by /api/security/* behind its role checks; chaos
+  // they are only ever written by /api/security/* behind its RBAC checks; chaos
   // run reports are evidence for promotions, written only by their recorder.
-  if (RESERVED_KIND.test(kind)) {
+  if (isReservedKind(kind)) {
     return Response.json({ error: 'reserved_kind', detail: `${kind} is managed by the console server and cannot be read or written through /api/store.` }, { status: 403 })
   }
   if (id !== undefined && !ID_RE.test(id)) {
@@ -90,6 +154,11 @@ export async function handleDocuments(
   if (!auth) return unauthorized()
   const method = req.method.toUpperCase()
   const tenant = auth.activeTenant
+  const guard = GUARDED_KIND_WRITES[kind]?.[method as 'POST' | 'PUT' | 'DELETE']
+  if (guard) {
+    const denied = await requirePermission(req, guard)
+    if (denied) return withCookie(denied, auth.refreshedCookie)
+  }
 
   const {
     getMigratedDb,
@@ -159,46 +228,4 @@ async function readData(req: Request): Promise<Record<string, unknown> | null> {
   const data = maybe.data !== undefined ? maybe.data : body
   if (typeof data !== 'object' || data === null || Array.isArray(data)) return null
   return data as Record<string, unknown>
-}
-
-export async function handleNotifications(req: Request): Promise<Response> {
-  const auth = await getRequestUser(req)
-  if (!auth) return unauthorized()
-  const method = req.method.toUpperCase()
-
-  if (method === 'GET') {
-    const { getMigratedDb, getNotificationState } = await db()
-    const conn = await getMigratedDb()
-    if (!conn) return withCookie(Response.json({ state: [] }), auth.refreshedCookie)
-    const state = await getNotificationState(conn, auth.user.id)
-    return withCookie(Response.json({ state }), auth.refreshedCookie)
-  }
-
-  if (method === 'POST') {
-    let body: { id?: string; ids?: string[]; read?: boolean; dismissed?: boolean }
-    try {
-      body = await req.json()
-    } catch {
-      return Response.json({ error: 'invalid_json' }, { status: 400 })
-    }
-    const patch = {
-      ...(typeof body.read === 'boolean' ? { read: body.read } : {}),
-      ...(typeof body.dismissed === 'boolean' ? { dismissed: body.dismissed } : {}),
-    }
-    if (patch.read === undefined && patch.dismissed === undefined) {
-      return Response.json({ error: 'nothing_to_update' }, { status: 400 })
-    }
-    const ids = body.ids ?? (body.id ? [body.id] : [])
-    if (ids.length === 0) return Response.json({ error: 'missing_id' }, { status: 400 })
-
-    const { getMigratedDb, setNotificationState, setNotificationStateBulk, touchUser } = await db()
-    const conn = await getMigratedDb()
-    if (!conn) return withCookie(Response.json({ ok: true, persisted: false }), auth.refreshedCookie)
-    await touchUser(conn, auth.user)
-    if (ids.length === 1) await setNotificationState(conn, auth.user.id, ids[0], patch)
-    else await setNotificationStateBulk(conn, auth.user.id, ids, patch)
-    return withCookie(Response.json({ ok: true, persisted: true }), auth.refreshedCookie)
-  }
-
-  return new Response('Method Not Allowed', { status: 405 })
 }

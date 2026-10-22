@@ -1,18 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
+  canResource,
   Kbd,
   StatusBadge,
   Tabs,
+  useAccessReview,
+  useCan,
   useLiveRefetch,
+  useToast,
   type TabDef,
   DrawerWidenButton,
   useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age, shortImage } from '../data/format.ts'
 import { PodShell } from './pod-shell.tsx'
@@ -20,11 +24,7 @@ import { PodLogsPanel } from './pod-logs.tsx'
 import { PodYamlPanel } from './pod-yaml.tsx'
 import { PodMetricsPanel } from './pod-metrics.tsx'
 import { WorkloadOpsPanel } from './workload-ops.tsx'
-import {
-  K8sPermissionDenied,
-  K8sRolePill,
-} from '../components/role-gate.tsx'
-import { useHasK8sPermission } from '../data/access.ts'
+import { AccessDenied } from '../components/role-gate.tsx'
 
 type Sub = 'overview' | 'operations' | 'metrics' | 'logs' | 'shell' | 'yaml' | 'events'
 const TABS: readonly TabDef<Sub>[] = [
@@ -44,29 +44,50 @@ interface Props {
 }
 
 export function PodDrawer({ namespace, name, onClose }: Props) {
+  const { cluster } = useActiveCluster()
   const width = useDrawerWidth('platform.pod', { base: 'max-w-4xl' })
   const qc = useQueryClient()
-  const podKey = ['k8s', 'pod', namespace, name]
+  const podKey = ['k8s', 'pod', namespace, name, cluster]
   const pod = useQuery({
     queryKey: podKey,
-    queryFn: () => client.getPod(LOCAL_CLUSTER, namespace, name),
-    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace }, [podKey], 10_000),
+    queryFn: () => client.getPod(cluster, namespace, name),
+    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace, cluster: clusterParam(cluster) }, [podKey], 10_000),
   })
 
-  const canDelete = useHasK8sPermission('pods.delete')
-  const canExec = useHasK8sPermission('pods.exec')
-  const canLogs = useHasK8sPermission('pods.logs')
-  const canRead = useHasK8sPermission('pods.read')
+  const toast = useToast()
+  // Kubernetes RBAC for this exact pod, as the signed-in user. Restart and
+  // Delete are both a DELETE of the pod; Logs is `get pods/log`, Shell is
+  // `create pods/exec`. Actions are hidden unless allowed; the Logs/Shell tabs
+  // are dropped once the answer is a definite no.
+  const canDelete = useCan(canResource(GVRS.pods, 'delete', { namespace, name }))
+  const logsCheck = canResource(GVRS.pods, 'get', { namespace, name, subresource: 'log' })
+  const execCheck = canResource(GVRS.pods, 'create', { namespace, name, subresource: 'exec' })
+  const readCheck = canResource(GVRS.pods, 'get', { namespace, name })
+  const access = useAccessReview([logsCheck, execCheck, readCheck])
+  const [logsAnswer, execAnswer, readAnswer] = access.results
+  const logsDenied = logsAnswer === false
+  const execDenied = execAnswer === false
+  const tabs = useMemo(
+    () => TABS.filter((t) => !(t.id === 'logs' && logsDenied) && !(t.id === 'shell' && execDenied)),
+    [logsDenied, execDenied],
+  )
+
+  const [confirm, setConfirm] = useState<null | 'restart' | 'delete'>(null)
 
   const deleteMutation = useMutation({
-    mutationFn: () => client.deletePod(LOCAL_CLUSTER, namespace, name),
+    mutationFn: () => client.deletePod(cluster, namespace, name),
     onSuccess: () => {
+      toast.success(confirm === 'restart' ? `Restarting ${name}` : `Deleted ${name}`, {
+        description: confirm === 'restart' ? 'Its controller will recreate the pod.' : undefined,
+      })
       qc.invalidateQueries({ queryKey: ['k8s', 'pods'] })
       onClose()
     },
+    onError: (e) =>
+      toast.error(confirm === 'restart' ? 'Restart failed' : 'Delete failed', {
+        description: e instanceof Error ? e.message : String(e),
+      }),
   })
-
-  const [confirm, setConfirm] = useState<null | 'restart' | 'delete'>(null)
 
   // Close on Esc.
   useEffect(() => {
@@ -76,13 +97,13 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
         else onClose()
       }
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [confirm, onClose])
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
@@ -101,7 +122,7 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
               </div>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {pod.data ? (
               <StatusBadge
                 kind={
@@ -115,68 +136,53 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
                 {pod.data.status.phase}
               </StatusBadge>
             ) : null}
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={deleteMutation.isPending || !pod.data || !canDelete}
-              onClick={() => setConfirm('restart')}
-              title={
-                canDelete
-                  ? 'Delete the pod so its controller recreates it'
-                  : 'Restart requires the Tenant Admin or Platform Admin role'
-              }
-            >
-              <span className="mr-1 text-content-subtle">
-                <IconRefresh />
-              </span>
-              Restart
-              {canDelete ? null : (
-                <span className="ml-1.5">
-                  <K8sRolePill perm="pods.delete" />
-                </span>
-              )}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={deleteMutation.isPending || !pod.data || !canDelete}
-              onClick={() => setConfirm('delete')}
-              className={canDelete ? 'text-rose-700 hover:text-rose-800 dark:text-rose-300' : ''}
-              title={
-                canDelete
-                  ? 'Permanently remove this pod'
-                  : 'Delete requires the Tenant Admin or Platform Admin role'
-              }
-            >
-              <span className={cn('mr-1', canDelete ? 'text-rose-500' : 'text-content-subtle')}>
-                <IconTrash />
-              </span>
-              Delete
-              {canDelete ? null : (
-                <span className="ml-1.5">
-                  <K8sRolePill perm="pods.delete" />
-                </span>
-              )}
-            </Button>
+            {canDelete ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={deleteMutation.isPending || !pod.data}
+                  onClick={() => setConfirm('restart')}
+                  title="Delete the pod so its controller recreates it"
+                >
+                  <span className="mr-1 text-content-subtle">
+                    <IconRefresh />
+                  </span>
+                  Restart
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={deleteMutation.isPending || !pod.data}
+                  onClick={() => setConfirm('delete')}
+                  className="text-rose-700 hover:text-rose-800 dark:text-rose-300 dark:hover:text-rose-200"
+                  title="Permanently remove this pod"
+                >
+                  <span className="mr-1 text-rose-500">
+                    <IconTrash />
+                  </span>
+                  Delete
+                </Button>
+              </>
+            ) : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
               ✕ <Kbd size="xs">esc</Kbd>
             </Button>
           </div>
         </header>
-        {confirm ? (
+        {confirm && canDelete ? (
           <ConfirmBar
             kind={confirm}
             podName={name}
             namespace={namespace}
             isPending={deleteMutation.isPending}
-            error={deleteMutation.error ? String(deleteMutation.error) : undefined}
             onCancel={() => setConfirm(null)}
             onConfirm={() => deleteMutation.mutate()}
           />
         ) : null}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <Tabs<Sub> tabs={TABS} defaultValue="overview" ariaLabel="Pod sections">
+          <Tabs<Sub> tabs={tabs} defaultValue="overview" ariaLabel="Pod sections">
             {(active) => (
               <>
                 {active === 'overview' && <Overview pod={pod.data} loading={pod.isLoading} />}
@@ -194,18 +200,18 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
                   />
                 ) : null}
                 {active === 'logs' && pod.data ? (
-                  canLogs ? (
+                  !logsDenied ? (
                     <PodLogsPanel
                       namespace={namespace}
                       podName={name}
                       containers={pod.data.spec.containers.map((c) => c.name)}
                     />
                   ) : (
-                    <K8sPermissionDenied perm="pods.logs" />
+                    <AccessDenied what="this pod's logs" check={logsCheck} />
                   )
                 ) : null}
                 {active === 'shell' && pod.data ? (
-                  canExec ? (
+                  !execDenied ? (
                     <PodShell
                       namespace={namespace}
                       name={name}
@@ -213,14 +219,14 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
                       defaultContainer={pod.data.spec.containers[0]?.name}
                     />
                   ) : (
-                    <K8sPermissionDenied perm="pods.exec" />
+                    <AccessDenied what="a shell in this pod" check={execCheck} />
                   )
                 ) : null}
                 {active === 'yaml' &&
-                  (canRead ? (
-                    <PodYamlPanel pod={pod.data} />
+                  (readAnswer === false ? (
+                    <AccessDenied what="this pod's manifest" check={readCheck} />
                   ) : (
-                    <K8sPermissionDenied perm="pods.read" />
+                    <PodYamlPanel pod={pod.data} />
                   ))}
                 {active === 'events' && <Events namespace={namespace} name={name} />}
               </>
@@ -585,11 +591,12 @@ function Mono({ children }: { children: React.ReactNode }) {
 }
 
 function Events({ namespace, name }: { namespace: string; name: string }) {
-  const queryKey = ['k8s', 'pod-events', namespace, name]
+  const { cluster } = useActiveCluster()
+  const queryKey = ['k8s', 'pod-events', namespace, name, cluster]
   const q = useQuery({
     queryKey,
-    queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 5_000),
+    queryFn: () => client.listEvents(cluster, namespace),
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 5_000),
   })
   const filtered = (q.data ?? []).filter(
     (e) =>
@@ -637,16 +644,17 @@ interface GenericLite {
 }
 
 function PodRelations({ pod }: { pod: Awaited<ReturnType<typeof client.getPod>> }) {
+  const { cluster } = useActiveCluster()
   const ns = pod.metadata.namespace ?? ''
   const owner = pod.metadata.ownerReferences?.find((o) => o.controller) ?? pod.metadata.ownerReferences?.[0]
 
   // If the controller is a ReplicaSet, walk one more hop to its Deployment.
   const rsQ = useQuery({
-    queryKey: ['k8s', 'pod-owner-rs', ns, owner?.name],
+    queryKey: ['k8s', 'pod-owner-rs', ns, owner?.name, cluster],
     enabled: Boolean(owner && owner.kind === 'ReplicaSet' && ns),
     retry: false,
     queryFn: () =>
-      client.getGeneric(LOCAL_CLUSTER, GVRS.replicasets, ns, owner!.name) as unknown as Promise<GenericLite>,
+      client.getGeneric(cluster, GVRS.replicasets, ns, owner!.name) as unknown as Promise<GenericLite>,
   })
   const deployOwner = rsQ.data?.metadata.ownerReferences?.find((o) => o.controller)
 
@@ -691,11 +699,12 @@ function Arrow() {
 }
 
 function RecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: string }) {
-  const queryKey = ['k8s', 'pod-events', namespace, name]
+  const { cluster } = useActiveCluster()
+  const queryKey = ['k8s', 'pod-events', namespace, name, cluster]
   const q = useQuery({
     queryKey,
-    queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 15_000),
+    queryFn: () => client.listEvents(cluster, namespace),
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
     retry: false,
   })
   const events = (q.data ?? [])
@@ -786,7 +795,6 @@ function ConfirmBar({
   podName,
   namespace,
   isPending,
-  error,
   onCancel,
   onConfirm,
 }: {
@@ -794,7 +802,6 @@ function ConfirmBar({
   podName: string
   namespace: string
   isPending: boolean
-  error?: string
   onCancel(): void
   onConfirm(): void
 }) {
@@ -830,9 +837,6 @@ function ConfirmBar({
               {namespace}/{podName}
             </code>
           </div>
-          {error ? (
-            <div className="mt-1 text-[11px] text-rose-700 dark:text-rose-300">Error: {error}</div>
-          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={isPending}>

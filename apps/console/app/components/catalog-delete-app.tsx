@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Modal, useGiteaOrg, useOptionalConsoleRole, useToast, useToolPublicUrl } from '@adhar/shell-ui'
+import { Button, canResource, CONSOLE_PERMISSIONS, Modal, useCan, useGiteaOrg, useToast, useToolPublicUrl } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { type Entity, useUnregisterEntity } from '~/data/catalog.ts'
 import { useEntityDeployment } from '~/data/catalog-deployment.ts'
@@ -8,7 +8,6 @@ import { CONTROL_PLANE_NAMESPACE } from '~/data/catalog-custom-apps.ts'
 import {
   composedRefs,
   deletionTimestampOf,
-  roleCanDeleteApplications,
   useApplicationXR,
   useDeleteApplication,
 } from '~/data/catalog-app-delete.ts'
@@ -19,20 +18,33 @@ import { DeleteEntityDialog } from './catalog-delete.tsx'
  *
  *   - `application` — a Component backed by an Application XR. Deleting the XR
  *     is the only delete that sticks (Crossplane recreates anything it composed
- *     that is deleted directly), and it is role-gated.
- *   - `forbidden` — the same, for a persona that may not delete applications.
- *     The drawer hides its delete action; the server refuses regardless.
+ *     that is deleted directly); it needs `delete applications.console.adhar.io`
+ *     (CONSOLE_PERMISSIONS.applicationsDelete), which `/api/apps/delete` checks.
  *   - `teardown` — everything else: the generic teardown of Argo CD apps,
- *     build, pipeline runs, namespace and repository (catalog-delete.tsx).
+ *     build, pipeline runs, namespace and repository (catalog-delete.tsx). The
+ *     server deletes the Argo CD Applications as the user, so the entry point
+ *     needs `delete applications.argoproj.io` where they live.
+ *   - `forbidden` — the user may do neither (or the answer is still loading):
+ *     every delete entry point is hidden, never disabled (docs/rbac.md).
  */
 export type DeleteMode = 'application' | 'forbidden' | 'teardown'
 
+/** Argo CD Applications — what the teardown deletes first, as the signed-in user. */
+const ARGO_APPLICATIONS = { group: 'argoproj.io', resource: 'applications', namespaced: true } as const
+
 export function useEntityDeleteMode(entity: Entity): DeleteMode {
   const { xr } = useApplicationXR(entity.metadata.name, entity.kind === 'Component')
-  const role = useOptionalConsoleRole()
-  if (entity.kind !== 'Component' || !xr) return 'teardown'
-  // No session in scope (identity unknown) → show it and let the server decide.
-  return role === null || roleCanDeleteApplications(role) ? 'application' : 'forbidden'
+  const isApp = entity.kind === 'Component' && Boolean(xr)
+  // Read the shared Argo CD list from cache only (never fetch per card); the
+  // Applications live in Argo CD's namespace, `argocd` unless they say otherwise.
+  const deployment = useEntityDeployment(entity, false)
+  const argoNs = deployment.primary?.metadata.namespace ?? deployment.apps[0]?.metadata.namespace ?? 'argocd'
+  // An entry registered in this browser with nothing deployed is only a local record.
+  const localOnly = entity.origin === 'registered' && deployment.apps.length === 0
+  const canDeleteApp = useCan(CONSOLE_PERMISSIONS.applicationsDelete, { enabled: isApp })
+  const canTeardown = useCan(canResource(ARGO_APPLICATIONS, 'delete', { namespace: argoNs }), { enabled: !isApp && !localOnly })
+  if (isApp) return canDeleteApp ? 'application' : 'forbidden'
+  return localOnly || canTeardown ? 'teardown' : 'forbidden'
 }
 
 /**
@@ -49,8 +61,9 @@ export function CatalogDeleteDialog(props: {
   const mode = useEntityDeleteMode(props.entity)
   const { isLoading } = useApplicationXR(props.entity.metadata.name, props.entity.kind === 'Component')
   if (isLoading) return null
+  if (mode === 'forbidden') return null
   if (mode === 'teardown') return <DeleteEntityDialog {...props} />
-  return <DeleteApplicationDialog {...props} forbidden={mode === 'forbidden'} />
+  return <DeleteApplicationDialog {...props} />
 }
 
 export function DeleteApplicationDialog({
@@ -58,14 +71,11 @@ export function DeleteApplicationDialog({
   open,
   onClose,
   onDeleted,
-  forbidden = false,
 }: {
   entity: Entity
   open: boolean
   onClose(): void
   onDeleted?(entity: Entity): void
-  /** The persona may not delete applications — explain instead of offering the button. */
-  forbidden?: boolean
 }) {
   const name = entity.metadata.name
   const title = entity.metadata.title ?? name
@@ -99,7 +109,7 @@ export function DeleteApplicationDialog({
   const busy = del.isPending
 
   const run = async () => {
-    if (!confirmed || busy || forbidden) return
+    if (!confirmed || busy) return
     try {
       const res = await del.mutateAsync({ name, deleteRepo: deleteRepo && repoOffered })
       if (!res.ok) {
@@ -132,19 +142,13 @@ export function DeleteApplicationDialog({
       onClose={busy ? () => {} : onClose}
       width="md"
       title={`Delete application ${title}`}
-      description={
-        forbidden
-          ? 'Deleting an application needs the platform-admin, platform-engineer or application-admin role. Ask someone who has one.'
-          : 'This removes the application from the platform, not only from the catalog. It cannot be undone.'
-      }
+      description="This removes the application from the platform, not only from the catalog. It cannot be undone."
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
-          {forbidden ? null : (
-            <Button variant="danger" size="sm" onClick={run} disabled={!confirmed} loading={busy}>
-              {busy ? 'Deleting…' : 'Delete application'}
-            </Button>
-          )}
+          <Button variant="danger" size="sm" onClick={run} disabled={!confirmed} loading={busy}>
+            {busy ? 'Deleting…' : 'Delete application'}
+          </Button>
         </>
       }
     >
@@ -179,7 +183,7 @@ export function DeleteApplicationDialog({
             />
             {repoOffered ? (
               <li>
-                <label className={cn('flex cursor-pointer items-start gap-3 px-3 py-2.5', (busy || forbidden) && 'cursor-default')}>
+                <label className={cn('flex cursor-pointer items-start gap-3 px-3 py-2.5', busy && 'cursor-default')}>
                   <span className="min-w-0 flex-1">
                     <span className={cn('block text-[12px] font-medium text-content', !deleteRepo && 'text-content-muted')}>
                       Also delete the Gitea repository <span className="font-mono">{repoLabel}</span>
@@ -191,7 +195,7 @@ export function DeleteApplicationDialog({
                   <input
                     type="checkbox"
                     checked={deleteRepo}
-                    disabled={busy || forbidden}
+                    disabled={busy}
                     onChange={(e) => setDeleteRepo(e.target.checked)}
                     className="mt-1 h-4 w-4 shrink-0 accent-rose-600"
                     aria-label={`Also delete the Gitea repository ${repoLabel}`}
@@ -202,28 +206,26 @@ export function DeleteApplicationDialog({
           </ul>
         </div>
 
-        {forbidden ? null : (
-          <label className="block">
-            <span className="text-[12px] text-content-muted">
-              Type <code className="rounded bg-surface-sunken px-1 py-px font-mono text-[11px] text-content">{name}</code> to confirm
-            </span>
-            <input
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void run() }}
-              autoFocus
-              autoComplete="off"
-              spellCheck={false}
-              disabled={busy}
-              aria-label={`Type ${name} to confirm`}
-              placeholder={name}
-              className={cn(
-                'mt-1.5 h-9 w-full rounded-lg border bg-surface-app px-3 font-mono text-[13px] text-content outline-none transition-colors placeholder:text-content-subtle focus:ring-2',
-                confirmed ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20' : 'border-edge-default focus:border-edge-strong focus:ring-edge-default/40',
-              )}
-            />
-          </label>
-        )}
+        <label className="block">
+          <span className="text-[12px] text-content-muted">
+            Type <code className="rounded bg-surface-sunken px-1 py-px font-mono text-[11px] text-content">{name}</code> to confirm
+          </span>
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void run() }}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            disabled={busy}
+            aria-label={`Type ${name} to confirm`}
+            placeholder={name}
+            className={cn(
+              'mt-1.5 h-9 w-full rounded-lg border bg-surface-app px-3 font-mono text-[13px] text-content outline-none transition-colors placeholder:text-content-subtle focus:ring-2',
+              confirmed ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-500/20' : 'border-edge-default focus:border-edge-strong focus:ring-edge-default/40',
+            )}
+          />
+        </label>
       </div>
     </Modal>
   )

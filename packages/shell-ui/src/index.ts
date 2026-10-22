@@ -1,4 +1,14 @@
 export { AdharLogo, AdharSymbol, AdharWordmark, AdharWordmarkStack } from './brand.tsx'
+export { hasToolLogo, ToolLogo, type ToolLogoProps, toolLogoWantsLightTile } from './tool-logo.tsx'
+export {
+  ADHAR_LOGO_KEY,
+  isAdharPackage,
+  TOOL_LOGO_ALIASES,
+  TOOL_LOGOS,
+  toolLogoKey,
+  type ToolLogoMeta,
+  toolLogoMeta,
+} from './tool-logos.ts'
 export { AiProvider, AiButton, useAi, type AskOptions } from './ai-assistant.tsx'
 export {
   assistStore,
@@ -63,7 +73,6 @@ export {
   ROLE_LABEL,
   ROLE_LANDING,
   roleCanSee,
-  useCan,
   useConsoleRole,
   useOptionalConsoleRole,
   useOptionalUser,
@@ -71,6 +80,33 @@ export {
   type ConsoleRole,
   type RoleSource,
 } from './roles.ts'
+/*
+ * Authorization: Kubernetes RBAC asked as the signed-in user. `useCan` also
+ * accepts a persona Capability string (the older role model) — see can.tsx.
+ */
+export {
+  Can,
+  invalidateAccess,
+  useAccessAnswers,
+  useAccessReview,
+  useCan,
+  useItemsByAccess,
+  useNavByAccess,
+  type AccessState,
+  type CanOptions,
+  type CanProps,
+} from './can.tsx'
+export { AccessRequestError, AccessUnknownError, canResource, clusterForCheck, type GvrLike } from './can-batcher.ts'
+export { filterByAccess, filterSectionsByAccess, navItemAllowed, type AccessAnswers, type NavAccess } from './nav-access.ts'
+export {
+  CONSOLE_API_GROUP,
+  CONSOLE_PERMISSIONS,
+  consoleCheck,
+  consoleResourceCatalogue,
+  type AccessCheck,
+  type ConsolePermission,
+  type ConsolePermissionName,
+} from '@adhar/auth'
 export { ErrorBoundary } from './error-boundary.tsx'
 export { PageHeader } from './page-header.tsx'
 export { Markdown } from './assist/markdown.tsx'
@@ -200,6 +236,9 @@ export {
   notificationTone,
   useNotificationFeed,
   useNotifications,
+  useCreateSupportTicket,
+  canOpenSupportTicket,
+  type SupportTicketResult,
   type FeedParams,
   type Notification,
   type NotificationInput,

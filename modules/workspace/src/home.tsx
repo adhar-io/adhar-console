@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
-import { ErrorBoundary, PageHeader, SETTINGS_CATEGORIES } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, ErrorBoundary, PageHeader, SETTINGS_CATEGORIES, useAccessReview } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { Organization } from './views/organization.tsx'
 import { Members } from './views/members.tsx'
@@ -32,7 +32,6 @@ import { BrandingLocale } from './views/branding.tsx'
 import { WorkspaceDefaults } from './views/defaults.tsx'
 import { NotificationRouting } from './views/notification-routing.tsx'
 import { FeatureFlags } from './views/feature-flags.tsx'
-import { rolesHavePermission, useCurrentRoles, type Permission, type Role } from './data/access.ts'
 import { RoleBadge } from './components/role-gate.tsx'
 import { useWorkspaceMe } from './data/client.ts'
 
@@ -73,10 +72,12 @@ interface NavItem {
   label: string
   description?: string
   icon: ReactNode
-  /** Roles allowed to *write* in this section — informational pill. */
-  required?: Role[]
-  /** Permission required to even read this section. Falsy = all signed-in. */
-  readPerm?: Permission
+  /**
+   * The Kubernetes RBAC read this page needs (docs/rbac.md). Only the audit
+   * trail and billing are read-guarded by the BFF; every other page is
+   * readable by any member, with its writes gated inside the page.
+   */
+  read?: 'audit' | 'billing'
 }
 interface Group {
   label: string
@@ -89,72 +90,72 @@ const GROUP_DEFS: Group[] = [
     label: 'Organization',
     caption: 'Identity, people, and access shape',
     items: [
-      { id: 'organization', label: 'General', description: 'Name, domain, region, SSO realm', icon: <IconOrg />, required: ['admin', 'owner'], readPerm: 'org.read' },
-      { id: 'branding', label: 'Branding & locale', description: 'Logo, brand color, timezone', icon: <IconBrush />, required: ['admin', 'owner'], readPerm: 'org.read' },
-      { id: 'members', label: 'Members', description: 'People & lifecycle', icon: <IconUsers />, required: ['admin', 'owner'], readPerm: 'members.read' },
-      { id: 'teams', label: 'Teams', description: 'Group people for access grants', icon: <IconTeam />, required: ['admin', 'owner'], readPerm: 'teams.read' },
-      { id: 'roles', label: 'Roles & permissions', description: 'Built-in + custom RBAC matrix', icon: <IconShield />, required: ['owner'], readPerm: 'roles.read' },
+      { id: 'organization', label: 'General', description: 'Name, domain, region, SSO realm', icon: <IconOrg /> },
+      { id: 'branding', label: 'Branding & locale', description: 'Logo, brand color, timezone', icon: <IconBrush /> },
+      { id: 'members', label: 'Members', description: 'People & lifecycle', icon: <IconUsers /> },
+      { id: 'teams', label: 'Teams', description: 'Group people for access grants', icon: <IconTeam /> },
+      { id: 'roles', label: 'Roles & permissions', description: 'Built-in + custom RBAC matrix', icon: <IconShield /> },
     ],
   },
   {
     label: 'Identity & access',
     caption: 'Authentication & authorization',
     items: [
-      { id: 'sso', label: 'SSO & SCIM', description: 'OIDC / SAML / SCIM provisioning', icon: <IconKey />, required: ['security', 'owner'], readPerm: 'sso.read' },
-      { id: 'mfa', label: 'MFA & sessions', description: 'Factors, step-up, lifetimes', icon: <IconLock />, required: ['security', 'owner'], readPerm: 'mfa.read' },
-      { id: 'ip-allowlist', label: 'IP allowlist', description: 'CIDR-based access control', icon: <IconNetwork />, required: ['security', 'owner'], readPerm: 'ipallow.read' },
+      { id: 'sso', label: 'SSO & SCIM', description: 'OIDC / SAML / SCIM provisioning', icon: <IconKey /> },
+      { id: 'mfa', label: 'MFA & sessions', description: 'Factors, step-up, lifetimes', icon: <IconLock /> },
+      { id: 'ip-allowlist', label: 'IP allowlist', description: 'CIDR-based access control', icon: <IconNetwork /> },
     ],
   },
   {
     label: 'Security & compliance',
     caption: 'Policy, audit, frameworks',
     items: [
-      { id: 'security', label: 'Security policies', description: 'Passwords, signing, encryption', icon: <IconBolt />, required: ['security', 'owner'], readPerm: 'security.read' },
-      { id: 'audit', label: 'Audit log', description: 'Who did what, when, from where', icon: <IconBookOpen />, required: ['admin', 'security', 'owner'], readPerm: 'audit.read' },
-      { id: 'compliance', label: 'Compliance', description: 'SOC 2, ISO, GDPR, HIPAA, PCI', icon: <IconCert />, required: ['security', 'owner'], readPerm: 'compliance.read' },
-      { id: 'approvals', label: 'Approval policies', description: 'Multi-person approval gates', icon: <IconCheckList />, required: ['security', 'owner'], readPerm: 'approvals.read' },
+      { id: 'security', label: 'Security policies', description: 'Passwords, signing, encryption', icon: <IconBolt /> },
+      { id: 'audit', label: 'Audit log', description: 'Who did what, when, from where', icon: <IconBookOpen />, read: 'audit' },
+      { id: 'compliance', label: 'Compliance', description: 'SOC 2, ISO, GDPR, HIPAA, PCI', icon: <IconCert /> },
+      { id: 'approvals', label: 'Approval policies', description: 'Multi-person approval gates', icon: <IconCheckList /> },
     ],
   },
   {
     label: 'Workloads',
     caption: 'Clouds, projects, environments',
     items: [
-      { id: 'clouds', label: 'Cloud providers', description: 'AWS · GCP · Azure · Civo · DO · On-prem', icon: <IconCloud />, required: ['admin', 'security', 'owner'], readPerm: 'integrations.read' },
-      { id: 'projects', label: 'Projects', description: 'Repos, apps, environments', icon: <IconFolder />, required: ['admin', 'owner'], readPerm: 'projects.read' },
-      { id: 'environments', label: 'Environments', description: 'Dev → staging → prod', icon: <IconCloud />, required: ['admin', 'owner'], readPerm: 'environments.read' },
-      { id: 'defaults', label: 'Resource defaults', description: 'What new resources inherit', icon: <IconSliders />, required: ['admin', 'owner'], readPerm: 'org.read' },
+      { id: 'clouds', label: 'Cloud providers', description: 'AWS · GCP · Azure · Civo · DO · On-prem', icon: <IconCloud /> },
+      { id: 'projects', label: 'Projects', description: 'Repos, apps, environments', icon: <IconFolder /> },
+      { id: 'environments', label: 'Environments', description: 'Dev → staging → prod', icon: <IconCloud /> },
+      { id: 'defaults', label: 'Resource defaults', description: 'What new resources inherit', icon: <IconSliders /> },
     ],
   },
   {
     label: 'Connectivity',
     caption: 'Tools, tokens, events',
     items: [
-      { id: 'integrations', label: 'Integrations', description: 'Backing tool wiring', icon: <IconPlug />, required: ['admin', 'owner'], readPerm: 'integrations.read' },
-      { id: 'tokens', label: 'API tokens', description: 'Org tokens for CI', icon: <IconTokens />, required: ['admin', 'owner'], readPerm: 'tokens.read' },
-      { id: 'webhooks', label: 'Webhooks', description: 'Outbound events', icon: <IconWebhook />, required: ['admin', 'owner'], readPerm: 'webhooks.read' },
-      { id: 'notifications', label: 'Notification routing', description: 'Where org events go', icon: <IconBell />, required: ['admin', 'owner'], readPerm: 'integrations.read' },
+      { id: 'integrations', label: 'Integrations', description: 'Backing tool wiring', icon: <IconPlug /> },
+      { id: 'tokens', label: 'API tokens', description: 'Org tokens for CI', icon: <IconTokens /> },
+      { id: 'webhooks', label: 'Webhooks', description: 'Outbound events', icon: <IconWebhook /> },
+      { id: 'notifications', label: 'Notification routing', description: 'Where org events go', icon: <IconBell /> },
     ],
   },
   {
     label: 'Billing & finance',
     caption: 'Plan, invoices, costs',
     items: [
-      { id: 'plan', label: 'Plan', description: 'Tier, seats, renewal', icon: <IconCreditCard />, required: ['billing', 'owner'], readPerm: 'billing.read' },
-      { id: 'usage', label: 'Usage & quotas', description: 'Real-time consumption', icon: <IconGauge />, readPerm: 'billing.read' },
-      { id: 'payments', label: 'Payment methods', description: 'Card · ACH · invoice', icon: <IconCard />, required: ['billing', 'owner'], readPerm: 'payments.read' },
-      { id: 'invoices', label: 'Invoices', description: 'Statements + line items', icon: <IconInvoice />, required: ['billing', 'finance', 'owner'], readPerm: 'invoices.read' },
-      { id: 'cost-centers', label: 'Cost centers', description: 'Chargeback structure', icon: <IconBuilding />, required: ['billing', 'finance', 'owner'], readPerm: 'costcenters.read' },
-      { id: 'budgets', label: 'Budgets', description: 'Caps, alerts, forecasts', icon: <IconTarget />, required: ['billing', 'finance', 'owner'], readPerm: 'budgets.read' },
-      { id: 'allocation', label: 'Cost allocation', description: 'Spend by project / team / cluster', icon: <IconPieChart />, readPerm: 'allocation.read' },
+      { id: 'plan', label: 'Plan', description: 'Tier, seats, renewal', icon: <IconCreditCard />, read: 'billing' },
+      { id: 'usage', label: 'Usage & quotas', description: 'Real-time consumption', icon: <IconGauge />, read: 'billing' },
+      { id: 'payments', label: 'Payment methods', description: 'Card · ACH · invoice', icon: <IconCard />, read: 'billing' },
+      { id: 'invoices', label: 'Invoices', description: 'Statements + line items', icon: <IconInvoice />, read: 'billing' },
+      { id: 'cost-centers', label: 'Cost centers', description: 'Chargeback structure', icon: <IconBuilding />, read: 'billing' },
+      { id: 'budgets', label: 'Budgets', description: 'Caps, alerts, forecasts', icon: <IconTarget />, read: 'billing' },
+      { id: 'allocation', label: 'Cost allocation', description: 'Spend by project / team / cluster', icon: <IconPieChart />, read: 'billing' },
     ],
   },
   {
     label: 'Preferences',
     caption: 'Previews, appearance, and the danger zone',
     items: [
-      { id: 'features', label: 'Feature previews', description: 'Opt-in console capabilities', icon: <IconFlag />, required: ['admin', 'owner'], readPerm: 'org.read' },
+      { id: 'features', label: 'Feature previews', description: 'Opt-in console capabilities', icon: <IconFlag /> },
       { id: 'theming', label: 'Theming', description: 'Color presets', icon: <IconPalette /> },
-      { id: 'danger', label: 'Delete org', description: 'Irreversible', icon: <IconAlert />, required: ['owner'] },
+      { id: 'danger', label: 'Delete org', description: 'Irreversible', icon: <IconAlert /> },
     ],
   },
 ]
@@ -180,8 +181,9 @@ function coerce(section?: string): Section {
 
 export default function WorkspaceHome({ section: urlSection }: { section?: string } = {}) {
   const [section, setSection] = useState<Section>(() => coerce(urlSection))
-  const roles = useCurrentRoles()
   const me = useWorkspaceMe()
+  const auditRead = useAccessReview(CONSOLE_PERMISSIONS.auditView)
+  const billingRead = useAccessReview(CONSOLE_PERMISSIONS.billingView)
   // useRouter({ warn: false }) is null when this remote does not share the
   // host's router; fall back to a plain URL change the host router hears.
   const router = useRouter({ warn: false })
@@ -191,15 +193,17 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
   }, [urlSection])
 
   // Only what this person may read; a category with nothing readable is
-  // hidden. While the role is still loading everything shows, rather than
-  // flashing a single category and jumping when the role arrives.
+  // hidden. A page drops out only once its read is KNOWN denied — while the
+  // answer loads everything shows, rather than flashing and jumping.
+  const auditDenied = auditRead.results.some((r) => r === false)
+  const billingDenied = billingRead.results.some((r) => r === false)
   const groups = useMemo(
     () =>
-      me.isLoading
-        ? GROUPS
-        : GROUPS.map((g) => ({ ...g, items: g.items.filter((it) => !it.readPerm || rolesHavePermission(roles, it.readPerm)) }))
-          .filter((g) => g.items.length > 0),
-    [roles, me.isLoading],
+      GROUPS.map((g) => ({
+        ...g,
+        items: g.items.filter((it) => !(it.read === 'audit' && auditDenied) && !(it.read === 'billing' && billingDenied)),
+      })).filter((g) => g.items.length > 0),
+    [auditDenied, billingDenied],
   )
   const activeGroup = groups.find((g) => g.items.some((i) => i.id === section)) ?? groups[0]
   const activeItem = activeGroup?.items.find((i) => i.id === section) ?? activeGroup?.items[0]
@@ -219,13 +223,9 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
     <div className="space-y-5">
       <PageHeader
         title={activeGroup?.label ?? 'Workspace settings'}
-        badge={
-          <div className="inline-flex flex-wrap items-center gap-1">
-            {roles.map((r) => (
-              <RoleBadge key={r} role={r} />
-            ))}
-          </div>
-        }
+        // The member's organisation role (what they were invited as). What
+        // they may DO is Kubernetes RBAC, asked per action on each page.
+        badge={me.data?.role ? <RoleBadge role={me.data.role} /> : undefined}
       />
 
       {activeGroup?.caption ? <p className="-mt-5 text-[13px] text-content-muted">{activeGroup.caption}</p> : null}

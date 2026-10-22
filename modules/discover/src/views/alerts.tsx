@@ -53,6 +53,7 @@ import {
   Segmented,
   StatTile,
 } from './discover-ui.tsx'
+import { safeExternalUrl } from '../data/safe-url.ts'
 
 /**
  * Alerts — Prometheus rules + Alertmanager, in one place.
@@ -401,8 +402,9 @@ function AlertDrawer({
   const toast = useToast()
   if (!a) return null
   const rule = findRule(rules, a)
-  const runbook = a.annotations.runbook_url ?? a.annotations.runbook
-  const dashboard = a.annotations.dashboard_url ?? a.annotations.dashboard
+  // Annotations are free text written by whoever authored the rule.
+  const runbook = safeExternalUrl(a.annotations.runbook_url ?? a.annotations.runbook)
+  const dashboard = safeExternalUrl(a.annotations.dashboard_url ?? a.annotations.dashboard)
   const silencedBy = silences.filter((s) => a.silencedBy.includes(s.id))
   const annotations = Object.entries(a.annotations).filter(([k]) => !['summary', 'description', 'message'].includes(k))
   return (
@@ -431,12 +433,12 @@ function AlertDrawer({
         {runbook || dashboard ? (
           <div className="flex flex-wrap gap-2">
             {runbook ? (
-              <a href={runbook} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content hover:border-brand-300">
+              <a href={runbook} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content hover:border-brand-300 dark:hover:border-brand-500/30">
                 Runbook <IconExternal />
               </a>
             ) : null}
             {dashboard ? (
-              <a href={dashboard} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content hover:border-brand-300">
+              <a href={dashboard} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content hover:border-brand-300 dark:hover:border-brand-500/30">
                 Dashboard <IconExternal />
               </a>
             ) : null}
@@ -668,7 +670,7 @@ function RulesTab() {
                       <span>for {r.duration ? fmtDur(r.duration) : '0s'}</span>
                       {r.alerts?.length ? <span>{r.alerts.length} active instance{r.alerts.length === 1 ? '' : 's'}</span> : null}
                       {r.evaluationTime != null ? <span>eval {(r.evaluationTime * 1000).toFixed(1)} ms</span> : null}
-                      {r.annotations?.runbook_url ? <a href={r.annotations.runbook_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-brand-700 hover:underline dark:text-brand-300">runbook <IconExternal /></a> : null}
+                      {safeExternalUrl(r.annotations?.runbook_url) ? <a href={safeExternalUrl(r.annotations?.runbook_url)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-brand-700 hover:underline dark:text-brand-300">runbook <IconExternal /></a> : null}
                     </div>
                     {r.annotations?.summary || r.annotations?.description ? <p className="text-[12px] text-content-muted">{r.annotations.summary ?? r.annotations.description}</p> : null}
                     {r.lastError ? <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">{r.lastError}</div> : null}

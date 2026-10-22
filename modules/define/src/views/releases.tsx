@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, type Column, DataTable, EmptyState, Field, Input, Markdown, Modal, Select, StatusBadge, type StatusKind, Tabs, Textarea, useToast } from '@adhar/shell-ui'
 import type { plane } from '@adhar/api-clients'
 import { useLabels, useModules, useProject } from '../data/plane.ts'
@@ -7,6 +8,7 @@ import { newId, storeError, toReleases, useIssuePoints, usePatchRelease, useProj
 import { type Release, releaseBurndown, releaseHealth, type ReleaseHealth, releaseNotes, releaseProgress } from '../data/planning-releases.ts'
 import { dayKey, startOfDay, toMs, wallItems, wallNow, type WorkItem } from '../data/planning-model.ts'
 import { planningHref, usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
+import { safeUrl } from '../data/work-text.ts'
 import { ItemList, PickItemsModal } from '../components/cycle-detail.tsx'
 import { DayLineChart, fmtDate, fmtRange, IDEAL_COLOR, Loading, Meter, Notice, ProblemState, SectionTitle, SidePanel, Stat, usePeople, useSeriesColor } from '../components/planning-ui.tsx'
 
@@ -48,7 +50,7 @@ export function Releases({ projectId }: { projectId?: string }) {
     }
   }, [all, items, notify])
 
-  if (!projectId) return <EmptyState title="Pick a project" />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" />
   if (docs.isLoading) return <Loading label="Loading releases…" />
   if (docs.isError) return <ProblemState error={docs.error} onRetry={() => docs.refetch()} />
 
@@ -94,10 +96,10 @@ export function Releases({ projectId }: { projectId?: string }) {
           onChange={(e) => setStatus(e.target.value)}
           options={[{ value: 'open', label: 'Unreleased' }, { value: 'released', label: 'Released' }, { value: 'archived', label: 'Archived' }, { value: 'all', label: 'All' }]}
         />
-        <Button variant="primary" size="sm" onClick={() => setCreating(true)}>New release</Button>
+        <Button variant="primary" onClick={() => setCreating(true)}>New release</Button>
       </div>
       {all.length === 0
-        ? <EmptyState title="No releases yet" description="A release groups the work items that ship together, tracks its date and generates release notes." action={<Button variant="primary" size="sm" onClick={() => setCreating(true)}>New release</Button>} />
+        ? <EmptyState icon={<EmptyIcon name="release" />} title="No releases yet" description="A release groups the work items that ship together, tracks its date and generates release notes." action={<Button variant="primary" size="sm" onClick={() => setCreating(true)}>New release</Button>} />
         : <DataTable tableId="define-releases" columns={columns} rows={rows} rowKey={(r) => r.id} onRowClick={(r) => params({ release: r.id }, { push: true })} empty={<EmptyState compact title="No releases in this view" />} />}
       {creating ? <ReleaseForm projectId={projectId} onClose={() => setCreating(false)} onSaved={(id) => params({ release: id }, { push: true })} /> : null}
       {open ? <ReleaseDetail projectId={projectId} release={open} items={items} plan={issues.data ?? []} onClose={() => params({ release: undefined })} /> : null}
@@ -400,7 +402,7 @@ function DeployLink({ release, onSave }: { release: Release; onSave(d: Release['
         <Field label="Kargo freight"><Input value={freight} onChange={(e) => setFreight(e.target.value)} placeholder="freight name or alias" /></Field>
         <Field label="Link" hint="Any URL — a Deliver page, a changelog, a tag."><Input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" /></Field>
         <div className="flex items-center justify-end gap-2 sm:col-span-2">
-          {release.deliver?.url ? <a href={release.deliver.url} target="_blank" rel="noreferrer" className="text-[12px] text-brand-700 hover:underline dark:text-brand-300">Open link ↗</a> : null}
+          {release.deliver?.url && safeUrl(release.deliver.url, 'href') ? <a href={safeUrl(release.deliver.url, 'href')} target="_blank" rel="noreferrer" className="text-[12px] text-brand-700 hover:underline dark:text-brand-300">Open link ↗</a> : null}
           {release.deliver?.app ? <a href={planningHref('apps', {}, 'deliver')} className="text-[12px] text-brand-700 hover:underline dark:text-brand-300">Open app in Deliver</a> : null}
           <Button type="submit" size="sm" variant="primary">Save link</Button>
         </div>

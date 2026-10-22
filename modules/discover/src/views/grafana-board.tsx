@@ -101,12 +101,27 @@ export function GrafanaBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per board
   }, [d?.uid])
 
-  // Auto-refresh: bump the tick, which re-resolves `now` and refetches.
+  // Auto-refresh: bump the tick, which re-resolves `now` and refetches. Every
+  // tick re-queries every panel, so a background tab skips ticks and catches
+  // up with one refresh when it is shown again.
   useEffect(() => {
     const ms = parseDuration(refresh)
     if (!ms || ms < 5_000) return
-    const id = setInterval(() => setTick((t) => t + 1), ms)
-    return () => clearInterval(id)
+    let missed = false
+    const id = setInterval(() => {
+      if (document.hidden) missed = true
+      else setTick((t) => t + 1)
+    }, ms)
+    const onVisible = () => {
+      if (document.hidden || !missed) return
+      missed = false
+      setTick((t) => t + 1)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [refresh])
 
   const effFrom = from || d?.time?.from || 'now-6h'
@@ -354,7 +369,7 @@ function VariablePicker({ v, selected, onChange }: { v: BoardVariable; selected:
       <span className="flex items-center gap-1">
         {showLabel ? label : null}
         {v.loading ? <Spinner size={10} /> : null}
-        {v.error ? <span className="text-rose-600" title={(v.error as Error).message}>⚠ query failed</span> : null}
+        {v.error ? <span className="text-rose-600 dark:text-rose-400" title={(v.error as Error).message}>⚠ query failed</span> : null}
       </span>
       <select
         value={selected[0] ?? ''}
@@ -409,7 +424,7 @@ function MultiPicker({
       <span className="flex items-center gap-1">
         {label}
         {loading ? <Spinner size={10} /> : null}
-        {error ? <span className="text-rose-600">⚠ query failed</span> : null}
+        {error ? <span className="text-rose-600 dark:text-rose-400">⚠ query failed</span> : null}
       </span>
       <button
         type="button"

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Field, Modal, Textarea, useToast } from '@adhar/shell-ui';
+import { Button, CONSOLE_PERMISSIONS, Field, Modal, Textarea, useAccessReview, useToast } from '@adhar/shell-ui';
 import { cn } from '@adhar/utils';
 import { DrawerSection } from './resource-drawer.tsx';
 
@@ -9,7 +9,8 @@ import { DrawerSection } from './resource-drawer.tsx';
  *
  * The console server reads the run (as the user) and works out the gate state
  * from what the platform published; approving or rejecting goes back through
- * the server (`POST /api/security/gate`), which checks the reviewer role and
+ * the server (`POST /api/security/gate`), which checks `approve scan-waivers`
+ * (CONSOLE_PERMISSIONS.waiverApprove — the same SSAR the buttons ask) and
  * writes the decision annotation as the user. The annotation's name lives on
  * the server only. Renders nothing for a run without scan results or a gate.
  */
@@ -54,6 +55,9 @@ export function ScanGateSection({ namespace, name, running }: { namespace?: stri
   const qc = useQueryClient();
   const [decision, setDecision] = useState<'approved' | 'rejected' | null>(null);
   const [comment, setComment] = useState('');
+  // Approve/Reject are hidden unless RBAC allows the decision (and while asking).
+  const approval = useAccessReview(CONSOLE_PERMISSIONS.waiverApprove);
+  const canApprove = approval.allowed;
   const key = ['security', 'gates', namespace ?? '', name];
   const gate = useQuery({
     queryKey: key,
@@ -79,7 +83,6 @@ export function ScanGateSection({ namespace, name, running }: { namespace?: stri
 
   const g = gate.data?.items?.[0];
   if (!g || (g.state === 'none' && !g.summary)) return null;
-  const canApprove = Boolean(gate.data?.me?.canApprove);
   const t = LABEL[g.state];
 
   const submit = async () => {
@@ -128,15 +131,15 @@ export function ScanGateSection({ namespace, name, running }: { namespace?: stri
             </p>
           )
           : null}
-        {g.state === 'awaiting' && !canApprove
-          ? <p className='text-content-subtle'>Waiting for a security reviewer. Approving needs the security-reviewer, platform-engineer or platform-admin role.</p>
+        {g.state === 'awaiting' && !approval.loading && !canApprove
+          ? <p className='text-content-subtle'>Waiting for a security reviewer — deciding needs <code>approve scan-waivers.console.adhar.io</code>.</p>
           : null}
         <a href='/deliver?section=scans&tab=review' className='inline-block font-medium text-brand-700 hover:underline dark:text-brand-300'>
           Open the security review queue →
         </a>
       </div>
       <Modal
-        open={decision !== null}
+        open={decision !== null && canApprove}
         onClose={() => setDecision(null)}
         title={decision === 'approved' ? 'Approve scan gate' : 'Reject scan gate'}
         description={`${namespace}/${name}`}

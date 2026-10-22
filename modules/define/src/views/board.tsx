@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, EmptyState, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -121,7 +122,7 @@ export function Board({ projectId }: { projectId?: string }) {
 
   useHotkeys({ c: () => setCreateIn({}), '/': () => queryInput.current?.focus() }, !!projectId)
 
-  if (!projectId) return <EmptyState title="Pick a project" description="Choose one from the project picker above to see its board." />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" description="Choose one from the project picker above to see its board." />
 
   const toggleCollapse = (id: string) => {
     const next = collapsed.includes(id) ? collapsed.filter((x) => x !== id) : [...collapsed, id]
@@ -212,7 +213,7 @@ export function Board({ projectId }: { projectId?: string }) {
       {firstError && !scope.all.length ? <PlaneErrorState error={firstError.error} /> : scope.isLoading && !scope.all.length ? (
         <div className="flex gap-3 overflow-hidden">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-96 w-72 shrink-0 animate-pulse rounded-xl bg-surface-sunken/70" />)}</div>
       ) : !columns.length ? (
-        <EmptyState title="No workflow states" description="This project has no states in Plane yet — add them in the project's settings." />
+        <EmptyState icon={<EmptyIcon name="board" />} title="No workflow states" description="This project has no states in Plane yet — add them in the project's settings." />
       ) : (
         <div className="-mx-1 overflow-x-auto px-1 pb-3" role="region" aria-label="Board">
           <div className="inline-flex min-w-full flex-col gap-2">

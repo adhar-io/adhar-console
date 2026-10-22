@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, Modal } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, DataTable, EmptyState, Modal, useCan, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
@@ -17,7 +17,6 @@ import {
   TextField,
   ViewShell,
 } from '../components/section-shell.tsx'
-import { RequirePermission } from '../components/role-gate.tsx'
 
 const SCOPE_OPTIONS = [
   'projects:read',
@@ -38,6 +37,9 @@ const EXPIRY_OPTIONS = [
 export function Tokens() {
   const q = useApiTokens()
   const revoke = useRevokeApiToken()
+  const toast = useToast()
+  const canCreate = useCan(CONSOLE_PERMISSIONS.tokensCreate)
+  const canRevoke = useCan(CONSOLE_PERMISSIONS.tokensRevoke)
   const [createOpen, setCreateOpen] = useState(false)
   const [minted, setMinted] = useState<{ token: string; item: WsApiToken } | null>(null)
   const [pendingRevoke, setPendingRevoke] = useState<WsApiToken | null>(null)
@@ -51,13 +53,13 @@ export function Tokens() {
     <ViewShell
       title="API tokens"
       description="Org-scoped tokens for CI runners, CLIs, and service-to-service calls. Only a SHA-256 hash is stored — the secret is shown once."
-      required={['admin', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.tokensCreate}
       actions={
-        <RequirePermission perm="tokens.write" required={['admin', 'owner']} readOnly>
+        canCreate ? (
           <PrimaryButton onClick={() => setCreateOpen(true)}>
             <IconPlus /> New token
           </PrimaryButton>
-        </RequirePermission>
+        ) : null
       }
     >
       {q.isError ? (
@@ -83,11 +85,6 @@ export function Tokens() {
           </div>
 
           <SettingsCard title="Tokens">
-            {revoke.isError ? (
-              <p className="mb-3 text-[12px] text-rose-700 dark:text-rose-400">
-                {(revoke.error as Error)?.message}
-              </p>
-            ) : null}
             <DataTable
               tableId="workspace.tokens"
               features
@@ -97,7 +94,9 @@ export function Tokens() {
               empty={
                 <EmptyState
                   title="No API tokens"
-                  description="Generate one to let CI runners or CLIs call the Adhar API."
+                  description={canCreate
+                    ? 'Generate one to let CI runners or CLIs call the Adhar API.'
+                    : 'Ask a workspace admin to issue a token for CI runners or CLIs.'}
                 />
               }
               columns={[
@@ -152,15 +151,14 @@ export function Tokens() {
                 {
                   key: 'actions',
                   header: '',
-                  cell: (t) => (
-                    <RequirePermission perm="tokens.write" required={['admin', 'owner']} fallback={<span />}>
+                  cell: (t) =>
+                    canRevoke ? (
                       <div className="flex justify-end">
                         <SecondaryButton tone="rose" onClick={() => setPendingRevoke(t)}>
                           Revoke
                         </SecondaryButton>
                       </div>
-                    </RequirePermission>
-                  ),
+                    ) : null,
                 },
               ]}
             />
@@ -183,7 +181,14 @@ export function Tokens() {
         onCancel={() => setPendingRevoke(null)}
         onConfirm={() => {
           if (!pendingRevoke) return
-          revoke.mutate(pendingRevoke.id, { onSuccess: () => setPendingRevoke(null) })
+          const name = pendingRevoke.name
+          revoke.mutate(pendingRevoke.id, {
+            onSuccess: () => {
+              setPendingRevoke(null)
+              toast.success(`Revoked ${name}`)
+            },
+            onError: (e) => toast.error(`Could not revoke ${name}`, { description: (e as Error)?.message }),
+          })
         }}
       />
     </ViewShell>

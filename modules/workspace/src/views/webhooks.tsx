@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, DataTable, EmptyState, Modal, StatusBadge, useCan, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { workspace } from '@adhar/api-clients'
 import {
@@ -19,8 +19,17 @@ import {
   ViewShell,
 } from '../components/section-shell.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
+import { StoreErrorBlock } from '../components/async-states.tsx'
 
 type Webhook = workspace.Webhook
+
+/**
+ * Webhooks are docStore writes (`/api/store/workspace.webhook`; a test also
+ * appends `/api/store/workspace.webhook-delivery`) with no dedicated catalogue
+ * entry — organisation settings, so create/edit/delete/test all need
+ * `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 /** Selectable outbound events. */
 const EVENT_CATALOG: { id: string; label: string }[] = [
@@ -35,13 +44,14 @@ const EVENT_CATALOG: { id: string; label: string }[] = [
 ]
 
 export function Webhooks() {
+  const toast = useToast()
   const q = useWebhooks()
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<Webhook | null>(null)
-  const [testResult, setTestResult] = useState<{ id: string; status: string; at: string } | null>(null)
 
   const del = useDeleteWebhook()
   const test = useTestWebhook()
+  const canWrite = useCan(WRITE)
 
   const all = q.data ?? []
   const active = all.filter((w) => w.active).length
@@ -56,9 +66,12 @@ export function Webhooks() {
     setEditorOpen(true)
   }
   const runTest = (w: Webhook) => {
-    setTestResult(null)
     test.mutate(w.id, {
-      onSuccess: (d) => setTestResult({ id: w.id, status: d.status, at: d.at }),
+      onSuccess: (d) =>
+        d.status === 'success'
+          ? toast.success('Test event delivered', { description: w.url })
+          : toast.error('Test delivery failed', { description: w.url }),
+      onError: (e) => toast.error('Could not send the test delivery', { description: (e as Error)?.message }),
     })
   }
 
@@ -66,129 +79,132 @@ export function Webhooks() {
     <ViewShell
       title="Webhooks"
       description="Outbound event delivery to Slack, PagerDuty, or custom endpoints. Every payload is signed with a shared secret (HMAC-SHA256)."
-      required={['admin', 'owner']}
+      writeCheck={WRITE}
       actions={
-        <RequirePermission perm="webhooks.write" required={['admin', 'owner']} readOnly>
+        <RequirePermission check={WRITE}>
           <PrimaryButton onClick={openCreate}>
             <IconPlus /> Add webhook
           </PrimaryButton>
         </RequirePermission>
       }
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Webhooks" value={all.length} />
-        <StatTile label="Active" value={active} tone="good" />
-        <StatTile label="Last delivery failed" value={failed} tone={failed ? 'warn' : 'good'} />
-        <StatTile label="Signing" value="HMAC-SHA256" />
-      </div>
-
-      <SettingsCard title="Endpoints">
-        <DataTable
-          loading={q.isLoading}
-          rows={all}
-          rowKey={(w) => w.id}
-          empty={<EmptyState title="No webhooks configured" />}
-          columns={[
-            {
-              key: 'url',
-              header: 'URL',
-              cell: (w) => (
-                <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] text-content">
-                  {w.url}
-                </code>
-              ),
-            },
-            {
-              key: 'events',
-              header: 'Events',
-              cell: (w) => (
-                <div className="flex flex-wrap gap-1">
-                  {w.events.map((e) => (
-                    <code
-                      key={e}
-                      className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted"
-                    >
-                      {e}
-                    </code>
-                  ))}
-                </div>
-              ),
-            },
-            {
-              key: 'active',
-              header: 'State',
-              cell: (w) => (
-                <StatusBadge kind={w.active ? 'healthy' : 'unknown'}>
-                  {w.active ? 'active' : 'disabled'}
-                </StatusBadge>
-              ),
-            },
-            {
-              key: 'last',
-              header: 'Last delivery',
-              cell: (w) =>
-                w.lastDeliveryAt ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-content-muted">
-                      {formatRelative(w.lastDeliveryAt)}
-                    </span>
-                    <StatusBadge kind={w.lastDeliveryStatus === 'success' ? 'healthy' : 'failed'}>
-                      {w.lastDeliveryStatus ?? '—'}
-                    </StatusBadge>
-                  </div>
-                ) : (
-                  '—'
-                ),
-            },
-            {
-              key: 'actions',
-              header: '',
-              cell: (w) => (
-                <RequirePermission perm="webhooks.write" required={['admin', 'owner']} readOnly>
-                  <div className="flex justify-end gap-1.5">
-                    <SecondaryButton
-                      disabled={test.isPending && test.variables === w.id}
-                      onClick={() => runTest(w)}
-                    >
-                      {test.isPending && test.variables === w.id ? 'Testing…' : 'Test'}
-                    </SecondaryButton>
-                    <SecondaryButton onClick={() => openEdit(w)}>Edit</SecondaryButton>
-                    <SecondaryButton
-                      tone="rose"
-                      disabled={del.isPending && del.variables === w.id}
-                      onClick={() => del.mutate(w.id)}
-                    >
-                      Delete
-                    </SecondaryButton>
-                  </div>
-                </RequirePermission>
-              ),
-            },
-          ]}
-        />
-        {testResult ? (
-          <div
-            className={cn(
-              'mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px]',
-              testResult.status === 'success'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                : 'border-rose-200 bg-rose-50 text-rose-800',
-            )}
-          >
-            <StatusBadge kind={testResult.status === 'success' ? 'healthy' : 'failed'}>
-              {testResult.status}
-            </StatusBadge>
-            {testResult.status === 'success' ? 'Test event delivered' : 'Test delivery failed'} {formatRelative(testResult.at)} ·{' '}
-            <span className="font-mono">
-              {all.find((w) => w.id === testResult.id)?.url ?? testResult.id}
-            </span>
+      {/* A store failure is not "0 webhooks" — say so instead of zeroed tiles. */}
+      {q.isError ? (
+        <StoreErrorBlock error={q.error as Error} onRetry={() => q.refetch()} />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile label="Webhooks" value={q.isLoading ? '…' : all.length} />
+            <StatTile label="Active" value={q.isLoading ? '…' : active} tone="good" />
+            <StatTile label="Last delivery failed" value={q.isLoading ? '…' : failed} tone={failed ? 'warn' : 'good'} />
+            <StatTile label="Signing" value="HMAC" hint="SHA-256 shared secret" />
           </div>
-        ) : null}
-      </SettingsCard>
 
-      <RecentDeliveries webhooks={all} />
+          <SettingsCard title="Endpoints">
+            <DataTable
+              loading={q.isLoading}
+              rows={all}
+              rowKey={(w) => w.id}
+              empty={
+                <EmptyState
+                  title="No webhooks configured"
+                  description={
+                    canWrite
+                      ? 'Add an endpoint to deliver signed events to Slack, PagerDuty, or your own service.'
+                      : 'Ask a workspace admin to add an endpoint for outbound events.'
+                  }
+                />
+              }
+              columns={[
+                {
+                  key: 'url',
+                  header: 'URL',
+                  cell: (w) => (
+                    <code
+                      className="block max-w-[320px] truncate rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px] text-content"
+                      title={w.url}
+                    >
+                      {w.url}
+                    </code>
+                  ),
+                },
+                {
+                  key: 'events',
+                  header: 'Events',
+                  cell: (w) => (
+                    <div className="flex flex-wrap gap-1">
+                      {w.events.map((e) => (
+                        <code
+                          key={e}
+                          className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted"
+                        >
+                          {e}
+                        </code>
+                      ))}
+                    </div>
+                  ),
+                },
+                {
+                  key: 'active',
+                  header: 'State',
+                  cell: (w) => (
+                    <StatusBadge kind={w.active ? 'healthy' : 'unknown'}>
+                      {w.active ? 'active' : 'disabled'}
+                    </StatusBadge>
+                  ),
+                },
+                {
+                  key: 'last',
+                  header: 'Last delivery',
+                  cell: (w) =>
+                    w.lastDeliveryAt ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-content-muted">
+                          {formatRelative(w.lastDeliveryAt)}
+                        </span>
+                        <StatusBadge kind={w.lastDeliveryStatus === 'success' ? 'healthy' : 'failed'}>
+                          {w.lastDeliveryStatus ?? '—'}
+                        </StatusBadge>
+                      </div>
+                    ) : (
+                      '—'
+                    ),
+                },
+                {
+                  key: 'actions',
+                  header: '',
+                  cell: (w) => (
+                    <RequirePermission check={WRITE}>
+                      <div className="flex justify-end gap-1.5">
+                        <SecondaryButton
+                          disabled={test.isPending && test.variables === w.id}
+                          onClick={() => runTest(w)}
+                        >
+                          {test.isPending && test.variables === w.id ? 'Testing…' : 'Test'}
+                        </SecondaryButton>
+                        <SecondaryButton onClick={() => openEdit(w)}>Edit</SecondaryButton>
+                        <SecondaryButton
+                          tone="rose"
+                          disabled={del.isPending && del.variables === w.id}
+                          onClick={() => del.mutate(w.id, { onError: (e) => toast.error('Could not delete the webhook', { description: (e as Error)?.message }) })}
+                        >
+                          Delete
+                        </SecondaryButton>
+                      </div>
+                    </RequirePermission>
+                  ),
+                },
+              ]}
+            />
+          </SettingsCard>
 
-      <WebhookEditor open={editorOpen} initial={editing} onClose={() => setEditorOpen(false)} />
+          <RecentDeliveries webhooks={all} />
+        </>
+      )}
+
+      {canWrite ? (
+        <WebhookEditor open={editorOpen} initial={editing} onClose={() => setEditorOpen(false)} />
+      ) : null}
     </ViewShell>
   )
 }
@@ -210,7 +226,8 @@ function RecentDeliveries({ webhooks }: { webhooks: Webhook[] }) {
           <select
             value={active ?? ''}
             onChange={(e) => setSelected(e.target.value)}
-            className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content shadow-sm focus:border-brand-400 focus:outline-none"
+            aria-label="Webhook"
+            className="h-8 w-full max-w-[260px] truncate rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content shadow-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
           >
             {webhooks.map((w) => (
               <option key={w.id} value={w.id}>
@@ -224,7 +241,7 @@ function RecentDeliveries({ webhooks }: { webhooks: Webhook[] }) {
       <DataTable
         rows={rows}
         rowKey={(d) => d.id}
-        empty={<EmptyState title="No deliveries yet" description="Send a test event to see delivery attempts here." />}
+        empty={<EmptyState title="No deliveries yet" description="Delivery attempts for the selected endpoint appear here, including test events." />}
         columns={[
           {
             key: 'event',
@@ -265,6 +282,7 @@ function WebhookEditor({
   onClose(): void
 }) {
   const save = useSaveWebhook()
+  const toast = useToast()
   const [url, setUrl] = useState('')
   const [events, setEvents] = useState<Set<string>>(new Set())
   const [activeState, setActiveState] = useState(true)
@@ -302,7 +320,13 @@ function WebhookEditor({
           secret: secret.trim() || undefined,
         },
       },
-      { onSuccess: onClose },
+      {
+        onSuccess: () => {
+          toast.success(initial ? 'Webhook saved' : 'Webhook created')
+          onClose()
+        },
+        onError: (e) => toast.error('Could not save the webhook', { description: (e as Error)?.message }),
+      },
     )
 
   return (
@@ -327,7 +351,7 @@ function WebhookEditor({
           <span className="mb-1 block text-xs font-medium text-content">Payload URL</span>
           <TextField type="url" value={url} onChange={setUrl} placeholder="https://hooks.example.com/…" mono />
           {url && !validUrl ? (
-            <span className="mt-1 block text-[11px] text-rose-600">Must be a valid http(s) URL.</span>
+            <span className="mt-1 block text-[11px] text-rose-600 dark:text-rose-400">Must be a valid http(s) URL.</span>
           ) : null}
         </label>
 
@@ -342,7 +366,7 @@ function WebhookEditor({
                   type="button"
                   onClick={() => toggleEvent(e.id)}
                   className={cn(
-                    'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors',
+                    'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
                     on
                       ? 'border-brand-300 bg-brand-50 text-brand-900 dark:border-brand-500/40 dark:bg-brand-500/15 dark:text-brand-200'
                       : 'border-edge-default bg-surface-raised text-content-muted hover:bg-surface-sunken',
@@ -390,11 +414,6 @@ function WebhookEditor({
           description="Deliver events to this endpoint."
         />
 
-        {save.isError ? (
-          <p className="text-[12px] text-rose-700">
-            {(save.error as Error)?.message ?? 'Could not save the webhook.'}
-          </p>
-        ) : null}
       </div>
     </Modal>
   )

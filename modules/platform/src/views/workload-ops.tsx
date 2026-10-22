@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Spinner, StatusBadge, useLiveRefetch } from '@adhar/shell-ui'
+import { Button, canResource, Spinner, StatusBadge, useCan, useLiveRefetch, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
 
 /**
  * Workload operations — scale, rollout restart, pause/resume — OpenShift-style.
@@ -95,11 +93,12 @@ export function WorkloadOpsPanel({
     metadata: { namespace?: string; name?: string; ownerReferences?: OwnerRef[] }
   }
 }) {
+  const { cluster } = useActiveCluster()
   const namespace = pod.metadata.namespace ?? 'default'
   const ctrl = controllerRef(pod.metadata.ownerReferences)
 
   const resolveQ = useQuery<Target | null>({
-    queryKey: ['k8s', 'workload-target', namespace, ctrl?.kind, ctrl?.name],
+    queryKey: ['k8s', 'workload-target', namespace, ctrl?.kind, ctrl?.name, cluster],
     enabled: Boolean(ctrl),
     queryFn: async () => {
       if (!ctrl) return null
@@ -109,7 +108,7 @@ export function WorkloadOpsPanel({
       // scale/rollout act on the thing users actually manage.
       if (kind === 'ReplicaSet') {
         const rs = (await client.getGeneric(
-          LOCAL_CLUSTER,
+          cluster,
           GVRS.replicasets,
           namespace,
           name,
@@ -188,21 +187,25 @@ function WorkloadOps({
   showOwner?: boolean
   showStatus?: boolean
 }) {
+  const { cluster } = useActiveCluster()
   const { kind, name, gvr } = target
   const qc = useQueryClient()
-  const canScale = useHasK8sPermission('workloads.scale')
-  const canWrite = useHasK8sPermission('workloads.write')
-  const key = ['k8s', 'workload-ops', namespace, kind, name]
+  const toast = useToast()
+  // Scale, restart, pause/resume and rollback are all PATCHes of the workload
+  // object itself (spec.replicas / template annotation / spec.paused /
+  // spec.template) — not the /scale subresource — so one check covers them.
+  const canPatch = useCan(canResource(gvr, 'patch', { namespace, name }))
+  const key = ['k8s', 'workload-ops', namespace, kind, name, cluster]
 
   const q = useQuery<WorkloadObj | null>({
     queryKey: key,
-    refetchInterval: useLiveRefetch({ ...gvr, namespace }, [key], 8_000),
+    refetchInterval: useLiveRefetch({ ...gvr, namespace, cluster: clusterParam(cluster) }, [key], 8_000),
     queryFn: async () =>
-      (await client.getGeneric(LOCAL_CLUSTER, gvr, namespace, name)) as unknown as WorkloadObj,
+      (await client.getGeneric(cluster, gvr, namespace, name)) as unknown as WorkloadObj,
   })
 
   const patchWorkload = async (patch: unknown) => {
-    await kube.patch(gvr, namespace, name, patch, 'merge')
+    await kube.patch(gvr, namespace, name, patch, 'merge', { cluster: clusterParam(cluster) })
   }
 
   const scaleMut = useMutation({
@@ -212,6 +215,8 @@ function WorkloadOps({
         prev ? { ...prev, spec: { ...prev.spec, replicas } } : prev,
       )
     },
+    onSuccess: (_d, replicas) => toast.success(`Scaled ${name} to ${replicas}`),
+    onError: (e) => toast.error('Scale failed', { description: (e as Error).message }),
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['k8s', 'workload-ops'] })
       qc.invalidateQueries({ queryKey: ['k8s', 'pods'] })
@@ -229,6 +234,9 @@ function WorkloadOps({
           },
         },
       }),
+    onSuccess: () => toast.success(`Restarting ${kind} ${name}`),
+    // Without this a denied/failed patch looked exactly like a success.
+    onError: (e) => toast.error(`Restart failed: ${(e as Error).message}`),
     onSettled: () => qc.invalidateQueries({ queryKey: ['k8s', 'pods'] }),
   })
 
@@ -239,6 +247,9 @@ function WorkloadOps({
         prev ? { ...prev, spec: { ...prev.spec, paused } } : prev,
       )
     },
+    onSuccess: (_d, paused) => toast.success(`${paused ? 'Paused' : 'Resumed'} rollout of ${name}`),
+    // The optimistic flip is undone by the onSettled refetch; say why it bounced back.
+    onError: (e, paused) => toast.error(`Could not ${paused ? 'pause' : 'resume'} rollout: ${(e as Error).message}`),
     onSettled: () => qc.invalidateQueries({ queryKey: ['k8s', 'workload-ops'] }),
   })
 
@@ -267,17 +278,15 @@ function WorkloadOps({
       {SCALABLE.includes(kind) ? (
         <ScaleWidget
           resolved={resolved}
-          canScale={canScale}
+          canScale={canPatch}
           pending={scaleMut.isPending}
-          error={scaleMut.error ? String(scaleMut.error) : undefined}
           onScale={(replicas) => scaleMut.mutate(replicas)}
         />
       ) : null}
 
-      {RESTARTABLE.includes(kind) ? (
+      {RESTARTABLE.includes(kind) && canPatch ? (
         <RolloutActions
           resolved={resolved}
-          canWrite={canWrite}
           restarting={restartMut.isPending}
           pausing={pauseMut.isPending}
           onRestart={() => restartMut.mutate()}
@@ -286,7 +295,7 @@ function WorkloadOps({
       ) : null}
 
       {kind === 'Deployment' ? (
-        <RollbackPanel namespace={namespace} name={name} obj={obj} canWrite={canWrite} />
+        <RollbackPanel namespace={namespace} name={name} obj={obj} canWrite={canPatch} />
       ) : null}
     </div>
   )
@@ -375,7 +384,11 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: 'go
       <div
         className={cn(
           'text-lg font-semibold tabular-nums',
-          tone === 'good' ? 'text-emerald-600' : tone === 'warn' ? 'text-amber-600' : 'text-content',
+          tone === 'good'
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : tone === 'warn'
+              ? 'text-amber-600 dark:text-amber-400'
+              : 'text-content',
         )}
       >
         {value}
@@ -412,13 +425,12 @@ function ScaleWidget({
   resolved,
   canScale,
   pending,
-  error,
   onScale,
 }: {
   resolved: Resolved
+  /** False = read-only: the current count is shown, the controls are not. */
   canScale: boolean
   pending: boolean
-  error?: string
   onScale(replicas: number): void
 }) {
   const current = resolved.obj.spec?.replicas ?? 0
@@ -438,75 +450,69 @@ function ScaleWidget({
           {current === 1 ? '' : 's'}
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-raised">
-          <button
-            type="button"
-            disabled={!canScale || pending || target <= 0}
-            onClick={() => setTarget((t) => clamp(t - 1))}
-            className="flex h-9 w-9 items-center justify-center text-lg text-content-muted hover:bg-surface-sunken disabled:opacity-40"
-            aria-label="Decrease replicas"
-          >
-            −
-          </button>
-          <input
-            type="number"
-            value={target}
-            min={0}
-            disabled={!canScale || pending}
-            onChange={(e) => setTarget(clamp(Number(e.target.value)))}
-            className="h-9 w-16 border-x border-edge-default text-center text-sm tabular-nums outline-none disabled:opacity-60"
-          />
-          <button
-            type="button"
-            disabled={!canScale || pending}
-            onClick={() => setTarget((t) => clamp(t + 1))}
-            className="flex h-9 w-9 items-center justify-center text-lg text-content-muted hover:bg-surface-sunken disabled:opacity-40"
-            aria-label="Increase replicas"
-          >
-            +
-          </button>
-        </div>
+      {canScale ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-raised">
+            <button
+              type="button"
+              disabled={pending || target <= 0}
+              onClick={() => setTarget((t) => clamp(t - 1))}
+              className="flex h-9 w-9 items-center justify-center rounded-l-lg text-lg text-content-muted hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 disabled:opacity-40"
+              aria-label="Decrease replicas"
+            >
+              −
+            </button>
+            <input
+              type="number"
+              value={target}
+              min={0}
+              disabled={pending}
+              onChange={(e) => setTarget(clamp(Number(e.target.value)))}
+              aria-label="Replicas"
+              className="h-9 w-16 border-x border-edge-default bg-transparent text-center text-sm tabular-nums text-content outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 disabled:opacity-60"
+            />
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setTarget((t) => clamp(t + 1))}
+              className="flex h-9 w-9 items-center justify-center rounded-r-lg text-lg text-content-muted hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 disabled:opacity-40"
+              aria-label="Increase replicas"
+            >
+              +
+            </button>
+          </div>
 
-        {canScale ? (
-          <>
-            <Button size="sm" disabled={!dirty || pending} onClick={() => onScale(target)}>
-              {pending ? 'Scaling…' : `Scale to ${target}`}
+          <Button size="sm" variant="primary" disabled={!dirty || pending} onClick={() => onScale(target)}>
+            {pending ? 'Scaling…' : `Scale to ${target}`}
+          </Button>
+          {current !== 0 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => {
+                setTarget(0)
+                onScale(0)
+              }}
+              title="Scale to zero (keeps the workload, removes all pods)"
+            >
+              Scale to 0
             </Button>
-            {current !== 0 ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={pending}
-                onClick={() => {
-                  setTarget(0)
-                  onScale(0)
-                }}
-                title="Scale to zero (keeps the workload, removes all pods)"
-              >
-                Scale to 0
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={pending}
-                onClick={() => {
-                  setTarget(1)
-                  onScale(1)
-                }}
-              >
-                Restore to 1
-              </Button>
-            )}
-          </>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-[11px] text-content-muted">
-            Scaling requires <K8sRolePill perm="workloads.scale" />
-          </span>
-        )}
-      </div>
-      {error ? <div className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">Error: {error}</div> : null}
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => {
+                setTarget(1)
+                onScale(1)
+              }}
+            >
+              Restore to 1
+            </Button>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -515,14 +521,12 @@ function ScaleWidget({
 
 function RolloutActions({
   resolved,
-  canWrite,
   restarting,
   pausing,
   onRestart,
   onPause,
 }: {
   resolved: Resolved
-  canWrite: boolean
   restarting: boolean
   pausing: boolean
   onRestart(): void
@@ -536,57 +540,52 @@ function RolloutActions({
     <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
       <div className="mb-3 text-sm font-semibold text-content">Rollout</div>
 
-      {!canWrite ? (
-        <div className="flex items-center gap-2 text-[11px] text-content-muted">
-          Rollout actions require <K8sRolePill perm="workloads.write" />
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          {confirmRestart ? (
-            <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 p-2">
-              <span className="text-[12px] text-amber-900 dark:text-amber-200">
-                Restart the rollout? All pods of {resolved.kind.toLowerCase()}{' '}
-                <code className="font-mono">{resolved.name}</code> will be recreated (rolling).
-              </span>
-              <div className="ml-auto flex gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setConfirmRestart(false)} disabled={restarting}>
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    onRestart()
-                    setConfirmRestart(false)
-                  }}
-                  disabled={restarting}
-                >
-                  {restarting ? 'Restarting…' : 'Restart rollout'}
-                </Button>
-              </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {confirmRestart ? (
+          <div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 p-2">
+            <span className="text-[12px] text-amber-900 dark:text-amber-200">
+              Restart the rollout? All pods of {resolved.kind.toLowerCase()}{' '}
+              <code className="font-mono">{resolved.name}</code> will be recreated (rolling).
+            </span>
+            <div className="ml-auto flex gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setConfirmRestart(false)} disabled={restarting}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => {
+                  onRestart()
+                  setConfirmRestart(false)
+                }}
+                disabled={restarting}
+              >
+                {restarting ? 'Restarting…' : 'Restart rollout'}
+              </Button>
             </div>
-          ) : (
-            <Button size="sm" variant="secondary" onClick={() => setConfirmRestart(true)} disabled={restarting}>
-              <span className="mr-1 text-content-subtle">
-                <IconRefresh />
-              </span>
-              Restart rollout
-            </Button>
-          )}
+          </div>
+        ) : (
+          <Button size="sm" variant="secondary" onClick={() => setConfirmRestart(true)} disabled={restarting}>
+            <span className="mr-1 text-content-subtle">
+              <IconRefresh />
+            </span>
+            Restart rollout
+          </Button>
+        )}
 
-          {canPause ? (
-            <Button
-              size="sm"
-              variant={paused ? 'primary' : 'secondary'}
-              disabled={pausing}
-              onClick={() => onPause(!paused)}
-              title={paused ? 'Resume the rollout' : 'Pause the rollout (freeze new rollouts)'}
-            >
-              <span className="mr-1">{paused ? <IconPlay /> : <IconPause />}</span>
-              {pausing ? 'Working…' : paused ? 'Resume rollout' : 'Pause rollout'}
-            </Button>
-          ) : null}
-        </div>
-      )}
+        {canPause ? (
+          <Button
+            size="sm"
+            variant={paused ? 'primary' : 'secondary'}
+            disabled={pausing}
+            onClick={() => onPause(!paused)}
+            title={paused ? 'Resume the rollout' : 'Pause the rollout (freeze new rollouts)'}
+          >
+            <span className="mr-1">{paused ? <IconPlay /> : <IconPause />}</span>
+            {pausing ? 'Working…' : paused ? 'Resume rollout' : 'Pause rollout'}
+          </Button>
+        ) : null}
+      </div>
 
       <p className="mt-2 text-[11px] text-content-subtle">
         Restart sets <code className="font-mono">kubectl.kubernetes.io/restartedAt</code> to trigger a
@@ -638,18 +637,20 @@ function RollbackPanel({
   obj: WorkloadObj
   canWrite: boolean
 }) {
+  const { cluster } = useActiveCluster()
   const qc = useQueryClient()
+  const toast = useToast()
   const [confirmRs, setConfirmRs] = useState<string | null>(null)
   const currentRevision = Number(
     obj.metadata.annotations?.['deployment.kubernetes.io/revision'] ?? 0,
   )
 
-  const rsKey = ['k8s', 'rollout-history', namespace, name]
+  const rsKey = ['k8s', 'rollout-history', namespace, name, cluster]
   const rsQ = useQuery<RevisionRs[]>({
     queryKey: rsKey,
-    refetchInterval: useLiveRefetch({ ...GVRS.replicasets, namespace }, [rsKey], 15_000),
+    refetchInterval: useLiveRefetch({ ...GVRS.replicasets, namespace, cluster: clusterParam(cluster) }, [rsKey], 15_000),
     queryFn: async () => {
-      const list = await kube.list<RevisionRs>(GVRS.replicasets, { namespace })
+      const list = await kube.list<RevisionRs>(GVRS.replicasets, { namespace, cluster: clusterParam(cluster) })
       return list.items
         .filter((rs) => {
           const owner = controllerRef(rs.metadata.ownerReferences)
@@ -673,12 +674,15 @@ function RollbackPanel({
         name,
         [{ op: 'replace', path: '/spec/template', value: template }],
         'json',
+        { cluster: clusterParam(cluster) },
       )
     },
-    onSuccess: () => {
+    onSuccess: (_d, rs) => {
       setConfirmRs(null)
+      toast.success(`Rolling back ${name} to revision ${revisionOf(rs)}`)
       qc.invalidateQueries({ queryKey: ['k8s'] })
     },
+    onError: (e) => toast.error('Rollback failed', { description: (e as Error).message }),
   })
 
   const revisions = rsQ.data ?? []
@@ -743,7 +747,7 @@ function RollbackPanel({
         })}
       </ul>
 
-      {selected ? (
+      {selected && canWrite ? (
         <div className="mt-3 rounded-lg border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 p-3">
           <div className="text-[12px] text-amber-900 dark:text-amber-200">
             Roll back <code className="font-mono">{name}</code> from revision{' '}
@@ -762,6 +766,7 @@ function RollbackPanel({
             </Button>
             <Button
               size="sm"
+              variant="primary"
               disabled={rollbackMut.isPending}
               onClick={() => rollbackMut.mutate(selected)}
             >
@@ -771,16 +776,6 @@ function RollbackPanel({
         </div>
       ) : null}
 
-      {!canWrite ? (
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] text-content-muted">
-          Rollback requires <K8sRolePill perm="workloads.write" />
-        </p>
-      ) : null}
-      {rollbackMut.isError ? (
-        <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
-          Error: {(rollbackMut.error as Error).message}
-        </p>
-      ) : null}
     </div>
   )
 }

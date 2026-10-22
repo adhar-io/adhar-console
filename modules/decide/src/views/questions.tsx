@@ -200,7 +200,7 @@ function QuestionBrowser() {
         <div className="min-w-0">
           {list.length === 0 ? (
             <EmptyState
-              icon={<Icon name="question" size={34} className="text-content-subtle" />}
+              icon={<Icon name="question" size={22} />}
               title={all.length === 0 ? 'No saved questions yet' : 'Nothing matches'}
               description={all.length === 0 ? 'Write a query in the SQL editor and save it — it shows up here and in Metabase.' : 'Try another search, type or collection.'}
               action={all.length === 0 ? <Button variant="primary" size="sm" onClick={() => go('sql')}>Open the SQL editor</Button> : undefined}
@@ -256,7 +256,6 @@ function QuestionBrowser() {
           )}
           <div className="mt-2 text-[11px] text-content-subtle">
             {list.length} of {all.length}
-            {cards.isFetching ? ' · refreshing…' : ''}
           </div>
         </div>
       </div>

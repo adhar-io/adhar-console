@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { KubeObject } from '@adhar/api-clients/k8s'
-import { Button, Card, CardBody, CardHeader, EmptyState, Select } from '@adhar/shell-ui'
+import { Button, canResource, Card, CardBody, CardHeader, EmptyState, Select, useAccessReview } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { useLiveList } from '../data/live.ts'
+import { clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sPermissionDenied } from '../components/role-gate.tsx'
+import { AccessDenied } from '../components/role-gate.tsx'
 import {
   LogConsole,
   type LogSource,
@@ -98,7 +98,7 @@ interface LogsViewerProps {
 }
 
 export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) {
-  const canLogs = useHasK8sPermission('pods.logs')
+  const { cluster } = useActiveCluster()
 
   // No namespace picker any more: pods are offered cluster-wide, and the
   // stream uses the chosen pod's own namespace. A caller may still pin one.
@@ -120,7 +120,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
     other: true,
   })
 
-  const pods = useLiveList(GVRS.pods, { namespace: ns, enabled: canLogs })
+  const pods = useLiveList(GVRS.pods, { namespace: ns })
   // Pods are offered across every namespace the user can read, so the key
   // that identifies one is `namespace/name` — names alone collide.
   const podNames = useMemo(
@@ -158,7 +158,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
   /* ── workload aggregation: resolve a workload's pods by label selector ── */
   const workloads = useLiveList(GVRS[workloadKind], {
     namespace: ns,
-    enabled: canLogs && sourceMode === 'workload',
+    enabled: sourceMode === 'workload',
   })
   const workloadNames = useMemo(
     () =>
@@ -235,9 +235,26 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
     return selectedPod?.metadata?.namespace ?? ns
   }, [sourceMode, workloadPods, selectedPod, ns])
 
+  /*
+   * Reading logs is `get pods/log`, asked in the namespace being streamed (and
+   * for the exact pod when there is one). The stream opens only once that is a
+   * definite yes; a definite no replaces the console with a notice naming the
+   * rule. Listing pods to choose from is a separate read and stays available.
+   */
+  const logsCheck = canResource(GVRS.pods, 'get', {
+    namespace: streamNs,
+    name: sourceMode === 'pod' ? selectedPod?.metadata?.name : undefined,
+    subresource: 'log',
+  })
+  const logsAccess = useAccessReview(logsCheck, { enabled: Boolean(streamNs) })
+  const canLogs = logsAccess.allowed
+  const logsDenied = logsAccess.results[0] === false
+
   const stream = useLogStream({
     namespace: streamNs,
     sources: activeSources,
+    // Pods are listed from the active cluster, so their logs must come from it too.
+    cluster: clusterParam(cluster),
     // "Previous" is a fixed snapshot of a terminated container — nothing to tail.
     follow: follow && !previous,
     tailLines,
@@ -252,17 +269,6 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
   )
 
   const toggleSeverity = (s: Severity) => setShown((prev) => ({ ...prev, [s]: !prev[s] }))
-
-  /* ── RBAC gate ── */
-  if (!canLogs) {
-    return (
-      <Card>
-        <CardBody>
-          <K8sPermissionDenied perm="pods.logs" />
-        </CardBody>
-      </Card>
-    )
-  }
 
   return (
     <Card>
@@ -469,7 +475,16 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
 
       {/* No padding: the console runs edge to edge inside the card. */}
       <CardBody className="p-0">
-        {activeSources.length === 0
+        {activeSources.length > 0 && logsDenied
+          ? (
+            <div className="p-6">
+              <AccessDenied
+                what={sourceMode === 'workload' ? "this workload's logs" : "this pod's logs"}
+                check={logsCheck}
+              />
+            </div>
+          )
+          : activeSources.length === 0
           ? (
             <div className="p-6">
               <EmptyState

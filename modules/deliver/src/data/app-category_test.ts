@@ -1,4 +1,4 @@
-import { assert, assertEquals } from 'jsr:@std/assert'
+import { assert, assertEquals } from 'jsr:@std/assert@^1'
 import {
   appCategory,
   categoryTally,

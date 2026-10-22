@@ -85,6 +85,7 @@ export function AutomationEditor({ projectId }: { projectId: string }) {
           actions={
             <>
               <Select
+                controlSize="sm"
                 aria-label="Add a preset rule"
                 value=""
                 onChange={(e) => {
@@ -207,8 +208,8 @@ function RepoWatch({ projectId, repos, onSync, syncing, identifier }: { projectI
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Watch repository" hint={list.isError ? 'Gitea repositories could not be listed — type org/repo.' : undefined}>
           {list.isError || !options.length
-            ? <Input value={pick} onChange={(e) => setPick(e.target.value)} placeholder="org/repo" />
-            : <Select value={pick} onChange={(e) => setPick(e.target.value)} options={[{ value: '', label: 'Choose a repository…' }, ...options.map((r) => ({ value: r, label: r }))]} />}
+            ? <Input controlSize="sm" value={pick} onChange={(e) => setPick(e.target.value)} placeholder="org/repo" />
+            : <Select controlSize="sm" value={pick} onChange={(e) => setPick(e.target.value)} options={[{ value: '', label: 'Choose a repository…' }, ...options.map((r) => ({ value: r, label: r }))]} />}
         </Field>
         <Button
           size="sm"

@@ -9,6 +9,7 @@ import { fmtMetric, type MetricKey, type RunRecord, sortRecords } from '../data/
 import { LABEL_TEST } from '../data/perf-format.ts'
 import { fetchPerfTest, findTest, useRunPerfTest } from '../data/perf-suite.ts'
 import { RegressionBadge, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
+import { runPerfTestChecks, useAllowedNamespaces } from '../data/access.ts'
 
 /**
  * The Performance Center's landing page: one row per test with its latest
@@ -22,9 +23,12 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
   onOpenTest(test: string): void
   onOpenRun(namespace: string, name: string): void
   onOpenResults(test?: string): void
-  onQuickTest(): void
+  /** Absent when the user may not start runs anywhere — Quick test is hidden. */
+  onQuickTest?: () => void
 }) {
   const { records, tests, configs, schedules, verdictOf, loading } = insights
+  // RBAC: "Run" applies the test's artefact ConfigMap and a TestRun in its namespace.
+  const runnable = useAllowedNamespaces([...configs.values()].map((c) => c.namespace || 'default'), runPerfTestChecks)
   const byTest = useMemo(() => {
     const m = new Map<string, RunRecord[]>()
     for (const r of sortRecords(records)) {
@@ -64,8 +68,10 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
     return (
       <EmptyState
         title="No performance tests yet"
-        description="Build an HTTP load test in a minute with Quick test, or write a k6 script from a template in the Tests tab. Results, trends, gates and schedules appear here once tests run."
-        action={<Button variant="primary" onClick={onQuickTest}>Quick test</Button>}
+        description={onQuickTest
+          ? 'Build an HTTP load test in a minute with Quick test, or write a k6 script from a template in the Tests tab. Results, trends, gates and schedules appear here once tests run.'
+          : 'Write a k6 script from a template in the Tests tab. Results, trends, gates and schedules appear here once tests run.'}
+        action={onQuickTest ? <Button variant="primary" onClick={onQuickTest}>Quick test</Button> : undefined}
       />
     )
   }
@@ -128,6 +134,7 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
                   running={live.some((r) => r.metadata.labels?.[LABEL_TEST] === t)}
                   inSuite={tests.includes(t)}
                   suite={insights.suite}
+                  canRun={runnable.has(configs.get(t)?.namespace || 'default')}
                   onOpen={() => onOpenTest(t)}
                   onResults={() => onOpenResults(t)}
                   onStarted={onOpenRun}
@@ -190,7 +197,7 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
   )
 }
 
-function HealthRow({ test, title, history, verdictOf, baseline, tolerance, next, running, inSuite, suite, onOpen, onResults, onStarted }: {
+function HealthRow({ test, title, history, verdictOf, baseline, tolerance, next, running, inSuite, suite, canRun, onOpen, onResults, onStarted }: {
   test: string
   title?: string
   history: RunRecord[]
@@ -201,6 +208,7 @@ function HealthRow({ test, title, history, verdictOf, baseline, tolerance, next,
   running: boolean
   inSuite: boolean
   suite: PerfInsights['suite']
+  canRun: boolean
   onOpen(): void
   onResults(): void
   onStarted(namespace: string, name: string): void
@@ -235,7 +243,7 @@ function HealthRow({ test, title, history, verdictOf, baseline, tolerance, next,
       <td className="px-3 py-2 text-right">
         <div className="flex justify-end gap-1">
           <Button size="xs" variant="ghost" onClick={onResults} disabled={!history.length}>Results</Button>
-          <Button size="xs" variant="secondary" disabled={!inSuite || running} loading={runTest.pending === test} onClick={() => runTest.run(test, onStarted)}>Run</Button>
+          {canRun ? <Button size="xs" variant="secondary" disabled={!inSuite || running} loading={runTest.pending === test} onClick={() => runTest.run(test, onStarted)}>Run</Button> : null}
         </div>
       </td>
     </tr>

@@ -253,7 +253,10 @@ export async function executeTool(name: string, argsJson: string, token: K8sIden
       }
       case 'k8s_logs': {
         const { namespace, pod, container, tailLines = 200, previous } = args as Record<string, unknown>
-        const q = new URLSearchParams({ tailLines: String(tailLines), timestamps: 'true' })
+        // Clamped: the result is cut to 8 KB anyway, so asking the kubelet for
+        // the whole log only buffers megabytes to throw them away.
+        const tail = Math.min(Math.max(Math.trunc(Number(tailLines)) || 200, 1), 1000)
+        const q = new URLSearchParams({ tailLines: String(tail), timestamps: 'true' })
         if (container) q.set('container', String(container))
         if (previous) q.set('previous', 'true')
         const res = await apiServerFetch(token, `/api/v1/namespaces/${namespace}/pods/${pod}/log`, { search: `?${q}` })
@@ -389,7 +392,30 @@ function summarize(o: KObj): Record<string, unknown> {
 /** Drop noisy managedFields before feeding an object to the model. */
 function trim(o: KObj): KObj {
   if (o.metadata && 'managedFields' in o.metadata) delete (o.metadata as Record<string, unknown>).managedFields
-  return o
+  return redactSecret(o)
+}
+
+/**
+ * Never hand Secret VALUES to the model. The LLM endpoint may be a third-party
+ * provider, transcripts are stored, and nothing a diagnosis needs depends on
+ * the bytes — the key names (kept) answer "is DB_PASSWORD set?". The
+ * last-applied annotation is dropped too: for a Secret applied with kubectl it
+ * carries the whole object, values included.
+ */
+export function redactSecret(o: KObj): KObj {
+  const raw = o as Record<string, unknown>
+  if (raw.kind !== 'Secret') return o
+  const mask = (m: unknown) =>
+    m && typeof m === 'object' ? Object.fromEntries(Object.keys(m as object).map((k) => [k, '<redacted>'])) : m
+  const out: Record<string, unknown> = { ...raw }
+  if ('data' in out) out.data = mask(out.data)
+  if ('stringData' in out) out.stringData = mask(out.stringData)
+  const meta = out.metadata as { annotations?: Record<string, string> } | undefined
+  if (meta?.annotations?.['kubectl.kubernetes.io/last-applied-configuration']) {
+    const { ['kubectl.kubernetes.io/last-applied-configuration']: _drop, ...rest } = meta.annotations
+    out.metadata = { ...meta, annotations: rest }
+  }
+  return out as KObj
 }
 
 /* ─────────── diagnostic-tool helpers (all read-only) ─────────── */

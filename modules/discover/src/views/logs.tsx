@@ -741,7 +741,7 @@ export function Logs() {
                         type="button"
                         onClick={() => zoomTo(shownBuckets[spikes[0].index])}
                         title="Zoom to the first error spike"
-                        className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 normal-case tracking-normal text-rose-700 hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-300"
+                        className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-1.5 py-0.5 normal-case tracking-normal text-rose-700 hover:bg-rose-100 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/10"
                       >
                         <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
                         {spikes.length === 1 ? 'Error spike' : `${spikes.length} error spikes`} · {fmtNum(spikes[0].count)} errors at {new Date(shownBuckets[spikes[0].index].start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({spikes[0].ratio.toFixed(0)}× baseline)
@@ -992,7 +992,7 @@ function DiscoveryRail({
                             type="button"
                             onClick={() => label && onMatcher(label, v, '!=')}
                             title={`Exclude ${label}="${v}"`}
-                            className="rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100"
+                            className="rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 dark:hover:text-rose-400"
                           >
                             ≠
                           </button>
@@ -1088,7 +1088,7 @@ function FacetGroupView({
                   type="button"
                   onClick={() => onPin(v.value)}
                   title={`Pin ${group.key}="${v.value}" into the query`}
-                  className="absolute right-6 rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-brand-600 group-hover:opacity-100"
+                  className="absolute right-6 rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-brand-600 group-hover:opacity-100 dark:hover:text-brand-400"
                 >
                   ＋
                 </button>
@@ -1390,7 +1390,7 @@ function Welcome({ onPick, onBrowse }: { onPick(q: string): void; onBrowse(): vo
             actually has, or write LogQL above.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            <button type="button" onClick={onBrowse} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content-muted hover:border-brand-300 hover:text-content">
+            <button type="button" onClick={onBrowse} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content-muted hover:border-brand-300 hover:text-content dark:hover:border-brand-500/30">
               <IconTag /> Browse labels
             </button>
             <span className="text-[11px] text-content-subtle">
@@ -1561,7 +1561,7 @@ function HistoryMenu({
                 <div className="truncate text-[12px] font-medium text-content">{s.name}</div>
                 <code className="block truncate font-mono text-[10px] text-content-subtle">{s.query}</code>
               </button>
-              <button type="button" onClick={() => onDeleteSaved(s.name)} aria-label={`Delete ${s.name}`} className="rounded p-1 text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100">
+              <button type="button" onClick={() => onDeleteSaved(s.name)} aria-label={`Delete ${s.name}`} className="rounded p-1 text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 dark:hover:text-rose-400">
                 <IconTrash />
               </button>
             </div>
@@ -1571,7 +1571,7 @@ function HistoryMenu({
       ) : null}
       <div className="flex items-center justify-between px-2 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         <span>Recent</span>
-        {history.length ? <button type="button" onClick={onClearHistory} className="font-normal normal-case tracking-normal hover:text-rose-600">clear</button> : null}
+        {history.length ? <button type="button" onClick={onClearHistory} className="font-normal normal-case tracking-normal hover:text-rose-600 dark:hover:text-rose-400">clear</button> : null}
       </div>
       {history.length === 0 ? (
         <p className="px-2 py-2 text-[11px] text-content-subtle">Queries you run land here.</p>

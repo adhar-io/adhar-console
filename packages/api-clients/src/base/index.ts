@@ -1,4 +1,11 @@
-export { HttpClient, HttpError, type HttpClientOptions } from './http.ts'
+export {
+  HttpClient,
+  HttpError,
+  NetworkError,
+  TimeoutError,
+  type HttpClientOptions,
+  type RequestOptions,
+} from './http.ts'
 export {
   defineClient,
   isProdBuild,

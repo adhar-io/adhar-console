@@ -36,37 +36,84 @@ const DOT: Record<StatusKind, string> = {
   info: 'bg-sky-500',
 }
 
+/** The mark's own colour — a step stronger than the pill text so the shape reads. */
+const MARK: Record<StatusKind, string> = {
+  healthy: 'text-emerald-600 dark:text-emerald-400',
+  degraded: 'text-rose-600 dark:text-rose-400',
+  progressing: 'text-indigo-600 dark:text-indigo-400',
+  paused: 'text-amber-600 dark:text-amber-400',
+  failed: 'text-rose-700 dark:text-rose-300',
+  unknown: 'text-content-subtle',
+  info: 'text-sky-600 dark:text-sky-400',
+}
+
 interface Props {
   kind: StatusKind
   children: React.ReactNode
-  /** Show a leading dot. Defaults to true. Set to false for compact contexts. */
+  /** Show the leading status mark. Defaults to true. Set to false for compact contexts. */
   dot?: boolean
   /** `progressing` kinds animate the dot by default. Set false to disable. */
   pulse?: boolean
   className?: string
 }
 
+/**
+ * A status pill: colour, a SHAPE per kind, and the label.
+ *
+ * The leading mark used to be the same 6px dot for every kind, so "Healthy"
+ * and "Degraded" differed only by green against red — the one pair of colours
+ * the most common colour-vision deficiency cannot tell apart. Each kind now
+ * has its own glyph (check, warning, cross, pause, ring …) so the state reads
+ * from the shape too; the label still says it in words.
+ */
 export function StatusBadge({ kind, children, dot = true, pulse, className }: Props) {
   const shouldPulse = pulse ?? kind === 'progressing'
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
+        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset',
         PILL[kind],
         className,
       )}
     >
-      {dot ? (
-        <span
-          aria-hidden
-          className={cn(
-            'h-1.5 w-1.5 shrink-0 rounded-full',
-            DOT[kind],
-            shouldPulse && 'animate-pulse',
-          )}
-        />
-      ) : null}
+      {dot ? <StatusMark kind={kind} pulse={shouldPulse} /> : null}
       {children}
     </span>
   )
+}
+
+function StatusMark({ kind, pulse }: { kind: StatusKind; pulse: boolean }) {
+  // In-progress states keep a (pulsing) dot: motion is their signal, and a
+  // spinner in every row of a busy table is noise.
+  if (pulse || kind === 'progressing' || kind === 'info') {
+    return (
+      <span aria-hidden className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center">
+        <span className={cn('h-1.5 w-1.5 rounded-full', DOT[kind], pulse && 'animate-pulse')} />
+      </span>
+    )
+  }
+  const common = {
+    width: 10,
+    height: 10,
+    viewBox: '0 0 12 12',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.8,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+    className: cn('shrink-0', MARK[kind]),
+  }
+  switch (kind) {
+    case 'healthy':
+      return <svg {...common}><path d="M2.5 6.3 5 8.8l4.5-5.3" /></svg>
+    case 'degraded':
+      return <svg {...common}><path d="M6 1.8 10.8 10H1.2Z" /><path d="M6 5.2v1.8" /><path d="M6 8.6h.01" strokeWidth={2.2} /></svg>
+    case 'failed':
+      return <svg {...common}><path d="M3 3l6 6M9 3 3 9" strokeWidth={2} /></svg>
+    case 'paused':
+      return <svg {...common}><path d="M4.2 2.8v6.4M7.8 2.8v6.4" strokeWidth={2} /></svg>
+    default:
+      return <svg {...common}><circle cx="6" cy="6" r="3.6" strokeDasharray="2 1.6" /></svg>
+  }
 }

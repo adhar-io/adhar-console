@@ -17,7 +17,6 @@ import {
   searchKinds,
   togglePin,
   toneCounts,
-  writePermFor,
 } from './explore.ts'
 
 const k = (group: string, kind: string, name: string, extra: Partial<ExploreKind> = {}): ExploreKind => ({
@@ -217,10 +216,7 @@ Deno.test('printer columns come from the apiserver Table, minus our own', () => 
   assertEquals(cellText(3), '3')
 })
 
-Deno.test('kubectl command and write permission', () => {
+Deno.test('kubectl command', () => {
   assertEquals(kubectlGet(KINDS[5], { name: 'web', namespace: 'shop' }), 'kubectl get deployments.apps web -n shop -o yaml')
   assertEquals(kubectlGet(KINDS[4], { name: 'shop' }), 'kubectl get namespaces shop -o yaml')
-  assertEquals(writePermFor({ group: '', name: 'secrets' }), 'secrets.write')
-  assertEquals(writePermFor({ group: 'apps', name: 'deployments' }), 'workloads.write')
-  assertEquals(writePermFor({ group: 'argoproj.io', name: 'applications' }), 'crds.write')
 })

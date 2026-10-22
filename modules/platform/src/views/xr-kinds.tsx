@@ -344,7 +344,7 @@ export function XrListForKind({
             <code className="font-mono">{label}</code> is registered on this cluster. Install the
             Adhar Platform Crossplane stack to provision it, or browse the{' '}
             <a
-              className="text-brand-700 dark:text-brand-300 underline hover:text-brand-800"
+              className="text-brand-700 underline hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-200"
               href="?section=catalog"
             >
               Adhar Resources catalog

@@ -16,6 +16,7 @@ import { useGiteaOrg } from '@adhar/shell-ui'
 import { AskAiButton, ComponentSelect, type PickableApp, PrBadge, ReviewBadge, Spark } from '../components/integrations.tsx'
 import { FrameDetails } from '../components/wireframe-integrations.tsx'
 import { SharedChip } from '../components/scope-picker.tsx'
+import { Icon } from '../components/ui-bits.tsx'
 
 const FLOW_LABEL: Record<string, string> = {
   onboarding: 'Onboarding flow',
@@ -128,6 +129,7 @@ export function Wireframes() {
 
       {list.length === 0 ? (
         <EmptyState
+          icon={<Icon name="frame" size={22} />}
           title={all.items.length ? `No wireframes in ${scope.label}` : 'No wireframes yet'}
           description="Sketch a screen — pick a template, describe it to Adhar AI, or start blank. Editing opens in the Visual Designer."
           action={
@@ -151,8 +153,10 @@ export function Wireframes() {
                 if (idx < 0 || nxt < 0 || nxt >= sameFlow.length) return
                 const a = sameFlow[idx]
                 const b = sameFlow[nxt]
-                updateWf.mutate({ ...a, order: b.order })
-                updateWf.mutate({ ...b, order: a.order })
+                // Two writes swap the pair; if either fails the order is half-applied, so say so.
+                const onError = (e: Error) => toast.error('Could not reorder frames', { description: e.message })
+                updateWf.mutate({ ...a, order: b.order }, { onError })
+                updateWf.mutate({ ...b, order: a.order }, { onError })
               }}
               onDuplicate={(id) => {
                 const src = list.find((f) => f.id === id)

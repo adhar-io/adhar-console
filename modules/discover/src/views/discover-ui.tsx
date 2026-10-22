@@ -75,7 +75,7 @@ export function Drawer({
   const wide = useDrawerWidth(widthId, { base: width })
   if (!open || typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', wide.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-5 py-4">

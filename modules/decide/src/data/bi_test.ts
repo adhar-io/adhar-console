@@ -27,7 +27,7 @@ import {
 } from './bi-chart.ts'
 import { describeSchedule, fromChannel, nextRun, toChannelSchedule } from './bi-schedule.ts'
 import { gridColumns, gridMode, layout } from './bi-grid.ts'
-import { datasetError, errorPosition, formatSql, loadHistory, pushHistory, saveHistory, toCsv, toJson } from './bi-sql.ts'
+import { datasetError, errorPosition, formatSql, loadHistory, pushHistory, saveHistory, toCsv, toJson, writeVerb } from './bi-sql.ts'
 
 /* ───────────── parameters ───────────── */
 
@@ -296,4 +296,20 @@ Deno.test('CSV quotes, neutralises formulas; JSON keys by column name', () => {
   const cols = [{ name: 'a', display_name: 'A' }, { name: 'b' }]
   assertEquals(toCsv(cols, [['x,y', '=SUM(1)'], [null, -3]]), 'A,b\r\n"x,y",\'=SUM(1)\r\n,-3\r\n')
   assertEquals(JSON.parse(toJson(cols, [[1, null]])), [{ a: 1, b: null }])
+})
+
+Deno.test('writeVerb flags statements that change data or schema, never reads', () => {
+  assertEquals(writeVerb('SELECT * FROM orders'), null)
+  assertEquals(writeVerb('select id from t for update'), null)
+  assertEquals(writeVerb("select 'delete from t' as s -- drop table x"), null)
+  assertEquals(writeVerb('SELECT created_at, updated_by FROM t'), null)
+  assertEquals(writeVerb('WITH a AS (SELECT 1), b AS (SELECT 2) SELECT * FROM a, b'), null)
+  assertEquals(writeVerb('EXPLAIN SELECT 1'), null)
+  assertEquals(writeVerb('  delete from orders where id = {{id}}'), 'DELETE')
+  assertEquals(writeVerb('/* cleanup */ DROP TABLE x'), 'DROP')
+  assertEquals(writeVerb('select 1; truncate t'), 'TRUNCATE')
+  assertEquals(writeVerb('WITH old AS (SELECT id FROM t) DELETE FROM t USING old'), 'DELETE')
+  assertEquals(writeVerb('WITH d AS (DELETE FROM t RETURNING *) SELECT count(*) FROM d'), 'DELETE')
+  assertEquals(writeVerb('EXPLAIN ANALYZE UPDATE t SET x = 1'), 'UPDATE')
+  assertEquals(writeVerb('EXPLAIN (ANALYZE, VERBOSE) INSERT INTO t VALUES (1)'), 'INSERT')
 })

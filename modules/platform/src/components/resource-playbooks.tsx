@@ -32,11 +32,6 @@ interface Props {
   defaultOpen?: boolean
 }
 
-function kctl(kind: string, name: string, ns?: string): string {
-  const n = ns ? ` -n ${ns}` : ''
-  return `kubectl ${kind.toLowerCase()} ${name}${n}`.trim()
-}
-
 function defaultDeveloper(kind: string, name: string, ns?: string): PlaybookStep[] {
   const ref = `${kind.toLowerCase()} ${name}${ns ? ` -n ${ns}` : ''}`
   return [
@@ -102,13 +97,14 @@ export function ResourcePlaybooks({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left"
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-2 px-4 py-2.5 text-left hover:bg-surface-sunken/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40"
       >
         <span className="flex h-6 w-6 items-center justify-center rounded-md bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
           <IconBook />
         </span>
         <span className="text-sm font-semibold text-content">Playbooks</span>
-        <span className="text-[11px] text-content-subtle">
+        <span className="hidden min-w-0 truncate text-[11px] text-content-subtle sm:inline">
           common {kind} operations for developers &amp; operators
         </span>
         <span className={cn('ml-auto text-content-subtle transition-transform', open && 'rotate-180')}>
@@ -193,7 +189,8 @@ function CmdBlock({ cmd }: { cmd: string }) {
           }
         }}
         title={copied ? 'Copied' : 'Copy'}
-        className="shrink-0 rounded p-1 text-code-fg/60 hover:bg-code-raised hover:text-code-fg"
+        aria-label={copied ? 'Copied' : 'Copy command'}
+        className="shrink-0 rounded p-1 text-code-fg/60 hover:bg-code-raised hover:text-code-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
       >
         {copied ? <IconCheck /> : <IconCopy />}
       </button>

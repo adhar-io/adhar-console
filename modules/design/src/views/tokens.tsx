@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { Icon } from '../components/ui-bits.tsx'
 import { Badge, Button, EmptyState, Input, Modal, Select, Tabs, Textarea, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
@@ -127,6 +128,7 @@ export function Tokens() {
     return (
       <div className="space-y-4">
         <EmptyState
+          icon={<Icon name="palette" size={22} />}
           title="No design tokens yet"
           description={`${project ? 'This workspace has no token set yet — a project only overrides the workspace set, so set that up first. ' : ''}Colours, typography, spacing, radius, shadows, motion and breakpoints live here once you create a set; they theme the Visual Designer and publish to code.`}
           action={

@@ -224,16 +224,16 @@ async function fetchOverviewLayout(): Promise<OverviewLayout> {
 async function persistOverviewLayout(next: OverviewLayout): Promise<OverviewLayout> {
   const stamped: OverviewLayout = sanitize({ ...next, updatedAt: new Date().toISOString() })
   if (isProdBuild()) {
-    try {
-      await fetch(`/api/prefs/${PREFS_SCOPE}`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: stamped }),
-      })
-    } catch {
-      /* optimistic update already applied client-side */
-    }
+    // Throw on failure: the mutation's onError rolls the optimistic layout
+    // back and the page says it was not saved. Swallowing it showed "Saved"
+    // and then the layout silently reverted on the next refetch.
+    const res = await fetch(`/api/prefs/${PREFS_SCOPE}`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ data: stamped }),
+    })
+    if (!res.ok) throw new Error(`Saving the layout failed (HTTP ${res.status}).`)
     return stamped
   }
   await delay(120)

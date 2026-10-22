@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge, TeamScopeBar, useTeamScope } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  DataTable,
+  EmptyState,
+  Modal,
+  StatusBadge,
+  TeamScopeBar,
+  useCan,
+  useTeamScope,
+  useToast,
+} from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
@@ -18,13 +28,16 @@ import {
   TextField,
   ViewShell,
 } from '../components/section-shell.tsx'
-import { RequirePermission } from '../components/role-gate.tsx'
 
 const ENVIRONMENTS = ['dev', 'staging', 'preview', 'prod']
 
 export function Projects() {
   const q = useProjects()
   const del = useDeleteProject()
+  const toast = useToast()
+  const canCreate = useCan(CONSOLE_PERMISSIONS.projectsCreate)
+  const canUpdate = useCan(CONSOLE_PERMISSIONS.projectsUpdate)
+  const canDelete = useCan(CONSOLE_PERMISSIONS.projectsDelete)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<WsProject | null>(null)
   const [pendingDelete, setPendingDelete] = useState<WsProject | null>(null)
@@ -49,13 +62,13 @@ export function Projects() {
     <ViewShell
       title="Projects"
       description="Bundle a primary repo, environments, and the teams that can ship to them. Persisted per tenant and audit-logged."
-      required={['admin', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.projectsUpdate}
       actions={
-        <RequirePermission perm="projects.write" required={['admin', 'owner']} readOnly>
+        canCreate ? (
           <PrimaryButton onClick={openCreate}>
             <IconPlus /> New project
           </PrimaryButton>
-        </RequirePermission>
+        ) : null
       }
     >
       {q.isError ? (
@@ -74,11 +87,6 @@ export function Projects() {
           </div>
 
           <SettingsCard title="All projects">
-            {del.isError ? (
-              <p className="mb-3 text-[12px] text-rose-700 dark:text-rose-400">
-                {(del.error as Error)?.message}
-              </p>
-            ) : null}
             <DataTable
               tableId="workspace.projects"
               features
@@ -88,14 +96,12 @@ export function Projects() {
               empty={
                 <EmptyState
                   title="No projects yet"
-                  description="Create one to wire up CI/CD."
-                  action={
-                    <RequirePermission perm="projects.write" required={['admin', 'owner']} fallback={<span />}>
-                      <PrimaryButton onClick={openCreate}>
-                        <IconPlus /> New project
-                      </PrimaryButton>
-                    </RequirePermission>
-                  }
+                  description={canCreate ? 'Create one to wire up CI/CD.' : 'Ask a workspace admin to create a project to wire up CI/CD.'}
+                  action={canCreate ? (
+                    <PrimaryButton onClick={openCreate}>
+                      <IconPlus /> New project
+                    </PrimaryButton>
+                  ) : undefined}
                 />
               }
               columns={[
@@ -103,9 +109,9 @@ export function Projects() {
                   key: 'name',
                   header: 'Project',
                   cell: (p) => (
-                    <div>
-                      <div className="font-medium text-content">{p.name}</div>
-                      <div className="text-[11px] text-content-muted">{p.description ?? '—'}</div>
+                    <div className="min-w-0 max-w-xs">
+                      <div className="truncate font-medium text-content" title={p.name}>{p.name}</div>
+                      <div className="truncate text-[11px] text-content-muted" title={p.description ?? undefined}>{p.description ?? '—'}</div>
                     </div>
                   ),
                 },
@@ -154,16 +160,17 @@ export function Projects() {
                 {
                   key: 'actions',
                   header: '',
-                  cell: (p) => (
-                    <RequirePermission perm="projects.write" required={['admin', 'owner']} fallback={<span />}>
+                  cell: (p) =>
+                    canUpdate || canDelete ? (
                       <div className="flex justify-end gap-1.5">
-                        <SecondaryButton onClick={() => openEdit(p)}>Edit</SecondaryButton>
-                        <SecondaryButton tone="rose" onClick={() => setPendingDelete(p)}>
-                          Delete
-                        </SecondaryButton>
+                        {canUpdate ? <SecondaryButton onClick={() => openEdit(p)}>Edit</SecondaryButton> : null}
+                        {canDelete ? (
+                          <SecondaryButton tone="rose" onClick={() => setPendingDelete(p)}>
+                            Delete
+                          </SecondaryButton>
+                        ) : null}
                       </div>
-                    </RequirePermission>
-                  ),
+                    ) : null,
                 },
               ]}
             />
@@ -178,7 +185,14 @@ export function Projects() {
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => {
           if (!pendingDelete) return
-          del.mutate(pendingDelete.id, { onSuccess: () => setPendingDelete(null) })
+          const name = pendingDelete.name
+          del.mutate(pendingDelete.id, {
+            onSuccess: () => {
+              setPendingDelete(null)
+              toast.success(`Deleted ${name}`)
+            },
+            onError: (e) => toast.error(`Could not delete ${name}`, { description: (e as Error)?.message }),
+          })
         }}
       />
     </ViewShell>

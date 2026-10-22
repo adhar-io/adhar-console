@@ -40,7 +40,7 @@ import { Icon, Menu, SaveDot, SearchBox, TagInput, useConfirm } from '../compone
 import type { AdrStatus, Diagram } from '../data/types.ts'
 import { type AdrReviewer, type ReviewVerdict } from '../data/adr.ts'
 import { addReviewEntry, closeReview, inReview, type SyncRow } from '../data/adr-sync.ts'
-import { type DesignScope, notifyOrg, type PlatformCatalog, useDesignScope, usePlatformCatalog } from '../data/platform.ts'
+import { type DesignScope, type PlatformCatalog, useNotifyOrg, useDesignScope, usePlatformCatalog } from '../data/platform.ts'
 import { scopeFilter, type Scoped } from '../data/scope.ts'
 import { adrHref } from '../components/entity-decisions.tsx'
 import { AdrSyncModal, importFields, RequestReviewModal, ReviewPanel, VerdictModal } from '../components/adr-panels.tsx'
@@ -413,6 +413,7 @@ export function Adrs() {
       <div className="space-y-4">
         {toolbar}
         <EmptyState
+          icon={<Icon name="decision" size={22} />}
           title="Record your first architecture decision"
           description="ADRs capture why the platform looks the way it does — the context, the options you weighed, and the consequences you accepted. Use the MADR template, move decisions through proposed → accepted → superseded, and commit them to docs/adr in Gitea."
           action={
@@ -663,6 +664,7 @@ function AdrView({
 }) {
   const toast = useToast()
   const openDesign = useOpenDesign()
+  const { notify: notifyOrg, canBroadcast } = useNotifyOrg()
   const [supersedeOpen, setSupersedeOpen] = useState(false)
   const [commitOpen, setCommitOpen] = useState(false)
   const [reviewOpen, setReviewOpen] = useState(false)
@@ -716,7 +718,7 @@ function AdrView({
         href: adrHref(adr.id),
         key: `design-adr-review-${adr.id}-${at}`,
       })
-      toast.success('Review requested', { description: posted ? 'Posted to the organisation’s notifications.' : 'Saved — the notification feed is unavailable.' })
+      toast.success('Review requested', { description: posted ? 'Posted to the organisation’s notifications.' : canBroadcast ? 'Saved — the notification feed is unavailable.' : 'Saved — share the decision’s link with the reviewers.' })
     }).catch((e: Error) => toast.error('Could not request review', { description: e.message }))
   }
 

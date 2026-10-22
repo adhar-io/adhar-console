@@ -9,6 +9,9 @@ import { RepoMark } from '../components/repo-picker.tsx'
 import { langColor } from '../components/repo-bits.tsx'
 import { Avatar, DiffStat, GiteaError, IssueStateIcon, LabelPill, ListSkeleton, prState, PrStateIcon } from '../components/list-kit.tsx'
 
+/** Empty states inside a panel: the panel is the frame, so no second dashed box. */
+const PANEL_EMPTY = 'rounded-none border-0 bg-transparent'
+
 /**
  * Develop dashboard — the engineering pulse of the org: Gitea (repositories,
  * pull requests, issues) and Coder (cloud environments) in one screen.
@@ -110,7 +113,7 @@ export function Dashboard() {
           allLabel="All repositories"
         >
           {topRepos.length === 0 ? (
-            <EmptyState
+            <EmptyState className={PANEL_EMPTY}
               compact
               title="No repositories yet"
               description="Repositories in the Gitea org appear here, most recently active first."
@@ -138,7 +141,7 @@ export function Dashboard() {
           onAll={() => go('prs', { state: 'open' })}
           allLabel="All pull requests"
         >
-          {prsShown.isLoading ? <PanelLoading /> : prsShown.isError ? <SourceError what="pull requests from Gitea" error={prs.error} retry={() => prs.refetch()} /> : reviewQueue.length === 0 ? <EmptyState compact title="Nothing to review" description="No open pull requests." /> : (
+          {prsShown.isLoading ? <PanelLoading /> : prsShown.isError ? <SourceError what="pull requests from Gitea" error={prs.error} retry={() => prs.refetch()} /> : reviewQueue.length === 0 ? <EmptyState className={PANEL_EMPTY} compact title="Nothing to review" description="No open pull requests." /> : (
             <ul className="divide-y divide-edge-subtle">
               {reviewQueue.map((p) => <PullRow key={`${p.repo}#${p.number}`} pr={p} go={go} />)}
             </ul>
@@ -152,7 +155,7 @@ export function Dashboard() {
           onAll={() => go('issues', { state: 'open' })}
           allLabel="All issues"
         >
-          {issues.isLoading ? <PanelLoading /> : issues.isError && !issues.data ? <SourceError what="issues from Gitea" error={issues.error} retry={() => issues.refetch()} /> : recentIssues.length === 0 ? <EmptyState compact title="No open issues" /> : (
+          {issues.isLoading ? <PanelLoading /> : issues.isError && !issues.data ? <SourceError what="issues from Gitea" error={issues.error} retry={() => issues.refetch()} /> : recentIssues.length === 0 ? <EmptyState className={PANEL_EMPTY} compact title="No open issues" /> : (
             <ul className="divide-y divide-edge-subtle">
               {recentIssues.map((i) => <IssueRow key={`${i.repo}#${i.number}`} issue={i} go={go} />)}
             </ul>
@@ -163,7 +166,7 @@ export function Dashboard() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Panel title="Cloud environments" subtitle="Latest build status" count={workspaces.isLoading || workspaces.isError ? undefined : wsList.length} onAll={() => go('environments')} allLabel="All environments">
           {workspaces.isLoading ? <PanelLoading /> : workspaces.isError ? <SourceError what="Coder" error={workspaces.error} retry={() => workspaces.refetch()} /> : wsList.length === 0 ? (
-            <EmptyState
+            <EmptyState className={PANEL_EMPTY}
               compact
               title="No cloud environments yet"
               description="Workspaces you create in Coder appear here with their latest build status."
@@ -228,7 +231,7 @@ function shown(q: { isLoading: boolean; isError: boolean }, n: number): number |
 
 function SourceError({ what, error, retry }: { what: string; error: unknown; retry(): void }) {
   return (
-    <EmptyState
+    <EmptyState className={PANEL_EMPTY}
       compact
       title={`Couldn't load ${what}`}
       description={error instanceof Error ? error.message : String(error ?? 'Unknown error.')}
@@ -280,7 +283,7 @@ function RepoTile({ repo, prs, border, onOpen }: { repo: gitea.Repo; prs: number
 }
 
 function LanguageMix({ languages, total }: { languages: Array<[string, number]>; total: number }) {
-  if (!languages.length) return <EmptyState compact title="No languages detected" />
+  if (!languages.length) return <EmptyState className={PANEL_EMPTY} compact title="No languages detected" />
   const top = languages.slice(0, 7)
   const rest = languages.slice(7).reduce((s, [, n]) => s + n, 0)
   const rows: Array<[string, number]> = rest ? [...top, ['Other', rest]] : top
@@ -427,7 +430,7 @@ function QuickStartCard({ title, description, links, tone, go }: {
         <ul className="flex flex-wrap gap-x-4 gap-y-1">
           {links.map(([label, section]) => (
             <li key={section + label}>
-              <button type="button" onClick={() => go(section)} className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:text-brand-800 hover:underline dark:text-brand-300">
+              <button type="button" onClick={() => go(section)} className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:text-brand-800 hover:underline dark:text-brand-300 dark:hover:text-brand-300">
                 <IconArrow /> {label}
               </button>
             </li>

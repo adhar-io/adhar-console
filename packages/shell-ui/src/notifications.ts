@@ -39,6 +39,8 @@ export interface Notification {
   prompt?: string
   target?: { type: string; id: string; label: string }
   actor?: { id: string; label: string }
+  /** The Plane support ticket this notification opened, commented on or resolved. */
+  ticket?: { key?: string; url?: string; state?: 'open' | 'resolved' }
 }
 
 export interface NotificationInput {
@@ -246,6 +248,43 @@ export function useNotifications(): NotificationsApi {
 }
 
 /** Paged, filtered feed for the Notification Center page. */
+/** Sources whose notifications carry platform evidence a support ticket can be built from. */
+export function canOpenSupportTicket(n: Pick<Notification, 'kind' | 'source' | 'ticket'>): boolean {
+  if (n.ticket?.url || n.ticket?.key) return false
+  if (n.source === 'workspace' || n.source === 'user') return false
+  return n.kind === 'error' || n.kind === 'warning'
+}
+
+export interface SupportTicketResult {
+  ok: boolean
+  outcome?: 'created' | 'commented' | 'exists' | 'suppressed' | 'resolved'
+  ticket?: { key?: string; url?: string; state?: 'open' | 'resolved' }
+  detail?: string
+}
+
+/**
+ * "Create support ticket" — `POST /api/support/tickets {notificationId}`. The
+ * server collects the logs, metrics, traces and delivery context and files
+ * (or finds) the Plane work item; the feed then shows the ticket link.
+ */
+export function useCreateSupportTicket() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (notificationId: string): Promise<SupportTicketResult> => {
+      const res = await fetch('/api/support/tickets', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ notificationId }),
+      })
+      const json = (await res.json().catch(() => ({}))) as SupportTicketResult & { error?: string }
+      if (!res.ok || !json.ok) throw new Error(json.detail ?? json.error ?? `HTTP ${res.status}`)
+      return json
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: FEED_KEY }),
+  })
+}
+
 export function useNotificationFeed(params: FeedParams) {
   return useQuery<NotificationPage>({
     queryKey: [...FEED_KEY, 'page', params],

@@ -72,8 +72,12 @@ export function Tabs<T extends string>({
                 onClick={() => setActive(t.id)}
                 className={cn(
                   'block shrink-0 whitespace-nowrap rounded-md px-3 py-2 text-left text-sm transition-colors lg:w-full lg:whitespace-normal',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40',
+                  // Active: the same brand mark the horizontal tabs use (an
+                  // underline there, a left rail here) so the two variants
+                  // read as one component.
                   isActive
-                    ? 'bg-surface-sunken font-medium text-content'
+                    ? 'bg-surface-sunken font-medium text-content lg:shadow-[inset_2px_0_0_var(--color-brand-500)]'
                     : 'text-content-muted hover:bg-surface-sunken hover:text-content',
                   t.disabled && 'cursor-not-allowed opacity-50',
                 )}
@@ -178,7 +182,7 @@ function renderBadge(badge?: TabDef['badge']) {
       degraded: 'bg-rose-100 dark:bg-rose-500/15 text-rose-800 dark:text-rose-300',
       progressing: 'bg-indigo-100 dark:bg-indigo-500/15 text-indigo-800 dark:text-indigo-300',
       paused: 'bg-amber-100 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300',
-      failed: 'bg-rose-200 text-rose-900',
+      failed: 'bg-rose-200 dark:bg-rose-500/25 text-rose-900 dark:text-rose-200',
       unknown: 'bg-surface-sunken text-content-muted',
       info: 'bg-sky-100 dark:bg-sky-500/15 text-sky-800 dark:text-sky-300',
     }

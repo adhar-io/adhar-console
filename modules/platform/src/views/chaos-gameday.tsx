@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Badge,
   Button,
@@ -11,11 +12,13 @@ import {
   Select,
   Spinner,
   StatusBadge,
+  canResource,
   useCan,
   useToast,
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
@@ -39,6 +42,7 @@ import {
   useChaosWorkflow,
   useChaosWorkflows,
   useTargetNamespaces,
+  WORKFLOWS_GVR,
 } from '../data/chaos.ts'
 
 /**
@@ -57,7 +61,8 @@ export function ChaosGameDays({ namespace }: { namespace?: string }) {
   const workflows = useChaosWorkflows(namespace)
   const [building, setBuilding] = useState(false)
   const [open, setOpen] = useState<{ namespace: string; name: string } | null>(null)
-  const canManage = useCan('platform.manage')
+  // A game day is an Argo Workflow created beside the Litmus operator.
+  const canCreate = useCan(canResource(WORKFLOWS_GVR, 'create', { namespace: CHAOS_NAMESPACE }))
 
   const list = workflows.data ?? []
 
@@ -73,7 +78,7 @@ export function ChaosGameDays({ namespace }: { namespace?: string }) {
                 probe that fails a scenario — and stops the run — if the system stops serving.
               </div>
             </div>
-            {canManage ? <Button className="ml-auto" onClick={() => setBuilding(true)}>New game day</Button> : null}
+            {canCreate ? <Button variant="primary" className="ml-auto" onClick={() => setBuilding(true)}>New game day</Button> : null}
           </div>
         </CardHeader>
         <CardBody className="p-0">
@@ -85,7 +90,11 @@ export function ChaosGameDays({ namespace }: { namespace?: string }) {
                 <EmptyState
                   compact
                   title="No game days yet"
-                  description="Start with availability and network — one replica failing, then the network getting slow. Those two cover most of what actually happens."
+                  description={
+                    canCreate
+                      ? 'Start with availability and network — one replica failing, then the network getting slow. Those two cover most of what actually happens.'
+                      : 'Ask a platform admin to schedule one, or for permission to create Argo Workflows in the chaos namespace.'
+                  }
                 />
               </div>
             )
@@ -98,7 +107,7 @@ export function ChaosGameDays({ namespace }: { namespace?: string }) {
       </Card>
 
       {open ? <GameDayDrawer namespace={open.namespace} name={open.name} onClose={() => setOpen(null)} /> : null}
-      {building ? <GameDayBuilder onClose={() => setBuilding(false)} onCreated={setOpen} /> : null}
+      {building && canCreate ? <GameDayBuilder onClose={() => setBuilding(false)} onCreated={setOpen} /> : null}
     </div>
   )
 }
@@ -176,6 +185,8 @@ function GameDayBuilder({
   onCreated(o: { namespace: string; name: string }): void
 }) {
   const toast = useToast()
+  const panelRef = useRef<HTMLDivElement>(null)
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
   const namespaces = useTargetNamespaces()
   const [name, setName] = useState('')
   const [namespace, setNamespace] = useState('')
@@ -228,10 +239,10 @@ function GameDayBuilder({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="New game day">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
-      <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
+      <div ref={panelRef} className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
         <div className="border-b border-edge-default px-5 py-3">
           <div className="text-sm font-semibold text-content">New game day</div>
           <div className="text-[11px] text-content-subtle">
@@ -354,7 +365,8 @@ function GameDayBuilder({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -396,16 +408,20 @@ function ScenarioCard({ scenario, on, onToggle }: { scenario: Scenario; on: bool
 function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: string; onClose(): void }) {
   const wf = useChaosWorkflow(namespace, name)
   const toast = useToast()
-  const canManage = useCan('platform.manage')
+  const canDelete = useCan(canResource(WORKFLOWS_GVR, 'delete', { namespace, name }))
   const width = useDrawerWidth('platform.gameday', { base: 'max-w-2xl' })
+  // Portalled + Esc/focus-trapped like every other console drawer; this one was
+  // rendered in place at z-50 with no Esc, so it could sit under the topbar.
+  const panelRef = useRef<HTMLElement>(null)
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
 
   const phase = wf.data ? workflowPhase(wf.data) : 'pending'
   const steps = useMemo(() => orderSteps(wf.data), [wf.data])
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={`Game day ${name}`}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
-      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={panelRef} className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <div className="flex shrink-0 items-start gap-3 border-b border-edge-default bg-surface-raised px-5 py-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
@@ -417,7 +433,7 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
               {wf.data?.status?.startedAt ? ` · started ${formatRelative(wf.data.status.startedAt)}` : ''}
             </div>
           </div>
-          {canManage
+          {canDelete
             ? (
               <Button
                 variant="ghost"
@@ -466,7 +482,8 @@ function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: 
             : <Timeline steps={steps} />}
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

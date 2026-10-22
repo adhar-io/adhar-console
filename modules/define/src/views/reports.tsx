@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, EmptyState, Tabs, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -103,7 +104,7 @@ export function Reports({ projectId }: { projectId?: string }) {
   const days = Number(params.range ?? '30') || 30
   const from = startOfDay(now - (days - 1) * DAY)
 
-  if (!projectId) return <EmptyState title="Pick a project" description="Reports read one project at a time." />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" description="Reports read one project at a time." />
 
   const items = data.items.filter((i) =>
     (!filters.assignee || (filters.assignee === '-' ? !i.assignees.length : i.assignees.includes(filters.assignee))) &&

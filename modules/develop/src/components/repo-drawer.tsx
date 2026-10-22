@@ -64,6 +64,7 @@ import { NewIssueModal, NewPullModal } from './tracker-modals.tsx';
 import { itemRef, useGoDevelop } from '../data/nav.ts';
 import { GiteaError, ListSkeleton, SwapFrame } from './list-kit.tsx';
 import { copy, fmtKb, IconBranch, IconClose, IconCopy, IconExternal, IconPlus, IconShield, IconTag, IconTrash, IconUsers, IconWebhook, langColor, RepoBadges } from './repo-bits.tsx';
+import { safeExternalUrl } from '../data/safe-url.ts';
 
 export type TabId = 'overview' | 'files' | 'branches' | 'commits' | 'pulls' | 'issues' | 'releases' | 'people' | 'hooks' | 'settings';
 const TAB_IDS: TabId[] = ['overview', 'files', 'branches', 'commits', 'pulls', 'issues', 'releases', 'people', 'hooks', 'settings'];
@@ -115,7 +116,7 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
   const cloneUrl = r.clone_url ?? `${r.html_url}.git`;
 
   return createPortal(
-    <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true'>
+    <div className='fixed inset-0 z-[60] flex justify-end' role='dialog' aria-modal='true'>
       <button type='button' aria-label='Close' className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]' onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
@@ -143,8 +144,8 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
             <a
               href={r.html_url}
               target='_blank'
-              rel='noopener'
-              className='inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700'
+              rel='noopener noreferrer'
+              className='inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300'
             >
               Gitea <IconExternal />
             </a>
@@ -243,7 +244,7 @@ function Section({ title, count, loading, actions, children }: { title: string; 
 function Tile({ label, value, onClick }: { label: string; value: string | number; onClick?(): void }) {
   const Tag = onClick ? 'button' : 'div';
   return (
-    <Tag type={onClick ? 'button' : undefined} onClick={onClick} className={cn('rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3 text-left', onClick && 'hover:border-brand-300')}>
+    <Tag type={onClick ? 'button' : undefined} onClick={onClick} className={cn('rounded-lg border border-edge-subtle bg-surface-sunken/40 p-3 text-left', onClick && 'hover:border-brand-300 dark:hover:border-brand-500/30')}>
       <div className='truncate text-base font-semibold tabular-nums text-content'>{value}</div>
       <div className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{label}</div>
     </Tag>
@@ -408,7 +409,7 @@ function OverviewTab({ repo: r, prs, onGo }: { repo: gitea.Repo; prs: number; on
               <CloneRow label='HTTPS' value={r.clone_url ?? `${r.html_url}.git`} onCopy={(v) => copy(v, toast)} />
               {r.ssh_url ? <CloneRow label='SSH' value={r.ssh_url} onCopy={(v) => copy(v, toast)} /> : null}
             </div>
-            {r.website ? <a href={r.website} target='_blank' rel='noopener' className='mt-2 block truncate text-[11px] text-brand-700 hover:underline dark:text-brand-300'>{r.website}</a> : null}
+            {safeExternalUrl(r.website) ? <a href={safeExternalUrl(r.website)} target='_blank' rel='noopener noreferrer' className='mt-2 block truncate text-[11px] text-brand-700 hover:underline dark:text-brand-300'>{r.website}</a> : null}
           </Section>
         </div>
       </div>
@@ -790,7 +791,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
                 <li key={rel.id} className='py-3'>
                   <div className='flex flex-wrap items-center gap-2'>
                     <IconTag />
-                    <a href={rel.html_url ?? `${r.html_url}/releases/tag/${rel.tag_name}`} target='_blank' rel='noopener' className='text-sm font-semibold text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{rel.name || rel.tag_name}</a>
+                    <a href={rel.html_url ?? `${r.html_url}/releases/tag/${rel.tag_name}`} target='_blank' rel='noopener noreferrer' className='text-sm font-semibold text-content hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{rel.name || rel.tag_name}</a>
                     <code className='rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-content-muted'>{rel.tag_name}</code>
                     {rel.draft ? <StatusBadge kind='unknown'>draft</StatusBadge> : null}
                     {rel.prerelease ? <StatusBadge kind='degraded'>pre-release</StatusBadge> : null}

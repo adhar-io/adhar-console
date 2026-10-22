@@ -1,5 +1,14 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  DataTable,
+  EmptyState,
+  Modal,
+  StatusBadge,
+  type StatusKind,
+  useCan,
+  useToast,
+} from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import { ROLE_LABEL, type Role } from '../data/access.ts'
 import {
@@ -56,7 +65,9 @@ export function Approvals() {
     <ViewShell
       title="Approvals"
       description="High-blast-radius actions can require a second person. Requests are persisted as workspace.approval documents; a requester can never approve their own."
-      required={['admin', 'security', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.approvalsDecide}
+      // Raising a request is a member action — the BFF does not guard
+      // POST /api/workspace/approvals, so the button is offered to everyone.
       actions={
         <PrimaryButton onClick={() => setRequestOpen(true)}>
           <IconPlus /> Request approval
@@ -74,11 +85,7 @@ export function Approvals() {
             <StatTile label="Total" value={all.length} />
           </div>
 
-          <ApprovalQueue
-            requests={all}
-            selfId={me.data?.userId}
-            canDecide={me.data?.role === 'owner' || me.data?.role === 'admin'}
-          />
+          <ApprovalQueue requests={all} selfId={me.data?.userId} />
 
           <PolicyList policies={policies.data ?? []} loading={policies.isLoading} />
         </>
@@ -94,20 +101,24 @@ export function Approvals() {
 function ApprovalQueue({
   requests,
   selfId,
-  canDecide,
 }: {
   requests: ApprovalRequest[]
   selfId?: string
-  canDecide: boolean
 }) {
   const decide = useDecideApproval()
+  const toast = useToast()
+  // POST /api/workspace/approvals/:id/{approve,reject} → approvalsDecide.
+  const canDecide = useCan(CONSOLE_PERMISSIONS.approvalsDecide)
+  const run = (a: ApprovalRequest, decision: 'approve' | 'reject') =>
+    decide.mutate(
+      { id: a.id, decision },
+      {
+        onSuccess: () => toast.success(decision === 'approve' ? 'Request approved' : 'Request rejected'),
+        onError: (e) => toast.error(`Could not ${decision} the request`, { description: (e as Error)?.message }),
+      },
+    )
   return (
     <SettingsCard title="Approval requests" description="Newest first. Segregation of duty is enforced server-side.">
-      {decide.isError ? (
-        <p className="mb-3 text-[12px] text-rose-700 dark:text-rose-400">
-          {(decide.error as Error)?.message}
-        </p>
-      ) : null}
       <DataTable
         rows={requests}
         rowKey={(a) => a.id}
@@ -117,9 +128,9 @@ function ApprovalQueue({
             key: 'scope',
             header: 'Request',
             cell: (a) => (
-              <div>
+              <div className="min-w-0 max-w-md">
                 <div className="font-medium text-content">{SCOPE_LABEL[a.scope] ?? a.scope}</div>
-                <div className="text-[11px] text-content-muted">{a.summary}</div>
+                <div className="truncate text-[11px] text-content-muted" title={a.summary}>{a.summary}</div>
               </div>
             ),
           },
@@ -153,25 +164,22 @@ function ApprovalQueue({
             cell: (a) => {
               if (a.status !== 'pending') return <span className="text-[11px] text-content-subtle">—</span>
               const ownRequest = a.requestedBy.id === selfId
-              if (!canDecide || ownRequest) {
-                return (
-                  <span className="text-[11px] text-content-subtle">
-                    {ownRequest ? 'awaiting another approver' : 'view only'}
-                  </span>
-                )
+              if (ownRequest) {
+                return <span className="text-[11px] text-content-subtle">awaiting another approver</span>
               }
+              if (!canDecide) return null
               return (
                 <div className="flex justify-end gap-1.5">
                   <SecondaryButton
                     disabled={decide.isPending}
-                    onClick={() => decide.mutate({ id: a.id, decision: 'approve' })}
+                    onClick={() => run(a, 'approve')}
                   >
                     Approve
                   </SecondaryButton>
                   <SecondaryButton
                     tone="rose"
                     disabled={decide.isPending}
-                    onClick={() => decide.mutate({ id: a.id, decision: 'reject' })}
+                    onClick={() => run(a, 'reject')}
                   >
                     Reject
                   </SecondaryButton>
@@ -209,7 +217,7 @@ function RequestApprovalModal({ open, onClose }: { open: boolean; onClose(): voi
       onClose={onClose}
       branded
       title="Request approval"
-      description="Raise a request for a high-blast-radius action. Another admin or owner must approve it."
+      description="Raise a request for a high-blast-radius action. Someone else with approval rights must approve it."
       footer={
         <>
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
@@ -245,6 +253,7 @@ function RequestApprovalModal({ open, onClose }: { open: boolean; onClose(): voi
 /* ─────────────────── policy reference ─────────────────── */
 
 function PolicyList({ policies, loading }: { policies: ApprovalPolicy[]; loading: boolean }) {
+  const toast = useToast()
   const save = useSaveApprovalPolicy()
   if (loading) {
     return (
@@ -254,9 +263,15 @@ function PolicyList({ policies, loading }: { policies: ApprovalPolicy[]; loading
     )
   }
   const setReq = (a: ApprovalPolicy, next: number) =>
-    save.mutate({ ...a, approversRequired: Math.max(1, Math.min(5, next)) })
+    save.mutate(
+      { ...a, approversRequired: Math.max(1, Math.min(5, next)) },
+      { onError: (e) => toast.error('Could not update the approval policy', { description: (e as Error)?.message }) },
+    )
   return (
-    <RequirePermission perm="approvals.write" required={['security', 'owner']} readOnly>
+    // Policies are saved to the generic document store, which has no
+    // CONSOLE_PERMISSIONS entry of its own — editing them is gated on the
+    // closest one, approvalsDecide (whoever decides approvals sets the rules).
+    <RequirePermission check={CONSOLE_PERMISSIONS.approvalsDecide} readOnly>
       <div className="space-y-3">
         {policies.map((a) => (
           <SettingsCard
@@ -267,7 +282,7 @@ function PolicyList({ policies, loading }: { policies: ApprovalPolicy[]; loading
               <ToggleField
                 checked={a.enabled}
                 label={a.enabled ? 'Enabled' : 'Disabled'}
-                onChange={(enabled) => save.mutate({ ...a, enabled })}
+                onChange={(enabled) => save.mutate({ ...a, enabled }, { onError: (e) => toast.error('Could not update the approval policy', { description: (e as Error)?.message }) })}
               />
             }
           >

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button, EmptyState, Field, Input, Modal, Select, StatusBadge, type StatusKind, Textarea, usePlaneWorkspace, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
@@ -26,6 +27,7 @@ import { planningHref, usePlanningParams, useSetPlanningParams } from '../data/p
 import { BUILTIN_TEMPLATES, type TemplateDoc } from '../data/work-store.ts'
 import { IssueSearch } from '../components/issue-search.tsx'
 import { IssueDrawer } from '../components/issue-drawer.tsx'
+import { RichView } from '../components/rich-editor.tsx'
 import { IconLink, Loading, Notice, ProblemState } from '../components/planning-ui.tsx'
 
 /**
@@ -104,13 +106,13 @@ export function Intake({ projectId }: { projectId?: string }) {
     }
   }, [breached, notify])
 
-  if (!projectId) return <EmptyState title="Pick a project" />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" />
   const p = project.data
   const enabled = p ? Boolean(p.intake_view ?? p.inbox_view) : true
 
   if (p && !enabled) {
     return (
-      <EmptyState
+      <EmptyState icon={<EmptyIcon name="inbox" />}
         title={`Intake is off for ${p.name}`}
         description="Intake is a triage queue: requests arrive as pending items, and someone accepts, declines, snoozes or merges them before they reach the backlog. Turn it on to use it here and in Plane."
         action={
@@ -183,7 +185,7 @@ export function Intake({ projectId }: { projectId?: string }) {
 
       {all.isLoading ? <Loading label="Loading intake…" /> : all.isError ? <ProblemState error={all.error} onRetry={() => all.refetch()} /> : shown.length === 0
         ? (
-          <EmptyState
+          <EmptyState icon={<EmptyIcon name="inbox" />}
             title={tab === 'pending' ? 'Nothing to triage' : `No ${tab} requests`}
             description={tab === 'pending' ? 'New requests appear here until someone accepts, declines, snoozes or merges them.' : undefined}
             action={tab === 'pending' ? <Button size="sm" onClick={() => setCreating(true)}>Submit a request</Button> : undefined}
@@ -360,7 +362,8 @@ function IntakeDetail({ projectId, identifier, item, policy, onOpenIssue }: { pr
       </header>
       <div className="px-5 py-4">
         {d?.description_html && d.description_html !== '<p></p>'
-          ? <div className="prose-sm max-w-none text-[13px] leading-relaxed text-content [&_a]:text-brand-700 [&_p]:my-1.5" dangerouslySetInnerHTML={{ __html: d.description_html }} />
+          // Intake requests come from external submitters — never render their HTML unsanitised.
+          ? <RichView html={d.description_html} className="text-[13px]" />
           : <p className="text-[13px] italic text-content-subtle">No description.</p>}
       </div>
 

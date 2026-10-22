@@ -629,7 +629,7 @@ function PlatformToggle(
       </span>
       <span>
         Show platform packages{count
-          ? <span className='text-content-subtle'>{' '}({count})</span>
+          ? <span className='text-content-subtle'> ({count})</span>
           : null}
       </span>
     </button>
@@ -1007,7 +1007,7 @@ function StageDrawer(
 
   return createPortal(
     <div
-      className='fixed inset-0 z-50 flex justify-end'
+      className='fixed inset-0 z-[60] flex justify-end'
       role='dialog'
       aria-modal='true'
       aria-label={`${title} details`}
@@ -1184,7 +1184,7 @@ function StageDrawer(
             <a
               key={l.href + l.label}
               href={l.href}
-              className='inline-flex items-center gap-1 text-[12px] font-medium text-brand-700 hover:text-brand-800 dark:text-brand-300'
+              className='inline-flex items-center gap-1 text-[12px] font-medium text-brand-700 hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-300'
             >
               {l.label} <span aria-hidden>↗</span>
             </a>
@@ -1453,7 +1453,7 @@ function LeadTime(
           {lead.medianTotalSec != null && last
             ? (
               <span>
-                <span className='text-content-subtle'>Commit → {last}{' '}</span>
+                <span className='text-content-subtle'>Commit → {last} </span>
                 <span className='font-semibold tabular-nums text-content'>
                   {fmtDuration(lead.medianTotalSec)}
                 </span>
@@ -1463,7 +1463,7 @@ function LeadTime(
           {lead.bottleneck
             ? (
               <span>
-                <span className='text-content-subtle'>Bottleneck{' '}</span>
+                <span className='text-content-subtle'>Bottleneck </span>
                 <span className='font-semibold text-amber-700 dark:text-amber-300'>
                   {lead.bottleneck.label}
                 </span>

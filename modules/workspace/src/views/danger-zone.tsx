@@ -1,19 +1,28 @@
 import { useMemo, useState } from 'react'
-import { EmptyState, StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, EmptyState, StatusBadge, useAccessReview, useToast } from '@adhar/shell-ui'
 import {
   isDbUnavailable,
   useDeleteOrg,
   useMembers,
   useOrg,
   useTransferOwnership,
+  useWorkspaceMe,
   type WsMember,
 } from '../data/client.ts'
 import { SecondaryButton, SelectField, ViewShell } from '../components/section-shell.tsx'
-import { RequirePermission } from '../components/role-gate.tsx'
 
 export function DangerZone() {
   const org = useOrg()
   const members = useMembers()
+  const me = useWorkspaceMe()
+  // POST /api/workspace/org/transfer → orgUpdate, and the BFF additionally
+  // requires the caller to BE the owner (only an owner can hand ownership on).
+  const transferRbac = useAccessReview(CONSOLE_PERMISSIONS.orgUpdate)
+  // DELETE /api/workspace/org → orgDelete.
+  const deleteRbac = useAccessReview(CONSOLE_PERMISSIONS.orgDelete)
+  const canTransfer = transferRbac.allowed && me.data?.role === 'owner'
+  const canDelete = deleteRbac.allowed
+  const settled = !transferRbac.loading && !deleteRbac.loading && !me.isLoading
 
   const err = org.error ?? members.error
   if (org.isError || members.isError) {
@@ -21,7 +30,7 @@ export function DangerZone() {
       <ViewShell
         title="Danger zone"
         description="Irreversible organization actions."
-        required={['owner']}
+        writeCheck={CONSOLE_PERMISSIONS.orgDelete}
       >
         {isDbUnavailable(err) ? (
           <EmptyState
@@ -52,14 +61,19 @@ export function DangerZone() {
     <ViewShell
       title="Danger zone"
       description="These actions are irreversible and are recorded in the audit log."
-      required={['owner']}
+      writeCheck={CONSOLE_PERMISSIONS.orgDelete}
     >
-      <RequirePermission perm="org.transfer" required={['owner']}>
-        <TransferOwnership members={members.data ?? []} />
-        <div className="mt-4">
-          <DeleteOrganization orgName={org.data?.name ?? ''} loading={org.isLoading} />
+      {canTransfer || canDelete ? (
+        <div className="space-y-4">
+          {canTransfer ? <TransferOwnership members={members.data ?? []} /> : null}
+          {canDelete ? <DeleteOrganization orgName={org.data?.name ?? ''} loading={org.isLoading} /> : null}
         </div>
-      </RequirePermission>
+      ) : settled ? (
+        <EmptyState
+          title="Nothing you can change here"
+          description="Transferring ownership and deleting the organization are reserved for the organization owner. Ask them if either is needed."
+        />
+      ) : null}
     </ViewShell>
   )
 }
@@ -70,8 +84,20 @@ function TransferOwnership({ members }: { members: WsMember[] }) {
   const candidates = useMemo(() => members.filter((m) => m.role !== 'owner'), [members])
   const [target, setTarget] = useState('')
   const transfer = useTransferOwnership()
+  const toast = useToast()
 
-  const selected = candidates.find((m) => m.userId === target)
+  const submit = () => {
+    const email = candidates.find((m) => m.userId === target)?.email ?? 'the selected member'
+    transfer.mutate(target, {
+      onSuccess: (r) => {
+        setTarget('')
+        toast.success(`Ownership transferred to ${email}`, {
+          description: r.keycloakSynced ? 'Keycloak role groups updated.' : 'Console-only — Keycloak sync is not configured.',
+        })
+      },
+      onError: (e) => toast.error('Could not transfer ownership', { description: (e as Error)?.message }),
+    })
+  }
 
   return (
     <div className="rounded-2xl border border-rose-300 bg-rose-50/60 p-5 dark:border-rose-900 dark:bg-rose-950/30">
@@ -88,10 +114,7 @@ function TransferOwnership({ members }: { members: WsMember[] }) {
           <span className="mb-1 block text-xs font-medium text-rose-900 dark:text-rose-200">New owner</span>
           <SelectField
             value={target}
-            onChange={(v) => {
-              setTarget(v)
-              transfer.reset()
-            }}
+            onChange={setTarget}
             options={[
               { value: '', label: candidates.length ? 'Select a member…' : 'No eligible members' },
               ...candidates.map((m) => ({ value: m.userId, label: `${m.name} · ${m.email}` })),
@@ -101,28 +124,12 @@ function TransferOwnership({ members }: { members: WsMember[] }) {
         <button
           type="button"
           disabled={!target || transfer.isPending}
-          onClick={() => transfer.mutate(target)}
-          className="inline-flex h-9 items-center rounded-lg border border-rose-300 bg-surface-raised px-4 text-sm font-medium text-rose-900 shadow-sm transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:text-rose-200 dark:hover:bg-rose-950/50"
+          onClick={submit}
+          className="inline-flex h-9 items-center rounded-lg border border-rose-300 bg-surface-raised px-4 text-sm font-medium text-rose-900 shadow-sm transition-colors hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:text-rose-200 dark:hover:bg-rose-950/50"
         >
           {transfer.isPending ? 'Transferring…' : 'Transfer'}
         </button>
       </div>
-
-      {transfer.isSuccess ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-emerald-800 dark:text-emerald-300">
-          <StatusBadge kind="healthy">done</StatusBadge>
-          Ownership transferred to {selected?.email ?? 'the selected member'}.
-          <StatusBadge kind={transfer.data?.keycloakSynced ? 'healthy' : 'paused'}>
-            {transfer.data?.keycloakSynced ? 'synced to Keycloak' : 'console-only'}
-          </StatusBadge>
-        </div>
-      ) : null}
-      {transfer.isError ? (
-        <div className="mt-3 flex items-center gap-2 text-[12px] text-rose-800 dark:text-rose-300">
-          <StatusBadge kind="failed">error</StatusBadge>
-          {(transfer.error as Error)?.message ?? 'Transfer failed. Try again.'}
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -132,6 +139,7 @@ function TransferOwnership({ members }: { members: WsMember[] }) {
 function DeleteOrganization({ orgName, loading }: { orgName: string; loading: boolean }) {
   const [confirm, setConfirm] = useState('')
   const del = useDeleteOrg()
+  const toast = useToast()
   const matches = orgName.length > 0 && confirm.trim() === orgName
 
   return (
@@ -157,10 +165,7 @@ function DeleteOrganization({ orgName, loading }: { orgName: string; loading: bo
             </span>
             <input
               value={confirm}
-              onChange={(e) => {
-                setConfirm(e.target.value)
-                del.reset()
-              }}
+              onChange={(e) => setConfirm(e.target.value)}
               placeholder={orgName}
               disabled={loading}
               className="mt-1 w-full rounded-lg border border-rose-300 bg-surface-raised px-3 py-2 font-mono text-sm text-content shadow-sm focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-400/20 disabled:opacity-60 dark:border-rose-800"
@@ -169,17 +174,14 @@ function DeleteOrganization({ orgName, loading }: { orgName: string; loading: bo
           <button
             type="button"
             disabled={!matches || del.isPending}
-            onClick={() => del.mutate(confirm.trim())}
-            className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg bg-rose-700 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() =>
+              del.mutate(confirm.trim(), {
+                onError: (e) => toast.error('Could not delete the organization', { description: (e as Error)?.message }),
+              })}
+            className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg bg-rose-700 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/40 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {del.isPending ? 'Deleting…' : 'Delete organization'}
           </button>
-          {del.isError ? (
-            <div className="mt-3 flex items-center gap-2 text-[12px] text-rose-800 dark:text-rose-300">
-              <StatusBadge kind="failed">error</StatusBadge>
-              {(del.error as Error)?.message ?? 'Deletion failed. Try again.'}
-            </div>
-          ) : null}
         </>
       )}
     </div>

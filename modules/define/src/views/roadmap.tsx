@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { useQuery } from '@tanstack/react-query'
 import { Button, Checkbox, EmptyState, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
@@ -206,7 +207,7 @@ export function Roadmap({ projectId }: { projectId?: string }) {
     })
   }
 
-  if (scope === 'project' && !projectId) return <EmptyState title="Pick a project" />
+  if (scope === 'project' && !projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" />
   if (projects.isLoading || (portfolio.loading && !rows.length)) return <Loading label="Loading the roadmap…" />
   if (portfolio.error && !rows.length) return <ProblemState error={portfolio.error} />
 
@@ -215,7 +216,7 @@ export function Roadmap({ projectId }: { projectId?: string }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Segmented label="Scope" value={scope} onChange={setScope} options={[{ value: 'project', label: 'This project' }, { value: 'all', label: 'All projects' }]} />
+        <Segmented<Scope> label="Scope" value={scope} onChange={setScope} options={[{ value: 'project', label: 'This project' }, { value: 'all', label: 'All projects' }]} />
         <Segmented
           label="Group by"
           value={group}
@@ -243,7 +244,7 @@ export function Roadmap({ projectId }: { projectId?: string }) {
       {deps && relQ.error ? <ProblemState compact error={relQ.error} /> : null}
 
       {rows.length === 0
-        ? <EmptyState title="Nothing on the roadmap yet" description="Give epics or work items start and due dates and they appear here." />
+        ? <EmptyState icon={<EmptyIcon name="roadmap" />} title="Nothing on the roadmap yet" description="Give epics or work items start and due dates and they appear here." />
         : (
           <div className="flex overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
             <div className="shrink-0 border-r border-edge-default" style={{ width: `min(${LABEL_W}px, 40vw)` }}>

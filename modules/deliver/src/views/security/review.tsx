@@ -6,6 +6,7 @@ import { groupIdentical, previousRun, slaOf, summaryDiff, toSeverity } from '../
 import { useSetSecurityParams } from '../../data/security-nav.ts'
 import type { SecurityModel } from '../../data/security-model.ts'
 import { DecisionModal, type DecisionMode, GateDecisionModal } from './dialogs.tsx'
+import { useScanGovernanceAccess } from '../../data/security-access.ts'
 import { fmtDate, Loading, Notice, Section, SevChip, shortDigest } from './shared.tsx'
 
 const SLA_TONE = {
@@ -30,7 +31,9 @@ export function ReviewQueue({ model }: { model: SecurityModel }) {
   const pending = useMemo(() => model.waiverItems.filter((w) => w.status === 'requested').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt)), [model.waiverItems])
   const groups = useMemo(() => groupIdentical(pending), [pending])
   const awaiting = (gates.data?.items ?? []).filter((g) => g.state === 'awaiting')
-  const canDecide = Boolean(me?.canApprove)
+  // RBAC `approve scan-waivers` (docs/rbac.md) — the check the BFF enforces.
+  const access = useScanGovernanceAccess()
+  const canDecide = access.canApprove
 
   const toggle = (id: string) => setSelected((s) => {
     const n = new Set(s)
@@ -44,9 +47,9 @@ export function ReviewQueue({ model }: { model: SecurityModel }) {
 
   return (
     <div className="space-y-6">
-      {!canDecide && me ? (
+      {!canDecide && access.decided ? (
         <Notice tone="info" title="Read-only">
-          Decisions need the security-reviewer, platform-engineer or platform-admin role. You can still withdraw your own requests.
+          Decisions need the Kubernetes RBAC permission <code>approve scan-waivers.console.adhar.io</code>. You can still withdraw your own requests.
         </Notice>
       ) : null}
 

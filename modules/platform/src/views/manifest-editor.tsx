@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Spinner } from '@adhar/shell-ui'
-import { cn } from '@adhar/utils'
+import { Button, canResource, Spinner, useAccessReview, useToast } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s'
-import { useAccess } from '../data/live.ts'
 import { loadMonaco, type MonacoEditorInstance } from '../components/monaco-loader.ts'
 
 interface Props {
@@ -13,13 +11,13 @@ interface Props {
   onClose?(): void
 }
 
-type Note = { tone: 'ok' | 'error'; text: string } | null
-
 /**
  * Live manifest editor. Loads the object via `kube.get`, strips
  * `metadata.managedFields`, and edits the pretty-printed JSON in Monaco.
  * JSON (not YAML) keeps us dependency-free and apiserver-compatible — a YAML
- * mode can layer on later. Dry-run / Apply go through server-side apply.
+ * mode can layer on later. Dry-run / Apply go through server-side apply —
+ * a PATCH, so both are shown only when RBAC allows `patch` on the object
+ * (hidden while that is being asked); the editor stays read-only otherwise.
  */
 export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -28,18 +26,20 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
   const [original, setOriginal] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [note, setNote] = useState<Note>(null)
+  const toast = useToast()
   const [busy, setBusy] = useState<'dry' | 'apply' | null>(null)
 
-  const canUpdate = useAccess({ verb: 'update', group: gvr.group, resource: gvr.resource, namespace, name })
-  const readOnly = canUpdate.data === false
+  const access = useAccessReview(canResource(gvr, 'patch', { namespace, name }))
+  const canApply = access.allowed
+  const readOnly = !canApply
+  // Say "read-only" only once RBAC has definitely said no — not while asking.
+  const denied = !access.loading && !access.unknown && access.results[0] === false
 
   // Fetch the object and stash the pretty-printed manifest.
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setLoadError(null)
-    setNote(null)
     kube
       .get<KubeObject>(gvr, namespace, name)
       .then((obj) => {
@@ -101,7 +101,7 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
     try {
       return JSON.parse(text) as KubeObject
     } catch (e) {
-      setNote({ tone: 'error', text: `Invalid JSON — ${(e as Error).message}` })
+      toast.error('Invalid JSON', { description: (e as Error).message })
       return null
     }
   }
@@ -110,12 +110,11 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
     const manifest = parseCurrent()
     if (!manifest) return
     setBusy('dry')
-    setNote(null)
     try {
       await kube.apply(manifest, { dryRun: true })
-      setNote({ tone: 'ok', text: '✓ valid' })
+      toast.success('Dry-run passed', { description: 'The apiserver accepted the manifest.' })
     } catch (e) {
-      setNote({ tone: 'error', text: (e as Error).message })
+      toast.error('Dry-run failed', { description: (e as Error).message })
     } finally {
       setBusy(null)
     }
@@ -125,15 +124,14 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
     const manifest = parseCurrent()
     if (!manifest) return
     setBusy('apply')
-    setNote(null)
     try {
       const applied = await kube.apply<KubeObject>(manifest, { force: true })
       const pretty = prettyManifest(applied)
       setOriginal(pretty)
       editorRef.current?.setValue(pretty)
-      setNote({ tone: 'ok', text: '✓ applied' })
+      toast.success(`${name} applied`)
     } catch (e) {
-      setNote({ tone: 'error', text: (e as Error).message })
+      toast.error(`Couldn't apply ${name}`, { description: (e as Error).message })
     } finally {
       setBusy(null)
     }
@@ -141,55 +139,48 @@ export function ManifestEditor({ gvr, namespace, name, onClose }: Props) {
 
   function onReset() {
     editorRef.current?.setValue(original)
-    setNote(null)
   }
 
   return (
     <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge-default px-3 py-2">
-        <div className="mr-2 flex min-w-0 items-baseline gap-2">
+        <div className="mr-2 flex min-w-0 flex-1 items-baseline gap-2">
           <span className="text-sm font-semibold text-content">Manifest (JSON)</span>
-          <code className="truncate font-mono text-[11px] text-content-muted">
+          <code className="min-w-0 truncate font-mono text-[11px] text-content-muted" title={`${gvr.group ? `${gvr.group}/` : ''}${gvr.version}/${gvr.resource}${namespace ? ` · ${namespace}` : ''} / ${name}`}>
             {gvr.group ? `${gvr.group}/` : ''}
             {gvr.version}/{gvr.resource}
             {namespace ? ` · ${namespace}` : ''} / {name}
           </code>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          {note ? (
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {denied ? (
             <span
-              className={cn(
-                'max-w-[22rem] truncate rounded-md px-2 py-1 text-[11px] font-medium',
-                note.tone === 'ok'
-                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25'
-                  : 'bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/25',
-              )}
-              title={note.text}
+              className="rounded-md bg-surface-sunken px-2 py-1 text-[11px] font-medium text-content-subtle"
+              title={`Your RBAC doesn't allow patch ${gvr.resource}${namespace ? ` in ${namespace}` : ''}`}
             >
-              {note.text}
+              Read only
             </span>
           ) : null}
-          {readOnly ? (
-            <span className="rounded-md bg-surface-sunken px-2 py-1 text-[11px] font-medium text-content-subtle">
-              read-only — no update access
-            </span>
+          {canApply ? (
+            <>
+              <Button size="xs" variant="secondary" onClick={onDryRun} loading={busy === 'dry'} disabled={!ready || loading}>
+                Dry-run
+              </Button>
+              <Button
+                size="xs"
+                variant="primary"
+                onClick={onApply}
+                loading={busy === 'apply'}
+                disabled={!ready || loading}
+              >
+                Apply
+              </Button>
+              <Button size="xs" variant="ghost" onClick={onReset} disabled={!ready || loading}>
+                Reset
+              </Button>
+            </>
           ) : null}
-          <Button size="xs" variant="secondary" onClick={onDryRun} loading={busy === 'dry'} disabled={!ready || loading}>
-            Dry-run
-          </Button>
-          <Button
-            size="xs"
-            variant="primary"
-            onClick={onApply}
-            loading={busy === 'apply'}
-            disabled={!ready || loading || readOnly}
-          >
-            Apply
-          </Button>
-          <Button size="xs" variant="ghost" onClick={onReset} disabled={!ready || loading}>
-            Reset
-          </Button>
           {onClose ? (
             <Button size="xs" variant="ghost" onClick={onClose}>
               Close

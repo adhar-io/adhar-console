@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Badge,
   Button,
@@ -10,9 +11,9 @@ import {
   Input,
   Select,
   Spinner,
-  StatusBadge,
   Textarea,
   useCan,
+  useOverlayDismiss,
   useToast,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
@@ -29,6 +30,7 @@ import {
 import { usePublicGiteaUrl } from '../data/git.ts'
 import { filesUrlOf, newTestProblem, PERF_DIR, perfTestDir, perfTestName, type PerfTestLocation } from '../data/perf-location.ts'
 import {
+  canAuthorPerf,
   findTest,
   type PerfSuite as Suite,
   type PerfTest,
@@ -41,6 +43,7 @@ import {
   useSavePerfTest,
 } from '../data/perf-suite.ts'
 import { materialiseArtefact, usePerfInsights } from '../data/perf-automation.ts'
+import { runPerfTestChecks, saveScheduleChecks } from '../data/access.ts'
 import { CiPanel, GatePanel, TrendsPanel } from './perf-test-insights.tsx'
 
 /**
@@ -83,7 +86,8 @@ export function PerfSuite({
   useEffect(() => {
     if (createToken) setCreating(true)
   }, [createToken])
-  const canEdit = useCan('develop')
+  // Authoring is a commit to the app repository — Gitea's push permission decides.
+  const canEdit = canAuthorPerf(suite)
 
   const locations = useMemo(() => suite?.tests ?? [], [suite])
   const tests = useMemo(() => locations.map((t) => t.name), [locations])
@@ -149,7 +153,7 @@ export function PerfSuite({
           <TestWorkbench
             suite={suite}
             name={selected}
-            canEdit={canEdit}
+            canEdit={canAuthorPerf(suite, selected)}
             onOpenRun={onOpenRun}
             onOpenResults={onOpenResults}
             onSchedule={onSchedule}
@@ -161,7 +165,7 @@ export function PerfSuite({
               <EmptyState
                 title="No tests yet"
                 description={`None of the ${suite.apps.length} application repositor${suite.apps.length === 1 ? 'y has' : 'ies have'} a ${PERF_DIR}/ folder. A performance test is a k6 script plus its configuration, committed next to the code it measures. Start from a template — every one of them declares thresholds, so the run produces a verdict rather than just a number.`}
-                action={canEdit ? <Button onClick={() => setCreating(true)}>New test</Button> : undefined}
+                action={canEdit ? <Button variant="primary" onClick={() => setCreating(true)}>New test</Button> : undefined}
               />
             </CardBody>
           </Card>
@@ -363,6 +367,11 @@ function TestWorkbench({
   const liveConfig = config ?? test?.config ?? DEFAULT_CONFIG
   const dirty = (script !== null && script !== test?.script) ||
     (config !== null && JSON.stringify(config) !== JSON.stringify(test?.config))
+  // Cluster writes, asked in the test's namespace (docs/rbac.md): a run applies
+  // the artefact ConfigMap and a TestRun; a schedule also installs the runner.
+  const runNs = test?.config.namespace || 'default'
+  const canRun = useCan(runPerfTestChecks(runNs), { enabled: !!test })
+  const canSchedule = useCan(saveScheduleChecks(runNs), { enabled: !!test })
 
   if (q.isLoading) return <Card><CardBody className="flex justify-center py-16"><Spinner /></CardBody></Card>
   if (!test) {
@@ -447,23 +456,29 @@ function TestWorkbench({
               {liveConfig.tags.length ? ` · ${liveConfig.tags.join(', ')}` : ''}
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             {canEdit
               ? (
-                <>
-                  <Button variant="ghost" size="sm" disabled={remove.isPending} onClick={doDelete}>
-                    {remove.isPending ? 'Deleting…' : confirmDelete ? 'Confirm delete' : 'Delete'}
-                  </Button>
-                  {onSchedule
-                    ? <Button variant="ghost" size="sm" onClick={() => onSchedule(name)}>Schedule</Button>
-                    : null}
-                  <Button variant="ghost" size="sm" disabled={!dirty || save.isPending} onClick={doSave}>
-                    {save.isPending ? 'Committing…' : 'Commit'}
-                  </Button>
-                  <Button size="sm" disabled={run.isPending} onClick={doRun}>
-                    {run.isPending ? 'Starting…' : 'Run test'}
-                  </Button>
-                </>
+                <Button variant="ghost" size="sm" loading={remove.isPending} onClick={doDelete} className={confirmDelete ? 'text-rose-700 dark:text-rose-300' : undefined}>
+                  {confirmDelete ? 'Confirm delete' : 'Delete'}
+                </Button>
+              )
+              : null}
+            {onSchedule && canSchedule
+              ? <Button variant="ghost" size="sm" onClick={() => onSchedule(name)}>Schedule</Button>
+              : null}
+            {canEdit
+              ? (
+                <Button variant="secondary" size="sm" disabled={!dirty} loading={save.isPending} onClick={doSave}>
+                  Commit
+                </Button>
+              )
+              : null}
+            {canRun
+              ? (
+                <Button variant="primary" size="sm" loading={run.isPending} onClick={doRun}>
+                  Run test
+                </Button>
               )
               : null}
           </div>
@@ -810,12 +825,23 @@ function NewTestDialog({
   const name = app ? perfTestName(app, sub) : ''
   const ready = Boolean(name) && !error
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
-      <div className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
+  // Hand-rolled (it needs the code-starter layout) but owes the same overlay
+  // behaviour as Modal: portal above the shell, ESC, focus trap, scroll lock.
+  const panelRef = useRef<HTMLDivElement>(null)
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <button type="button" aria-label="Close" tabIndex={-1} className="absolute inset-0 bg-scrim/50" onClick={onClose} />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-perf-test-title"
+        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl"
+      >
         <div className="border-b border-edge-default px-5 py-3">
-          <div className="text-sm font-semibold text-content">New performance test</div>
+          <div id="new-perf-test-title" className="text-sm font-semibold text-content">New performance test</div>
           <div className="text-[11px] text-content-subtle">
             Committed to {suite.org}/{app || '…'} · {perfTestDir(sub)}/
           </div>
@@ -859,6 +885,7 @@ function NewTestDialog({
         <div className="flex justify-end gap-2 border-t border-edge-default px-5 py-3">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button
+            variant="primary"
             disabled={!ready || create.isPending}
             onClick={async () => {
               try {
@@ -875,6 +902,7 @@ function NewTestDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

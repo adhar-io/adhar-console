@@ -1,3 +1,6 @@
+import { isPlatformRepo } from '../data/catalog-platform-repos.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
+import { authorize, requirePermission } from './k8s/access.ts'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { audit, originOk } from './k8s/gateway.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
@@ -64,16 +67,41 @@ async function readErr(r: Response): Promise<string> {
   }
 }
 
+
+/**
+ * Files a scorecard fix never writes. The commit is made with the console's
+ * Gitea credentials, so a "fix" that drops a workflow or pipeline definition
+ * would run arbitrary code in CI with that repository's secrets. No scorecard
+ * check fixes CI files today.
+ */
+const CI_PATH = /^(\.gitea|\.github|\.forgejo|\.tekton|\.woodpecker|\.circleci)\/|^(\.drone\.yml|\.gitlab-ci\.yml|\.woodpecker\.yml|Jenkinsfile)$/i
+
+export function fixPathRefused(path: string): boolean {
+  return CI_PATH.test(path)
+}
+
 export async function handleScorecardFix(req: Request): Promise<Response> {
   if (req.method.toUpperCase() !== 'POST') return new Response('Method Not Allowed', { status: 405 })
   if (!originOk(req)) return json({ error: 'forbidden', detail: 'Cross-origin request refused.' }, 403)
   const auth = await getRequestUser(req)
   if (!auth) return unauthorized()
   const cookie = auth.refreshedCookie
+  // Applying fixes at all is RBAC (`update scorecards.console.adhar.io`, the
+  // check the Scorecards page hides its Fix buttons on); WHICH entities a
+  // permitted user may fix is still the ownership rule below.
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.scorecardsRun)
+  if (denied) {
+    if (cookie) denied.headers.append('set-cookie', cookie)
+    return denied
+  }
 
   const parsed = validateFixRequest(await req.json().catch(() => null))
   if (!parsed.ok) return json({ error: 'invalid_request', detail: parsed.detail }, 400, cookie)
   const fix = parsed.value
+  const ciFile = fix.files.find((f) => fixPathRefused(f.path))
+  if (ciFile) {
+    return json({ error: 'path_refused', detail: `${ciFile.path} is a CI definition; scorecard fixes do not change CI.` }, 400, cookie)
+  }
 
   const conn = giteaConn()
   if (!conn) return json({ error: 'gitea_not_configured', detail: 'Gitea is not configured on the console, so the fix cannot be committed.' }, 503, cookie)
@@ -84,7 +112,13 @@ export async function handleScorecardFix(req: Request): Promise<Response> {
     const repoRes = await gitea(repoPath)
     if (repoRes.status === 404) return json({ error: 'not_found', detail: `Repository ${fix.org}/${fix.repo} not found.` }, 404, cookie)
     if (!repoRes.ok) return json({ error: 'gitea_unavailable', detail: `Gitea: ${repoRes.status} ${await readErr(repoRes)}` }, 502, cookie)
-    const repo = (await repoRes.json()) as { default_branch?: string; archived?: boolean }
+    const repo = (await repoRes.json()) as { name?: string; default_branch?: string; archived?: boolean; mirror?: boolean }
+    // Platform repositories (and pull mirrors) are not application code; a
+    // fix is committed with admin credentials and would otherwise land there.
+    // Whoever may manage platform packages owns them and keeps the ability.
+    if (isPlatformRepo(repo.name ?? fix.repo, repo) && !(await authorize(req, CONSOLE_PERMISSIONS.packagesToggle)).allowed) {
+      return json({ error: 'platform_repo', detail: `${fix.org}/${fix.repo} is a platform repository; scorecard fixes apply to application repositories only.` }, 403, cookie)
+    }
     if (repo.archived) return json({ error: 'archived', detail: `${fix.org}/${fix.repo} is archived.` }, 409, cookie)
     const base = fix.branch || repo.default_branch || 'main'
 

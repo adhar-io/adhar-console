@@ -2,9 +2,11 @@ import {
   Card,
   CardBody,
   CardHeader,
+  CONSOLE_PERMISSIONS,
   DonutGauge,
   EmptyState,
   Spinner,
+  useAccessReview,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { fmtMoney, useSubscription, useUsage } from '../data/billing.ts'
@@ -29,7 +31,17 @@ const FLAT_INNER =
 export function UsageView() {
   const q = useUsage()
   const subQ = useSubscription()
+  // Usage is a billing read (`get billing`): explain a denial instead of an API error.
+  const read = useAccessReview(CONSOLE_PERMISSIONS.billingView)
 
+  if (read.results.some((r) => r === false)) {
+    return (
+      <EmptyState
+        title="No billing access"
+        description="Ask a workspace admin for billing access to see usage and metered cost."
+      />
+    )
+  }
   if (q.isLoading) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
@@ -207,9 +219,9 @@ export function UsageView() {
                       r.pct === null
                         ? 'text-content-subtle'
                         : r.pct > 85
-                          ? 'text-rose-600'
+                          ? 'text-rose-600 dark:text-rose-400'
                           : r.pct > 60
-                            ? 'text-amber-600'
+                            ? 'text-amber-600 dark:text-amber-400'
                             : 'text-content-muted',
                     )}
                   >

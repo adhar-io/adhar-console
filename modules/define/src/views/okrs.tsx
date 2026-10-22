@@ -41,6 +41,7 @@ import {
   useSetDefineParams,
 } from '../data/insights-nav.ts';
 import { useLinkResolver } from '../data/okrs-links.ts'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { CheckInModal, GradeModal, ObjectiveEditor } from '../components/okr-editor.tsx';
 import { Avatar, ConsoleSideBadge, Loading, SourceNote, Stat } from '../components/insights-ui.tsx';
 import { LineChart, Meter, useSeriesColor } from '../components/insights-viz.tsx';
@@ -208,7 +209,7 @@ export function Okrs({ projectId }: { projectId?: string }) {
             </div>
             {!visible.length
               ? (
-                <EmptyState
+                <EmptyState icon={<EmptyIcon name="target" />}
                   title={`No objectives for ${quarter}`}
                   description='Set a few ambitious objectives with measurable key results. Link key results to Plane epics or issues and their progress updates itself.'
                   action={

@@ -19,6 +19,7 @@ import {
   type WaiverKind,
   type WaiverScope,
 } from '../../data/security-api.ts'
+import { useScanGovernanceAccess } from '../../data/security-access.ts'
 import { shortDigest } from './shared.tsx'
 
 const DAY = 86_400_000
@@ -266,10 +267,12 @@ export function DecisionModal({ mode, waivers, me, onClose, onDone }: { mode: De
     setReason('')
   }, [mode, waivers.length])
   const own = useMemo(() => waivers.filter((w) => me && w.requestedBy.id === me.id), [waivers, me])
+  // Break-glass: RBAC `self-approve scan-waivers` lets a requester approve their own waiver (with a reason).
+  const { canSelfApprove } = useScanGovernanceAccess()
   if (!mode || !waivers.length) return null
   const t = MODE_TEXT[mode]
-  const selfBlocked = mode === 'approve' && own.length > 0 && !me?.platformAdmin
-  const needsReason = mode === 'approve' && own.length > 0 && Boolean(me?.platformAdmin)
+  const selfBlocked = mode === 'approve' && own.length > 0 && !canSelfApprove
+  const needsReason = mode === 'approve' && own.length > 0 && canSelfApprove
   const invalid = (t.needsComment && !comment.trim()) || selfBlocked || (needsReason && reason.trim().length < 10)
   const busy = one.isPending || many.isPending
 

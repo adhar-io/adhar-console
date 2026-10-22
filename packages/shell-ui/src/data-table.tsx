@@ -12,6 +12,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@adhar/utils'
+import { toCsv } from './csv.ts'
 
 /**
  * DataTable — the console's grid.
@@ -99,8 +100,15 @@ interface Props<T> {
   empty?: ReactNode
   /** Render skeleton rows while loading. */
   loading?: boolean
-  /** Sticky header — use inside a scrollable container. */
+  /** Sticky header — use inside a scrollable container, or give `maxHeight`. */
   stickyHeader?: boolean
+  /**
+   * Cap the table's height and scroll its rows inside it, header pinned
+   * (implies `stickyHeader`). Without it a sticky header only sticks to a
+   * scrolling ANCESTOR, and the table's own horizontal-scroll wrapper is the
+   * nearest one — so `stickyHeader` alone rarely stuck.
+   */
+  maxHeight?: number | string
   /** Adds subtle striping. Defaults to false. */
   striped?: boolean
   /** Compact row height. Overridden by the density control once the user picks one. */
@@ -222,7 +230,8 @@ export function DataTable<T>({
   onRowClick,
   empty,
   loading = false,
-  stickyHeader = false,
+  stickyHeader: stickyHeaderProp = false,
+  maxHeight,
   striped = false,
   dense = false,
   toolbar,
@@ -264,6 +273,7 @@ export function DataTable<T>({
 
   const sort = prefs.sort ?? (defaultSort ? [defaultSort] : [])
   const density = prefs.density ?? (dense ? 'compact' : 'comfortable')
+  const stickyHeader = stickyHeaderProp || maxHeight !== undefined
   const cellPad = density === 'compact' ? 'px-3 py-1.5' : 'px-4 py-3'
 
   /* ── column order + visibility ── */
@@ -468,16 +478,17 @@ export function DataTable<T>({
   }
 
   const exportCsv = () => {
-    const head = visible.map((c) => csvCell(textOf(c.header) || c.key))
-    const body = processed.map((r) => visible.map((c) => csvCell(valueOf.text(c, r))))
-    const csv = [head, ...body].map((line) => line.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const head = visible.map((c) => textOf(c.header) || c.key)
+    const body = processed.map((r) => visible.map((c) => valueOf.text(c, r)))
+    const blob = new Blob([toCsv([head, ...body])], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `${tableId ?? 'table'}-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
-    URL.revokeObjectURL(url)
+    // Revoking in the same tick can cancel the download in Firefox/Safari,
+    // which start reading the blob only after the click handler returns.
+    setTimeout(() => URL.revokeObjectURL(url), 0)
   }
 
   // Nothing to show and the view supplied its own empty state — defer to it,
@@ -564,7 +575,10 @@ export function DataTable<T>({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
+      <div
+        className={cn('overflow-x-auto', maxHeight !== undefined && 'overflow-y-auto overscroll-contain')}
+        style={maxHeight !== undefined ? { maxHeight } : undefined}
+      >
         <table data-datatable=""
           ref={tableRef}
           className="w-full border-collapse text-sm"
@@ -577,8 +591,11 @@ export function DataTable<T>({
               ))}
             </colgroup>
           ) : null}
-          <thead className={cn(stickyHeader && 'sticky top-0 z-10')}>
-            <tr className="border-b border-edge-default bg-surface-sunken/60 text-left">
+          {/* The header row is OPAQUE (the sunken tint pre-mixed onto the raised
+              surface): a translucent sticky header let the rows scrolling
+              under it show through the column titles. */}
+          <thead className={cn(stickyHeader && 'sticky top-0 z-10 shadow-[0_1px_0_var(--color-edge-default)]')}>
+            <tr className="border-b border-edge-default bg-[color-mix(in_oklch,var(--color-surface-sunken)_60%,var(--color-surface-raised))] text-left">
               {visible.map((c) => {
                 const align = c.numeric ? 'right' : c.align ?? 'left'
                 const sortIdx = sort.findIndex((s) => s.key === c.key)
@@ -669,10 +686,24 @@ export function DataTable<T>({
                 <tr
                   key={rowKey(r)}
                   onClick={onRowClick ? () => onRowClick(r) : undefined}
+                  // A clickable row is reachable from the keyboard too: Tab to
+                  // it, Enter or Space opens it (it was mouse-only).
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onKeyDown={onRowClick
+                    ? (e) => {
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onRowClick(r)
+                      }
+                    }
+                    : undefined}
                   className={cn(
                     'border-b border-edge-subtle transition-colors duration-100 last:border-0',
                     striped && idx % 2 === 1 && 'bg-surface-sunken/40',
-                    onRowClick && 'cursor-pointer hover:bg-brand-50/40 dark:hover:bg-brand-500/10',
+                    onRowClick
+                      ? 'cursor-pointer hover:bg-brand-50/50 focus-visible:bg-brand-50/50 focus-visible:outline-none focus-visible:shadow-[inset_2px_0_0_var(--color-brand-500)] dark:hover:bg-brand-500/10 dark:focus-visible:bg-brand-500/10'
+                      : 'hover:bg-surface-sunken/40',
                   )}
                 >
                   {visible.map((c) => {
@@ -695,9 +726,24 @@ export function DataTable<T>({
                   })}
                 </tr>
               ))}
+            {!loading && rows.length === 0 ? (
+              // No `empty` from the view: still say so, rather than leaving a
+              // header row over nothing that reads as "still loading".
+              <tr>
+                <td colSpan={visible.length} className="px-4 py-12 text-center">
+                  <span aria-hidden className="mx-auto mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg border border-edge-default bg-surface-sunken text-content-subtle">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
+                  </span>
+                  <div className="text-[13px] font-medium text-content">Nothing here yet</div>
+                </td>
+              </tr>
+            ) : null}
             {!loading && filteredToNothing ? (
               <tr>
                 <td colSpan={visible.length} className="px-4 py-10 text-center">
+                  <span aria-hidden className="mx-auto mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg border border-edge-default bg-surface-sunken text-content-subtle">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.35-4.35" /></svg>
+                  </span>
                   <div className="text-[13px] font-medium text-content">Nothing matches</div>
                   <p className="mt-0.5 text-[12px] text-content-muted">
                     {rows.length} row{rows.length === 1 ? '' : 's'} are hidden by the current search and filters.
@@ -705,7 +751,7 @@ export function DataTable<T>({
                   <button
                     type="button"
                     onClick={clearAll}
-                    className="mt-2 rounded-md border border-edge-default px-2.5 py-1 text-[12px] font-medium text-content-muted hover:text-content"
+                    className="mt-3 inline-flex h-8 items-center rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted shadow-xs transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content"
                   >
                     Clear search and filters
                   </button>
@@ -751,10 +797,6 @@ function distinctValues<T>(col: Column<T>, rows: T[], valueOf: ValueOf<T>): stri
 function filterModeFor<T>(col: Column<T>, rows: T[], valueOf: ValueOf<T>): 'text' | 'select' | false {
   if (col.filter !== undefined) return col.filter
   return distinctValues(col, rows, valueOf).length <= SELECT_FILTER_MAX ? 'select' : 'text'
-}
-
-function csvCell(s: string): string {
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 function ColumnFilter<T>({

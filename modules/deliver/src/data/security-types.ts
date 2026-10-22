@@ -90,12 +90,15 @@ export interface Waiver {
   sync?: { at: string; ok: boolean; detail: string }
 }
 
+/**
+ * Who the caller is — used only to recognise their own requests (withdraw,
+ * self-approval). What they may DO is Kubernetes RBAC, asked in the browser
+ * with the same checks the BFF enforces (data/security-access.ts); the
+ * capability flags the API still returns alongside are not read.
+ */
 export interface Me {
   id: string
   label: string
-  canApprove: boolean
-  platformAdmin: boolean
-  canEditPolicy: boolean
 }
 
 export interface ConfigMapWrite {

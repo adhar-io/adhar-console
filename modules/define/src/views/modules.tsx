@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, type Column, DataTable, EmptyState, Field, Input, SearchInput, Select, StatusBadge, type StatusKind, Tabs, useToast } from '@adhar/shell-ui'
 import type { plane } from '@adhar/api-clients'
 import { planeError, useArchivedModules, useDeleteModule, useModuleLifecycle, useModules, useProject, useProjectMembers } from '../data/plane.ts'
@@ -52,7 +53,7 @@ export function Modules({ projectId }: { projectId?: string }) {
   const rel = useMemo(() => toReleases(releases.data, projectId), [releases.data, projectId])
   const open = (q.data ?? []).find((m) => m.id === params.epic)
 
-  if (!projectId) return <EmptyState title="Pick a project" />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" />
   if (q.isLoading) return <Loading label="Loading epics…" />
   if (q.isError) return <ProblemState error={q.error} onRetry={() => q.refetch()} />
 
@@ -123,10 +124,10 @@ export function Modules({ projectId }: { projectId?: string }) {
           onChange={(e) => setStatus(e.target.value)}
           options={[{ value: 'active', label: 'Open epics' }, { value: 'all', label: 'All statuses' }, ...Object.entries(EPIC_STATUS).map(([value, m]) => ({ value, label: m.label }))]}
         />
-        <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>New epic</Button>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>New epic</Button>
       </div>
       {(q.data ?? []).length === 0
-        ? <EmptyState title="No epics yet" description="Epics group the work items of one deliverable, with a lead, dates and progress." />
+        ? <EmptyState icon={<EmptyIcon name="epic" />} title="No epics yet" description="Epics group the work items of one deliverable, with a lead, dates and progress." />
         : (
           <DataTable
             tableId="define-epics"

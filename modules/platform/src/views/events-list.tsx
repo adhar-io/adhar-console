@@ -58,13 +58,11 @@ export function EventsView({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
-      isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
-      lastUpdatedAt={q.dataUpdatedAt}
       search={search}
       onSearchChange={setSearch}
       searchPlaceholder="Search reason, object, message…"
-      caption="newest first · refresh 5s"
+      caption="newest first · live"
       filters={
         <StatusFilterPills<EventType>
           value={type}

@@ -23,7 +23,7 @@ Deno.env.set('AUTH_CLIENT_SECRET', CLIENT_SECRET)
 Deno.env.set('AUTH_COOKIE_SECRET', 'test-cookie-secret-at-least-32-chars-long-xxxxx')
 Deno.env.set('AUTH_PUBLIC_URL', 'http://localhost:5100')
 Deno.env.set('AUTH_COOKIE_SECURE', 'false')
-Deno.env.set('AUTH_SCOPES', 'openid profile email offline_access')
+Deno.env.set('AUTH_SCOPES', 'openid profile email')
 // no KEYCLOAK_INTERNAL_URL → discovery straight from the issuer
 
 const { publicKey, privateKey } = await generateKeyPair('RS256')
@@ -84,7 +84,7 @@ async function mockIssuerHandler(req: Request): Promise<Response> {
       token_type: 'Bearer',
       expires_in: 300,
       refresh_expires_in: 1800,
-      scope: 'openid profile email offline_access',
+      scope: 'openid profile email',
     })
   }
   return new Response('not found', { status: 404 })

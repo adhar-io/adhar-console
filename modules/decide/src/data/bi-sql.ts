@@ -63,6 +63,67 @@ export function tokenize(sql: string): Tok[] {
   return out
 }
 
+/* ─────────── write detection ─────────── */
+
+const WRITE_VERBS = new Set(['insert', 'update', 'delete', 'merge', 'upsert', 'drop', 'alter', 'truncate', 'create', 'grant', 'revoke', 'rename', 'comment', 'vacuum', 'copy', 'call'])
+
+const CTE_DML = new Set(['insert', 'update', 'delete', 'merge'])
+const EXPLAIN_PREFIX = new Set(['explain', 'analyze', 'analyse', 'verbose'])
+
+/**
+ * The first statement verb that changes data or schema (`DELETE`, `DROP`, …),
+ * or null for a read. Metabase runs native SQL with whatever rights its
+ * connection has, so the editor asks before sending one of these.
+ *
+ * Only a statement's leading verb counts — or the verb right after a CTE list
+ * (`WITH x AS (…) DELETE …`) — so `SELECT … FOR UPDATE`, a column called
+ * `created_at`, strings and comments never trip it.
+ */
+export function writeVerb(sql: string): string | null {
+  let depth = 0
+  let atStart = true
+  let inWith = false
+  let prev = ''
+  for (const tok of tokenize(sql)) {
+    if (tok.t === 'ws' || tok.t === 'comment' || tok.t === 'tag') continue
+    if (tok.t === 'punct') {
+      if (tok.v === '(') depth++
+      else if (tok.v === ')') depth = Math.max(0, depth - 1)
+      else if (tok.v === ';' && depth === 0) {
+        atStart = true
+        inWith = false
+      }
+      prev = tok.v
+      continue
+    }
+    if (tok.t !== 'word') {
+      atStart = false
+      prev = tok.v
+      continue
+    }
+    const lw = tok.v.toLowerCase()
+    if (atStart) {
+      // `EXPLAIN ANALYZE DELETE …` executes the delete: look through the prefix.
+      if (EXPLAIN_PREFIX.has(lw)) {
+        prev = lw
+        continue
+      }
+      atStart = false
+      if (lw === 'with') inWith = true
+      else if (WRITE_VERBS.has(lw)) return lw.toUpperCase()
+    } else if (inWith && prev === '(' && CTE_DML.has(lw)) {
+      // Data-modifying CTE: `WITH d AS (DELETE … RETURNING *) SELECT …`.
+      return lw.toUpperCase()
+    } else if (inWith && depth === 0 && prev === ')') {
+      // `WITH a AS (…), b AS (…) <main statement>` — a comma would continue the list.
+      if (WRITE_VERBS.has(lw)) return lw.toUpperCase()
+      inWith = false
+    }
+    prev = lw
+  }
+  return null
+}
+
 const KEYWORDS = new Set(
   (
     'select from where group by order having limit offset join left right inner outer full cross on as and or not in is null ' +

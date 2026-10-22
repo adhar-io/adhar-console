@@ -50,7 +50,11 @@ function PhaseLanding() {
     return <RemoteModule key="builds" loader={loadBuilds} label="Builds" />
   }
   return (
+    // Keyed by phase so a remote that failed to load (its ErrorBoundary is
+    // latched on the error) does not keep showing that failure after the user
+    // switches to another phase.
     <RemoteModule
+      key={phase}
       loader={LOADERS[phase]}
       label={PHASE_LABEL[phase]}
       componentProps={{ section: search.section }}

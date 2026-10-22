@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { DrawerWidenButton, EmptyState, StatusBadge, useDrawerWidth, useToast } from '@adhar/shell-ui'
+import { createPortal } from 'react-dom'
+import {
+  CONSOLE_PERMISSIONS,
+  DrawerWidenButton,
+  EmptyState,
+  StatusBadge,
+  useAccessReview,
+  useDrawerWidth,
+  useOverlayDismiss,
+  useToast,
+} from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import {
   fetchAllAuditEvents,
@@ -10,7 +20,6 @@ import {
   type WsAuditEvent,
 } from '../data/client.ts'
 import { PrimaryButton, SecondaryButton, StatTile, ViewShell } from '../components/section-shell.tsx'
-import { RequirePermission } from '../components/role-gate.tsx'
 
 /**
  * Audit log — built for millions of events.
@@ -77,6 +86,10 @@ function toParams(f: Filters, limit: number, offset: number): AuditParams {
 
 export function AuditLog() {
   const toast = useToast()
+  // GET /api/workspace/audit[/facets] → auditView. Export downloads the same
+  // reads, so it rides on the same check. `denied` only once the answer is in.
+  const access = useAccessReview(CONSOLE_PERMISSIONS.auditView)
+  const denied = access.results.some((r) => r === false)
   const [filters, setFilters] = useState<Filters>(EMPTY)
   const [debouncedQ, setDebouncedQ] = useState('')
   const [pageSize, setPageSize] = useState(50)
@@ -93,15 +106,9 @@ export function AuditLog() {
   }, [filters.q])
 
   const params = useMemo(() => toParams({ ...filters, q: debouncedQ }, pageSize, page * pageSize), [filters, debouncedQ, pageSize, page])
-  const q = useAuditEvents(params)
-  const facets = useAuditFacets()
-
   // Live tail — poll the current page while enabled (newest-first only).
-  useEffect(() => {
-    if (!live) return
-    const id = globalThis.setInterval(() => q.refetch(), 5000)
-    return () => globalThis.clearInterval(id)
-  }, [live, q])
+  const q = useAuditEvents(params, live ? 5000 : false)
+  const facets = useAuditFacets()
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -161,9 +168,9 @@ export function AuditLog() {
     <ViewShell
       title="Audit log"
       description="Every privileged workspace mutation, persisted as workspace.audit documents. Filters, search and paging run in the database, so this stays fast at any volume."
-      required={['admin', 'security', 'owner']}
       actions={
-        <div className="flex items-center gap-2">
+        access.allowed ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             aria-pressed={live}
@@ -174,25 +181,29 @@ export function AuditLog() {
               }
             }}
             className={cn(
-              'inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold transition-colors',
+              'inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
               live ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300' : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content',
             )}
           >
-            <span className={cn('h-2 w-2 rounded-full', live ? 'animate-pulse bg-emerald-500' : 'bg-slate-400')} />
+            <span className={cn('h-2 w-2 rounded-full', live ? 'animate-pulse bg-emerald-500' : 'bg-content-subtle')} />
             Live
           </button>
-          <RequirePermission perm="audit.export" required={['security', 'owner']} readOnly>
-            <ExportMenu
-              disabled={events.length === 0 || exporting}
-              total={total}
-              onPage={(k) => exportRows(events, k, `audit-log-page-${page + 1}`)}
-              onAll={exportAll}
-            />
-          </RequirePermission>
+          <ExportMenu
+            disabled={events.length === 0 || exporting}
+            total={total}
+            onPage={(k) => exportRows(events, k, `audit-log-page-${page + 1}`)}
+            onAll={exportAll}
+          />
         </div>
+        ) : null
       }
     >
-      {q.isError ? (
+      {denied ? (
+        <EmptyState
+          title="You can't read the audit trail"
+          description="Reading the workspace audit log needs get on audit.console.adhar.io in Kubernetes RBAC. Ask a workspace admin for access."
+        />
+      ) : q.isError ? (
         <StoreErrorState error={q.error} retry={() => q.refetch()} />
       ) : (
         <div className="space-y-4">
@@ -292,7 +303,18 @@ export function AuditLog() {
                     </tr>
                   ) : (
                     events.map((e) => (
-                      <tr key={e.id} onClick={() => setSelected(e)} className={cn('cursor-pointer transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/5', e.outcome !== 'success' && 'bg-rose-50/30 dark:bg-rose-500/5')}>
+                      <tr
+                        key={e.id}
+                        tabIndex={0}
+                        onClick={() => setSelected(e)}
+                        onKeyDown={(ev) => {
+                          if (ev.target === ev.currentTarget && (ev.key === 'Enter' || ev.key === ' ')) {
+                            ev.preventDefault()
+                            setSelected(e)
+                          }
+                        }}
+                        className={cn('cursor-pointer transition-colors hover:bg-brand-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40 dark:hover:bg-brand-500/5', e.outcome !== 'success' && 'bg-rose-50/30 dark:bg-rose-500/5')}
+                      >
                         <td className="whitespace-nowrap px-3 py-2 align-top">
                           <div className="font-medium text-content">{formatRelative(e.at)}</div>
                           <div className="font-mono text-[11px] text-content-subtle">{formatAbsolute(e.at)}</div>
@@ -373,13 +395,10 @@ function countActive(f: Filters): number {
 function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClose(): void; onFilter(p: Partial<Filters>): void }) {
   const toast = useToast()
   const width = useDrawerWidth('workspace.audit-event', { base: 'max-w-2xl' })
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Shared overlay stack: Esc closes only the topmost overlay, focus is
+  // trapped/restored, and the page behind stops scrolling.
+  const panelRef = useRef<HTMLElement>(null)
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
   const rows: Array<[string, ReactNode]> = [
     ['Event id', <code key="id" className="font-mono text-[11px]">{event.id}</code>],
     ['When', `${formatAbsolute(event.at)} (${formatRelative(event.at)})`],
@@ -390,10 +409,10 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
     ['IP', event.ip ?? '—'],
     ['User agent', event.userAgent ?? '—'],
   ]
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Audit event">
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label="Audit event">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" />
-      <aside className={`relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl ${width.className}`}>
+      <aside ref={panelRef} className={`relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl ${width.className}`}>
         <header className="flex items-start justify-between gap-3 border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -445,7 +464,8 @@ function EventDrawer({ event, onClose, onFilter }: { event: WsAuditEvent; onClos
           </section>
         </div>
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

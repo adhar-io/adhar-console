@@ -4,6 +4,8 @@ import { federation } from '@module-federation/vite'
 import tailwind from '@tailwindcss/vite'
 import { resolve } from 'node:path'
 import { consoleAliases, findWorkspaceRoot, resolveAdharUiPath } from './paths.ts'
+import { FEDERATION_SHARE_STRATEGY, FEDERATION_SHARED } from './shared.ts'
+import { mfCjsProxyDollarFix } from './mf-fixes.ts'
 
 interface RemoteOpts {
   /** Module name — matches the `name` in packages/build-config/src/registry.ts. */
@@ -70,17 +72,12 @@ export function defineRemoteConfig(opts: RemoteOpts) {
           target: 'web',
           exposes: opts.exposes,
           dts: false,
-          // `eager: true` matches the host's config — see the comment in host.ts.
-          shared: {
-            react: { singleton: true, eager: true, requiredVersion: '^19.2.0' },
-            'react-dom': { singleton: true, eager: true, requiredVersion: '^19.2.0' },
-            // The host's router must be THE router: a remote with its own copy
-            // gets an empty router context, so useNavigate / useSearch crash
-            // with "Cannot read properties of null (reading 'stores')".
-            '@tanstack/react-router': { singleton: true, eager: true },
-            '@tanstack/react-query': { singleton: true, eager: true },
-          },
+          shared: FEDERATION_SHARED,
+          // See shared.ts — keeps the host's React/router/query the one provider.
+          shareStrategy: FEDERATION_SHARE_STRATEGY,
         }),
+        // See mf-fixes.ts — `$ is not defined` in minified commonjs-proxy importers.
+        mfCjsProxyDollarFix(),
         react(),
       ],
       build: {

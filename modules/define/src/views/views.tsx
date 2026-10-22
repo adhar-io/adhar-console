@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, EmptyState, Spinner, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { useProjects, useViews } from '../data/plane.ts'
@@ -42,7 +43,7 @@ export function Views({
       .filter((v) => !f || `${v.data.name} ${v.data.description ?? ''} ${v.data.jql}`.toLowerCase().includes(f))
   }, [views, tab, search, me])
 
-  if (!projectId) return <EmptyState title="Pick a project" />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" />
 
   const star = (v: ViewDoc) => {
     const on = v.data.starredBy?.includes(me)
@@ -102,7 +103,7 @@ export function Views({
       ) : isError ? (
         <EmptyState title="Saved views are unavailable" description={storeError(error)} />
       ) : !rows.length ? (
-        <EmptyState
+        <EmptyState icon={<EmptyIcon name="view" />}
           title={views.length ? 'No views match' : 'No saved views yet'}
           description={views.length ? 'Try another tab or search.' : 'Build a query on Issues and press Save view, or create one here with WQL.'}
           action={!views.length ? <Button size="sm" variant="primary" onClick={() => setEditing('new')}>New view</Button> : undefined}

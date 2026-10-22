@@ -6,10 +6,12 @@ import {
   AppShell,
   AreaChart,
   Button,
+  Can,
   Card,
   CardBody,
   CardHeader,
   type Column,
+  CONSOLE_PERMISSIONS,
   DataTable,
   DrawerWidenButton,
   EmptyState,
@@ -18,6 +20,7 @@ import {
   FilterBar,
   PageHeader,
   StatusBadge,
+  useCan,
   useDrawerWidth,
   useToast,
 } from '@adhar/shell-ui'
@@ -184,6 +187,9 @@ function ScorecardsDashboard() {
   // On every visit: check the pending fixes' PRs once (the open drawer polls its
   // own). A merged one triggers a re-evaluation of its service.
   const toast = useToast()
+  // Re-running the scorer is `update scorecards.console.adhar.io`; without it a
+  // merged fix still shows up on the next scheduled run.
+  const canRerun = useCan(CONSOLE_PERMISSIONS.scorecardsRun)
   const visitPending = useMemo(() => pendingFixes.filter((p) => p.entityRef !== selectedRef), [pendingFixes, selectedRef])
   const reevalTimers = useRef<number[]>([])
   useEffect(() => () => {
@@ -192,7 +198,7 @@ function ScorecardsDashboard() {
   const onMergedOnVisit = useCallback((fixes: PendingFix[]) => {
     void queryClient.invalidateQueries({ queryKey: ['catalog'] })
     const service = fixes.find((f) => f.service)?.service
-    if (!service) return
+    if (!service || !canRerun) return
     void rerunFor(service).then((r) => {
       if (!r.started && r.error !== 'already_running') {
         toast.warning('Could not start the scorer', { description: rerunMessage(r) })
@@ -202,7 +208,7 @@ function ScorecardsDashboard() {
         reevalTimers.current.push(setTimeout(() => void queryClient.invalidateQueries({ queryKey: ['platform-scorecards'] }), delay) as unknown as number)
       }
     })
-  }, [queryClient, toast])
+  }, [queryClient, toast, canRerun])
   usePendingWatcher({ pending: visitPending, poll: false, cards: scorecards, onMerged: onMergedOnVisit })
 
   const distribution = useMemo(() => {
@@ -540,7 +546,7 @@ function ScorecardsDashboard() {
                 ? 'No scorecard matches the current filters — clear them to see the full fleet.'
                 : platform.configured
                   ? 'No service has been graded yet. Scorecards appear here as soon as your teams create applications (Service Catalog → Create New) or register existing ones.'
-                  : `No service to grade yet. Scorecards appear as soon as applications exist in the Service Catalog; enable the "scorecards" package for authoritative in-cluster grading (it publishes ${platform.namespace}/${platform.configMap}).`
+                  : `Scorecards appear as soon as applications exist in the Service Catalog. Enable the "scorecards" package for authoritative in-cluster grading (it publishes ${platform.namespace}/${platform.configMap}).`
             }
           />
         }
@@ -781,6 +787,9 @@ function ScorecardDrawer({
   // manifest fixes open a dialog with the generated diff.
   const fix = useFixContext(card)
   const reEval = useReEvaluate(card, fix.target, platformLastRun)
+  // For a platform-scored service Re-evaluate also starts the scorer
+  // (`update scorecards.console.adhar.io`); a catalog-only one just re-reads.
+  const canReEvaluate = useCan(CONSOLE_PERMISSIONS.scorecardsRun, { enabled: Boolean(card.platform) })
   const [metaFocus, setMetaFocus] = useState<MetadataField | null>(null)
   const [manifest, setManifest] = useState<ManifestTarget | null>(null)
   const runReEval = reEval.run
@@ -816,7 +825,7 @@ function ScorecardDrawer({
   if (typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -851,17 +860,19 @@ function ScorecardDrawer({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button
-              size="sm"
-              onClick={() => void reEval.run()}
-              disabled={reEval.phase !== 'idle'}
-              leading={<IconRefresh spinning={reEval.phase !== 'idle'} />}
-              title={card.platform
-                ? 'Recompute the catalog checks now and run the platform scorer (it grades every application; this one is reported when its result lands)'
-                : 'Re-read this service’s catalog source and recompute its checks'}
-            >
-              {reEval.phase === 'idle' ? 'Re-evaluate' : 'Evaluating…'}
-            </Button>
+            {!card.platform || canReEvaluate ? (
+              <Button
+                size="sm"
+                onClick={() => void reEval.run()}
+                disabled={reEval.phase !== 'idle'}
+                leading={<IconRefresh spinning={reEval.phase !== 'idle'} />}
+                title={card.platform
+                  ? 'Recompute the catalog checks now and run the platform scorer (it grades every application; this one is reported when its result lands)'
+                  : 'Re-read this service’s catalog source and recompute its checks'}
+              >
+                {reEval.phase === 'idle' ? 'Re-evaluate' : 'Evaluating…'}
+              </Button>
+            ) : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               ref={closeBtnRef}
@@ -876,7 +887,7 @@ function ScorecardDrawer({
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
-          {!fix.gate.ok && (failing.length || card.platform?.signals.some((x) => x.applicable && x.score < 1)) ? (
+          {fix.canFix && !fix.gate.ok && (failing.length || card.platform?.signals.some((x) => x.applicable && x.score < 1)) ? (
             <p className="rounded-md bg-surface-sunken px-3 py-2 text-[11px] leading-relaxed text-content-muted">
               {fix.metaGate.ok
                 ? 'This service has no owner yet. Set one (a team you belong to) to apply the other fixes; until then only a platform admin can.'
@@ -1098,7 +1109,9 @@ function PlatformStrip({
             <span className="text-[11px] text-content-subtle" title={when?.title}>
               {when ? `scorer ran ${when.label}` : 'last run unknown'}
             </span>
-            <RerunButton onDone={onRefetch} />
+            <Can check={CONSOLE_PERMISSIONS.scorecardsRun}>
+              <RerunButton onDone={onRefetch} />
+            </Can>
           </div>
         ) : null}
       </div>
@@ -1202,8 +1215,10 @@ function PlatformStrip({
                   </span>{' '}
                   every 30 minutes; the console reads it the moment it appears.
                 </p>
-                {platform.error && platform.error !== 'not_installed' ? (
-                  <p className="mt-1.5 rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-muted">
+                {platform.error === 'unauthenticated' ? (
+                  <p className="mt-1.5 text-[11px] text-content-muted">Your session has expired — sign in again to read the platform scorer.</p>
+                ) : platform.error && platform.error !== 'not_installed' ? (
+                  <p className="mt-1.5 break-words rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-muted">
                     {platform.error}
                     {platform.detail ? `: ${platform.detail}` : ''}
                   </p>
@@ -1231,7 +1246,11 @@ function PlatformStrip({
  */
 function RerunButton({ onDone }: { onDone(): void }) {
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const toast = useToast()
+  const mounted = useRef(true)
+  useEffect(() => () => {
+    mounted.current = false
+  }, [])
   // The job takes about a minute; poll a few times so the new score arrives
   // without the user reloading. Cleared on unmount so a navigation mid-run does
   // not keep firing invalidations at a page that is gone.
@@ -1242,10 +1261,12 @@ function RerunButton({ onDone }: { onDone(): void }) {
 
   const run = async () => {
     setBusy(true)
-    setMsg(null)
     const res = await rerunScorecards()
+    if (!mounted.current) return
     setBusy(false)
-    setMsg({ ok: res.started, text: rerunMessage(res) })
+    // Action result as a toast (house rule), not a status line that never clears.
+    if (res.started) toast.success(rerunMessage(res))
+    else toast.warning(rerunMessage(res))
     if (res.started) {
       for (const delay of [20_000, 45_000, 75_000]) {
         timers.current.push(setTimeout(onDone, delay) as unknown as number)
@@ -1270,17 +1291,6 @@ function RerunButton({ onDone }: { onDone(): void }) {
         <IconRefresh spinning={busy} />
         {busy ? 'Starting…' : 'Re-evaluate'}
       </button>
-      {msg ? (
-        <span
-          role="status"
-          className={cn(
-            'text-[11px]',
-            msg.ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300',
-          )}
-        >
-          {msg.text}
-        </span>
-      ) : null}
     </div>
   )
 }

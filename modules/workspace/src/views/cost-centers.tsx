@@ -1,5 +1,13 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  DataTable,
+  EmptyState,
+  StatusBadge,
+  useAccessReview,
+  useCan,
+  useToast,
+} from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import {
   fmtMoney,
@@ -21,6 +29,9 @@ import {
 } from '../components/section-shell.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
+/** Cost-center writes are `update billing`; reads are `get billing`. */
+const MANAGE = CONSOLE_PERMISSIONS.billingManage
+
 interface CcForm {
   name: string
   code: string
@@ -32,9 +43,13 @@ interface CcForm {
 const EMPTY_FORM: CcForm = { name: '', code: '', ownerEmail: '', namespaces: '', amountMonthly: 0 }
 
 export function CostCenters() {
+  const toast = useToast()
   const q = useBillingCostCenters()
   const save = useSaveCostCenter()
   const del = useDeleteCostCenter()
+  const read = useAccessReview(CONSOLE_PERMISSIONS.billingView)
+  const readDenied = read.results.some((r) => r === false)
+  const canManage = useCan(MANAGE)
 
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [form, setForm] = useState<CcForm>(EMPTY_FORM)
@@ -77,7 +92,13 @@ export function CostCenters() {
     }
     save.mutate(
       { id: editing === 'new' ? undefined : editing ?? undefined, input },
-      { onSuccess: () => setEditing(null) },
+      {
+        onSuccess: () => {
+          setEditing(null)
+          toast.success(`Cost center ${input.name} saved`)
+        },
+        onError: (e) => toast.error('Could not save the cost center', { description: (e as Error)?.message }),
+      },
     )
   }
 
@@ -85,16 +106,23 @@ export function CostCenters() {
     <ViewShell
       title="Cost centers"
       description="Chargeback structure: each cost center owns a budget cap and an explicit namespace allocation. Spend is metered from OpenCost per namespace."
-      required={['billing', 'finance', 'owner']}
+      writeCheck={MANAGE}
       actions={
-        <RequirePermission perm="costcenters.write" required={['billing', 'finance', 'owner']} readOnly>
-          <PrimaryButton onClick={() => openEditor()} disabled={dbGone}>
-            <IconPlus /> New cost center
-          </PrimaryButton>
-        </RequirePermission>
+        readDenied ? null : (
+          <RequirePermission check={MANAGE}>
+            <PrimaryButton onClick={() => openEditor()} disabled={dbGone}>
+              <IconPlus /> New cost center
+            </PrimaryButton>
+          </RequirePermission>
+        )
       }
     >
-      {dbGone ? (
+      {readDenied ? (
+        <EmptyState
+          title="No billing access"
+          description="Ask a workspace admin for billing access to see cost centers and chargeback."
+        />
+      ) : dbGone ? (
         <EmptyState
           title="Connect a database"
           description="Cost centers are persisted in Postgres. Set DATABASE_URL for the console server."
@@ -124,7 +152,7 @@ export function CostCenters() {
             />
           </div>
 
-          {editing !== null ? (
+          {editing !== null && canManage ? (
             <SettingsCard title={editing === 'new' ? 'New cost center' : 'Edit cost center'}>
               <SettingsRow label="Name">
                 <TextField value={form.name} onChange={(name) => setForm((f) => ({ ...f, name }))} placeholder="R&D Engineering" />
@@ -158,11 +186,6 @@ export function CostCenters() {
                   {save.isPending ? 'Saving…' : 'Save cost center'}
                 </PrimaryButton>
                 <SecondaryButton onClick={() => setEditing(null)}>Cancel</SecondaryButton>
-                {save.isError ? (
-                  <span className="text-[12px] text-rose-600">
-                    {save.error instanceof Error ? save.error.message : 'Save failed.'}
-                  </span>
-                ) : null}
               </div>
             </SettingsCard>
           ) : null}
@@ -178,8 +201,12 @@ export function CostCenters() {
               empty={
                 <EmptyState
                   title="No cost centers yet"
-                  description="Create one to route metered namespace spend to a team or business unit."
-                  action={<PrimaryButton onClick={() => openEditor()}>New cost center</PrimaryButton>}
+                  description={
+                    canManage
+                      ? 'Create one to route metered namespace spend to a team or business unit.'
+                      : 'No cost centers yet. Ask a workspace admin with billing access to set up chargeback.'
+                  }
+                  action={canManage ? <PrimaryButton onClick={() => openEditor()}>New cost center</PrimaryButton> : undefined}
                 />
               }
               columns={[
@@ -227,7 +254,7 @@ export function CostCenters() {
                           <span
                             className={cn(
                               'font-mono tabular-nums',
-                              pct > 95 ? 'text-rose-700' : pct > 80 ? 'text-amber-700' : 'text-content-muted',
+                              pct > 95 ? 'text-rose-700 dark:text-rose-400' : pct > 80 ? 'text-amber-700 dark:text-amber-400' : 'text-content-muted',
                             )}
                           >
                             {pct}%
@@ -257,14 +284,15 @@ export function CostCenters() {
                 {
                   key: 'actions',
                   header: '',
-                  cell: (c) => (
+                  cell: (c) =>
+                    canManage ? (
                     <div className="flex justify-end gap-1.5">
                       <SecondaryButton onClick={() => openEditor(c)}>Edit</SecondaryButton>
-                      <SecondaryButton tone="rose" onClick={() => del.mutate(c.id)} disabled={del.isPending}>
+                      <SecondaryButton tone="rose" onClick={() => del.mutate(c.id, { onError: (e) => toast.error(`Could not delete ${c.name}`, { description: (e as Error)?.message }) })} disabled={del.isPending}>
                         Delete
                       </SecondaryButton>
                     </div>
-                  ),
+                    ) : null,
                 },
               ]}
             />

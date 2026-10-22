@@ -1,5 +1,13 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  DataTable,
+  EmptyState,
+  StatusBadge,
+  useAccessReview,
+  useCan,
+  useToast,
+} from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   isStoreUnavailable,
@@ -22,6 +30,9 @@ import {
 } from '../components/section-shell.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
+/** Every payment-method write is `update billing`; reads are `get billing`. */
+const MANAGE = CONSOLE_PERMISSIONS.billingManage
+
 const KIND_LABEL: Record<PaymentMethodKind, string> = {
   card: 'Credit card',
   invoice: 'Net-30 invoice',
@@ -31,10 +42,14 @@ const KIND_LABEL: Record<PaymentMethodKind, string> = {
 const EMPTY_FORM: PaymentMethodInput = { kind: 'card', label: '' }
 
 export function PaymentMethods() {
+  const toast = useToast()
   const q = useBillingPaymentMethods()
   const add = useAddPaymentMethod()
   const setDefault = useSetDefaultPaymentMethod()
   const remove = useDeletePaymentMethod()
+  const read = useAccessReview(CONSOLE_PERMISSIONS.billingView)
+  const readDenied = read.results.some((r) => r === false)
+  const canManage = useCan(MANAGE)
 
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState<PaymentMethodInput>(EMPTY_FORM)
@@ -60,7 +75,9 @@ export function PaymentMethods() {
         onSuccess: () => {
           setAdding(false)
           setForm(EMPTY_FORM)
+          toast.success('Payment method added')
         },
+        onError: (e) => toast.error('Could not add the payment method', { description: (e as Error)?.message }),
       },
     )
   }
@@ -69,16 +86,23 @@ export function PaymentMethods() {
     <ViewShell
       title="Payment methods"
       description="One default method is charged on the renewal date. Only processor metadata (brand, last 4, expiry) is stored here — never a full card number."
-      required={['billing', 'owner']}
+      writeCheck={MANAGE}
       actions={
-        <RequirePermission perm="payments.write" required={['billing', 'owner']} readOnly>
-          <PrimaryButton onClick={() => setAdding((v) => !v)} disabled={dbGone}>
-            <IconPlus /> Add method
-          </PrimaryButton>
-        </RequirePermission>
+        readDenied ? null : (
+          <RequirePermission check={MANAGE}>
+            <PrimaryButton onClick={() => setAdding((v) => !v)} disabled={dbGone}>
+              <IconPlus /> Add method
+            </PrimaryButton>
+          </RequirePermission>
+        )
       }
     >
-      {dbGone ? (
+      {readDenied ? (
+        <EmptyState
+          title="No billing access"
+          description="Ask a workspace admin for billing access to see the payment methods on file."
+        />
+      ) : dbGone ? (
         <EmptyState
           title="Connect a database"
           description="Payment-method metadata is persisted in Postgres. Set DATABASE_URL for the console server."
@@ -105,7 +129,7 @@ export function PaymentMethods() {
             <StatTile label="Invoicing email" value={invoiceMethod?.email ?? '—'} />
           </div>
 
-          {adding ? (
+          {adding && canManage ? (
             <SettingsCard
               title="Add payment method"
               description="Metadata only — the processor (or your AP workflow) owns the sensitive credentials. Full card numbers are rejected by the API."
@@ -185,11 +209,6 @@ export function PaymentMethods() {
                   {add.isPending ? 'Saving…' : 'Save method'}
                 </PrimaryButton>
                 <SecondaryButton onClick={() => setAdding(false)}>Cancel</SecondaryButton>
-                {add.isError ? (
-                  <span className="text-[12px] text-rose-600">
-                    {add.error instanceof Error ? add.error.message : 'Save failed.'}
-                  </span>
-                ) : null}
               </div>
             </SettingsCard>
           ) : null}
@@ -202,7 +221,11 @@ export function PaymentMethods() {
               empty={
                 <EmptyState
                   title="No payment methods on file"
-                  description="Add a method so renewals aren't interrupted."
+                  description={
+                    canManage
+                      ? "Add a method so renewals aren't interrupted."
+                      : 'Ask a workspace admin with billing access to add a payment method.'
+                  }
                 />
               }
               columns={[
@@ -210,12 +233,12 @@ export function PaymentMethods() {
                   key: 'method',
                   header: 'Method',
                   cell: (m) => (
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-8 w-12 items-center justify-center rounded-md bg-surface-sunken text-[10px] font-semibold uppercase tracking-widest text-content-muted ring-1 ring-edge-subtle">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-8 w-12 shrink-0 items-center justify-center rounded-md bg-surface-sunken text-[10px] font-semibold uppercase tracking-widest text-content-muted ring-1 ring-edge-subtle">
                         {m.brand ?? m.kind.toUpperCase()}
                       </span>
-                      <div>
-                        <div className="font-medium text-content">{m.label}</div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium text-content" title={m.label}>{m.label}</div>
                         <code className="text-[11px] text-content-muted">
                           {m.kind === 'invoice' ? m.email ?? '—' : m.last4 ? `•••• ${m.last4}` : '—'}
                         </code>
@@ -247,18 +270,19 @@ export function PaymentMethods() {
                 {
                   key: 'actions',
                   header: '',
-                  cell: (m) => (
+                  cell: (m) =>
+                    canManage ? (
                     <div className="flex justify-end gap-1.5">
                       {m.isDefault ? null : (
-                        <SecondaryButton onClick={() => setDefault.mutate(m.id)} disabled={setDefault.isPending}>
+                        <SecondaryButton onClick={() => setDefault.mutate(m.id, { onError: (e) => toast.error('Could not change the default payment method', { description: (e as Error)?.message }) })} disabled={setDefault.isPending}>
                           Make default
                         </SecondaryButton>
                       )}
-                      <SecondaryButton tone="rose" onClick={() => remove.mutate(m.id)} disabled={remove.isPending}>
+                      <SecondaryButton tone="rose" onClick={() => remove.mutate(m.id, { onError: (e) => toast.error('Could not remove the payment method', { description: (e as Error)?.message }) })} disabled={remove.isPending}>
                         Remove
                       </SecondaryButton>
                     </div>
-                  ),
+                    ) : null,
                 },
               ]}
             />

@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, EmptyState, Select, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -144,19 +145,19 @@ export function Dashboard({
         : null}
 
       {err ? <SourceNote kind={err.kind} message={err.message} /> : null}
-      {me.unmatched && me.user ? <SourceNote kind="other" message={`No Plane member has your console email (${me.user.email}), so the "assigned to me" widgets are empty. Ask a Plane admin to invite that address.`} /> : null}
+      {me.unmatched && me.user ? <SourceNote kind="other" title="You aren’t a Plane member yet" message={`No Plane member has your console email (${me.user.email}), so the "assigned to me" widgets are empty. Ask a Plane admin to invite that address.`} /> : null}
 
       {!scope.ready
         ? <Loading label="Loading projects…" />
         : !scope.projects.length
         ? (
-          <EmptyState
+          <EmptyState icon={<EmptyIcon name="folder" />}
             title={layout.scope === 'project' ? 'Pick a project' : 'No projects in this scope'}
             description={layout.scope === 'project' ? 'Choose a project on the Projects page, or switch the dashboard to all projects.' : 'Create a project in Define, or widen the scope.'}
           />
         )
         : !layout.widgets.length
-        ? <EmptyState title="No widgets" description="Customize → Add widget to build your dashboard." />
+        ? <EmptyState icon={<EmptyIcon name="widgets" />} title="No widgets" description="Customize → Add widget to build your dashboard." />
         : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
             {layout.widgets.map((w, idx) => (

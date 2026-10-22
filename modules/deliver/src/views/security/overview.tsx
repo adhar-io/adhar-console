@@ -145,10 +145,15 @@ export function SecurityOverview({ model }: { model: SecurityModel }) {
         ) : gates.data?.state === 'forbidden' ? (
           <p className="text-[12px] text-content-subtle">Your account may not list PipelineRuns.</p>
         ) : gates.isError || gates.data?.state === 'error' ? (
-          <p className="text-[12px] text-rose-700 dark:text-rose-300">
-            Couldn't read Tekton PipelineRuns{gates.error instanceof Error ? ` — ${gates.error.message}` : gates.data?.detail ? ` — ${gates.data.detail}` : ''}.{' '}
-            <Button size="xs" variant="ghost" onClick={() => gates.refetch()}>Retry</Button>
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-200 bg-rose-50/60 px-3 py-2.5 text-[12px] text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
+            <span className="min-w-0">
+              Couldn't read Tekton PipelineRuns{(() => {
+                const why = gates.error instanceof Error ? gates.error.message : gates.data?.detail
+                return why ? ` — ${why.replace(/\.+$/, '')}` : ''
+              })()}.
+            </span>
+            <Button size="xs" variant="secondary" onClick={() => gates.refetch()}>Retry</Button>
+          </div>
         ) : !ci.length ? (
           <p className="rounded-xl border border-dashed border-edge-default px-3 py-6 text-center text-[12px] text-content-subtle">
             No pipeline run has published scan results yet. Once the platform's CI publishes its scan summary, the latest one per app appears here.

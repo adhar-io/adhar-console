@@ -325,7 +325,7 @@ export function KindPickerSheet({ open, onClose, ...props }: Props & { open: boo
   useOverlayDismiss(open, onClose)
   if (!open || typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Choose a resource type">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-label="Choose a resource type">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <div className="relative flex h-[85dvh] w-full flex-col rounded-t-2xl border border-edge-default bg-surface-raised px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2 shadow-2xl sm:h-[70vh] sm:max-w-lg sm:rounded-2xl">
         <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-edge-strong sm:hidden" aria-hidden />
@@ -335,7 +335,7 @@ export function KindPickerSheet({ open, onClose, ...props }: Props & { open: boo
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
           >
             <CloseGlyph />
           </button>

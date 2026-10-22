@@ -175,6 +175,19 @@ export class HttpClient {
     const signal = timeoutMs > 0 ? mergeSignals(controller.signal, opts.signal) : opts.signal
     const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(new TimeoutError(url, method, timeoutMs)), timeoutMs) : undefined
 
+    // Translate an abort into the right error: our own timeout → TimeoutError,
+    // a caller abort → rethrown as-is, anything else → NetworkError.
+    const classify = (err: unknown): unknown => {
+      if (err instanceof TimeoutError) return err
+      if (isAbortError(err) || (controller.signal.aborted && err === controller.signal.reason)) {
+        if (controller.signal.aborted && controller.signal.reason instanceof TimeoutError) {
+          return controller.signal.reason
+        }
+        return err // caller-supplied abort — let it propagate as-is
+      }
+      return new NetworkError(url, method, err)
+    }
+
     let res: Response
     try {
       res = await this.callFetch(url, {
@@ -185,20 +198,16 @@ export class HttpClient {
         signal,
       })
     } catch (err) {
-      if (err instanceof TimeoutError) throw err
-      if (isAbortError(err)) {
-        if (controller.signal.aborted && controller.signal.reason instanceof TimeoutError) {
-          throw controller.signal.reason
-        }
-        throw err // caller-supplied abort — let it propagate as-is
-      }
-      throw new NetworkError(url, method, err)
-    } finally {
       if (timer) clearTimeout(timer)
+      throw classify(err)
     }
 
     // Response handling branches by opts.response + content-type.
     if (opts.response === 'raw') {
+      // The caller owns (and may stream) the body — e.g. a log follow — so the
+      // request timeout must stop at the headers here, or it would cut the
+      // stream off mid-read.
+      if (timer) clearTimeout(timer)
       if (!res.ok) {
         if (res.status === 401 && isConsoleSessionScoped(url)) signalUnauthorized()
         throw new HttpError(res.status, res.statusText, await safeBody(res), url, method)
@@ -210,7 +219,17 @@ export class HttpClient {
     const isJson = ct.includes('application/json')
     const wantText = opts.response === 'text' || !isJson
 
-    const text = await res.text()
+    // Keep the timeout armed until the BODY is read, not just the headers: an
+    // upstream that sends headers and then stalls mid-body used to hang the
+    // caller forever, because the timer was cleared as soon as fetch resolved.
+    let text: string
+    try {
+      text = await res.text()
+    } catch (err) {
+      throw classify(err)
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
     const parsed = wantText ? text : text ? safeJson(text) : undefined
 
     if (!res.ok) {

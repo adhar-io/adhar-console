@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EmptyState, Spinner } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, EmptyState, Spinner, useAccessReview } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { fmtMoney, useAllocation, type AllocationDimension, type AllocationRow } from '../data/billing.ts'
 import {
@@ -37,11 +37,26 @@ export function CostAllocation() {
   const total = rows.reduce((s, r) => s + r.amount, 0)
   const top = rows[0]
   const trending = rows.filter((r) => (r.delta ?? 0) > 0.15).length
+  // Allocation is a billing read (`get billing`): explain a denial instead of an API error.
+  const read = useAccessReview(CONSOLE_PERMISSIONS.billingView)
+  const description =
+    'Where the money is going — straight from the OpenCost allocation API, sliced by any aggregation dimension. Deltas compare against the previous equal window.'
+
+  if (read.results.some((r) => r === false)) {
+    return (
+      <ViewShell title="Cost allocation" description={description}>
+        <EmptyState
+          title="No billing access"
+          description="Ask a workspace admin for billing access to see where spend is going."
+        />
+      </ViewShell>
+    )
+  }
 
   return (
     <ViewShell
       title="Cost allocation"
-      description="Where the money is going — straight from the OpenCost allocation API, sliced by any aggregation dimension. Deltas compare against the previous equal window."
+      description={description}
       actions={
         <SecondaryButton onClick={() => exportCsv(dim, rows)} disabled={rows.length === 0}>
           <IconDownload /> Export CSV
@@ -77,7 +92,7 @@ export function CostAllocation() {
               type="button"
               onClick={() => setDim(d.value)}
               className={cn(
-                'inline-flex h-7 items-center rounded-md px-2.5 text-[12px] font-medium transition-all',
+                'inline-flex h-7 items-center rounded-md px-2.5 text-[12px] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
                 on
                   ? 'bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/40'
                   : 'text-content-muted hover:bg-surface-sunken hover:text-content',
@@ -124,14 +139,14 @@ export function CostAllocation() {
                 r.delta === null
                   ? 'text-content-subtle'
                   : r.delta > 0.05
-                    ? 'text-amber-700'
+                    ? 'text-amber-700 dark:text-amber-400'
                     : r.delta < -0.05
-                      ? 'text-emerald-700'
+                      ? 'text-emerald-700 dark:text-emerald-400'
                       : 'text-content-subtle'
               return (
                 <li key={r.key} className="rounded-lg border border-edge-subtle bg-surface-sunken/40 px-4 py-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <code className="font-mono text-[13px] text-content">{r.label}</code>
+                    <code className="min-w-0 truncate font-mono text-[13px] text-content" title={r.label}>{r.label}</code>
                     <div className="flex items-center gap-3 text-[12px]">
                       <span className={cn('font-mono tabular-nums', deltaTone)}>
                         {r.delta === null

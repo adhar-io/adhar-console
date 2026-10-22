@@ -430,7 +430,6 @@ export function AskAiButton({ onClick, children = 'Ask Adhar AI', size = 'sm' }:
   return (
     <Button
       size={size}
-      variant="ghost"
       onClick={onClick}
       disabled={off}
       title={off ? 'Adhar AI is not configured on this platform (Settings → Adhar AI)' : undefined}

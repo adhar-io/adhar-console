@@ -28,7 +28,6 @@ import {
 } from '../data/hooks.ts'
 import { age, formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 import { LOCAL_CLUSTER, useActiveCluster } from '../data/client.ts'
-import { K8S_ROLE_LABEL, useK8sCurrentRoles } from '../data/access.ts'
 
 /**
  * Platform dashboard — workspace-level Kubernetes pulse mirroring the
@@ -1034,30 +1033,7 @@ function ClusterSummary({
           ) : null}
         </div>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-edge-subtle pt-3 text-[11px] text-content-muted">
-        <CurrentRolesPill />
-      </div>
     </div>
-  )
-}
-
-function CurrentRolesPill() {
-  const roles = useK8sCurrentRoles()
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="font-semibold uppercase tracking-wider text-content-subtle">Acting as</span>
-      {roles.map((r) => (
-        <span
-          key={r}
-          className="rounded-full border border-brand-200/70 dark:border-brand-500/25 bg-brand-50/70 dark:bg-brand-500/10 px-2 py-0.5 font-medium text-brand-700 dark:text-brand-300"
-        >
-          {K8S_ROLE_LABEL[r]}
-        </span>
-      ))}
-      <span className="text-content-subtle">
-        — RBAC gates Restart, Delete, YAML edit, and Shell exec across the cluster views.
-      </span>
-    </span>
   )
 }
 

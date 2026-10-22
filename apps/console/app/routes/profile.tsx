@@ -7,6 +7,7 @@ import {
   CardBody,
   CardHeader,
   Checkbox,
+  CONSOLE_PERMISSIONS,
   DataTable,
   EmptyState,
   Field,
@@ -21,6 +22,8 @@ import {
   Tabs,
   Textarea,
   THEMES,
+  useCan,
+  useToast,
 } from '@adhar/shell-ui'
 import { formatAbsolute, formatRelative } from '@adhar/utils'
 import { PENDING_USER, useOptionalSession, type Session, type User } from '@adhar/auth'
@@ -306,6 +309,7 @@ function ProfileSection({
   loading: boolean
 }) {
   const save = useSaveProfilePrefs()
+  const toast = useToast()
   const [draft, setDraft] = useState<ProfileIdentityPrefs | null>(null)
   // Merge persisted identity over defaults so older documents (missing the
   // newer fields) still yield a complete, editable shape.
@@ -335,7 +339,18 @@ function ProfileSection({
 
   const submit = () => {
     if (draft === null) return
-    save.mutate({ ...prefs, identity: draft }, { onSuccess: () => setDraft(null) })
+    save.mutate(
+      { ...prefs, identity: draft },
+      {
+        onSuccess: (res) => {
+          setDraft(null)
+          // Not persisted (no BFF) is explained by NotPersistedNote below.
+          if (res?.persisted !== false) toast.success('Profile saved')
+        },
+        // The draft is kept, so nothing typed is lost; say why it did not stick.
+        onError: (e) => toast.error('Could not save your profile', { description: e instanceof Error ? e.message : undefined }),
+      },
+    )
   }
 
   if (loading) return <SectionSkeleton />
@@ -600,7 +615,7 @@ function ProfileSection({
       <NotPersistedNote show={save.data?.persisted === false} />
 
       {/* Sticky save bar — one action commits every editable field above */}
-      {dirty || save.isSuccess ? (
+      {dirty ? (
         <div className="sticky bottom-4 z-10 flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised/95 px-4 py-3 shadow-lg backdrop-blur">
           <Button variant="primary" size="sm" disabled={!dirty} loading={save.isPending} onClick={submit}>
             Save changes
@@ -610,11 +625,7 @@ function ProfileSection({
               Discard
             </Button>
           ) : null}
-          {!dirty && save.isSuccess ? (
-            <span className="text-xs text-emerald-700 dark:text-emerald-400">All changes saved</span>
-          ) : (
-            <span className="text-xs text-content-subtle">You have unsaved changes.</span>
-          )}
+          <span className="text-xs text-content-subtle">You have unsaved changes.</span>
         </div>
       ) : null}
     </div>
@@ -634,12 +645,23 @@ function SectionSkeleton() {
 
 function AppearanceSection({ prefs, loading }: { prefs: ProfilePrefs; loading: boolean }) {
   const save = useSaveProfilePrefs()
+  const toast = useToast()
   const appearance = prefs.appearance
 
   const set = (p: Partial<AppearancePrefs>) => {
     const next: AppearancePrefs = { ...appearance, ...p }
     applyAppearance(next)
-    save.mutate({ ...prefs, appearance: next })
+    save.mutate(
+      { ...prefs, appearance: next },
+      {
+        // The cache rolls back on failure; the DOM was changed eagerly above,
+        // so put it back too or the page shows a theme that was not saved.
+        onError: (e) => {
+          applyAppearance(appearance)
+          toast.error('Could not save appearance', { description: e instanceof Error ? e.message : undefined })
+        },
+      },
+    )
   }
 
   if (loading) return <SectionSkeleton />
@@ -799,6 +821,7 @@ function NotificationsSection({
   email: string
 }) {
   const save = useSaveProfilePrefs()
+  const toast = useToast()
   const matrix = prefs.notifications
 
   const toggle = (cat: NotificationCategory, channel: 'inApp' | 'email', value: boolean) => {
@@ -806,7 +829,10 @@ function NotificationsSection({
       ...matrix,
       [cat]: { ...matrix[cat], [channel]: value },
     }
-    save.mutate({ ...prefs, notifications: next })
+    save.mutate(
+      { ...prefs, notifications: next },
+      { onError: (e) => toast.error('Could not save notification settings', { description: e instanceof Error ? e.message : undefined }) },
+    )
   }
 
   if (loading) return <SectionSkeleton />
@@ -877,9 +903,14 @@ const EXPIRY_OPTIONS = [
 function TokensSection() {
   const q = usePersonalTokens()
   const revoke = useRevokePersonalToken()
+  const toast = useToast()
   const [createOpen, setCreateOpen] = useState(false)
   const [minted, setMinted] = useState<MintedToken | null>(null)
   const [pendingRevoke, setPendingRevoke] = useState<PersonalToken | null>(null)
+  // `/api/workspace/tokens` is gated on `create`/`delete workspace-tokens`
+  // (docs/rbac.md): the list stays readable, the write controls are hidden.
+  const canCreate = useCan(CONSOLE_PERMISSIONS.tokensCreate)
+  const canRevoke = useCan(CONSOLE_PERMISSIONS.tokensRevoke)
 
   return (
     <div className="space-y-4">
@@ -888,20 +919,17 @@ function TokensSection() {
           title="Personal access tokens"
           description="For CLIs and scripts acting as you. Only a SHA-256 hash is stored — the secret is shown once."
         />
-        <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
-          New token
-        </Button>
+        {canCreate ? (
+          <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
+            New token
+          </Button>
+        ) : null}
       </div>
 
       {q.isError ? (
         <TokenErrorState error={q.error} retry={() => q.refetch()} />
       ) : (
         <>
-          {revoke.isError ? (
-            <p className="text-xs text-rose-700 dark:text-rose-400">
-              {(revoke.error as Error)?.message}
-            </p>
-          ) : null}
           <DataTable
             loading={q.isLoading}
             rows={q.data ?? []}
@@ -909,12 +937,14 @@ function TokensSection() {
             empty={
               <EmptyState
                 title="No personal tokens"
-                description="Create one to call the Adhar API from a CLI or script as yourself."
-                action={
+                description={canCreate
+                  ? 'Create one to call the Adhar API from a CLI or script as yourself.'
+                  : 'Tokens let a CLI or script call the Adhar API as you. Ask a workspace admin for access to issue them.'}
+                action={canCreate ? (
                   <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>
                     New token
                   </Button>
-                }
+                ) : undefined}
               />
             }
             columns={[
@@ -967,7 +997,7 @@ function TokensSection() {
                 key: 'actions',
                 header: '',
                 align: 'right',
-                cell: (t) => (
+                cell: (t) => canRevoke ? (
                   <Button
                     size="xs"
                     variant="ghost"
@@ -976,7 +1006,7 @@ function TokensSection() {
                   >
                     Revoke
                   </Button>
-                ),
+                ) : null,
               },
             ]}
           />
@@ -1008,7 +1038,16 @@ function TokensSection() {
               loading={revoke.isPending}
               onClick={() => {
                 if (!pendingRevoke) return
-                revoke.mutate(pendingRevoke.id, { onSuccess: () => setPendingRevoke(null) })
+                const name = pendingRevoke.name
+                // Result as a toast: an inline error rendered behind the
+                // still-open modal, where nobody could see it.
+                revoke.mutate(pendingRevoke.id, {
+                  onSuccess: () => {
+                    setPendingRevoke(null)
+                    toast.success('Token revoked', { description: name })
+                  },
+                  onError: (e) => toast.error('Could not revoke token', { description: e instanceof Error ? e.message : undefined }),
+                })
               }}
             >
               Revoke
@@ -1150,6 +1189,14 @@ function ShowOnceModal({
   minted: MintedToken | null
   onClose(): void
 }) {
+  const toast = useToast()
+  // The secret is shown exactly once, so the copy has to say whether it worked.
+  const copy = (token: string) => {
+    const write = navigator.clipboard?.writeText(token) ?? Promise.reject(new Error('Clipboard unavailable'))
+    write
+      .then(() => toast.success('Token copied'))
+      .catch(() => toast.error('Could not copy — select the token and copy it manually'))
+  }
   return (
     <Modal
       open={minted !== null}
@@ -1172,7 +1219,7 @@ function ShowOnceModal({
             <code className="min-w-0 flex-1 truncate rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 font-mono text-[12px] text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
               {minted.token}
             </code>
-            <Button size="sm" onClick={() => navigator.clipboard?.writeText(minted.token)}>
+            <Button size="sm" variant="primary" onClick={() => copy(minted.token)}>
               Copy
             </Button>
           </div>

@@ -37,11 +37,11 @@ export function RepoPicker({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
     }
-    window.addEventListener('mousedown', onClick)
-    window.addEventListener('keydown', onKey)
+    globalThis.addEventListener('mousedown', onClick)
+    globalThis.addEventListener('keydown', onKey)
     return () => {
-      window.removeEventListener('mousedown', onClick)
-      window.removeEventListener('keydown', onKey)
+      globalThis.removeEventListener('mousedown', onClick)
+      globalThis.removeEventListener('keydown', onKey)
     }
   }, [open])
 
@@ -117,7 +117,7 @@ export function RepoPicker({
                       aria-selected={on}
                       className={cn(
                         'flex w-full items-start gap-3 px-3 py-2 text-left transition-colors',
-                        on ? 'bg-brand-50' : 'hover:bg-surface-sunken',
+                        on ? 'bg-brand-50 dark:bg-brand-500/10' : 'hover:bg-surface-sunken',
                       )}
                     >
                       <RepoMark name={r.name} />
@@ -137,7 +137,7 @@ export function RepoPicker({
                         </span>
                       </span>
                       {on ? (
-                        <span className="text-brand-700">
+                        <span className="text-brand-700 dark:text-brand-300">
                           <IconCheck />
                         </span>
                       ) : null}

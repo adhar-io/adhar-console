@@ -22,7 +22,7 @@ export function CrdMissing({
           The CRDs for {tool} aren't registered on this cluster. Install the operator and this
           view will populate automatically.{' '}
           <a
-            className="text-brand-700 underline"
+            className="text-brand-700 underline dark:text-brand-300"
             href={href}
             target="_blank"
             rel="noreferrer"

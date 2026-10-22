@@ -406,7 +406,9 @@ export function useEnabledPacks() {
 export function useTogglePack() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ packId, enabled }: { packId: string; enabled: boolean }) => {
+    // Console-local bookkeeping: synchronous, wrapped as a mutation so the
+    // card's pending state and the query cache update share one path.
+    mutationFn: ({ packId, enabled }: { packId: string; enabled: boolean }) => {
       const current = loadEnabledPackIds()
       const next = enabled
         ? current.includes(packId)
@@ -414,7 +416,7 @@ export function useTogglePack() {
           : [...current, packId]
         : current.filter((id) => id !== packId)
       saveEnabledPackIds(next)
-      return next
+      return Promise.resolve(next)
     },
     onSuccess: (next) => qc.setQueryData(['kyverno', 'packs', 'enabled'], next),
   })

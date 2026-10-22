@@ -267,7 +267,12 @@ export function useCanvasFullscreen() {
   useEffect(() => {
     if (!overlay) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOverlay(false)
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      // Claim the key: the drawer hosting the canvas also closes on Esc
+      // (honouring defaultPrevented), and one press should only leave full
+      // screen.
+      e.preventDefault()
+      setOverlay(false)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -875,6 +880,9 @@ export function TreeTable({ graph, visible, collapsed, onToggle, selected, onSel
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!rows.length) return
+    // Keys on a sort header or expand chevron are that button's own; handling
+    // them here selected a row and preventDefault cancelled the click.
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('button')) return
     const i = Math.max(0, rows.findIndex((r) => r.node.id === (cursor ?? selected)))
     const row = rows[i]
     if (e.key === 'ArrowDown') setCursor(rows[Math.min(rows.length - 1, i + (cursor ? 1 : 0))].node.id)
@@ -1150,6 +1158,10 @@ export function NodeSidePanel<T extends string>({ node, tabs, tab, onTab, onClos
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      // Esc inside the YAML viewer belongs to Monaco (closing its find
+      // widget); this capture-phase handler would otherwise swallow it and
+      // close the whole panel.
+      if ((e.target as Element | null)?.closest?.('.monaco-editor')) return
       e.stopImmediatePropagation()
       e.preventDefault()
       onClose()

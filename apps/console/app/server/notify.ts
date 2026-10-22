@@ -44,6 +44,19 @@ const PRUNE_BATCH = 300
 let pruneCounter = 0
 
 export async function emitNotification(store: Store, doc: NotificationDoc, byUserId = 'system'): Promise<string | null> {
+  return (await emitNotificationResult(store, doc, byUserId)).id
+}
+
+/**
+ * `emitNotification`, also saying whether a NEW document was written or the
+ * key de-duplicated onto a recent one — the support-ticket pipeline treats a
+ * de-duplicated failure as "still happening", not as a fresh occurrence.
+ */
+export async function emitNotificationResult(
+  store: Store,
+  doc: NotificationDoc,
+  byUserId = 'system',
+): Promise<{ id: string | null; created: boolean }> {
   try {
     // De-dupe keyed notifications within 6 h so a re-scan doesn't spam.
     if (doc.key) {
@@ -53,15 +66,15 @@ export async function emitNotification(store: Store, doc: NotificationDoc, byUse
         limit: 1,
         offset: 0,
       })
-      if (recent.items.length) return recent.items[0].id
+      if (recent.items.length) return { id: recent.items[0].id, created: false }
     }
     const id = crypto.randomUUID()
     await store.put(NOTIFICATION_KIND, id, doc, byUserId)
     if (++pruneCounter % 50 === 0) void prune(store)
-    return id
+    return { id, created: true }
   } catch (e) {
     console.warn('[notify] failed to write notification:', e)
-    return null
+    return { id: null, created: false }
   }
 }
 

@@ -1,24 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { canDeleteApplications, repoRefusal, validateAppDelete } from './app-delete.ts'
-
-Deno.test('canDeleteApplications: allowed roles and their group aliases', () => {
-  assertEquals(canDeleteApplications({ roles: ['platform-admin'] }), true)
-  assertEquals(canDeleteApplications({ roles: ['platform-engineer'] }), true)
-  assertEquals(canDeleteApplications({ roles: ['application-admin'] }), true)
-  assertEquals(canDeleteApplications({ roles: ['super-admin'] }), true)
-  // Group-only memberships, with Keycloak paths and odd casing.
-  assertEquals(canDeleteApplications({ roles: ['viewer'], groups: ['/Platform-Admins'] }), true)
-  assertEquals(canDeleteApplications({ groups: ['/org/tenant-admin'] }), true)
-})
-
-Deno.test('canDeleteApplications: everyone else is refused', () => {
-  assertEquals(canDeleteApplications(null), false)
-  assertEquals(canDeleteApplications({}), false)
-  assertEquals(canDeleteApplications({ roles: ['developer'], groups: ['platform-developer'] }), false)
-  assertEquals(canDeleteApplications({ roles: ['viewer'], groups: ['base-user'] }), false)
-  // Substrings are not roles.
-  assertEquals(canDeleteApplications({ groups: ['not-platform-admin'] }), false)
-})
+import { repoRefusal, validateAppDelete } from './app-delete.ts'
 
 Deno.test('validateAppDelete: a well-formed request', () => {
   assertEquals(validateAppDelete({ name: 'check-server', confirm: 'check-server' }), { ok: true, name: 'check-server', deleteRepo: false })

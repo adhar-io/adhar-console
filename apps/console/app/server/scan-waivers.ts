@@ -1,12 +1,12 @@
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { openStore, type Store } from './workspace/store.ts'
-import { apiServerFetch, canI, type K8sIdentity, originOk, resolveIdentity } from './k8s/gateway.ts'
+import { apiServerFetch, type K8sIdentity, originOk, resolveIdentity } from './k8s/gateway.ts'
+import { permissionsFor, requirePermission } from './k8s/access.ts'
+import { CONSOLE_PERMISSIONS, consoleCheck } from '@adhar/auth/server'
 import { emitNotification, type NotificationDoc } from './notify.ts'
 import {
   type Actor,
   affectedScopes,
-  canApproveWaivers,
-  canEditScanPolicy,
   DEFAULT_POLICY,
   GATE_DECISION_KIND,
   gateDecisionPatch,
@@ -16,7 +16,6 @@ import {
   isActive,
   isDnsLabel,
   isExpiringSoon,
-  isPlatformAdmin,
   mergeConfigMapData,
   newWaiver,
   parsePolicy,
@@ -76,15 +75,23 @@ function actorOf(auth: Auth): Actor {
   return { id: u.id, label: u.name || u.username || u.email || u.id }
 }
 
-function caps(auth: Auth) {
+/**
+ * What the caller may do here, as Kubernetes RBAC answers it — the same checks
+ * the handlers enforce and the Scans page hides its actions on:
+ *   create scan-waivers        request / extend a waiver
+ *   approve scan-waivers       approve, reject, revoke; decide gates; re-sync
+ *   self-approve scan-waivers  approve a request you made yourself
+ *   update scan-policies       change global / project scan policy
+ */
+async function caps(req: Request, auth: Auth) {
   const a = actorOf(auth)
-  return {
-    id: a.id,
-    label: a.label,
-    canApprove: canApproveWaivers(auth.user),
-    platformAdmin: isPlatformAdmin(auth.user),
-    canEditPolicy: canEditScanPolicy(auth.user),
-  }
+  const can = await permissionsFor(req, {
+    canRequest: CONSOLE_PERMISSIONS.waiverRequest,
+    canApprove: CONSOLE_PERMISSIONS.waiverApprove,
+    platformAdmin: CONSOLE_PERMISSIONS.waiverSelfApprove,
+    canEditPolicy: CONSOLE_PERMISSIONS.scanPolicyEdit,
+  })
+  return { id: a.id, label: a.label, ...can }
 }
 
 function auditLine(entry: Record<string, unknown>): void {
@@ -147,7 +154,7 @@ export async function handleScanSecurity(req: Request, subpath: string): Promise
     if (parts.length === 2 && method === 'GET') {
       const doc = await store.get<WaiverRecord>(WAIVER_KIND, id)
       if (!doc) return json({ error: 'not_found' }, 404, cookie)
-      return json({ item: doc.data, me: caps(auth) }, 200, cookie)
+      return json({ item: doc.data, me: await caps(req, auth) }, 200, cookie)
     }
     if (parts.length === 3 && method === 'POST') return withCookie(await act(req, auth, store, id, parts[2]), cookie)
     return json({ error: 'not_found' }, 404, cookie)
@@ -330,14 +337,13 @@ async function getPolicy(req: Request, auth: Auth) {
     // The platform seeds the global policy when it enforces scans in CI; until
     // it exists, waivers are recorded here but nothing in CI reads them.
     platformEnforces: p.global.exists,
-    me: caps(auth),
+    me: await caps(req, auth),
   }
 }
 
 async function putPolicy(req: Request, auth: Auth): Promise<Response> {
-  if (!canEditScanPolicy(auth.user)) {
-    return Response.json({ error: 'forbidden', detail: 'Changing scan policy needs the platform-admin, platform-engineer or security-admin role.' }, { status: 403 })
-  }
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.scanPolicyEdit)
+  if (denied) return denied
   const body = await readBody<{ scope?: string; project?: string; policy?: unknown }>(req)
   if (!body) return Response.json({ error: 'invalid_json' }, { status: 400 })
   const v = validatePolicy(body.policy)
@@ -370,12 +376,20 @@ async function maxDaysFor(id: K8sIdentity | null, project: string): Promise<numb
   return (await effectivePolicy(id, project)).effective.maxWaiverDays
 }
 
-/** Signed-in member of the project: a reviewer, or someone the cluster lets list pods in its namespace. */
-async function isProjectMember(id: K8sIdentity | null, auth: Auth, project: string): Promise<{ ok: boolean; why?: string }> {
-  if (canApproveWaivers(auth.user)) return { ok: true }
+/**
+ * May the caller request a waiver for `project`? RBAC `create scan-waivers` in
+ * the project's namespace, AND membership: a reviewer, or someone the cluster
+ * lets list pods there — a waiver is asked for by the people who run the code.
+ */
+async function isProjectMember(id: K8sIdentity | null, req: Request, project: string): Promise<{ ok: boolean; why?: string }> {
   if (!id) return { ok: false, why: 'No cluster identity for your session — sign in again.' }
-  const r = await canI(id, { verb: 'list', resource: 'pods', namespace: project })
-  return r.allowed ? { ok: true } : { ok: false, why: `You are not a member of project ${project} (no access to its namespace).` }
+  const can = await permissionsFor(req, {
+    request: consoleCheck(CONSOLE_PERMISSIONS.waiverRequest, project),
+    review: CONSOLE_PERMISSIONS.waiverApprove,
+    member: { verb: 'list', group: '', resource: 'pods', namespace: project },
+  }, { id })
+  if (!can.request) return { ok: false, why: 'Requesting a waiver needs the Kubernetes RBAC permission "create scan-waivers.console.adhar.io".' }
+  return can.review || can.member ? { ok: true } : { ok: false, why: `You are not a member of project ${project} (no access to its namespace).` }
 }
 
 type Notice = Pick<NotificationDoc, 'kind' | 'title' | 'description' | 'href' | 'key' | 'severity' | 'audience' | 'target'>
@@ -453,7 +467,7 @@ async function listWaivers(req: Request, auth: Auth, store: Store): Promise<Resp
       expiringSoon: items.filter((w) => isExpiringSoon(w, now)).length,
     },
     sweep: sweepWrites,
-    me: caps(auth),
+    me: await caps(req, auth),
     now: new Date(now).toISOString(),
   })
 }
@@ -464,7 +478,7 @@ async function createWaiver(req: Request, auth: Auth, store: Store): Promise<Res
   const id = await resolveIdentity(req)
   const project = (body.target as { project?: unknown } | undefined)?.project
   if (!isDnsLabel(project)) return Response.json({ error: 'invalid_project', detail: 'target.project must be the project (its namespace name).' }, { status: 400 })
-  const member = await isProjectMember(id, auth, project)
+  const member = await isProjectMember(id, req, project)
   if (!member.ok) return Response.json({ error: 'forbidden', detail: member.why }, { status: 403 })
   const now = Date.now()
   const maxDays = await maxDaysFor(id, project)
@@ -527,7 +541,7 @@ async function applyAction(
     // current waiver keeps applying until the new one is approved.
     if (rec.status !== 'approved' && rec.status !== 'expired') return { ok: false, status: 409, error: 'invalid_transition', detail: `A ${rec.status} waiver cannot be extended.` }
     if (rec.supersededBy) return { ok: false, status: 409, error: 'already_extended', detail: `An extension (${rec.supersededBy}) already exists.` }
-    const member = await isProjectMember(id, auth, rec.target.project)
+    const member = await isProjectMember(id, req, rec.target.project)
     if (!member.ok) return { ok: false, status: 403, error: 'forbidden', detail: member.why ?? 'forbidden' }
     const maxDays = await maxDaysFor(id, rec.target.project)
     const v = validateWaiverRequest({ ...rec, justification: body.justification?.trim() || rec.justification, expiresAt: body.expiresAt }, now, maxDays)
@@ -541,10 +555,14 @@ async function applyAction(
   }
 
   const maxDays = action === 'approve' ? await maxDaysFor(id, rec.target.project) : 365
+  const can = await permissionsFor(req, {
+    approve: CONSOLE_PERMISSIONS.waiverApprove,
+    selfApprove: CONSOLE_PERMISSIONS.waiverSelfApprove,
+  }, { id })
   const ctx: TransitionCtx = {
     actor,
-    canApprove: canApproveWaivers(auth.user),
-    platformAdmin: isPlatformAdmin(auth.user),
+    canApprove: can.approve,
+    platformAdmin: can.selfApprove,
     now,
     comment: body.comment,
     selfApproveReason: body.selfApproveReason,
@@ -663,7 +681,8 @@ async function bulk(req: Request, auth: Auth, store: Store): Promise<Response> {
 }
 
 async function resync(req: Request, auth: Auth, store: Store): Promise<Response> {
-  if (!canApproveWaivers(auth.user)) return Response.json({ error: 'forbidden', detail: 'Re-syncing waivers needs a reviewer role.' }, { status: 403 })
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.waiverApprove)
+  if (denied) return denied
   const body = (await readBody<{ project?: unknown; global?: unknown }>(req)) ?? {}
   const now = Date.now()
   await runSweep(req, auth, store, true)
@@ -694,7 +713,7 @@ async function fetchRuns(id: K8sIdentity, path: string): Promise<Response> {
 
 async function listGates(req: Request, auth: Auth): Promise<Response> {
   const id = await resolveIdentity(req)
-  const me = caps(auth)
+  const me = await caps(req, auth)
   if (!id) return Response.json({ items: [], state: 'error', detail: 'No cluster identity for your session — sign in again.', me })
   const p = new URL(req.url).searchParams
   const ns = p.get('namespace')
@@ -732,9 +751,8 @@ interface GateBody {
 }
 
 async function decideGate(req: Request, auth: Auth): Promise<Response> {
-  if (!canApproveWaivers(auth.user)) {
-    return Response.json({ error: 'forbidden', detail: 'Deciding a scan gate needs the security-reviewer, platform-engineer or platform-admin role.' }, { status: 403 })
-  }
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.waiverApprove)
+  if (denied) return denied
   const body = await readBody<GateBody>(req)
   if (!body) return Response.json({ error: 'invalid_json' }, { status: 400 })
   const { namespace, name } = body

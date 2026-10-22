@@ -5,6 +5,7 @@ import { type ScanPolicy, usePolicy, useSavePolicy } from '../../data/security-a
 import { useSecurityParams, useSetSecurityParams } from '../../data/security-nav.ts'
 import type { SecurityModel } from '../../data/security-model.ts'
 import { Loading, Notice, Section } from './shared.tsx'
+import { useScanGovernanceAccess } from '../../data/security-access.ts'
 
 const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'] as const
 const SCANNERS = [
@@ -32,6 +33,8 @@ export function PolicyEditor({ model }: { model: SecurityModel }) {
   const [deny, setDeny] = useState('')
   const [warn, setWarn] = useState('')
 
+  // RBAC `update scan-policies` (docs/rbac.md) — the check `PUT /api/security/policy` enforces.
+  const { canEditPolicy: canEdit } = useScanGovernanceAccess()
   const source = scope ? policy.data?.project : policy.data?.global
   useEffect(() => {
     if (!policy.data) return
@@ -41,9 +44,10 @@ export function PolicyEditor({ model }: { model: SecurityModel }) {
     setWarn(p.licenseWarn.join(', '))
   }, [policy.data, scope])
 
-  if (policy.isLoading || !draft) return <Loading text="Reading scan policy…" />
+  // Error first: without data the draft never fills, so checking it first
+  // left a failed read spinning on "Reading scan policy…" forever.
   if (policy.isError) return <Notice tone="error" title="Couldn't read the scan policy">{policy.error instanceof Error ? policy.error.message : ''}</Notice>
-  const canEdit = Boolean(policy.data?.me.canEditPolicy)
+  if (policy.isLoading || !draft) return <Loading text="Reading scan policy…" />
   const set = <K extends keyof ScanPolicy>(k: K, v: ScanPolicy[K]) => setDraft((d) => (d ? { ...d, [k]: v } : d))
   // The threshold UI: failing on HIGH means HIGH and everything above it.
   const threshold = SEVS.find((s) => draft.failOnSeverity.includes(s)) ?? ''

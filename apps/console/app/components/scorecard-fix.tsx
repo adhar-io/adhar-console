@@ -3,12 +3,15 @@ import { useQueries, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
   Checkbox,
+  CONSOLE_PERMISSIONS,
   Field,
   Input,
   Modal,
   Select,
   Textarea,
   toPublicUrl,
+  useAccessReview,
+  useCan,
   usePublicBaseDomain,
   useToast,
   useToolPublicUrl,
@@ -17,6 +20,7 @@ import { cn } from '@adhar/utils'
 import { useOptionalSession } from '@adhar/auth'
 import { type Entity, type Lifecycle, parseRef, useCatalog, useRegisterEntity } from '../data/catalog.ts'
 import { rerunMessage, type Scorecard } from '../data/scorecard.ts'
+import { isPlatformRepo } from '../data/catalog-platform-repos.ts'
 import {
   DEFAULT_PARAMS,
   editDescriptor,
@@ -92,6 +96,14 @@ export interface FixContext {
    */
   metaGate: FixGate
   pending: PendingFix[]
+  /**
+   * RBAC: may this user apply fixes at all? Repository fixes go through
+   * `POST /api/scorecards/fix` (`update scorecards.console.adhar.io`); an entry
+   * registered in this browser is edited locally and needs nothing. When false
+   * the Fix buttons are hidden (docs/rbac.md), unlike `gate`, which explains
+   * an ownership mismatch.
+   */
+  canFix: boolean
   /** Who is acting, for toasts. */
   actor?: string
 }
@@ -101,6 +113,7 @@ export function useFixContext(card: Scorecard): FixContext {
   const user = session?.user
   const { target, descriptor, isLoading, error } = useDescriptor(card.platformOnly ? undefined : card.entity)
   const source = entitySource(card.entity, !!target)
+  const canRunFixes = useCan(CONSOLE_PERMISSIONS.scorecardsRun, { enabled: source !== 'registered' })
   const allPending = usePendingFixes()
   const pending = useMemo(() => allPending.filter((p) => p.entityRef === card.entityRef), [allPending, card.entityRef])
   // The owner the server will check against: the repository's own declaration
@@ -124,6 +137,7 @@ export function useFixContext(card: Scorecard): FixContext {
     gate,
     metaGate,
     pending,
+    canFix: source === 'registered' || canRunFixes,
     actor: user?.name ?? user?.email,
   }
 }
@@ -184,6 +198,7 @@ export function CheckFix({
       </div>
     )
   }
+  if (!ctx.canFix && (action.kind === 'metadata' || action.kind === 'manifest')) return null
   if (action.kind === 'metadata') {
     const g = ctx.metaGate
     return (
@@ -551,6 +566,12 @@ export function ManifestFixDialog({
   const [locateError, setLocateError] = useState<string | null>(null)
   const [mode, setMode] = useState<'pr' | 'commit'>('pr')
   const [busy, setBusy] = useState(false)
+  // A base that lives in a platform repository (packages, environments, …)
+  // also needs `update packages.console.adhar.io` — the server refuses
+  // otherwise, so the commit button is hidden and the footer says why.
+  const platformRepo = Boolean(base && isPlatformRepo(base.repo))
+  const platformAccess = useAccessReview(CONSOLE_PERMISSIONS.packagesToggle, { enabled: platformRepo })
+  const blockedByPlatform = platformRepo && !platformAccess.allowed
 
   // Find the base once the deploy sources are known. Keyed on the sources'
   // content, not their identity: the card is rebuilt on every background
@@ -598,8 +619,12 @@ export function ManifestFixDialog({
 
   // Requests/limits from observed usage, when Prometheus has it.
   const ns = ctx.card.platform?.namespace || argoNamespace
+  // Keyed on whether resources are being fixed, not the whole `targets`
+  // array: toggling HPA or PDB re-ran this and overwrote the CPU/memory
+  // values the user had typed.
+  const wantsResources = targets.includes('resources')
   useEffect(() => {
-    if (!targets.includes('resources') || !ns || !base) return
+    if (!wantsResources || !ns || !base) return
     let alive = true
     void observedUsage(ns, base.workload.name).then((u) => {
       if (!alive) return
@@ -612,7 +637,7 @@ export function ManifestFixDialog({
     return () => {
       alive = false
     }
-  }, [targets, ns, base])
+  }, [wantsResources, ns, base])
 
   const plan = useMemo<ManifestPlan | null>(() => (base ? planManifestFix(base, targets, params) : null), [base, targets, params])
   // The same stamps on the entity's catalog-info.yaml when it lives in the same
@@ -702,18 +727,25 @@ export function ManifestFixDialog({
   }
 
   const footer = (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      {blockedByPlatform && !platformAccess.loading ? (
+        <span className="mr-auto text-[11px] text-content-subtle">
+          {base?.repo} is a platform repository — ask a platform admin to apply this fix.
+        </span>
+      ) : null}
       <Button size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
-      <Button
-        variant="primary"
-        size="sm"
-        loading={busy}
-        disabled={!changes.length || !resValid || !hpaValid || !ctx.gate.ok}
-        title={ctx.gate.ok ? undefined : ctx.gate.reason}
-        onClick={() => void submit()}
-      >
-        {mode === 'pr' ? 'Open pull request' : 'Commit'}
-      </Button>
+      {blockedByPlatform ? null : (
+        <Button
+          variant="primary"
+          size="sm"
+          loading={busy}
+          disabled={!changes.length || !resValid || !hpaValid || !ctx.gate.ok}
+          title={ctx.gate.ok ? undefined : ctx.gate.reason}
+          onClick={() => void submit()}
+        >
+          {mode === 'pr' ? 'Open pull request' : 'Commit'}
+        </Button>
+      )}
     </div>
   )
 

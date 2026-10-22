@@ -1,9 +1,14 @@
 import { apiServerFetch } from '../k8s/gateway.ts'
 import { getK8sServiceToken } from '../tool-registry.ts'
-import { emitNotification, type NotificationDoc } from '../notify.ts'
+import { emitNotificationResult, type NotificationDoc } from '../notify.ts'
+import { observeNotification } from '../support/service.ts'
+import { orgOfLabels } from '../graph/model.ts'
 import { openStore } from '../workspace/store.ts'
 import { env } from '@adhar/utils'
-import { type KubeObject as SaKubeObject, runWatch, type WatchSpec } from '../k8s/sa-watch.ts'
+import { runWatch, type WatchSpec } from '../k8s/sa-watch.ts'
+import { condition, get, type KubeObject, labelsOf, links, nameOf, nsOf, type Signal, type SignalContext, type Source } from './signal-kit.ts'
+import { argoDisplay, DELIVERY_SOURCES, freightAliasOf } from './delivery-sources.ts'
+import { CONTROL_PLANE_SOURCES } from './control-plane-sources.ts'
 
 /**
  * Platform events → notifications, with nobody pressing a button.
@@ -51,13 +56,25 @@ import { type KubeObject as SaKubeObject, runWatch, type WatchSpec } from '../k8
  *
  * It fails quiet and visible: with no ServiceAccount token it logs once and
  * stays off. It never invents an event.
+ *
+ * ---------------------------------------------------------------------------
+ * WHAT IT COVERS
+ * ---------------------------------------------------------------------------
+ * The sources below are the platform's health (Argo CD health, Tekton
+ * outcomes, Warning events). `delivery-sources.ts` covers the delivery
+ * lifecycle — Argo CD sync operations, Kargo freight / promotions / stage
+ * verification, Argo Rollouts — and `control-plane-sources.ts` the control
+ * plane and the cluster: every `platform.adhar.io` XR created / ready / failed
+ * / deleted, nodes joining and leaving, the node autoscaler's decisions and
+ * the resilience gate. Every resource watched here must be granted to the
+ * console ServiceAccount by the `console-event-watcher` ClusterRole in the
+ * platform repo (`TestConsoleWatchedResourcesAreGranted` reads these files).
  */
 
 /* ─────────────────────────── configuration ─────────────────────────── */
 
 /** Tenant that owns un-labelled (platform) namespaces. */
 const PLATFORM_TENANT = 'default'
-const ORG_LABEL = 'adhar.io/org'
 
 /** How often the namespace→tenant map is re-read. */
 const NAMESPACE_REFRESH_MS = 5 * 60_000
@@ -86,51 +103,15 @@ const EVENT_REASONS = new Set([
 /** Reasons that are only interesting after repeating — a single blip is noise. */
 const EVENT_MIN_COUNT: Record<string, number> = { BackOff: 3, Unhealthy: 5, FailedMount: 2 }
 
-/* ─────────────────────────── kube shapes ─────────────────────────── */
-
-/** Re-exported from the shared watcher so the signal functions read the same
- *  objects the watch delivers. */
-type KubeObject = SaKubeObject
-
-/** One thing worth telling somebody about. */
-interface Signal {
-  /** Stable per-object state; a notification is emitted only when this changes. */
-  signature: string
-  doc: Omit<NotificationDoc, 'at'>
-}
-
-interface Source {
-  id: string
-  /** Empty string for core/v1. */
-  group: string
-  version: string
-  resource: string
-  /** Extra query parameters (field selectors and the like). */
-  search?: Record<string, string>
-  /** Null when the object is in a state nobody needs to hear about. */
-  signal(obj: KubeObject): Signal | null
-}
-
 /* ─────────────────────────── helpers ─────────────────────────── */
 
-const nameOf = (o: KubeObject) => o.metadata?.name ?? '<unnamed>'
-const nsOf = (o: KubeObject) => o.metadata?.namespace ?? ''
-const keyOf = (o: KubeObject) => o.metadata?.uid ?? `${nsOf(o)}/${nameOf(o)}`
-
-function get<T>(obj: unknown, path: string): T | undefined {
-  let cur: unknown = obj
-  for (const part of path.split('.')) {
-    if (cur === null || typeof cur !== 'object') return undefined
-    cur = (cur as Record<string, unknown>)[part]
-  }
-  return cur as T | undefined
-}
-
-/** `Succeeded`-style condition lookup used by Tekton. */
-function condition(obj: KubeObject, type: string): { status?: string; reason?: string; message?: string } | undefined {
-  const conds = get<Array<{ type?: string; status?: string; reason?: string; message?: string }>>(obj, 'status.conditions')
-  return conds?.find((c) => c.type === type)
-}
+/**
+ * Tracking key for one object AS SEEN BY ONE SOURCE. Several sources read the
+ * same object (Argo CD health and Argo CD sync operations are both
+ * Applications); keyed by uid alone, each would overwrite the other's last
+ * signature and both would re-notify on every update.
+ */
+const keyOf = (sourceId: string, o: KubeObject) => `${sourceId}:${o.metadata?.uid ?? `${nsOf(o)}/${nameOf(o)}`}`
 
 /* ─────────────────────────── the sources ─────────────────────────── */
 
@@ -153,8 +134,11 @@ export const SOURCES: Source[] = [
       const health = get<string>(obj, 'status.health.status') ?? 'Unknown'
       const sync = get<string>(obj, 'status.sync.status') ?? 'Unknown'
       const name = nameOf(obj)
-      const href = `/deliver?section=apps&app=${encodeURIComponent(name)}`
-      const target = { type: 'application', id: name, label: name }
+      // Titles name the app ("qua-service (dev)"), not the Argo CD object
+      // (`adhar-qua-service-dev`); the link still opens the Argo CD app.
+      const display = argoDisplay(obj).display
+      const href = links.argoApp(name)
+      const target = { type: 'application', id: name, label: display }
       const base = { source: 'gitops' as const, target, href, key: `argocd:${nsOf(obj)}/${name}:${health}/${sync}` }
 
       if (health === 'Degraded' || health === 'Missing') {
@@ -164,7 +148,7 @@ export const SOURCES: Source[] = [
             ...base,
             kind: 'error',
             severity: 'high',
-            title: `${name} is ${health.toLowerCase()}`,
+            title: `${display} is ${health.toLowerCase()}`,
             description: get<string>(obj, 'status.health.message') ?? `Argo CD reports the application as ${health}, sync ${sync}.`,
             prompt: `Argo CD application ${name} is ${health}. Diagnose why and tell me what to do about it.`,
           },
@@ -173,7 +157,7 @@ export const SOURCES: Source[] = [
       if (health === 'Healthy' && sync === 'Synced') {
         return {
           signature: `${health}/${sync}`,
-          doc: { ...base, kind: 'success', title: `${name} is synced and healthy`, description: `Revision ${(get<string>(obj, 'status.sync.revision') ?? '').slice(0, 7) || 'unknown'} is live.` },
+          doc: { ...base, kind: 'success', title: `${display} is synced and healthy`, description: `Revision ${(get<string>(obj, 'status.sync.revision') ?? '').slice(0, 7) || 'unknown'} is live.` },
         }
       }
       if (sync === 'OutOfSync') {
@@ -183,7 +167,7 @@ export const SOURCES: Source[] = [
             ...base,
             kind: 'warning',
             severity: 'medium',
-            title: `${name} has drifted from Git`,
+            title: `${display} has drifted from Git`,
             description: 'The live state no longer matches the desired state in the repository.',
             prompt: `Argo CD application ${name} is OutOfSync. What drifted, and should I sync it?`,
           },
@@ -194,10 +178,13 @@ export const SOURCES: Source[] = [
   },
 
   /**
-   * Tekton PipelineRuns — CI outcomes.
+   * Tekton PipelineRuns — CI starts and outcomes.
    *
-   * Only terminal states. A run that is still going is what the CI page is
-   * for; a notification for it would arrive before there was anything to say.
+   * A start is a low-priority "build of X started"; every in-flight reason
+   * (Started, Running, PipelineRunPending) is ONE signature, so a run reports
+   * its start once however its reason churns. The outcome replaces it. The
+   * priming list baselines runs already in flight, so a console restart does
+   * not re-announce them.
    */
   {
     id: 'tekton',
@@ -206,21 +193,34 @@ export const SOURCES: Source[] = [
     resource: 'pipelineruns',
     signal(obj) {
       const cond = condition(obj, 'Succeeded')
-      if (!cond?.status || cond.status === 'Unknown') return null
       const name = nameOf(obj)
+      const ns = nsOf(obj)
+      const l = labelsOf(obj)
+      const subject = l['adhar.io/app'] ?? l['adhar.io/application'] ?? l['adhar.io/library']
+      const what = subject ? `Build of ${subject}` : `Pipeline ${name}`
+      const base = {
+        source: 'platform' as const,
+        href: links.build(ns, name),
+        target: { type: 'pipelinerun', id: `${ns}/${name}`, label: subject ? `${subject} · ${name}` : name },
+      }
+      if (!obj.status || !cond?.status || cond.status === 'Unknown') {
+        // A run Tekton has not picked up yet has no condition at all.
+        return {
+          signature: 'running',
+          doc: { ...base, kind: 'info', severity: 'low', title: `${what} started`, description: l['tekton.dev/pipeline'] ? `Pipeline ${l['tekton.dev/pipeline']} · run ${name}` : undefined, key: `tekton:${ns}/${name}:started` },
+        }
+      }
       const ok = cond.status === 'True'
       return {
         signature: `${cond.status}/${cond.reason ?? ''}`,
         doc: {
-          source: 'platform',
+          ...base,
           kind: ok ? 'success' : 'error',
           severity: ok ? 'low' : 'high',
-          title: ok ? `Pipeline ${name} succeeded` : `Pipeline ${name} failed`,
+          title: ok ? `${what} succeeded` : `${what} failed`,
           description: cond.message ?? cond.reason,
-          href: `/develop?section=builds`,
-          key: `tekton:${nsOf(obj)}/${name}:${cond.status}`,
-          target: { type: 'pipelinerun', id: name, label: name },
-          ...(ok ? {} : { prompt: `Tekton PipelineRun ${name} failed: ${cond.reason ?? 'unknown reason'}. Find the failing task and its logs, and explain the cause.` }),
+          key: `tekton:${ns}/${name}:${cond.status}`,
+          ...(ok ? {} : { prompt: `Tekton PipelineRun ${ns}/${name} failed: ${cond.reason ?? 'unknown reason'}. Find the failing task and its logs, and explain the cause.` }),
         },
       }
     },
@@ -262,7 +262,7 @@ export const SOURCES: Source[] = [
           severity: reason === 'OOMKilling' || reason === 'Evicted' ? 'high' : 'medium',
           title: `${subject}: ${reason}${count > 1 ? ` (×${count})` : ''}`,
           description: get<string>(obj, 'message'),
-          href: `/platform?section=events&namespace=${encodeURIComponent(ns)}`,
+          href: links.events(ns),
           key: `event:${ns}/${subject}:${reason}:${bucket}`,
           target: { type: involved.kind?.toLowerCase() ?? 'object', id: involved.name ?? '', label: subject },
           prompt: `${subject} in namespace ${ns} is reporting ${reason}. Diagnose it and tell me what to do.`,
@@ -270,11 +270,16 @@ export const SOURCES: Source[] = [
       }
     },
   },
+
+  ...DELIVERY_SOURCES,
+  ...CONTROL_PLANE_SOURCES,
 ]
 
 /* ─────────────────────── namespace → tenant ─────────────────────── */
 
 let nsToTenant = new Map<string, string>()
+/** Every namespace's labels — rollouts read the project/environment from them. */
+let nsLabels = new Map<string, Record<string, string>>()
 let nsLoadedAt = 0
 
 async function refreshNamespaces(token: string): Promise<void> {
@@ -284,11 +289,14 @@ async function refreshNamespaces(token: string): Promise<void> {
     if (!res.ok) return
     const body = (await res.json()) as { items?: KubeObject[] }
     const next = new Map<string, string>()
+    const labels = new Map<string, Record<string, string>>()
     for (const ns of body.items ?? []) {
-      const slug = ns.metadata?.labels?.[ORG_LABEL]
+      const slug = orgOfLabels(ns.metadata?.labels)
       if (slug && ns.metadata?.name) next.set(ns.metadata.name, slug)
+      if (ns.metadata?.name) labels.set(ns.metadata.name, ns.metadata.labels ?? {})
     }
     nsToTenant = next
+    nsLabels = labels
     nsLoadedAt = Date.now()
   } catch {
     // Keep the previous map; a stale mapping routes to the platform tenant at
@@ -347,7 +355,71 @@ async function deliver(obj: KubeObject, signal: Signal): Promise<void> {
   const tenant = tenantFor(nsOf(obj))
   const store = await openStore(tenant)
   if (!store) return // no database configured — notifications are durable or not at all
-  await emitNotification(store, { ...signal.doc, at: new Date().toISOString() } as NotificationDoc, 'system')
+  const doc = { ...signal.doc, at: new Date().toISOString() } as NotificationDoc
+  const { id, created } = await emitNotificationResult(store, doc, 'system')
+  // Failures become support tickets (and recoveries close them) — queued,
+  // so the watch loop never waits on Plane.
+  observeNotification({ tenant, notificationId: id, doc, created, origin: 'platform-watcher' })
+}
+
+/**
+ * Sources that read the same resource with the same selectors share ONE
+ * watch. Argo CD health and Argo CD sync operations are both Applications; two
+ * watches would double what the apiserver streams for no extra information.
+ * Exported for tests.
+ */
+export function groupByWatch(sources: Source[]): Source[][] {
+  const out = new Map<string, Source[]>()
+  for (const s of sources) {
+    const k = `${s.group}/${s.version}/${s.resource}?${new URLSearchParams(s.search ?? {}).toString()}`
+    const g = out.get(k) ?? []
+    g.push(s)
+    out.set(k, g)
+  }
+  return [...out.values()]
+}
+
+/**
+ * The watch handlers for one group of sources: priming baselines in silence,
+ * later frames emit on a signature change, DELETED frames emit what a source's
+ * `removed` says. Separate from `startPlatformEvents` so the rules can be
+ * exercised without a cluster or a database. Exported for tests.
+ */
+export function watchHandlers(
+  group: Source[],
+  baseCtx: SignalContext,
+  emit: (obj: KubeObject, signal: Signal, source: Source) => Promise<void>,
+): { upsert(obj: KubeObject, ctx: { priming: boolean }): Promise<void>; remove(obj: KubeObject): void } {
+  return {
+    async upsert(obj, { priming }) {
+      for (const source of group) {
+        source.observe?.(obj)
+        const key = keyOf(source.id, obj)
+        const signal = source.signal(obj, { ...baseCtx, previous: lastSignature.get(key) })
+        if (!signal) continue
+        // The priming list establishes the baseline in silence: on boot
+        // every application has a health status and every finished run
+        // has an outcome, and announcing all of it would fill the feed
+        // with history every time the console restarts.
+        if (priming) {
+          lastSignature.set(key, signal.signature)
+          continue
+        }
+        // Everything after that — including a resync list after the watch
+        // dropped — is a real transition if the signature changed.
+        if (remember(key, signal.signature)) await emit(obj, signal, source)
+      }
+    },
+    remove(obj) {
+      for (const source of group) {
+        const key = keyOf(source.id, obj)
+        const previous = lastSignature.get(key)
+        lastSignature.delete(key)
+        const signal = source.removed?.(obj, { ...baseCtx, previous })
+        if (signal) void emit(obj, signal, source)
+      }
+    },
+  }
 }
 
 let running = false
@@ -381,47 +453,35 @@ export function startPlatformEvents(): () => void {
   void refreshNamespaces(token)
   const nsTimer = setInterval(() => void refreshNamespaces(token), NAMESPACE_REFRESH_MS)
 
-  for (const source of SOURCES) {
+  // "Created" means created after THIS moment: anything older is a restart
+  // or a relist, not something that just happened.
+  const since = Date.now()
+  const baseCtx: SignalContext = {
+    since,
+    namespaceLabels: (ns) => nsLabels.get(ns),
+    freightAlias: freightAliasOf,
+  }
+
+  const groups = groupByWatch(SOURCES)
+  for (const group of groups) {
+    const [first] = group
     const spec: WatchSpec = {
-      id: source.id,
-      group: source.group,
-      version: source.version,
-      resource: source.resource,
-      search: source.search,
+      id: group.map((s) => s.id).join('+'),
+      group: first.group,
+      version: first.version,
+      resource: first.resource,
+      search: first.search,
     }
     void runWatch(
       spec,
       token,
-      {
-        async upsert(obj, { priming }) {
-          const signal = source.signal(obj as KubeObject)
-          if (!signal) return
-          const key = keyOf(obj as KubeObject)
-          // The priming list establishes the baseline in silence: on boot
-          // every application has a health status and every finished run has
-          // an outcome, and announcing all of it would fill the feed with
-          // history every time the console restarts.
-          if (priming) {
-            lastSignature.set(key, signal.signature)
-            return
-          }
-          // Everything after that — including a resync list after the watch
-          // dropped — is a real transition if the signature changed.
-          if (remember(key, signal.signature)) {
-            await deliver(obj as KubeObject, signal).catch((e) =>
-              console.warn(`[events] ${source.id}: emit failed:`, e)
-            )
-          }
-        },
-        remove(obj) {
-          lastSignature.delete(keyOf(obj as KubeObject))
-        },
-      },
+      watchHandlers(group, baseCtx, (obj, signal, source) =>
+        deliver(obj, signal).catch((e) => console.warn(`[events] ${source.id}: emit failed:`, e))),
       isStopped,
       (m) => console.log(m.replace('[watch]', '[events]')),
-    ).catch((e) => console.warn(`[events] ${source.id}: watcher exited:`, e))
+    ).catch((e) => console.warn(`[events] ${spec.id}: watcher exited:`, e))
   }
-  console.log(`[events] platform event watcher started (${SOURCES.length} sources)`)
+  console.log(`[events] platform event watcher started (${SOURCES.length} sources on ${groups.length} watches)`)
 
   return () => {
     stopped = true

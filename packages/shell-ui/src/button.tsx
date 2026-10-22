@@ -25,27 +25,39 @@ export type ButtonProps = Common & ButtonHTMLAttributes<HTMLButtonElement>
 /** Link-styled button that routes through TanStack Router. */
 export type ButtonLinkProps = Common & LinkProps
 
+/*
+ * Focus: one brand ring for every variant (danger keeps its own hue), offset
+ * from the control by the surface it sits on — `ring-offset-surface-raised`,
+ * not the default white, which drew a white halo round every focused button
+ * in dark mode.
+ *
+ * Disabled: the solid variants fade (`opacity`) rather than swapping to a
+ * pale tint. `bg-brand-300` was a light-mode colour; on a dark page a disabled
+ * primary glowed brighter than the enabled one beside it.
+ */
+const FOCUS = 'focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised'
+
 const VARIANTS: Record<ButtonVariant, string> = {
   primary:
     'bg-brand-600 text-white shadow-sm ring-1 ring-inset ring-white/10 hover:bg-brand-700 active:bg-brand-800 ' +
-    'focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-1 ' +
-    'disabled:bg-brand-300 disabled:text-white/70 disabled:ring-0',
+    `${FOCUS} focus-visible:ring-brand-500/60 ` +
+    'disabled:opacity-50 disabled:hover:bg-brand-600',
   secondary:
-    'border border-edge-default bg-surface-raised text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken ' +
-    'focus-visible:ring-2 focus-visible:ring-brand-500/40 ' +
-    'disabled:text-content-subtle disabled:bg-surface-sunken',
+    'border border-edge-default bg-surface-raised text-content shadow-xs hover:border-edge-strong hover:bg-surface-sunken active:bg-surface-sunken ' +
+    `${FOCUS} focus-visible:ring-brand-500/50 ` +
+    'disabled:opacity-60 disabled:hover:border-edge-default disabled:hover:bg-surface-raised',
   ghost:
-    'text-content-muted hover:bg-surface-sunken hover:text-content ' +
-    'focus-visible:ring-2 focus-visible:ring-brand-500/40 ' +
-    'disabled:text-content-subtle',
+    'text-content-muted hover:bg-surface-sunken hover:text-content active:bg-surface-hover ' +
+    `${FOCUS} focus-visible:ring-brand-500/50 ` +
+    'disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-content-muted',
   danger:
     'bg-rose-600 text-white shadow-sm ring-1 ring-inset ring-white/10 hover:bg-rose-700 active:bg-rose-800 ' +
-    'focus-visible:ring-2 focus-visible:ring-rose-500/40 focus-visible:ring-offset-1 ' +
-    'disabled:bg-rose-300',
+    `${FOCUS} focus-visible:ring-rose-500/60 ` +
+    'disabled:opacity-50 disabled:hover:bg-rose-600',
   link:
     'text-brand-700 dark:text-brand-300 underline-offset-2 hover:text-brand-800 dark:hover:text-brand-200 hover:underline ' +
-    'focus-visible:ring-2 focus-visible:ring-brand-500/40 rounded-sm ' +
-    'disabled:text-content-subtle',
+    'focus-visible:ring-2 focus-visible:ring-brand-500/50 rounded-sm ' +
+    'disabled:opacity-50 disabled:no-underline',
 }
 
 /**
@@ -70,8 +82,9 @@ const SIZES: Record<ButtonSize, string> = {
 }
 
 const BASE =
-  'inline-flex items-center justify-center whitespace-nowrap font-medium ' +
-  'transition-all duration-150 outline-none disabled:cursor-not-allowed disabled:shadow-none'
+  'inline-flex shrink-0 select-none items-center justify-center whitespace-nowrap font-medium ' +
+  'transition-[background-color,border-color,color,box-shadow,opacity] duration-150 outline-none ' +
+  'disabled:cursor-not-allowed disabled:shadow-none [&_svg]:shrink-0'
 
 function classes(
   variant: ButtonVariant,

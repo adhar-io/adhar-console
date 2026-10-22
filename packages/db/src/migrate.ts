@@ -55,5 +55,16 @@ CREATE INDEX IF NOT EXISTS documents_tenant_kind_idx ON documents (tenant, kind)
 
 /** Apply the bootstrap DDL. Safe to run repeatedly. */
 export async function runInitDdl(sql: Sql): Promise<void> {
-  await sql.unsafe(INIT_DDL)
+  // Serialise across replicas: two pods booting together both run
+  // `CREATE TABLE IF NOT EXISTS`, and Postgres can still fail the loser with
+  // a duplicate-key error on its catalog (pg_type) — IF NOT EXISTS only checks
+  // before it creates. A transaction-scoped advisory lock (released at
+  // commit) makes the second pod wait and then find everything in place.
+  await sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(${INIT_DDL_LOCK_KEY})`
+    await tx.unsafe(INIT_DDL)
+  })
 }
+
+/** Arbitrary but fixed advisory-lock key for the bootstrap DDL ("adhr" in ASCII). */
+const INIT_DDL_LOCK_KEY = 0x61646872

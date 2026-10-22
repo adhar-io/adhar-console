@@ -21,21 +21,32 @@ const REFRESH_MS = 30_000;
 const REPO_KEY = 'adhar.develop.activeRepo';
 const BRANCH_KEY = 'adhar.develop.activeBranch';
 
+// Storage access throws (SecurityError) when site data is blocked, and these
+// run during render — a remembered selection is a nicety, never a crash.
+function readStore(key: string): string | undefined {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+function writeStore(key: string, value: string) {
+  try {
+    globalThis.localStorage?.setItem(key, value);
+  } catch { /* storage unavailable — the choice just does not persist */ }
+}
+
 export function getStoredRepo(): string | undefined {
-  if (typeof localStorage === 'undefined') return undefined;
-  return localStorage.getItem(REPO_KEY) ?? undefined;
+  return readStore(REPO_KEY);
 }
 export function setStoredRepo(name: string) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(REPO_KEY, name);
+  writeStore(REPO_KEY, name);
 }
 export function getStoredBranch(repo: string): string | undefined {
-  if (typeof localStorage === 'undefined') return undefined;
-  return localStorage.getItem(`${BRANCH_KEY}:${repo}`) ?? undefined;
+  return readStore(`${BRANCH_KEY}:${repo}`);
 }
 export function setStoredBranch(repo: string, branch: string) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(`${BRANCH_KEY}:${repo}`, branch);
+  writeStore(`${BRANCH_KEY}:${repo}`, branch);
 }
 
 /* ─────────── public URLs ─────────── */

@@ -1,12 +1,15 @@
-import { PageHeader } from '@adhar/shell-ui'
-import { Overview } from './views/overview.tsx'
-import { Dashboards } from './views/bi-dashboards.tsx'
-import { Questions } from './views/questions.tsx'
-import { SqlEditor } from './views/sql-editor.tsx'
-import { Databases } from './views/databases.tsx'
-import { Pulses } from './views/pulses.tsx'
-import { DoraSummary } from './views/dora.tsx'
-import { SpendSummary } from './views/spend.tsx'
+import { lazy, Suspense } from 'react'
+import { PageHeader, Spinner } from '@adhar/shell-ui'
+
+// One chunk per section — BI, DORA and Spend share little, so a visit pays for one.
+const Overview = lazy(() => import('./views/overview.tsx').then((m) => ({ default: m.Overview })))
+const Dashboards = lazy(() => import('./views/bi-dashboards.tsx').then((m) => ({ default: m.Dashboards })))
+const Questions = lazy(() => import('./views/questions.tsx').then((m) => ({ default: m.Questions })))
+const SqlEditor = lazy(() => import('./views/sql-editor.tsx').then((m) => ({ default: m.SqlEditor })))
+const Databases = lazy(() => import('./views/databases.tsx').then((m) => ({ default: m.Databases })))
+const Pulses = lazy(() => import('./views/pulses.tsx').then((m) => ({ default: m.Pulses })))
+const DoraSummary = lazy(() => import('./views/dora.tsx').then((m) => ({ default: m.DoraSummary })))
+const SpendSummary = lazy(() => import('./views/spend.tsx').then((m) => ({ default: m.SpendSummary })))
 
 type Section =
   | 'dashboard'
@@ -60,14 +63,16 @@ export default function DecideHome({ section }: { section?: string } = {}) {
     <div className="space-y-6">
       {/* Overview, DORA and Spend render their own PageHeader (with right-side actions). */}
       {active !== 'dashboard' && active !== 'dora' && active !== 'spend' ? <PageHeader title={def.label} /> : null}
-      {active === 'dashboard' && <Overview />}
-      {active === 'dashboards' && <Dashboards />}
-      {active === 'questions' && <Questions />}
-      {active === 'sql' && <SqlEditor />}
-      {active === 'databases' && <Databases />}
-      {active === 'pulses' && <Pulses />}
-      {active === 'dora' && <DoraSummary />}
-      {active === 'spend' && <SpendSummary />}
+      <Suspense fallback={<div className="flex justify-center py-16 text-content-subtle" aria-busy="true"><Spinner size={16} /></div>}>
+        {active === 'dashboard' && <Overview />}
+        {active === 'dashboards' && <Dashboards />}
+        {active === 'questions' && <Questions />}
+        {active === 'sql' && <SqlEditor />}
+        {active === 'databases' && <Databases />}
+        {active === 'pulses' && <Pulses />}
+        {active === 'dora' && <DoraSummary />}
+        {active === 'spend' && <SpendSummary />}
+      </Suspense>
     </div>
   )
 }

@@ -14,3 +14,6 @@
 *.md
 !README.md
 deploy/
+
+# Throwaway headless-Chrome UI harness — never part of the image.
+**/.tmp-harness

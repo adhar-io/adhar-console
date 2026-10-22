@@ -30,7 +30,7 @@ import {
   type WatchDoc,
   type WorklogDoc,
 } from '../data/work-store.ts'
-import { attributedActor, markdownToHtml, mentionHandle, withAttribution } from '../data/work-text.ts'
+import { attributedActor, markdownToHtml, mentionHandle, safeUrl, withAttribution } from '../data/work-text.ts'
 import { localDay } from '../data/work-time.ts'
 import { useWorkRulesCtx, viewOf } from '../data/work-rules.ts'
 import { branchHref, commitHref, prHref, useBranchesAndCommitsFor, useDeploymentsFor, usePullRequestsFor } from '../data/work-dev.ts'
@@ -383,7 +383,10 @@ export function LinksPanel({ c }: { c: PanelCtx }) {
             return (
               <li key={l.id} className="group flex items-center gap-2 px-2.5 py-1.5 text-[13px]">
                 <span className="text-content-subtle"><IconLink /></span>
-                <a href={l.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-brand-700 hover:underline dark:text-brand-300">{l.title || l.url}</a>
+                {/* Links can be added in Plane with any scheme — only http(s)/mailto become clickable. */}
+                {safeUrl(l.url, 'href')
+                  ? <a href={safeUrl(l.url, 'href')} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-brand-700 hover:underline dark:text-brand-300">{l.title || l.url}</a>
+                  : <span className="min-w-0 flex-1 truncate text-content-muted">{l.title || l.url}</span>}
                 <span className="hidden truncate text-[11px] text-content-subtle sm:inline">{host}</span>
                 <button type="button" aria-label="Remove link" onClick={() => remove.mutate(l.id, { onError: (e) => toast.error(planeError(e, "Couldn't remove the link.")) })} className="text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100">×</button>
               </li>

@@ -1,4 +1,4 @@
-import { assert, assertEquals } from 'jsr:@std/assert'
+import { assert, assertEquals } from 'jsr:@std/assert@^1'
 import { buildReleases, groupReleasesByApplication, readContents, type Release, summariseReleases } from './releases.ts'
 import type { kargo } from '@adhar/api-clients'
 

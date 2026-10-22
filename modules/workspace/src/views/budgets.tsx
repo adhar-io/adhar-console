@@ -1,5 +1,13 @@
 import { useState } from 'react'
-import { EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  EmptyState,
+  Spinner,
+  StatusBadge,
+  useAccessReview,
+  useCan,
+  useToast,
+} from '@adhar/shell-ui'
 import {
   fmtMoney,
   isStoreUnavailable,
@@ -21,6 +29,9 @@ import {
 } from '../components/section-shell.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
+/** Budget writes are `update billing`; reads are `get billing`. */
+const MANAGE = CONSOLE_PERMISSIONS.billingManage
+
 const EMPTY_FORM: BudgetInput = {
   name: '',
   scope: 'organization',
@@ -29,9 +40,13 @@ const EMPTY_FORM: BudgetInput = {
 }
 
 export function Budgets() {
+  const toast = useToast()
   const q = useBillingBudgets()
   const save = useSaveBudget()
   const del = useDeleteBudget()
+  const read = useAccessReview(CONSOLE_PERMISSIONS.billingView)
+  const readDenied = read.results.some((r) => r === false)
+  const canManage = useCan(MANAGE)
 
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [form, setForm] = useState<BudgetInput>(EMPTY_FORM)
@@ -62,7 +77,13 @@ export function Budgets() {
     if (!form.name.trim() || form.amountMonthly <= 0) return
     save.mutate(
       { id: editing === 'new' ? undefined : editing ?? undefined, input: form },
-      { onSuccess: () => setEditing(null) },
+      {
+        onSuccess: () => {
+          setEditing(null)
+          toast.success(`Budget ${form.name.trim()} saved`)
+        },
+        onError: (e) => toast.error('Could not save the budget', { description: (e as Error)?.message }),
+      },
     )
   }
 
@@ -70,16 +91,23 @@ export function Budgets() {
     <ViewShell
       title="Budgets"
       description="Spend caps and alert thresholds at organization or namespace scope. Current spend is metered from OpenCost — when the meter isn't connected, no number is shown."
-      required={['billing', 'finance', 'owner']}
+      writeCheck={MANAGE}
       actions={
-        <RequirePermission perm="budgets.write" required={['billing', 'finance', 'owner']} readOnly>
-          <PrimaryButton onClick={() => openEditor()} disabled={dbGone}>
-            <IconPlus /> New budget
-          </PrimaryButton>
-        </RequirePermission>
+        readDenied ? null : (
+          <RequirePermission check={MANAGE}>
+            <PrimaryButton onClick={() => openEditor()} disabled={dbGone}>
+              <IconPlus /> New budget
+            </PrimaryButton>
+          </RequirePermission>
+        )
       }
     >
-      {dbGone ? (
+      {readDenied ? (
+        <EmptyState
+          title="No billing access"
+          description="Ask a workspace admin for billing access to see budgets and metered spend."
+        />
+      ) : dbGone ? (
         <EmptyState
           title="Connect a database"
           description="Budgets are persisted in Postgres. Set DATABASE_URL for the console server."
@@ -119,7 +147,7 @@ export function Budgets() {
             </p>
           ) : null}
 
-          {editing !== null ? (
+          {editing !== null && canManage ? (
             <SettingsCard title={editing === 'new' ? 'New budget' : 'Edit budget'}>
               <SettingsRow label="Name">
                 <TextField
@@ -177,11 +205,6 @@ export function Budgets() {
                   {save.isPending ? 'Saving…' : 'Save budget'}
                 </PrimaryButton>
                 <SecondaryButton onClick={() => setEditing(null)}>Cancel</SecondaryButton>
-                {save.isError ? (
-                  <span className="text-[12px] text-rose-600">
-                    {save.error instanceof Error ? save.error.message : 'Save failed.'}
-                  </span>
-                ) : null}
               </div>
             </SettingsCard>
           ) : null}
@@ -189,8 +212,12 @@ export function Budgets() {
           {all.length === 0 && editing === null ? (
             <EmptyState
               title="No budgets yet"
-              description="Create a spend cap for the organization or a single namespace — metered spend is tracked against it automatically."
-              action={<PrimaryButton onClick={() => openEditor()}>New budget</PrimaryButton>}
+              description={
+                canManage
+                  ? 'Create a spend cap for the organization or a single namespace — metered spend is tracked against it automatically.'
+                  : 'No spend caps are set. Ask a workspace admin with billing access to create one.'
+              }
+              action={canManage ? <PrimaryButton onClick={() => openEditor()}>New budget</PrimaryButton> : undefined}
             />
           ) : (
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -270,12 +297,14 @@ export function Budgets() {
                             <span className="text-content-subtle">Cost data not connected</span>
                           )}
                         </div>
+                        {canManage ? (
                         <div className="flex items-center gap-1.5">
                           <SecondaryButton onClick={() => openEditor(b)}>Edit</SecondaryButton>
-                          <SecondaryButton tone="rose" onClick={() => del.mutate(b.id)} disabled={del.isPending}>
+                          <SecondaryButton tone="rose" onClick={() => del.mutate(b.id, { onError: (e) => toast.error(`Could not delete ${b.name}`, { description: (e as Error)?.message }) })} disabled={del.isPending}>
                             Delete
                           </SecondaryButton>
                         </div>
+                        ) : null}
                       </div>
                     </div>
                   </SettingsCard>
@@ -291,11 +320,11 @@ export function Budgets() {
 
 function KV({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2">
+    <div className="min-w-0 rounded-lg border border-edge-subtle bg-surface-sunken/40 p-2">
       <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         {label}
       </div>
-      <div className="mt-0.5 text-[13px] font-medium text-content">{value}</div>
+      <div className="mt-0.5 truncate text-[13px] font-medium text-content" title={value}>{value}</div>
     </div>
   )
 }

@@ -1595,11 +1595,15 @@ export function PanelLoading() {
 }
 
 export function PanelError({ message, onRetry }: { message?: string; onRetry?: () => void }) {
+  // A source this install does not have ("Prometheus is not configured for
+  // this install.") is a fact about the platform, not a failure: neutral, and
+  // no Retry — retrying cannot change it.
+  const unconfigured = /\bnot (configured|installed)\b/i.test(message ?? '')
   return (
     <PanelMessage>
       <span className="flex flex-col items-center gap-2">
-        <span className="text-rose-700 dark:text-rose-300">{message ?? 'Failed to load'}</span>
-        {onRetry
+        <span className={unconfigured ? 'text-content-muted' : 'text-rose-700 dark:text-rose-300'}>{message ?? 'Failed to load'}</span>
+        {onRetry && !unconfigured
           ? (
             <Button size="xs" variant="secondary" onClick={() => onRetry()}>
               Retry
@@ -1676,19 +1680,6 @@ export function SignalTile({
 }
 
 /* ─────────── helpers ─────────── */
-
-interface MetricSeries {
-  values: Array<[number, string]>
-}
-
-function lastValue(s: MetricSeries): number {
-  const last = s.values[s.values.length - 1]
-  return last ? Number(last[1]) : 0
-}
-function sumLastValues(arr: MetricSeries[]): number {
-  return arr.reduce((acc, s) => acc + lastValue(s), 0)
-}
-
 
 function formatScalar(v: number, unit?: string): string {
   if (unit === 'USD') {
@@ -2150,13 +2141,16 @@ function ResourceGauge({
   detail?: string
   icon: React.ReactNode
 }) {
-  const tone = value == null ? 'emerald' : value >= 85 ? 'rose' : value >= 70 ? 'amber' : 'emerald'
+  // No reading is not a healthy reading: neutral, never green.
+  const tone = value == null ? 'slate' : value >= 85 ? 'rose' : value >= 70 ? 'amber' : 'emerald'
   const ringClass = {
+    slate: 'stroke-slate-400',
     emerald: 'stroke-emerald-500',
     amber: 'stroke-amber-500',
     rose: 'stroke-rose-500',
   }[tone]
   const swatch = {
+    slate: 'bg-surface-sunken text-content-muted ring-edge-default',
     emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200/60',
     amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200/60',
     rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200/60',
@@ -2742,10 +2736,14 @@ export function KafkaBrokersPanel() {
     return (
       <PanelCard>
         <PanelHead title="Kafka brokers" subtitle="Strimzi · broker liveness" to="/platform" />
-        {kafkasQ.isLoading ? (
+        {/* Brokers are derived from pods: until (or unless) the pod list
+            arrives, "no broker pods are running" would be a false claim. */}
+        {kafkasQ.isLoading || ((kafkasQ.data ?? []).length > 0 && podsQ.isLoading) ? (
           <PanelLoading />
         ) : kafkasQ.isError ? (
           <PanelEmpty message="Requires Strimzi (kafka.strimzi.io)" />
+        ) : (kafkasQ.data ?? []).length > 0 && podsQ.isError ? (
+          <PanelEmpty message="Broker pods could not be read from the Kubernetes API" />
         ) : (
           <PanelEmpty message={(kafkasQ.data ?? []).length ? 'No broker pods are running for the Kafka clusters' : 'No Kafka clusters found'} />
         )}
@@ -3768,7 +3766,7 @@ export function TenantUsagePanel() {
           tone="emerald"
         />
         <Stat label="CPU cores" value={aggregateCpu} tone="brand" />
-        <Stat label="Memory" value={`${aggregateMem} GB`} tone="violet" />
+        <Stat label="Memory" value={`${aggregateMem} GiB`} tone="violet" />
       </div>
       <div className="flex-1 space-y-1.5 overflow-y-auto">
         {tenants.map((t) => {
@@ -3993,7 +3991,7 @@ export function BackupStatusPanel() {
   const cnpgSchedQ = useCnpgScheduledBackups()
   const cnpgQ = useCnpgBackups()
 
-  const backups = useMemo<BackupRow[]>(() => {
+  const allBackups = useMemo<BackupRow[]>(() => {
     const velero = (veleroQ.data ?? []) as Array<
       Generic & {
         spec?: { includedNamespaces?: string[] }
@@ -4047,15 +4045,17 @@ export function BackupStatusPanel() {
         status: cnpgStatus(b.status?.phase),
       })),
     ]
-    return rows
-      .sort((a, b) => (Date.parse(b.finishedAt) || 0) - (Date.parse(a.finishedAt) || 0))
-      .slice(0, 8)
+    return rows.sort((a, b) => (Date.parse(b.finishedAt) || 0) - (Date.parse(a.finishedAt) || 0))
   }, [veleroQ.data, cnpgQ.data])
+  // The list shows the newest 8; the OK / Failed / Partial tiles read as
+  // totals, so they count every backup — a failure older than the eighth row
+  // was otherwise invisible.
+  const backups = useMemo(() => allBackups.slice(0, 8), [allBackups])
 
   const scheduleCount = (cnpgSchedQ.data ?? []).length
-  const completed = backups.filter((b) => b.status === 'completed').length
-  const failed = backups.filter((b) => b.status === 'failed').length
-  const partial = backups.filter((b) => b.status === 'partial').length
+  const completed = allBackups.filter((b) => b.status === 'completed').length
+  const failed = allBackups.filter((b) => b.status === 'failed').length
+  const partial = allBackups.filter((b) => b.status === 'partial').length
 
   const tones: Record<BackupRow['status'], { dot: string; pill: string; label: string }> = {
     completed: { dot: 'bg-emerald-500', pill: 'border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', label: 'OK' },

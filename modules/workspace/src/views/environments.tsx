@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, DataTable, EmptyState, Modal, StatusBadge, useCan, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   ENVIRONMENT_KINDS,
@@ -21,7 +21,6 @@ import {
   ViewShell,
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
-import { RequirePermission } from '../components/role-gate.tsx'
 
 const KIND_LABEL: Record<EnvironmentKind, string> = Object.fromEntries(
   ENVIRONMENT_KINDS.map((k) => [k.value, k.label]),
@@ -30,6 +29,11 @@ const KIND_LABEL: Record<EnvironmentKind, string> = Object.fromEntries(
 export function Environments() {
   const q = useEnvironments()
   const del = useDeleteEnvironment()
+  const toast = useToast()
+  // Environments live in the generic document store (`workspace.environment`),
+  // which has no CONSOLE_PERMISSIONS entry of its own. They are per-project
+  // deployment targets, so every write here is gated on projectsUpdate.
+  const canEdit = useCan(CONSOLE_PERMISSIONS.projectsUpdate)
   const [editing, setEditing] = useState<WorkspaceEnvironment | null>(null)
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<WorkspaceEnvironment | null>(null)
@@ -40,9 +44,9 @@ export function Environments() {
     <ViewShell
       title="Environments"
       description="Deployment targets for this workspace. Promotion rules and protected change windows recorded here are the source of record the delivery pipeline reads — they are enforced by the pipeline once it is wired to this list."
-      required={['admin', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.projectsUpdate}
       actions={
-        <RequirePermission perm="environments.write" required={['admin', 'owner']} readOnly>
+        canEdit ? (
           <PrimaryButton
             onClick={() => {
               setEditing(null)
@@ -51,7 +55,7 @@ export function Environments() {
           >
             <IconPlus /> New environment
           </PrimaryButton>
-        </RequirePermission>
+        ) : null
       }
     >
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -81,23 +85,19 @@ export function Environments() {
               empty={
                 <EmptyState
                   title="No environments configured"
-                  description="Add a deployment target to record its cluster, namespace, and promotion rules."
-                  action={
-                    <RequirePermission
-                      perm="environments.write"
-                      required={['admin', 'owner']}
-                      readOnly
+                  description={canEdit
+                    ? 'Add a deployment target to record its cluster, namespace, and promotion rules.'
+                    : 'Ask a workspace admin to add a deployment target with its cluster, namespace, and promotion rules.'}
+                  action={canEdit ? (
+                    <PrimaryButton
+                      onClick={() => {
+                        setEditing(null)
+                        setAdding(true)
+                      }}
                     >
-                      <PrimaryButton
-                        onClick={() => {
-                          setEditing(null)
-                          setAdding(true)
-                        }}
-                      >
-                        <IconPlus /> New environment
-                      </PrimaryButton>
-                    </RequirePermission>
-                  }
+                      <IconPlus /> New environment
+                    </PrimaryButton>
+                  ) : undefined}
                 />
               }
               columns={[
@@ -105,9 +105,9 @@ export function Environments() {
                   key: 'name',
                   header: 'Environment',
                   cell: (e) => (
-                    <div>
-                      <div className="font-medium text-content">{e.name}</div>
-                      <code className="font-mono text-[11px] text-content-muted">{e.namespace}</code>
+                    <div className="min-w-0 max-w-xs">
+                      <div className="truncate font-medium text-content" title={e.name}>{e.name}</div>
+                      <code className="block truncate font-mono text-[11px] text-content-muted" title={e.namespace}>{e.namespace}</code>
                     </div>
                   ),
                 },
@@ -165,12 +165,8 @@ export function Environments() {
                 {
                   key: 'actions',
                   header: '',
-                  cell: (e) => (
-                    <RequirePermission
-                      perm="environments.write"
-                      required={['admin', 'owner']}
-                      readOnly
-                    >
+                  cell: (e) =>
+                    canEdit ? (
                       <div className="flex justify-end gap-1.5">
                         <SecondaryButton
                           onClick={() => {
@@ -184,8 +180,7 @@ export function Environments() {
                           Delete
                         </SecondaryButton>
                       </div>
-                    </RequirePermission>
-                  ),
+                    ) : null,
                 },
               ]}
             />
@@ -214,7 +209,10 @@ export function Environments() {
         onConfirm={() =>
           removing &&
           del.mutate(removing.id, {
-            onSuccess: () => setRemoving(null),
+            onSuccess: () => {
+              toast.success(`Deleted ${removing.name}`)
+              setRemoving(null)
+            },
           })
         }
       />

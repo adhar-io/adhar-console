@@ -107,7 +107,7 @@ export function PrDrawer({ seed, repo, index, onClose, onOpenCommit }: {
             </div>
           </div>
           <div className='flex shrink-0 items-center gap-1.5'>
-            <a href={pr.html_url} target='_blank' rel='noopener' className='inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700'>
+            <a href={pr.html_url} target='_blank' rel='noopener noreferrer' className='inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300'>
               Gitea <IconExternal />
             </a>
             <CloseButton onClick={onClose} />

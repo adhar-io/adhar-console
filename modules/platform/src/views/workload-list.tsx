@@ -1,10 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
+import {
+  Button,
+  canResource,
+  DataTable,
+  EmptyState,
+  StatusBadge,
+  Tabs,
+  type TabDef,
+  useCan,
+  useToast,
+} from '@adhar/shell-ui'
 import { kube, type KubeObject } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
 import {
   useCronJobs,
   useDaemonSets,
@@ -70,9 +78,7 @@ function DeploymentTable({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
-        isFetching={q.isFetching}
         onRefresh={() => q.refetch()}
-        lastUpdatedAt={q.dataUpdatedAt}
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search deployments…"
@@ -164,9 +170,7 @@ function ReplicaSetTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
-      isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
-      lastUpdatedAt={q.dataUpdatedAt}
       search={search}
       onSearchChange={setSearch}
       caption="owner: Deployment"
@@ -278,9 +282,7 @@ function JobTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
-      isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
-      lastUpdatedAt={q.dataUpdatedAt}
       search={search}
       onSearchChange={setSearch}
     >
@@ -352,9 +354,7 @@ function CronJobTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
-      isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
-      lastUpdatedAt={q.dataUpdatedAt}
       search={search}
       onSearchChange={setSearch}
     >
@@ -441,9 +441,7 @@ function HpaTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
-      isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
-      lastUpdatedAt={q.dataUpdatedAt}
       search={search}
       onSearchChange={setSearch}
     >
@@ -517,9 +515,7 @@ function HpaTable({ namespace }: { namespace?: string }) {
 
 interface GenericQuery {
   isLoading: boolean
-  isFetching: boolean
   refetch(): unknown
-  dataUpdatedAt: number
   data?: Array<{
     metadata: { name: string; namespace?: string; creationTimestamp?: string }
     spec?: unknown
@@ -559,9 +555,7 @@ function GenericWorkloadList({
         total={all.length}
         visible={rows.length}
         loading={query.isLoading}
-        isFetching={query.isFetching}
         onRefresh={() => query.refetch()}
-        lastUpdatedAt={query.dataUpdatedAt}
         search={search}
         onSearchChange={setSearch}
       >
@@ -640,15 +634,26 @@ function generatedName(base: string, suffix: string): string {
 }
 
 function CronJobActions({ cronJob }: { cronJob: CronJobObj }) {
-  const canWrite = useHasK8sPermission('workloads.write')
   const qc = useQueryClient()
+  const toast = useToast()
   const ns = cronJob.metadata.namespace ?? 'default'
   const suspended = Boolean(cronJob.spec?.suspend)
+  // Suspend/resume PATCHes the CronJob; "Trigger now" server-side-applies a NEW
+  // Job, which the apiserver authorizes as patch + create on jobs.
+  const canSuspend = useCan(canResource(GVRS.cronjobs, 'patch', { namespace: ns, name: cronJob.metadata.name }))
+  const canTrigger = useCan([
+    canResource(GVRS.jobs, 'create', { namespace: ns }),
+    canResource(GVRS.jobs, 'patch', { namespace: ns }),
+  ])
 
   const suspendMut = useMutation({
     mutationFn: () =>
       kube.patch(GVRS.cronjobs, ns, cronJob.metadata.name, { spec: { suspend: !suspended } }, 'merge'),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['k8s', 'cronjobs'] }),
+    onSuccess: () => {
+      toast.success(suspended ? `Resumed ${cronJob.metadata.name}` : `Suspended ${cronJob.metadata.name}`)
+      qc.invalidateQueries({ queryKey: ['k8s', 'cronjobs'] })
+    },
+    onError: (e) => toast.error(`Could not ${suspended ? 'resume' : 'suspend'} CronJob`, { description: (e as Error).message }),
   })
 
   // "Trigger now" = create a Job from the CronJob's jobTemplate, exactly like
@@ -681,13 +686,17 @@ function CronJobActions({ cronJob }: { cronJob: CronJobObj }) {
       } as unknown as KubeObject
       await kube.apply(manifest)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] }),
+    onSuccess: () => {
+      toast.success('Job created', { description: `From CronJob ${cronJob.metadata.name}` })
+      qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] })
+    },
+    onError: (e) => toast.error('Could not trigger CronJob', { description: (e as Error).message }),
   })
 
-  if (!canWrite) return <K8sRolePill perm="workloads.write" />
+  if (!canSuspend && !canTrigger) return null
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex justify-end gap-1.5">
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {canSuspend ? (
         <Button
           size="xs"
           variant="secondary"
@@ -701,6 +710,8 @@ function CronJobActions({ cronJob }: { cronJob: CronJobObj }) {
         >
           {suspendMut.isPending ? 'Working…' : suspended ? 'Resume' : 'Suspend'}
         </Button>
+      ) : null}
+      {canTrigger ? (
         <Button
           size="xs"
           variant="secondary"
@@ -710,24 +721,21 @@ function CronJobActions({ cronJob }: { cronJob: CronJobObj }) {
         >
           {triggerMut.isPending ? 'Triggering…' : 'Trigger now'}
         </Button>
-      </div>
-      {triggerMut.isSuccess ? (
-        <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Job created</span>
-      ) : null}
-      {suspendMut.isError || triggerMut.isError ? (
-        <span className="max-w-[16rem] truncate text-[10px] text-rose-700 dark:text-rose-300">
-          {((suspendMut.error ?? triggerMut.error) as Error).message}
-        </span>
       ) : null}
     </div>
   )
 }
 
 function JobActions({ job }: { job: JobObj }) {
-  const canWrite = useHasK8sPermission('workloads.write')
-  const canDelete = useHasK8sPermission('workloads.delete')
   const qc = useQueryClient()
+  const toast = useToast()
   const ns = job.metadata.namespace ?? 'default'
+  // Rerun server-side-applies a NEW Job (patch + create); delete is a DELETE.
+  const canRerun = useCan([
+    canResource(GVRS.jobs, 'create', { namespace: ns }),
+    canResource(GVRS.jobs, 'patch', { namespace: ns }),
+  ])
+  const canDelete = useCan(canResource(GVRS.jobs, 'delete', { namespace: ns, name: job.metadata.name }))
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   // "Rerun" = recreate the Job from its own pod template, with the
@@ -762,7 +770,11 @@ function JobActions({ job }: { job: JobObj }) {
       } as unknown as KubeObject
       await kube.apply(manifest)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] }),
+    onSuccess: () => {
+      toast.success('Job created', { description: `Rerun of ${job.metadata.name}` })
+      qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] })
+    },
+    onError: (e) => toast.error('Could not rerun Job', { description: (e as Error).message }),
   })
 
   const deleteMut = useMutation({
@@ -770,66 +782,58 @@ function JobActions({ job }: { job: JobObj }) {
       kube.delete(GVRS.jobs, ns, job.metadata.name, { propagationPolicy: 'Background' }),
     onSuccess: () => {
       setConfirmDelete(false)
+      toast.success(`Deleted Job ${job.metadata.name}`)
       qc.invalidateQueries({ queryKey: ['k8s', 'jobs'] })
       qc.invalidateQueries({ queryKey: ['k8s', 'pods'] })
     },
+    onError: (e) => toast.error('Could not delete Job', { description: (e as Error).message }),
   })
 
-  if (!canWrite && !canDelete) return <K8sRolePill perm="workloads.write" />
+  if (!canRerun && !canDelete) return null
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex justify-end gap-1.5">
-        {canWrite ? (
-          <Button
-            size="xs"
-            variant="secondary"
-            disabled={rerunMut.isPending}
-            onClick={() => rerunMut.mutate()}
-            title="Create a new Job from this Job's pod template"
-          >
-            {rerunMut.isPending ? 'Creating…' : 'Rerun'}
-          </Button>
-        ) : null}
-        {canDelete ? (
-          confirmDelete ? (
-            <>
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => setConfirmDelete(false)}
-                disabled={deleteMut.isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="xs"
-                variant="danger"
-                disabled={deleteMut.isPending}
-                onClick={() => deleteMut.mutate()}
-                title={`Delete Job ${job.metadata.name} and its pods`}
-              >
-                {deleteMut.isPending ? 'Deleting…' : 'Confirm delete'}
-              </Button>
-            </>
-          ) : (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {canRerun ? (
+        <Button
+          size="xs"
+          variant="secondary"
+          disabled={rerunMut.isPending}
+          onClick={() => rerunMut.mutate()}
+          title="Create a new Job from this Job's pod template"
+        >
+          {rerunMut.isPending ? 'Creating…' : 'Rerun'}
+        </Button>
+      ) : null}
+      {canDelete ? (
+        confirmDelete ? (
+          <>
             <Button
               size="xs"
               variant="ghost"
-              onClick={() => setConfirmDelete(true)}
-              title="Delete this Job (asks to confirm)"
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleteMut.isPending}
             >
-              Delete
+              Cancel
             </Button>
-          )
-        ) : null}
-      </div>
-      {rerunMut.isSuccess ? (
-        <span className="text-[10px] text-emerald-600 dark:text-emerald-400">Job created</span>
-      ) : null}
-      {rerunMut.isError || deleteMut.isError ? (
-        <span className="max-w-[16rem] truncate text-[10px] text-rose-700 dark:text-rose-300">
-          {((rerunMut.error ?? deleteMut.error) as Error).message}
-        </span>
+            <Button
+              size="xs"
+              variant="danger"
+              disabled={deleteMut.isPending}
+              onClick={() => deleteMut.mutate()}
+              title={`Delete Job ${job.metadata.name} and its pods`}
+            >
+              {deleteMut.isPending ? 'Deleting…' : 'Confirm delete'}
+            </Button>
+          </>
+        ) : (
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => setConfirmDelete(true)}
+            title="Delete this Job (asks to confirm)"
+          >
+            Delete
+          </Button>
+        )
       ) : null}
     </div>
   )

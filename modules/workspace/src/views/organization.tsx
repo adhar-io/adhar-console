@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { EmptyState, StatusBadge, useToast } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, EmptyState, StatusBadge, useToast } from '@adhar/shell-ui'
 import {
   isDbUnavailable,
   useMembers,
@@ -35,7 +35,8 @@ export function Organization() {
 
   const headerActions = (
     <ViewActions>
-      <RequirePermission perm="org.write" required={['admin', 'owner']} readOnly>
+      {/* PUT /api/workspace/org → orgUpdate. Hidden (not read-only) when denied. */}
+      <RequirePermission check={CONSOLE_PERMISSIONS.orgUpdate}>
         <SecondaryButton onClick={() => setDirty({})} disabled={!isDirty}>
           Reset
         </SecondaryButton>
@@ -50,7 +51,7 @@ export function Organization() {
     <ViewShell
       title="General"
       description="Organization identity, region, and SSO posture. Changes persist to the console database and are audit-logged."
-      required={['admin', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.orgUpdate}
     >
       {headerActions}
       {q.isError ? (
@@ -77,7 +78,7 @@ export function Organization() {
             />
           </div>
 
-          <RequirePermission perm="org.write" required={['admin', 'owner']} readOnly>
+          <RequirePermission check={CONSOLE_PERMISSIONS.orgUpdate} readOnly>
             <form
               onSubmit={(e) => {
                 e.preventDefault()

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, StatusBadge, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   useCurrentSession,
@@ -21,6 +21,13 @@ import {
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
+
+/**
+ * The MFA/session policy is a docStore singleton
+ * (`/api/store/workspace.security-policy`) with no dedicated catalogue entry —
+ * an organisation setting, so it needs `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 const METHOD_LABEL: Record<MfaMethod, string> = {
   totp: 'TOTP app',
@@ -76,14 +83,14 @@ export function MfaAndSession() {
       {!saved ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
           Showing recommended defaults — this tenant has not saved a policy yet. Nothing is
-          enforced until you save.
+          enforced until a workspace admin saves one.
         </p>
       ) : null}
 
-      <RequirePermission perm="mfa.enforce" required={['security', 'owner']} readOnly>
+      <RequirePermission check={WRITE} readOnly>
         <MfaCard policy={policy} />
       </RequirePermission>
-      <RequirePermission perm="session.write" required={['security', 'owner']} readOnly>
+      <RequirePermission check={WRITE} readOnly>
         <SessionCard policy={policy} />
       </RequirePermission>
 
@@ -97,7 +104,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <ViewShell
       title="MFA & sessions"
       description="Multi-factor enforcement, factor strength, and session lifetime. Saved to the tenant document store; realm-level enforcement is applied through Keycloak."
-      required={['security', 'owner']}
+      writeCheck={WRITE}
     >
       {children}
     </ViewShell>
@@ -108,6 +115,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function MfaCard({ policy }: { policy: SecurityPolicyDoc }) {
   const save = useSaveSecurityPolicy()
+  const toast = useToast()
   const [draft, setDraft] = useState(policy.mfa)
   useEffect(() => setDraft(policy.mfa), [policy.mfa])
 
@@ -125,17 +133,24 @@ function MfaCard({ policy }: { policy: SecurityPolicyDoc }) {
       title="Multi-factor authentication"
       description="Recorded here and applied at the Keycloak realm for SSO members."
       actions={
-        <>
+        <RequirePermission check={WRITE}>
           <SecondaryButton disabled={!dirty || save.isPending} onClick={() => setDraft(policy.mfa)}>
             Reset
           </SecondaryButton>
           <PrimaryButton
             disabled={!dirty || save.isPending || draft.allowedMethods.length === 0}
-            onClick={() => save.mutate({ mfa: draft })}
+            onClick={() =>
+              save.mutate(
+                { mfa: draft },
+                {
+                  onSuccess: () => toast.success('MFA policy saved'),
+                  onError: (e) => toast.error('Could not save the MFA policy', { description: (e as Error)?.message }),
+                },
+              )}
           >
             {save.isPending ? 'Saving…' : 'Save policy'}
           </PrimaryButton>
-        </>
+        </RequirePermission>
       }
     >
       <SettingsRow
@@ -190,11 +205,6 @@ function MfaCard({ policy }: { policy: SecurityPolicyDoc }) {
           <span className="text-xs text-content-muted">days</span>
         </div>
       </SettingsRow>
-      {save.isError ? (
-        <p className="mt-3 text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the MFA policy.'}
-        </p>
-      ) : null}
     </SettingsCard>
   )
 }
@@ -203,6 +213,7 @@ function MfaCard({ policy }: { policy: SecurityPolicyDoc }) {
 
 function SessionCard({ policy }: { policy: SecurityPolicyDoc }) {
   const save = useSaveSecurityPolicy()
+  const toast = useToast()
   const [draft, setDraft] = useState(policy.session)
   useEffect(() => setDraft(policy.session), [policy.session])
 
@@ -213,12 +224,21 @@ function SessionCard({ policy }: { policy: SecurityPolicyDoc }) {
       title="Sessions"
       description="Session timeouts, step-up auth, and concurrent-session limits."
       actions={
-        <PrimaryButton
-          disabled={!dirty || save.isPending}
-          onClick={() => save.mutate({ session: draft })}
-        >
-          {save.isPending ? 'Saving…' : 'Save policy'}
-        </PrimaryButton>
+        <RequirePermission check={WRITE}>
+          <PrimaryButton
+            disabled={!dirty || save.isPending}
+            onClick={() =>
+              save.mutate(
+                { session: draft },
+                {
+                  onSuccess: () => toast.success('Session policy saved'),
+                  onError: (e) => toast.error('Could not save the session policy', { description: (e as Error)?.message }),
+                },
+              )}
+          >
+            {save.isPending ? 'Saving…' : 'Save policy'}
+          </PrimaryButton>
+        </RequirePermission>
       }
     >
       <SettingsRow label="Idle timeout" description="Sign out after this many minutes of inactivity.">
@@ -271,11 +291,6 @@ function SessionCard({ policy }: { policy: SecurityPolicyDoc }) {
           label={draft.singleConcurrent ? 'On' : 'Off'}
         />
       </SettingsRow>
-      {save.isError ? (
-        <p className="mt-3 text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the session policy.'}
-        </p>
-      ) : null}
     </SettingsCard>
   )
 }
@@ -303,8 +318,8 @@ function ActiveSessionsCard() {
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-edge-default bg-surface-sunken/40 px-4 py-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-content">{s.name ?? s.email ?? 'This session'}</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium text-content">{s.name ?? s.email ?? 'This session'}</span>
               <StatusBadge kind="healthy">current</StatusBadge>
             </div>
             <div className="mt-0.5 text-[11px] text-content-muted">

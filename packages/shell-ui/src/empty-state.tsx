@@ -22,15 +22,8 @@ export function EmptyState({ title, description, action, icon, compact = false, 
         className,
       )}
     >
-      <div
-        className={cn(
-          'mb-4 flex items-center justify-center rounded-full bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-inset ring-brand-200',
-          compact ? 'h-9 w-9 text-sm' : 'h-12 w-12 text-base',
-        )}
-      >
-        {icon ?? <DefaultIcon compact={compact} />}
-      </div>
-      <div className={cn('font-medium text-content', compact ? 'text-sm' : 'text-base')}>
+      <Illustration compact={compact}>{icon ?? <DefaultIcon compact={compact} />}</Illustration>
+      <div className={cn('font-semibold tracking-tight text-content', compact ? 'text-sm' : 'text-base')}>
         {title}
       </div>
       {description ? (
@@ -45,13 +38,47 @@ export function EmptyState({ title, description, action, icon, compact = false, 
           {description}
         </p>
       ) : null}
-      {action ? <div className={compact ? 'mt-3' : 'mt-5'}>{action}</div> : null}
+      {action ? (
+        <div className={cn('flex flex-wrap items-center justify-center gap-2', compact ? 'mt-3' : 'mt-5')}>{action}</div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The picture above the copy: the icon on a raised tile, set in two faint
+ * concentric rings with a soft brand glow behind — enough of an illustration
+ * that an empty page reads as designed rather than broken, drawn from tokens
+ * so it sits right in both themes. Decorative; the title carries the meaning.
+ */
+function Illustration({ compact, children }: { compact: boolean; children: ReactNode }) {
+  return (
+    <div aria-hidden className={cn('relative flex items-center justify-center', compact ? 'mb-3 h-16 w-16' : 'mb-5 h-28 w-28')}>
+      <span className="absolute inset-0 rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklch,var(--color-brand-500)_16%,transparent),transparent)]" />
+      <span className="absolute inset-[6%] rounded-full border border-edge-default/70" />
+      <span className={cn('absolute rounded-full border border-dashed border-edge-strong/70', compact ? 'inset-[22%]' : 'inset-[20%]')} />
+      {compact ? null : (
+        <>
+          <span className="absolute right-[14%] top-[16%] h-1.5 w-1.5 rounded-full bg-brand-400/70" />
+          <span className="absolute bottom-[18%] left-[12%] h-1 w-1 rounded-full bg-accent-500/60" />
+        </>
+      )}
+      <span
+        className={cn(
+          'relative flex items-center justify-center rounded-xl border border-edge-default bg-surface-raised text-brand-600 shadow-md dark:text-brand-300',
+          compact ? 'h-9 w-9' : 'h-12 w-12',
+        )}
+      >
+        {children}
+      </span>
     </div>
   )
 }
 
 function DefaultIcon({ compact }: { compact: boolean }) {
-  const size = compact ? 16 : 20
+  const size = compact ? 16 : 22
+  // An empty tray — "nothing here yet" — rather than the alert glyph it
+  // replaces, which read as an error on pages that were simply new.
   return (
     <svg
       width={size}
@@ -64,9 +91,8 @@ function DefaultIcon({ compact }: { compact: boolean }) {
       strokeLinejoin="round"
       aria-hidden
     >
-      <circle cx="12" cy="12" r="9" strokeOpacity="0.4" />
-      <path d="M12 8v4" />
-      <path d="M12 16h.01" />
+      <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
     </svg>
   )
 }

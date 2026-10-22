@@ -1,4 +1,6 @@
 import { resolveIdentity } from '../k8s/gateway.ts'
+import { requirePermission } from '../k8s/access.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 import { getAiConfig, isAiConfigured } from './provider.ts'
 import { getRequestUser } from '../request-user.ts'
 import { openStore } from '../workspace/store.ts'
@@ -142,6 +144,9 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
     }
 
     if (typeof body.title === 'string' && typeof body.body === 'string') {
+      // Notes are retrieved into everyone's answers: RBAC `create ai-knowledge`.
+      const denied = await requirePermission(req, CONSOLE_PERMISSIONS.aiKnowledgeAdd, { id: who })
+      if (denied) return denied
       const kind = body.kind === 'runbook' || body.kind === 'incident' ? body.kind : 'note'
       const tags = Array.isArray(body.tags) ? body.tags.filter((t): t is string => typeof t === 'string').slice(0, 10) : []
       const res = await adharAiAddNote({ title: body.title.slice(0, 200), body: body.body.slice(0, 20_000), kind, tags }, { bearer: who.token })
@@ -169,6 +174,9 @@ export async function handleAi(req: Request, name: string): Promise<Response> {
     if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 })
     const who = await resolveIdentity(req)
     if (!who) return Response.json({ error: 'unauthenticated' }, { status: 401 })
+    // A vote re-ranks shared knowledge: RBAC `update ai-knowledge`.
+    const denied = await requirePermission(req, CONSOLE_PERMISSIONS.aiKnowledgeRate, { id: who })
+    if (denied) return denied
     let body: { chunkIds?: unknown; helpful?: unknown }
     try {
       body = (await req.json()) as typeof body

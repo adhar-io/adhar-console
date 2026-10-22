@@ -713,13 +713,14 @@ export function InviteMemberModal({
 
 /* ───── shared atom ───── */
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
         {label}
       </span>
       <div className="mt-1.5">{children}</div>
+      {hint ? <span className="mt-1 block text-[11px] text-content-subtle">{hint}</span> : null}
     </label>
   )
 }

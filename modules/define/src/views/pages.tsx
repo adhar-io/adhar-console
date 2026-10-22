@@ -1,4 +1,5 @@
 import { type DragEvent, useEffect, useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, docStore, EmptyState, Field, Input, Modal, Select, StatusBadge, Textarea, useOptionalUser, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -75,7 +76,7 @@ export function Pages({ projectId }: { projectId?: string }) {
     m.update.mutate({ page, patch: { parent, order: siblings.length } }, { onError: (e) => toast.error("Couldn't move the page", { description: classifyError(e).message }) })
   }
 
-  if (!projectId) return <EmptyState title="Pick a project" description="Pages belong to a project." />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" description="Pages belong to a project." />
 
   return (
     <div className="space-y-4">
@@ -278,7 +279,7 @@ function PagesHome({ pages, onOpen, onNew, projectName, loading }: { pages: Page
             </ul>
           </section>
         )
-        : <EmptyState title={`No pages in ${projectName ?? 'this project'} yet`} description="Start a wiki: PRDs, RFCs, runbooks, meeting notes. Pages are stored by the console and can be exported to the project's repository." action={<Button variant="primary" onClick={() => onNew()}>New page</Button>} />}
+        : <EmptyState icon={<EmptyIcon name="page" />} title={`No pages in ${projectName ?? 'this project'} yet`} description="Start a wiki: PRDs, RFCs, runbooks, meeting notes. Pages are stored by the console and can be exported to the project's repository." action={<Button variant="primary" onClick={() => onNew()}>New page</Button>} />}
     </div>
   )
 }

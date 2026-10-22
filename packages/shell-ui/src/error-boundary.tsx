@@ -10,17 +10,17 @@ interface State {
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null }
+  override state: State = { error: null }
 
   static getDerivedStateFromError(error: Error): State {
     return { error }
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack)
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       const reset = () => this.setState({ error: null })
       if (this.props.fallback) return this.props.fallback(this.state.error, reset)
@@ -31,7 +31,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <button
             type="button"
             onClick={reset}
-            className="mt-4 rounded-md border border-rose-300 bg-surface-raised px-3 py-1.5 text-sm font-medium text-rose-900 dark:text-rose-200 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+            className="mt-4 rounded-md border border-rose-300 dark:border-rose-500/40 bg-surface-raised px-3 py-1.5 text-sm font-medium text-rose-900 dark:text-rose-200 hover:bg-rose-50 dark:hover:bg-rose-500/10"
           >
             Try again
           </button>

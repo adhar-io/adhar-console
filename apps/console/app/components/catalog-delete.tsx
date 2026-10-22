@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Button, Modal, useToast, useToolPublicUrl } from '@adhar/shell-ui'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, canResource, CONSOLE_PERMISSIONS, Modal, useCan, useToast, useToolPublicUrl } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { type Entity, entityRef, useUnregisterEntity } from '~/data/catalog.ts'
 import { useEntityDeployment } from '~/data/catalog-deployment.ts'
 import { entityRepoUrl, planTeardown, type TeardownResult, useTeardown } from '~/data/catalog-teardown.ts'
+
+const NAMESPACES = { group: '', resource: 'namespaces', namespaced: false } as const
 
 /**
  * "Delete <service>" — the dialog behind the card menu's Delete.
@@ -33,6 +35,12 @@ export function DeleteEntityDialog({
   const deployment = useEntityDeployment(entity, open)
   const repoUrl = entityRepoUrl(entity)
   const plan = useMemo(() => planTeardown(entity, deployment, repoUrl, giteaHost), [entity, deployment, repoUrl, giteaHost])
+  // The optional steps are offered only to someone who may perform them
+  // (docs/rbac.md): the repository goes with the console's Gitea admin
+  // credentials, so the server requires `delete applications.console.adhar.io`;
+  // the namespace is deleted as the user.
+  const canDeleteRepo = useCan(CONSOLE_PERMISSIONS.applicationsDelete, { enabled: open && Boolean(plan.repo?.onGitea) })
+  const canDeleteNamespace = useCan(canResource(NAMESPACES, 'delete', { name: plan.namespace }), { enabled: open && Boolean(plan.namespace) })
   const [typed, setTyped] = useState('')
   const [deleteRepo, setDeleteRepo] = useState(false)
   const [deleteNamespace, setDeleteNamespace] = useState(false)
@@ -44,13 +52,32 @@ export function DeleteEntityDialog({
   // Fresh defaults every time the dialog opens for an entity: the repository
   // goes when it is on this platform's Gitea, the namespace when it is this
   // entity's own.
+  //
+  // Two effects, not one: the plan's inputs arrive (and refetch — teardown
+  // itself invalidates the deployment) asynchronously. Keyed on them, the
+  // reset wiped the typed confirmation, the user's choices and even the
+  // post-delete report. The defaults now follow the plan only until the user
+  // touches a checkbox or a run has reported.
+  const choicesTouched = useRef(false)
   useEffect(() => {
     if (!open) return
     setTyped('')
     setResult(null)
-    setDeleteRepo(Boolean(plan.repo?.onGitea))
-    setDeleteNamespace(plan.namespaceDedicated)
-  }, [open, plan.repo?.onGitea, plan.namespaceDedicated, entity])
+    choicesTouched.current = false
+  }, [open, entity])
+  useEffect(() => {
+    if (!open || choicesTouched.current || result) return
+    setDeleteRepo(Boolean(plan.repo?.onGitea) && canDeleteRepo)
+    setDeleteNamespace(plan.namespaceDedicated && canDeleteNamespace)
+  }, [open, plan.repo?.onGitea, plan.namespaceDedicated, canDeleteRepo, canDeleteNamespace, entity, result])
+  const chooseRepo = (v: boolean) => {
+    choicesTouched.current = true
+    setDeleteRepo(v)
+  }
+  const chooseNamespace = (v: boolean) => {
+    choicesTouched.current = true
+    setDeleteNamespace(v)
+  }
 
   const title = entity.metadata.title ?? entity.metadata.name
   const sample = entity.origin === 'seed'
@@ -60,10 +87,12 @@ export function DeleteEntityDialog({
   const run = async () => {
     if (!confirmed || busy) return
     try {
-      const res = await teardown.mutateAsync({ plan, options: { deleteRepo, deleteNamespace } })
+      const res = await teardown.mutateAsync({ plan, options: { deleteRepo: deleteRepo && canDeleteRepo, deleteNamespace: deleteNamespace && canDeleteNamespace } })
       // The catalog record itself: registered entries live in this browser's
       // store; live entries disappear with the repository or the workload.
-      await unregister.mutateAsync({ kind: entity.kind, metadata: entity.metadata })
+      // The platform resources are already gone at this point; a failed
+      // catalog unregister must not hide that report behind "Could not delete".
+      await unregister.mutateAsync({ kind: entity.kind, metadata: entity.metadata }).catch(() => {})
       setResult(res)
       if (res.ok) toast.success('Deleted', { description: `${title} was removed from the platform.` })
       else toast.error('Deleted with problems', { description: `${title}: some steps did not complete — see the report.` })
@@ -131,18 +160,26 @@ export function DeleteEntityDialog({
                 <Row
                   icon={<IconNamespace />}
                   label={`Namespace ${plan.namespace}`}
-                  detail={plan.namespaceDedicated ? 'named after this service, so it is likely its own' : 'may hold other services — off unless you say so'}
-                  tone={deleteNamespace ? 'on' : 'off'}
-                  checkbox={{ checked: deleteNamespace, onChange: setDeleteNamespace, disabled: busy }}
+                  detail={
+                    !canDeleteNamespace
+                      ? 'kept — your access does not include deleting this namespace'
+                      : plan.namespaceDedicated ? 'named after this service, so it is likely its own' : 'may hold other services — off unless you say so'
+                  }
+                  tone={deleteNamespace && canDeleteNamespace ? 'on' : 'off'}
+                  checkbox={canDeleteNamespace ? { checked: deleteNamespace, onChange: chooseNamespace, disabled: busy } : undefined}
                 />
               ) : null}
               {plan.repo ? (
                 <Row
                   icon={<IconRepo />}
                   label={`Source repository ${plan.repo.label}`}
-                  detail={plan.repo.onGitea ? 'on this platform’s Gitea — the code goes with it' : 'hosted elsewhere — left untouched'}
-                  tone={plan.repo.onGitea ? (deleteRepo ? 'on' : 'off') : 'none'}
-                  checkbox={plan.repo.onGitea ? { checked: deleteRepo, onChange: setDeleteRepo, disabled: busy } : undefined}
+                  detail={
+                    !plan.repo.onGitea
+                      ? 'hosted elsewhere — left untouched'
+                      : canDeleteRepo ? 'on this platform’s Gitea — the code goes with it' : 'kept — deleting repositories needs the application-delete permission'
+                  }
+                  tone={plan.repo.onGitea ? (deleteRepo && canDeleteRepo ? 'on' : 'off') : 'none'}
+                  checkbox={plan.repo.onGitea && canDeleteRepo ? { checked: deleteRepo, onChange: chooseRepo, disabled: busy } : undefined}
                 />
               ) : null}
               <Row icon={<IconCatalog />} label="Catalog entry" detail={entityRef(entity)} tone="on" />

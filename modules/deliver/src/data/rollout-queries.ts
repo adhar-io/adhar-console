@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { kube } from '@adhar/api-clients/k8s'
+import { canResource, useAccessReview } from '@adhar/shell-ui'
 import { useCRD } from './k8s.ts'
 import { type KubeLike, undoPatch } from './rollout-history.ts'
 
@@ -40,18 +41,17 @@ export function useRolloutHistorySources(namespace: string | undefined) {
   }
 }
 
-/** May the signed-in user patch this Rollout? (SelfSubjectAccessReview.) */
+/**
+ * May the signed-in user patch this Rollout? (SelfSubjectAccessReview, through
+ * shell-ui's shared batched/cached access hook.) Keeps the `{ data, isLoading }`
+ * shape the detail panel reads.
+ */
 export function useCanPatchRollout(namespace?: string, name?: string) {
-  return useQuery({
-    queryKey: ['rollouts', 'access', 'patch', namespace ?? '', name ?? ''],
-    queryFn: () =>
-      kube
-        .access({ verb: 'patch', group: 'argoproj.io', resource: 'rollouts', namespace, name })
-        .then((r) => r.allowed)
-        .catch(() => false),
-    enabled: Boolean(namespace && name),
-    staleTime: 60_000,
-  })
+  const state = useAccessReview(
+    canResource(ROLLOUTS, 'patch', { namespace, name }),
+    { enabled: Boolean(namespace && name) },
+  )
+  return { data: state.results[0], isLoading: state.loading }
 }
 
 /** `kubectl argo rollouts undo --to-revision`: put a revision's pod template back on the Rollout. */

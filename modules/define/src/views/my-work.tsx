@@ -71,7 +71,8 @@ export function MyWork() {
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-content-muted">
         <span>
           {me.member ? <>Signed in as <span className="font-medium text-content">{me.member.member?.display_name ?? me.user.name}</span> in Plane</> : me.unmatched ? null : 'Matching your Plane account…'}
-          {' · '}
+          {/* No leading separator when the identity part is empty (unmatched). */}
+          {me.unmatched && !me.member ? null : ' · '}
           {scope.projects.length} project{scope.projects.length === 1 ? '' : 's'}
           {scope.capped ? ` (first ${scope.projects.length} of ${scope.total})` : ''}
         </span>
@@ -81,7 +82,7 @@ export function MyWork() {
         </div>
       </div>
       {err ? <SourceNote kind={err.kind} message={err.message} /> : null}
-      {me.unmatched ? <SourceNote kind="other" message={`No Plane member has your console email (${me.user.email}). Ask a Plane admin to invite that address — until then nothing can be "yours" here.`} /> : null}
+      {me.unmatched ? <SourceNote kind="other" title="You aren’t a Plane member yet" message={`No Plane member has your console email (${me.user.email}). Ask a Plane admin to invite that address — until then nothing can be "yours" here.`} /> : null}
 
       <Tabs tabs={tabs} value={tab} onChange={(t) => setParams({ tab: t === 'assigned' ? undefined : t })} ariaLabel="My work" />
 

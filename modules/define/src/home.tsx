@@ -1,24 +1,7 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { EmptyIcon } from './components/empty-icon.tsx'
 import { EmptyState, PageHeader, Spinner, StatusBadge, useIntegration } from '@adhar/shell-ui'
-import { Dashboard } from './views/dashboard.tsx'
-import { Projects } from './views/projects.tsx'
-import { Issues } from './views/issues.tsx'
-import { Intake } from './views/intake.tsx'
-import { Cycles } from './views/cycles.tsx'
-import { Okrs } from './views/okrs.tsx'
-import { Modules } from './views/modules.tsx'
-import { Pages } from './views/pages.tsx'
-import { Views } from './views/views.tsx'
-import { Board } from './views/board.tsx'
-import { Backlog } from './views/backlog.tsx'
-import { Roadmap } from './views/roadmap.tsx'
-import { Members } from './views/members.tsx'
-import { MyWork } from './views/my-work.tsx'
-import { Reports } from './views/reports.tsx'
-import { Releases } from './views/releases.tsx'
-import { Automation } from './views/automation.tsx'
 import { ProjectPicker } from './components/project-picker.tsx'
-import { ProjectDetail } from './components/project-detail.tsx'
 import {
   getStoredProjectId,
   setStoredProjectId,
@@ -26,6 +9,27 @@ import {
   useProjects,
 } from './data/plane.ts'
 import type { SavedIssueQuery } from './data/view-query.ts'
+
+// One chunk per section so the remote's entry no longer ships every view
+// (~1.1 MB) to render the one the URL asked for.
+const Dashboard = lazy(() => import('./views/dashboard.tsx').then((m) => ({ default: m.Dashboard })))
+const Projects = lazy(() => import('./views/projects.tsx').then((m) => ({ default: m.Projects })))
+const Issues = lazy(() => import('./views/issues.tsx').then((m) => ({ default: m.Issues })))
+const Intake = lazy(() => import('./views/intake.tsx').then((m) => ({ default: m.Intake })))
+const Cycles = lazy(() => import('./views/cycles.tsx').then((m) => ({ default: m.Cycles })))
+const Okrs = lazy(() => import('./views/okrs.tsx').then((m) => ({ default: m.Okrs })))
+const Modules = lazy(() => import('./views/modules.tsx').then((m) => ({ default: m.Modules })))
+const Pages = lazy(() => import('./views/pages.tsx').then((m) => ({ default: m.Pages })))
+const Views = lazy(() => import('./views/views.tsx').then((m) => ({ default: m.Views })))
+const Board = lazy(() => import('./views/board.tsx').then((m) => ({ default: m.Board })))
+const Backlog = lazy(() => import('./views/backlog.tsx').then((m) => ({ default: m.Backlog })))
+const Roadmap = lazy(() => import('./views/roadmap.tsx').then((m) => ({ default: m.Roadmap })))
+const Members = lazy(() => import('./views/members.tsx').then((m) => ({ default: m.Members })))
+const MyWork = lazy(() => import('./views/my-work.tsx').then((m) => ({ default: m.MyWork })))
+const Reports = lazy(() => import('./views/reports.tsx').then((m) => ({ default: m.Reports })))
+const Releases = lazy(() => import('./views/releases.tsx').then((m) => ({ default: m.Releases })))
+const ProjectDetail = lazy(() => import('./components/project-detail.tsx').then((m) => ({ default: m.ProjectDetail })))
+const Automation = lazy(() => import('./views/automation.tsx').then((m) => ({ default: m.Automation })))
 
 type Section =
   | 'dashboard'
@@ -191,7 +195,7 @@ export default function DefineHome({ section }: { section?: string } = {}) {
     return (
       <div className="space-y-6">
         <PageHeader title={def.label} />
-        <EmptyState
+        <EmptyState icon={<EmptyIcon name="plug" />}
           title="Plane isn't connected to this console"
           description="The console has no Plane API key. Plane's setup job writes one (PLANE_URL, PLANE_TOKEN, PLANE_WORKSPACE) into the plane-api-token Secret and restarts the console; re-sync the Plane application in Argo CD, or ask an operator to check that job's logs."
         />
@@ -226,51 +230,55 @@ export default function DefineHome({ section }: { section?: string } = {}) {
           ) : null
         }
       />
-      {active === 'dashboard' && (
-        <Dashboard projectId={activeProjectId} onOpenProject={(id) => setOpenProjectId(id)} onPickProject={setActiveProjectId} />
-      )}
-      {active === 'my-work' && <MyWork />}
-      {active === 'reports' && <Reports projectId={activeProjectId} />}
-      {active === 'projects' && (
-        <Projects
-          activeId={activeProjectId}
-          onPick={setActiveProjectId}
-          onOpenDetails={(id) => setOpenProjectId(id)}
-        />
-      )}
-      {active === 'issues' && (
-        <Issues projectId={activeProjectId} appliedQuery={appliedIssueQuery} />
-      )}
-      {active === 'board' && <Board projectId={activeProjectId} />}
-      {active === 'backlog' && <Backlog projectId={activeProjectId} />}
-      {active === 'intake' && <Intake projectId={activeProjectId} />}
-      {active === 'cycles' && <Cycles projectId={activeProjectId} />}
-      {active === 'modules' && <Modules projectId={activeProjectId} />}
-      {active === 'pages' && <Pages projectId={activeProjectId} />}
-      {active === 'views' && (
-        <Views
-          projectId={activeProjectId}
-          onApply={(query) => {
-            setAppliedIssueQuery(query)
-            setSectionOverride('issues')
-          }}
-        />
-      )}
-      {active === 'roadmap' && <Roadmap projectId={activeProjectId} />}
-      {active === 'okrs' && <Okrs projectId={activeProjectId} />}
-      {active === 'members' && <Members />}
-      {active === 'releases' && <Releases projectId={activeProjectId} />}
-      {active === 'automation' && <Automation projectId={activeProjectId} />}
-      {openProjectId ? (
-        <ProjectDetail
-          projectId={openProjectId}
-          onClose={() => setOpenProjectId(null)}
-          onSetActive={(id) => {
-            setActiveProjectId(id)
-            setOpenProjectId(null)
-          }}
-        />
-      ) : null}
+      <Suspense fallback={<div className="flex justify-center py-16 text-content-subtle" aria-busy="true"><Spinner size={16} /></div>}>
+        {active === 'dashboard' && (
+          <Dashboard projectId={activeProjectId} onOpenProject={(id) => setOpenProjectId(id)} onPickProject={setActiveProjectId} />
+        )}
+        {active === 'my-work' && <MyWork />}
+        {active === 'reports' && <Reports projectId={activeProjectId} />}
+        {active === 'projects' && (
+          <Projects
+            activeId={activeProjectId}
+            onPick={setActiveProjectId}
+            onOpenDetails={(id) => setOpenProjectId(id)}
+          />
+        )}
+        {active === 'issues' && (
+          <Issues projectId={activeProjectId} appliedQuery={appliedIssueQuery} />
+        )}
+        {active === 'board' && <Board projectId={activeProjectId} />}
+        {active === 'backlog' && <Backlog projectId={activeProjectId} />}
+        {active === 'intake' && <Intake projectId={activeProjectId} />}
+        {active === 'cycles' && <Cycles projectId={activeProjectId} />}
+        {active === 'modules' && <Modules projectId={activeProjectId} />}
+        {active === 'pages' && <Pages projectId={activeProjectId} />}
+        {active === 'views' && (
+          <Views
+            projectId={activeProjectId}
+            onApply={(query) => {
+              setAppliedIssueQuery(query)
+              setSectionOverride('issues')
+            }}
+          />
+        )}
+        {active === 'roadmap' && <Roadmap projectId={activeProjectId} />}
+        {active === 'okrs' && <Okrs projectId={activeProjectId} />}
+        {active === 'members' && <Members />}
+        {active === 'releases' && <Releases projectId={activeProjectId} />}
+        {active === 'automation' && <Automation projectId={activeProjectId} />}
+      </Suspense>
+      <Suspense fallback={null}>
+        {openProjectId ? (
+          <ProjectDetail
+            projectId={openProjectId}
+            onClose={() => setOpenProjectId(null)}
+            onSetActive={(id) => {
+              setActiveProjectId(id)
+              setOpenProjectId(null)
+            }}
+          />
+        ) : null}
+      </Suspense>
     </div>
   )
 }

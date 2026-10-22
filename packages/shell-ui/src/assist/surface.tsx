@@ -253,7 +253,7 @@ export function AssistSurface({ variant = 'overlay', onClose, onNavigate, items,
     else setSheet('inspector')
   }
 
-  const commands: SlashCommand[] = useMemo(() => [
+  const commands = useMemo<SlashCommand[]>(() => [
     { cmd: '/new', hint: 'Start a fresh conversation', run: () => { assistStore.newThread() } },
     { cmd: '/go', hint: 'Jump to a page — /go pods', run: (rest) => `/go ${rest}` },
     { cmd: '/agent', hint: 'Switch agent — /agent delivery', run: (rest) => {

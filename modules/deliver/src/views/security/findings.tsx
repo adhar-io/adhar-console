@@ -18,7 +18,9 @@ import { useSbomReports } from '../../data/security-reports.ts'
 import { securityLink, useSecurityParams, useSetSecurityParams } from '../../data/security-nav.ts'
 import { SCOPE_LABEL, VEX_STATUS_LABEL } from '../../data/security-api.ts'
 import { RequestWaiverModal, type WaiverPreset } from './dialogs.tsx'
+import { useCanRequestWaiver } from '../../data/security-access.ts'
 import { Drawer, fmtDate, KV, Loading, Notice, ReportStateNotice, Section, SEV_TONE, SevChip, shortDigest, TableWrap, TD, TH, WaiverStatusChip } from './shared.tsx'
+import { safeExternalUrl } from '../../data/safe-url.ts'
 
 const PAGE = 200
 
@@ -195,6 +197,7 @@ export function FindingDrawer({ finding: f, model, onClose }: { finding: Finding
   const now = Date.now()
 
   const targets = f.occurrences.map((o) => ({ project: o.project ?? o.namespace, app: o.app, env: o.env, digest: o.digest, image: o.image, repo: o.repo }))
+  const canRequest = useCanRequestWaiver(targets.map((t) => t.project))
   const makePreset = (falsePositive: boolean): WaiverPreset => ({
     kind: 'vuln',
     findingId: f.id,
@@ -249,8 +252,12 @@ export function FindingDrawer({ finding: f, model, onClose }: { finding: Finding
       }
       actions={
         <>
-          <Button size="sm" variant="primary" onClick={() => setPreset(makePreset(false))}>Request waiver</Button>
-          <Button size="sm" onClick={() => setPreset(makePreset(true))}>Mark false positive</Button>
+          {canRequest ? (
+            <>
+              <Button size="sm" variant="primary" onClick={() => setPreset(makePreset(false))}>Request waiver</Button>
+              <Button size="sm" onClick={() => setPreset(makePreset(true))}>Mark false positive</Button>
+            </>
+          ) : null}
           <Button size="sm" onClick={() => setPlaneOpen(true)}>Create Plane issue</Button>
           <Button size="sm" variant="ghost" onClick={copyLink}>Copy link</Button>
         </>
@@ -306,7 +313,9 @@ export function FindingDrawer({ finding: f, model, onClose }: { finding: Finding
           <ul className="space-y-1">
             {f.links.slice(0, 8).map((l) => (
               <li key={l} className="truncate text-[12px]">
-                <a href={l} target="_blank" rel="noreferrer noopener" className="text-brand-700 hover:underline dark:text-brand-300">{l}</a>
+                {safeExternalUrl(l)
+                  ? <a href={safeExternalUrl(l)} target="_blank" rel="noreferrer noopener" className="text-brand-700 hover:underline dark:text-brand-300">{l}</a>
+                  : <span className="text-content-muted">{l}</span>}
               </li>
             ))}
           </ul>

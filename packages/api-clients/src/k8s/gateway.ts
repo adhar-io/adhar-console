@@ -567,7 +567,9 @@ export function execPod(opts: {
 
 /** Read a ReadableStream of bytes as newline-delimited text lines. */
 async function readNdjson(body: ReadableStream<Uint8Array>, onLine: (line: string) => void): Promise<void> {
-  const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+  // TextDecoderStream's writable side is typed `BufferSource` (a superset of
+  // Uint8Array), which TS 5.7's generic typed arrays no longer accept here.
+  const reader = body.pipeThrough(new TextDecoderStream() as unknown as TransformStream<Uint8Array, string>).getReader()
   let buf = ''
   for (;;) {
     const { value, done } = await reader.read()

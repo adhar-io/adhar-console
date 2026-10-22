@@ -506,7 +506,7 @@ function EnvDrawer({
   }, [pods.data])
 
   const body = (
-    <div className='fixed inset-0 z-50 flex justify-end'>
+    <div className='fixed inset-0 z-[60] flex justify-end'>
       <div className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]' onClick={onClose} />
       {/* A real token (`surface-base` is not one — Tailwind emitted no rule and
           the panel rendered transparent). The tinted canvas, so the white

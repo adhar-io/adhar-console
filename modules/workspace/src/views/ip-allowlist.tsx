@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { DataTable, EmptyState, StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, DataTable, EmptyState, StatusBadge, useCan, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   isValidCidr,
@@ -21,9 +21,17 @@ import {
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
+/**
+ * Allowlist entries are docStore writes (`/api/store/workspace.ip-allow`) with
+ * no dedicated catalogue entry — organisation settings, so `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
+
 export function IpAllowlist() {
+  const toast = useToast()
   const q = useIpAllowlist()
   const del = useDeleteIpEntry()
+  const canWrite = useCan(WRITE)
   const [editing, setEditing] = useState<IpAllowEntry | null>(null)
   const [adding, setAdding] = useState(false)
 
@@ -33,9 +41,9 @@ export function IpAllowlist() {
     <ViewShell
       title="IP allowlist"
       description="Restrict console + API access to known networks. Entries are recorded in the tenant document store; they are enforced at the gateway once it is configured to read this list — until then this page is the source of record, not a live firewall."
-      required={['security', 'owner']}
+      writeCheck={WRITE}
       actions={
-        <RequirePermission perm="ipallow.write" required={['security', 'owner']} readOnly>
+        <RequirePermission check={WRITE}>
           <PrimaryButton
             onClick={() => {
               setEditing(null)
@@ -62,7 +70,7 @@ export function IpAllowlist() {
         />
       </div>
 
-      {adding || editing ? (
+      {canWrite && (adding || editing) ? (
         <CidrEditor
           initial={editing}
           onClose={() => {
@@ -82,14 +90,18 @@ export function IpAllowlist() {
           description="Empty list = open to the world; adding any entry switches the recorded policy to deny-by-default."
         >
           <DataTable
-              tableId="workspace.ip-allowlist"
-              features
+            tableId="workspace.ip-allowlist"
+            features
             rows={all}
             rowKey={(e) => e.id}
             empty={
               <EmptyState
                 title="No CIDRs configured"
-                description="The recorded policy is currently open to all networks."
+                description={
+                  canWrite
+                    ? 'The recorded policy is currently open to all networks. Add a CIDR to switch it to deny-by-default.'
+                    : 'The recorded policy is currently open to all networks. Ask a workspace admin to restrict it.'
+                }
               />
             }
             columns={[
@@ -102,7 +114,15 @@ export function IpAllowlist() {
                   </code>
                 ),
               },
-              { key: 'label', header: 'Label', cell: (e) => e.label },
+              {
+                key: 'label',
+                header: 'Label',
+                cell: (e) => (
+                  <span className="block max-w-[260px] truncate" title={e.label}>
+                    {e.label}
+                  </span>
+                ),
+              },
               {
                 key: 'scope',
                 header: 'Scope',
@@ -118,7 +138,7 @@ export function IpAllowlist() {
                 key: 'actions',
                 header: '',
                 cell: (e) => (
-                  <RequirePermission perm="ipallow.write" required={['security', 'owner']} readOnly>
+                  <RequirePermission check={WRITE}>
                     <div className="flex justify-end gap-1.5">
                       <SecondaryButton
                         onClick={() => {
@@ -131,7 +151,7 @@ export function IpAllowlist() {
                       <SecondaryButton
                         tone="rose"
                         disabled={del.isPending && del.variables === e.id}
-                        onClick={() => del.mutate(e.id)}
+                        onClick={() => del.mutate(e.id, { onError: (err) => toast.error('Could not remove the entry', { description: (err as Error)?.message }) })}
                       >
                         Remove
                       </SecondaryButton>
@@ -149,6 +169,7 @@ export function IpAllowlist() {
 
 function CidrEditor({ initial, onClose }: { initial: IpAllowEntry | null; onClose(): void }) {
   const save = useSaveIpEntry()
+  const toast = useToast()
   const [cidr, setCidr] = useState(initial?.cidr ?? '')
   const [label, setLabel] = useState(initial?.label ?? '')
   const [scope, setScope] = useState<IpScope>(initial?.scope ?? 'both')
@@ -159,7 +180,13 @@ function CidrEditor({ initial, onClose }: { initial: IpAllowEntry | null; onClos
   const submit = () =>
     save.mutate(
       { id: initial?.id, input: { cidr, label, scope } },
-      { onSuccess: onClose },
+      {
+        onSuccess: () => {
+          toast.success(initial ? 'Allowed range updated' : 'Allowed range added')
+          onClose()
+        },
+        onError: (e) => toast.error('Could not save the entry', { description: (e as Error)?.message }),
+      },
     )
 
   return (
@@ -191,11 +218,6 @@ function CidrEditor({ initial, onClose }: { initial: IpAllowEntry | null; onClos
           />
         </div>
       </div>
-      {save.isError ? (
-        <p className="mt-3 text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the entry.'}
-        </p>
-      ) : null}
       <div className="mt-4 flex justify-end gap-2">
         <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
         <PrimaryButton onClick={submit} disabled={!canSave}>

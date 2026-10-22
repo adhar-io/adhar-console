@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert'
+import { assertEquals } from 'jsr:@std/assert@^1'
 import { groupBy, parsePrometheusText, series, total } from './prom-text.ts'
 
 /** Real lines from `tetragon:2112/metrics`, trimmed. */

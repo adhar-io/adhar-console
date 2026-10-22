@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { CONSOLE_PERMISSIONS, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   useSaveSecurityPolicy,
@@ -19,6 +20,13 @@ import {
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
+
+/**
+ * The security policy is a docStore singleton
+ * (`/api/store/workspace.security-policy`) with no dedicated catalogue entry —
+ * an organisation setting, so it needs `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 export function SecurityPolicies() {
   const q = useSecurityPolicy()
@@ -63,7 +71,7 @@ export function SecurityPolicies() {
         </p>
       ) : null}
 
-      <RequirePermission perm="security.write" required={['security', 'owner']} readOnly>
+      <RequirePermission check={WRITE} readOnly>
         <PolicyEditor policy={policy} />
       </RequirePermission>
     </Shell>
@@ -75,7 +83,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <ViewShell
       title="Security policies"
       description="Password rules, supply-chain gates, customer-managed keys, and audit retention. Saved to the tenant document store; gates marked as enforced elsewhere say so explicitly."
-      required={['security', 'owner']}
+      writeCheck={WRITE}
     >
       {children}
     </ViewShell>
@@ -84,6 +92,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function PolicyEditor({ policy }: { policy: SecurityPolicyDoc }) {
   const save = useSaveSecurityPolicy()
+  const toast = useToast()
   const [password, setPassword] = useState(policy.password)
   const [supplyChain, setSupplyChain] = useState(policy.supplyChain)
   const [encryption, setEncryption] = useState(policy.encryption)
@@ -105,7 +114,14 @@ function PolicyEditor({ policy }: { policy: SecurityPolicyDoc }) {
       governance: policy.governance,
     })
 
-  const submit = () => save.mutate({ password, supplyChain, encryption, governance })
+  const submit = () =>
+    save.mutate(
+      { password, supplyChain, encryption, governance },
+      {
+        onSuccess: () => toast.success('Security policy saved'),
+        onError: (e) => toast.error('Could not save the security policy', { description: (e as Error)?.message }),
+      },
+    )
 
   const saveBar = (
     <div className="flex items-center gap-2">
@@ -126,8 +142,13 @@ function PolicyEditor({ policy }: { policy: SecurityPolicyDoc }) {
     </div>
   )
 
-  // Page-level actions belong in the ViewShell header (right side).
-  const headerActions = <ViewActions>{saveBar}</ViewActions>
+  // Page-level actions belong in the ViewShell header (right side). They are
+  // portalled out of the read-only fieldset, so they are gated (hidden) here.
+  const headerActions = (
+    <RequirePermission check={WRITE}>
+      <ViewActions>{saveBar}</ViewActions>
+    </RequirePermission>
+  )
 
   return (
     <>
@@ -246,12 +267,6 @@ function PolicyEditor({ policy }: { policy: SecurityPolicyDoc }) {
           />
         </SettingsRow>
       </SettingsCard>
-
-      {save.isError ? (
-        <p className="text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the security policy.'}
-        </p>
-      ) : null}
     </>
   )
 }

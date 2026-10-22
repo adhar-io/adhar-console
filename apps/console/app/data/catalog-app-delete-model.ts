@@ -6,13 +6,6 @@ import type { Entity } from './catalog.ts'
  * no clients, so they test without the UI packages.
  */
 
-/** Console personas allowed to delete an application. Mirrors the server's gate (which is the real one). */
-export const APP_DELETE_ROLES = ['super-admin', 'platform-admin', 'platform-engineer', 'application-admin'] as const
-
-export function roleCanDeleteApplications(role: string | null | undefined): boolean {
-  return (APP_DELETE_ROLES as readonly string[]).includes(role ?? '')
-}
-
 /** When the XR is being deleted (Crossplane still finalising), else undefined. */
 export function deletionTimestampOf(obj: { metadata?: unknown } | undefined): string | undefined {
   const ts = (obj?.metadata as { deletionTimestamp?: unknown } | undefined)?.deletionTimestamp

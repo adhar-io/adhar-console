@@ -9,12 +9,13 @@ import {
   Modal,
   Select,
   StatusBadge,
-  useCan,
   useToast,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { durationSecs, fmtDuration } from '../data/k6.ts'
 import { deleteRunRecord, type PerfInsights, usePinBaseline } from '../data/perf-automation.ts'
+import { canAuthorPerf } from '../data/perf-suite.ts'
+import { deleteResultCheck, useAllowedNamespaces } from '../data/access.ts'
 import { compareRuns, compareToBaseline, isImprovement } from '../data/perf-gate.ts'
 import { fmtMetric, METRIC_DEFS, type MetricKey, type RunRecord } from '../data/perf-results.ts'
 import { Delta, RegressionBadge, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
@@ -42,7 +43,11 @@ export function ResultsView({
   const [selected, setSelected] = useState<string[]>([])
   const [open, setOpen] = useState<RunRecord | null>(null)
   const [comparing, setComparing] = useState(false)
-  const canManage = useCan('develop')
+  // Pinning is a commit to test.json (Gitea decides); deleting a kept result
+  // deletes its ConfigMap — RBAC, per namespace the results live in.
+  const canPin = (t: string) => canAuthorPerf(insights.suite, t)
+  const deletableNs = useAllowedNamespaces(records.map((r) => r.namespace), (ns) => [deleteResultCheck(ns)])
+  const canManage = deletableNs.size > 0 || canAuthorPerf(insights.suite)
   const toast = useToast()
   const pin = usePinBaseline()
   const qc = useQueryClient()
@@ -179,14 +184,14 @@ export function ResultsView({
         const isBaseline = configs.get(r.test)?.baseline?.run === r.run
         return (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-            {!isBaseline && r.metrics
+            {!isBaseline && r.metrics && canPin(r.test)
               ? (
                 <Button size="xs" variant="ghost" disabled={busy === KEY(r)} onClick={() => doPin(r)}>
                   Pin baseline
                 </Button>
               )
               : null}
-            <ConfirmButton disabled={busy === KEY(r)} onConfirm={() => doDelete(r)} />
+            {deletableNs.has(r.namespace) ? <ConfirmButton disabled={busy === KEY(r)} onConfirm={() => doDelete(r)} /> : null}
           </div>
         )
       },
@@ -282,7 +287,7 @@ function RecordModal({
   const baseline = config?.baseline
   const isBaseline = baseline?.run === r.run
   const deltas = baseline && !isBaseline ? compareToBaseline(r.metrics, baseline.metrics, config?.gate?.tolerance) : []
-  const canManage = useCan('develop')
+  const canPin = canAuthorPerf(insights.suite, r.test)
 
   return (
     <Modal
@@ -293,7 +298,7 @@ function RecordModal({
       description={`${r.test} · ${r.namespace} · ${r.startedAt ? formatAbsolute(r.startedAt) : 'unknown start'}`}
       footer={
         <>
-          {canManage && r.metrics && !isBaseline
+          {canPin && r.metrics && !isBaseline
             ? <Button variant="ghost" onClick={() => onPin(r)}>Pin as baseline</Button>
             : null}
           <Button onClick={onClose}>Close</Button>

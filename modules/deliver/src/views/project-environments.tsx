@@ -3,6 +3,7 @@ import { Button, EmptyState, Field, Modal, Select, Spinner, StatusBadge, type St
 import { cn, formatRelative } from '@adhar/utils'
 import { kargo } from '@adhar/api-clients'
 import { useAbortPromotion, usePromote } from '../data/delivery.ts'
+import { useKargoProjectAccess } from '../data/access.ts'
 import { useAnalysisRun, useProjectEnvironmentsData } from '../data/project-environments.ts'
 
 /**
@@ -70,6 +71,7 @@ const DOT: Record<StatusKind, string> = {
 } as Record<StatusKind, string>
 
 type Target = { cell: kargo.MatrixCell; view: kargo.AppStage }
+type KargoAccess = ReturnType<typeof useKargoProjectAccess>
 
 export function ProjectEnvironments() {
   const [picked, setPicked] = useState(initialProject)
@@ -88,6 +90,9 @@ export function ProjectEnvironments() {
   }
 
   const m = d.matrix
+  // RBAC per Kargo project namespace the matrix touches: Promote / Abort are
+  // hidden where the user may not create Promotions / patch them.
+  const access = useKargoProjectAccess(m ? m.rows.flatMap((r) => r.cells.map((c) => c.stage?.stage.project ?? '')) : [])
   const shapeNote = m?.shape === 'shared'
     ? 'one shared promotion chain for every application'
     : m?.shape === 'per-app'
@@ -177,13 +182,14 @@ export function ProjectEnvironments() {
               env={env}
               step={i + 1}
               matrix={m}
+              access={access}
               onPromote={(t) => setPromoting(t)}
               onAbort={(t) => setAborting(t)}
             />
           ))}
         </div>
       ) : (
-        <VersionsMatrix matrix={m} onPromote={(t) => setPromoting(t)} />
+        <VersionsMatrix matrix={m} access={access} onPromote={(t) => setPromoting(t)} />
       )}
 
       {promoting ? <PromoteAppDialog target={promoting} freight={d.freight} onClose={() => setPromoting(null)} /> : null}
@@ -198,12 +204,14 @@ function EnvColumn({
   env,
   step,
   matrix,
+  access,
   onPromote,
   onAbort,
 }: {
   env: kargo.ProjectEnv
   step: number
   matrix: kargo.ProjectMatrix
+  access: KargoAccess
   onPromote(t: Target): void
   onAbort(t: Target): void
 }) {
@@ -270,6 +278,7 @@ function EnvColumn({
               key={c.app}
               cell={c}
               verification={c.stage?.shape === 'shared' && run.data ? kargo.appVerification(run.data, c.app) : undefined}
+              access={access}
               onPromote={onPromote}
               onAbort={onAbort}
             />
@@ -280,8 +289,9 @@ function EnvColumn({
   )
 }
 
-function AppRow({ cell: c, verification, onPromote, onAbort }: { cell: kargo.MatrixCell; verification?: kargo.AppVerification; onPromote(t: Target): void; onAbort(t: Target): void }) {
+function AppRow({ cell: c, verification, access, onPromote, onAbort }: { cell: kargo.MatrixCell; verification?: kargo.AppVerification; access: KargoAccess; onPromote(t: Target): void; onAbort(t: Target): void }) {
   const view = c.stage
+  const ns = view?.stage.project
   const hk = healthKind(c.health)
   return (
     <li className='min-w-0 px-3.5 py-2.5'>
@@ -330,8 +340,8 @@ function AppRow({ cell: c, verification, onPromote, onAbort }: { cell: kargo.Mat
         </span>
         {view ? (
           view.promotion ? (
-            <Button size='xs' variant='danger' onClick={() => onAbort({ cell: c, view })}>Abort</Button>
-          ) : (
+            access.canAbort(ns) ? <Button size='xs' variant='danger' onClick={() => onAbort({ cell: c, view })}>Abort</Button> : null
+          ) : !access.canPromote(ns) ? null : (
             <Button
               size='xs'
               variant='secondary'
@@ -351,7 +361,7 @@ function AppRow({ cell: c, verification, onPromote, onAbort }: { cell: kargo.Mat
 
 /* ─────────── versions across environments ─────────── */
 
-function VersionsMatrix({ matrix: m, onPromote }: { matrix: kargo.ProjectMatrix; onPromote(t: Target): void }) {
+function VersionsMatrix({ matrix: m, access, onPromote }: { matrix: kargo.ProjectMatrix; access: KargoAccess; onPromote(t: Target): void }) {
   const drifting = m.rows.filter((r) => r.drifted.length).length
   return (
     <div className='rounded-xl border border-edge-default bg-surface-raised shadow-sm'>
@@ -381,7 +391,7 @@ function VersionsMatrix({ matrix: m, onPromote }: { matrix: kargo.ProjectMatrix;
                   </td>
                   {r.cells.map((c) => {
                     const view = c.stage
-                    const clickable = Boolean(view && !view.promotion && !view.busyWithOther)
+                    const clickable = Boolean(view && !view.promotion && !view.busyWithOther && access.canPromote(view.stage.project))
                     return (
                       <td key={c.env} className='px-1.5 py-1'>
                         <button

@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   Button,
+  canResource,
   Field as FormField,
   Modal,
   Select,
   Spinner,
   StatusBadge,
   type StatusKind,
+  useCan,
   usePublicUrl,
   useToast,
   useToolPublicUrl,
@@ -85,6 +87,7 @@ import {
 } from '~/data/catalog-deployment-delivery.ts'
 import { withExpectedEnvs } from '~/data/catalog-deployment-model.ts'
 import type { KObj } from '~/data/catalog-composition-model.ts'
+import { isSafeLinkUrl } from '~/data/safe-url.ts'
 
 /**
  * The catalog drawer's Deployment tab.
@@ -862,11 +865,21 @@ function EnvironmentsSection({ ctx }: { ctx: Ctx }) {
   )
 }
 
+/** Kargo objects the stage actions write — each action is gated on its own verb (docs/rbac.md). */
+const KARGO_STAGES = { group: 'kargo.akuity.io', resource: 'stages', namespaced: true } as const
+const KARGO_PROMOTIONS = { group: 'kargo.akuity.io', resource: 'promotions', namespaced: true } as const
+
 function EnvCard({ ctx, row, step, onPromote }: { ctx: Ctx; row: EnvRow; step: number; onPromote?(): void }) {
   const { app, kargo } = row
   const pub = usePublicUrl()
   const toast = useToast()
   const actions = useKargoActions(kargo?.stage.project)
+  // Refresh and abort are merge patches (stage / promotion annotations);
+  // promote creates a Promotion in the Kargo project namespace.
+  const kNs = kargo?.stage.project
+  const canRefresh = useCan(canResource(KARGO_STAGES, 'patch', { namespace: kNs, name: kargo?.stage.name }), { enabled: Boolean(kargo) })
+  const canAbort = useCan(canResource(KARGO_PROMOTIONS, 'patch', { namespace: kNs, name: kargo?.promotion }), { enabled: Boolean(kargo?.promotion) })
+  const canPromote = useCan(canResource(KARGO_PROMOTIONS, 'create', { namespace: kNs }), { enabled: Boolean(kargo && onPromote) })
   const busy = actions.abort.isPending || actions.refresh.isPending
   const act = async (what: string, run: () => Promise<unknown>) => {
     if (!kargo) return
@@ -1016,16 +1029,18 @@ function EnvCard({ ctx, row, step, onPromote }: { ctx: Ctx; row: EnvRow; step: n
         )}
         {stage ? (
           <span className="flex shrink-0 items-center gap-0.5">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void act('Refreshed', () => actions.refresh.mutateAsync({ stage: stage.name }))}
-              title="Ask Kargo to reconcile this stage now"
-              className="rounded px-1.5 py-0.5 font-medium text-content-muted transition-colors hover:bg-surface-raised hover:text-content disabled:opacity-50 pointer-coarse:py-2"
-            >
-              Refresh
-            </button>
-            {kargo!.promotion ? (
+            {canRefresh ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void act('Refreshed', () => actions.refresh.mutateAsync({ stage: stage.name }))}
+                title="Ask Kargo to reconcile this stage now"
+                className="rounded px-1.5 py-0.5 font-medium text-content-muted transition-colors hover:bg-surface-raised hover:text-content disabled:opacity-50 pointer-coarse:py-2"
+              >
+                Refresh
+              </button>
+            ) : null}
+            {kargo!.promotion ? (canAbort ? (
               <button
                 type="button"
                 disabled={busy}
@@ -1035,7 +1050,7 @@ function EnvCard({ ctx, row, step, onPromote }: { ctx: Ctx; row: EnvRow; step: n
               >
                 Abort
               </button>
-            ) : onPromote ? (
+            ) : null) : onPromote && canPromote ? (
               <button
                 type="button"
                 onClick={onPromote}
@@ -1755,8 +1770,11 @@ function MonitoringSection({
   const name = entity.metadata.name
   const workload = a['adhar.io/workload'] ?? name
   const composed = rows.some((r) => r.app?.metadata.labels['adhar.io/application'])
-  const pinned = (entity.metadata.links ?? []).find((l) => l.icon === 'dashboard')?.url ?? a['adhar.io/dashboard'] ?? a['backstage.io/dashboard']
-  const runbook = (entity.metadata.links ?? []).find((l) => l.icon === 'runbook')?.url ?? a['adhar.io/runbook'] ?? a['backstage.io/runbook']
+  // Annotations are author-controlled (catalog-info.yaml) and go straight
+  // into hrefs: only plain web links survive.
+  const safe = (u: string | undefined) => (isSafeLinkUrl(u) ? u : undefined)
+  const pinned = safe((entity.metadata.links ?? []).find((l) => l.icon === 'dashboard')?.url ?? a['adhar.io/dashboard'] ?? a['backstage.io/dashboard'])
+  const runbook = safe((entity.metadata.links ?? []).find((l) => l.icon === 'runbook')?.url ?? a['adhar.io/runbook'] ?? a['backstage.io/runbook'])
   // Alerts are scoped to where the service RUNS — the environments'
   // namespaces or an explicit adhar.io/namespace — never the catalog grouping.
   const scope = useMemo(() => {
@@ -1823,7 +1841,7 @@ function MonitoringSection({
                   </div>
                   {al.summary || al.description ? <div className="mt-0.5 text-[11px] leading-relaxed text-content-muted">{al.summary ?? al.description}</div> : null}
                 </div>
-                {al.runbook_url ? <TextLink href={al.runbook_url}>Runbook</TextLink> : null}
+                {isSafeLinkUrl(al.runbook_url) ? <TextLink href={al.runbook_url}>Runbook</TextLink> : null}
               </li>
             ))}
             {mine.length > 5 ? <li className="px-3 py-1.5 text-[11px] text-content-subtle">+{mine.length - 5} more</li> : null}

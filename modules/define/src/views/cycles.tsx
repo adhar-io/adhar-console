@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, EmptyState, SearchInput, Select, StatusBadge, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -33,7 +34,7 @@ export function Cycles({ projectId }: { projectId?: string }) {
   const view: View = params.tab === 'planning' || params.tab === 'velocity' ? params.tab : 'list'
   const open = (q.data ?? []).find((c) => c.id === params.sprint)
 
-  if (!projectId) return <EmptyState title="Pick a project" />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" />
   if (q.isLoading) return <Loading label="Loading sprints…" />
   if (q.isError) return <ProblemState error={q.error} onRetry={() => q.refetch()} />
 
@@ -78,7 +79,7 @@ function SprintList({ projectId, cycles, onOpen }: { projectId: string; cycles: 
     <div className="space-y-6">
       <SearchInput value={search} onChange={setSearch} placeholder="Search sprints and goals…" block />
       {cycles.length === 0
-        ? <EmptyState title="No sprints yet" description="Create a sprint, plan work into it, then start it when the team commits." />
+        ? <EmptyState icon={<EmptyIcon name="sprint" />} title="No sprints yet" description="Create a sprint, plan work into it, then start it when the team commits." />
         : (
           <>
             {active.map((c) => <ActiveSprint key={c.id} projectId={projectId} cycle={c} goal={goals.get(c.id)} onOpen={() => onOpen(c)} />)}
@@ -223,7 +224,7 @@ function PlanningBoard({ projectId, cycles }: { projectId: string; cycles: plane
     .filter((i) => !f || i.name.toLowerCase().includes(f) || `${identifier}-${i.sequence_id}`.toLowerCase().includes(f))
     .sort((a, b) => PRI[a.priority] - PRI[b.priority] || (a.sequence_id ?? 0) - (b.sequence_id ?? 0))
 
-  if (!plannable.length) return <EmptyState title="No sprint to plan" description="Create a sprint first; completed sprints cannot take new work." />
+  if (!plannable.length) return <EmptyState icon={<EmptyIcon name="sprint" />} title="No sprint to plan" description="Create a sprint first; completed sprints cannot take new work." />
   if (issues.isLoading || membership.loading) return <Loading label="Loading backlog…" />
   if (issues.isError) return <ProblemState error={issues.error} onRetry={() => issues.refetch()} />
 
@@ -358,7 +359,7 @@ function VelocityView({ projectId, cycles }: { projectId: string; cycles: plane.
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-[12px] text-content-muted">Last {vel.outcomes.length} finished sprint{vel.outcomes.length === 1 ? '' : 's'}. Committed is the scope at sprint start where the console recorded it, else the final scope.</p>
-        <Segmented label="Measure" value={metric} onChange={setMetric} options={[{ value: 'issues', label: 'Items' }, { value: 'points', label: 'Points' }]} />
+        <Segmented<Metric> label="Measure" value={metric} onChange={setMetric} options={[{ value: 'issues', label: 'Items' }, { value: 'points', label: 'Points' }]} />
       </div>
       {metric === 'points' && !hasPoints ? <Notice tone="warn">No work item has story points yet — set them on the planning board or the sprint's work items.</Notice> : null}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

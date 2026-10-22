@@ -1,4 +1,3 @@
-import { normaliseToken } from './role-tokens.ts'
 
 /**
  * Scan waivers, scan policy and the manual scan gate — the pure half.
@@ -164,36 +163,12 @@ export interface WaiverRecord extends WaiverFields {
   [k: string]: unknown
 }
 
-/* ──────────────────────────────── roles ──────────────────────────────── */
-
-type UserLike = { id?: string; roles?: readonly string[]; groups?: readonly string[] } | null | undefined
-
-const APPROVER_TOKENS = new Set([
-  'admin', 'super-admin', 'superadmin',
-  'platform-admin', 'platform-admins',
-  'platform-engineer', 'platform-engineers', 'platform-eng',
-  'security-reviewer', 'security-reviewers', 'security-admin', 'security-admins', 'security', 'secops',
-])
-const PLATFORM_ADMIN_TOKENS = new Set(['admin', 'super-admin', 'superadmin', 'platform-admin', 'platform-admins'])
-const POLICY_ADMIN_TOKENS = new Set([
-  ...PLATFORM_ADMIN_TOKENS,
-  'platform-engineer', 'platform-engineers', 'platform-eng',
-  'security-admin', 'security-admins',
-])
-
-function hasToken(user: UserLike, tokens: Set<string>): boolean {
-  if (!user) return false
-  for (const raw of [...(user.roles ?? []), ...(user.groups ?? [])]) {
-    if (typeof raw === 'string' && tokens.has(normaliseToken(raw))) return true
-  }
-  return false
-}
-
-/** May review (approve / reject / revoke) waivers and decide scan gates. */
-export const canApproveWaivers = (user: UserLike) => hasToken(user, APPROVER_TOKENS)
-export const isPlatformAdmin = (user: UserLike) => hasToken(user, PLATFORM_ADMIN_TOKENS)
-/** May change scan policy (project and global). */
-export const canEditScanPolicy = (user: UserLike) => hasToken(user, POLICY_ADMIN_TOKENS)
+/*
+ * Who may request, review and self-approve waivers, and who may edit scan
+ * policy, is Kubernetes RBAC on `scan-waivers` / `scan-policies` in
+ * `console.adhar.io` (scan-waivers.ts asks; docs/rbac.md lists the grants).
+ * This module only receives the answers, as `TransitionCtx` booleans.
+ */
 
 /* ─────────────────────────── validation ─────────────────────────── */
 

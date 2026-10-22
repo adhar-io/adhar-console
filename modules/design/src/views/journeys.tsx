@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Icon } from '../components/ui-bits.tsx'
 import {
   Button,
   EmptyState,
@@ -173,6 +174,7 @@ export function Journeys() {
             </Button>
           </div>
           <EmptyState
+            icon={<Icon name="journey" size={22} />}
             title="No journey maps yet"
             description="Map how a persona moves through your product — what they do, think and feel at each stage — to find the pain points worth fixing."
             action={

@@ -7,6 +7,7 @@ import { usePolicy } from '../../data/security-api.ts'
 import { useSetSecurityParams } from '../../data/security-nav.ts'
 import type { SecurityModel } from '../../data/security-model.ts'
 import { RequestWaiverModal, type WaiverPreset } from './dialogs.tsx'
+import { useRequestableProjects } from '../../data/security-access.ts'
 import { fmtDate, Loading, Notice, Section, TableWrap, TD, Tile, TH } from './shared.tsx'
 
 const RISK: Record<LicenseRisk, { label: string; cls: string }> = {
@@ -37,6 +38,10 @@ export function Licenses({ model }: { model: SecurityModel }) {
   const pol = policy.data?.effective
   const inv = useMemo(() => buildLicenses(sboms.data?.items ?? [], model.projects.names, pol), [sboms.data, model.projects.names, pol])
   const licenseWaivers = model.waiverItems.filter((w) => w.kind === 'license')
+
+  // RBAC `create scan-waivers` per project namespace: only rows touching a
+  // project the user may request waivers for offer the action.
+  const requestable = useRequestableProjects(inv.rows.flatMap((r) => r.apps.map((a) => a.split('/')[0])))
 
   if (sboms.isLoading) return <Loading text="Reading SBOMs…" />
   const st = sboms.data?.state
@@ -128,7 +133,7 @@ export function Licenses({ model }: { model: SecurityModel }) {
                     <span className="shrink-0 text-[11px] text-content-subtle">{r.packages.length} pkg · {r.apps.length} workload{r.apps.length === 1 ? '' : 's'}</span>
                   </button>
                   {waivedCount ? <span className="text-[11px] text-emerald-700 dark:text-emerald-300">waived in {waivedCount}/{r.apps.length}</span> : null}
-                  {(r.risk === 'deny' || r.risk === 'warn') && r.license ? <Button size="xs" onClick={() => requestFor(r)}>Request waiver</Button> : null}
+                  {(r.risk === 'deny' || r.risk === 'warn') && r.license && r.apps.some((a) => requestable.has(a.split('/')[0])) ? <Button size="xs" onClick={() => requestFor(r)}>Request waiver</Button> : null}
                 </div>
                 {expanded ? (
                   <div className="border-t border-edge-subtle bg-surface-sunken/40 px-3 py-2">

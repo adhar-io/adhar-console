@@ -26,6 +26,7 @@ import { BACKING_TOOLS, type ServiceHealth } from '@adhar/platform-info'
 import { apiServerFetch, type K8sIdentity, resolveIdentity } from './k8s/gateway.ts'
 import { getK8sServiceToken, getToolRegistry } from './tool-registry.ts'
 import { foldHealth, imageVersion, matchWorkloads, type Workload } from '../data/backing-match.ts'
+import { withDeadline } from './http-hardening.ts'
 
 const SNAPSHOT_TTL_MS = 5_000
 const SAMPLE_EVERY_MS = 30_000
@@ -85,10 +86,7 @@ type Auth = string | K8sIdentity
 async function timed<T>(fn: () => Promise<T>): Promise<{ value?: T; ms: number; error?: string }> {
   const t0 = performance.now()
   try {
-    const value = await Promise.race([
-      fn(),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${PROBE_TIMEOUT_MS / 1000}s`)), PROBE_TIMEOUT_MS)),
-    ])
+    const value = await withDeadline(fn(), PROBE_TIMEOUT_MS, `timed out after ${PROBE_TIMEOUT_MS / 1000}s`)
     return { value, ms: Math.round(performance.now() - t0) }
   } catch (e) {
     return { ms: Math.round(performance.now() - t0), error: e instanceof Error ? e.message : String(e) }
@@ -335,6 +333,10 @@ async function compute(auth: Auth | null, readAs: StatusSnapshot['readAs']): Pro
 }
 
 function snapshot(auth: Auth | null, readAs: StatusSnapshot['readAs']): Promise<StatusSnapshot> {
+  // Only the service-account view is the same for everyone. A snapshot read
+  // with one viewer's identity reflects THAT viewer's RBAC and must not be
+  // served to the next caller — signed in as someone else, or not at all.
+  if (readAs !== 'service-account') return compute(auth, readAs)
   if (cached && Date.now() - cached.at < SNAPSHOT_TTL_MS) return Promise.resolve(cached.snap)
   inflight ??= compute(auth, readAs)
     .then((snap) => {
@@ -372,8 +374,29 @@ export async function handleStatus(req: Request): Promise<Response> {
     }
   }
   const snap = await snapshot(auth, readAs)
+  // The status page is public (it has to work before sign-in), but workload
+  // names, namespaces, images and condition / probe messages are a map of the
+  // cluster. Anonymous viewers get health, counts and versions only.
+  const signedIn = readAs === 'viewer' || !getServerAuthConfig() ||
+    Boolean(await resolveIdentity(req).catch(() => null))
+  const body = signedIn ? snap : redactForAnonymous(snap)
   return Response.json(
-    { ...snap, history: { bucketMs: SAMPLE_EVERY_MS, buckets: history }, events },
+    { ...body, history: { bucketMs: SAMPLE_EVERY_MS, buckets: history }, events },
     { headers: { 'cache-control': 'no-store' } },
   )
+}
+
+/** The public subset of a snapshot — see handleStatus. */
+export function redactForAnonymous(snap: StatusSnapshot): StatusSnapshot {
+  return {
+    ...snap,
+    console: { ...snap.console, image: undefined },
+    platform: {
+      ...snap.platform,
+      image: undefined,
+      conditions: snap.platform.conditions.map(({ type, status, lastTransitionTime }) => ({ type, status, lastTransitionTime })),
+    },
+    dependencies: snap.dependencies.map(({ detail: _detail, ...d }) => d),
+    components: snap.components.map((c) => ({ ...c, workloads: [] })),
+  }
 }

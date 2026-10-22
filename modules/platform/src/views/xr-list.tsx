@@ -15,6 +15,9 @@ import {
   type Column,
   DrawerWidenButton,
   useDrawerWidth,
+  canResource,
+  useAccessReview,
+  useCan,
 } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
@@ -23,9 +26,8 @@ import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { useGeneric, useNamespaces } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'
-import { useHasK8sPermission } from '../data/access.ts'
 import { useVariantsForKind, useXrOptions } from '../data/xrds.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
+import { AccessDenied } from '../components/role-gate.tsx'
 import { toYaml } from '../data/manifest-yaml.ts'
 import { provisionState } from '../data/provision-state.ts'
 import { YamlView } from '../components/yaml-view.tsx'
@@ -487,7 +489,13 @@ export function XrList({
   const qc = useQueryClient()
   const [selected, setSelected] = useState<XR | null>(null)
   const [provisioning, setProvisioning] = useState(false)
-  const canProvision = useHasK8sPermission('crds.write')
+  // Provisioning is a server-side apply of a NEW object, which the apiserver
+  // authorizes as `create` in the target namespace (all namespaces when the
+  // list is not narrowed to one).
+  const provisionAccess = useAccessReview(
+    canResource(config.gvr, 'create', { namespace: config.gvr.namespaced ? namespace : undefined }),
+  )
+  const canProvision = provisionAccess.allowed
   const toast = useToast()
   const [search, setSearch] = useState('')
   const [health, setHealth] = useState<StateFilter>('all')
@@ -498,13 +506,16 @@ export function XrList({
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [cloneFrom, setCloneFrom] = useState<XR | null>(null)
   const [pendingDelete, setPendingDelete] = useState<XR | null>(null)
-  const cluster = useActiveCluster()
+  const { cluster } = useActiveCluster()
   const now = Date.now()
 
   // Honour a "create" intent handed off by the catalog dashboard — open the
   // provisioning wizard once, on mount, only for the matching kind and only
   // when the user may actually provision.
   useEffect(() => {
+    // Wait for the access answer — consuming the intent while it loads would
+    // drop it before the user could be shown the wizard.
+    if (provisionAccess.loading) return
     let intent: string | null = null
     try {
       intent = sessionStorage.getItem(AUTO_CREATE_KEY)
@@ -519,7 +530,7 @@ export function XrList({
       /* ignore — best-effort cleanup */
     }
     if (canProvision) setProvisioning(true)
-  }, [canProvision, config.gvr.resource])
+  }, [canProvision, provisionAccess.loading, config.gvr.resource])
 
   const is404 = q.isError && (q.error as { status?: number })?.status === 404
 
@@ -543,7 +554,7 @@ export function XrList({
               <>
                 {' '}
                 <a
-                  className="text-brand-700 dark:text-brand-300 underline hover:text-brand-800"
+                  className="text-brand-700 underline hover:text-brand-800 dark:text-brand-300 dark:hover:text-brand-200"
                   target="_blank"
                   rel="noreferrer"
                   href={config.docsHref}
@@ -728,16 +739,13 @@ export function XrList({
           >
             Copy
           </RowBtn>
-          {canProvision ? (
-            <RowBtn title={`Provision a copy of ${r.metadata.name}`} onClick={() => setCloneFrom(r)}>
-              Clone
-            </RowBtn>
-          ) : null}
-          {canProvision && !r.metadata.deletionTimestamp && !isProtected(r) ? (
-            <RowBtn title={`Delete this ${config.singular.toLowerCase()}`} danger onClick={() => setPendingDelete(r)}>
-              Delete
-            </RowBtn>
-          ) : null}
+          <XrRowMutations
+            gvr={config.gvr}
+            xr={r}
+            singular={config.singular}
+            onClone={() => setCloneFrom(r)}
+            onDelete={() => setPendingDelete(r)}
+          />
         </div>
       ),
     },
@@ -807,11 +815,6 @@ export function XrList({
           {shown.length === rows.length ? `${rows.length}` : `${shown.length} of ${rows.length}`}{' '}
           {rows.length === 1 ? 'item' : 'items'}
         </span>
-        {q.isFetching && !q.isLoading ? (
-          <span className="inline-flex items-center gap-1 text-[11px] text-content-subtle">
-            <Spinner size={12} /> refreshing
-          </span>
-        ) : null}
         <div className="ml-auto flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => q.refetch()} disabled={q.isFetching}>
             Refresh
@@ -820,11 +823,7 @@ export function XrList({
             <Button size="sm" variant="primary" onClick={() => setProvisioning(true)}>
               Provision {config.singular}
             </Button>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-              Provision <K8sRolePill perm="crds.write" />
-            </span>
-          )}
+          ) : null}
         </div>
       </div>
       <BulkBar
@@ -832,7 +831,6 @@ export function XrList({
         singular={config.singular}
         plural={config.plural}
         selected={pickedRows}
-        canMutate={canProvision}
         cluster={clusterParam(cluster)}
         onClear={() => setPicked(new Set())}
         onDone={invalidate}
@@ -869,7 +867,7 @@ export function XrList({
                 description={
                   canProvision
                     ? `Provision your first ${config.singular} with the button above — Crossplane reconciles the claim into real infrastructure.`
-                    : `Claim a ${config.singular} via GitOps to populate this list.`
+                    : `Claim a ${config.singular} via GitOps to populate this list, or ask a platform admin for access to provision one here.`
                 }
               />
               )
@@ -1026,6 +1024,17 @@ export function ClaimFormModal({
    * reports the reconcile.
    */
   const [applied, setApplied] = useState<XR | null>(null)
+
+  // Apply is a server-side apply: a new object is authorized as `create` in
+  // the chosen namespace, an existing one as `patch` on that object. The
+  // primary button is hidden until the answer is a yes; a definite no says so.
+  const applyAccess = useAccessReview(
+    mode === 'create'
+      ? canResource(config.gvr, 'create', { namespace: namespaced ? ns.trim() || undefined : undefined })
+      : canResource(config.gvr, 'patch', { namespace: initial?.metadata.namespace, name: initial?.metadata.name }),
+  )
+  const canApply = applyAccess.allowed
+  const applyDenied = !applyAccess.loading && applyAccess.results.some((r) => r === false)
 
   const applyMut = useMutation({
     // Server-side apply through the per-user gateway; the gateway stamps
@@ -1230,6 +1239,7 @@ export function ClaimFormModal({
   }
 
   const submit = () => {
+    if (!canApply) return
     setFormError(null)
     setDryNote(null)
     const { manifest, errors, specError } = buildManifest()
@@ -1624,11 +1634,26 @@ export function ClaimFormModal({
           </div>
         ) : null}
 
-        <footer className={cn('flex items-center justify-between gap-3 border-t border-edge-default bg-surface-raised px-5 py-3', applied && 'hidden')}>
-          <span className="text-[10px] text-content-subtle">
-            Server-side apply · field manager <code className="font-mono">adhar-console</code>
+        <footer className={cn('flex flex-wrap items-center justify-between gap-3 border-t border-edge-default bg-surface-raised px-5 py-3', applied && 'hidden')}>
+          <span className="min-w-0 text-[10px] text-content-subtle">
+            {applyDenied ? (
+              <>
+                Your RBAC doesn't allow{' '}
+                <code className="font-mono">
+                  {mode === 'create' ? 'create' : 'patch'} {config.gvr.resource}
+                  {namespaced && (mode === 'create' ? ns.trim() : initial?.metadata.namespace)
+                    ? ` in ${mode === 'create' ? ns.trim() : initial?.metadata.namespace}`
+                    : ''}
+                </code>
+                {mode === 'create' ? ' — pick a namespace you can write to.' : '.'}
+              </>
+            ) : (
+              <>
+                Server-side apply · field manager <code className="font-mono">adhar-console</code>
+              </>
+            )}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={onClose} disabled={applyMut.isPending}>
               Cancel
             </Button>
@@ -1648,7 +1673,8 @@ export function ClaimFormModal({
                 'Dry run'
               )}
             </Button>
-            <Button size="sm" disabled={applyMut.isPending} onClick={submit}>
+            {canApply ? (
+            <Button size="sm" variant="primary" disabled={applyMut.isPending} onClick={submit}>
               {applyMut.isPending ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Spinner size={12} /> Applying…
@@ -1659,6 +1685,7 @@ export function ClaimFormModal({
                 'Apply changes'
               )}
             </Button>
+            ) : null}
           </div>
         </footer>
       </div>
@@ -1897,7 +1924,12 @@ function XrDrawer({
   const width = useDrawerWidth('platform.xr', { base: 'max-w-2xl' })
   const { cluster } = useActiveCluster()
   const cp = clusterParam(cluster)
-  const canMutate = useHasK8sPermission('crds.write')
+  // Each action asks for exactly the request it sends: Edit is a server-side
+  // apply (PATCH), Deprovision a DELETE, Clone a create in the same namespace.
+  const objectRef = { namespace: xr.metadata.namespace, name: xr.metadata.name }
+  const canEdit = useCan(canResource(config.gvr, 'patch', objectRef))
+  const canDelete = useCan(canResource(config.gvr, 'delete', objectRef))
+  const canClone = useCan(canResource(config.gvr, 'create', { namespace: xr.metadata.namespace }))
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteTyped, setDeleteTyped] = useState('')
@@ -1968,11 +2000,6 @@ function XrDrawer({
             </h2>
             <div className="mt-1 flex items-center gap-2 text-[11px] font-mono text-content-muted">
               {current.apiVersion}/{current.kind}
-              {live.isFetching ? (
-                <span className="inline-flex items-center gap-1 text-content-subtle">
-                  <Spinner size={12} /> refreshing
-                </span>
-              ) : null}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -1986,7 +2013,7 @@ function XrDrawer({
                 Export YAML
               </Button>
             ) : null}
-            {canMutate && !deleting && !isGone ? (
+            {canEdit && !deleting && !isGone ? (
               <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
                 Edit
               </Button>
@@ -2099,13 +2126,12 @@ function XrDrawer({
                 <OperationsPanel
                   gvr={config.gvr}
                   xr={current}
-                  canMutate={canMutate}
                   cluster={cp}
                   onMutated={() => {
                     live.refetch()
                     onMutated()
                   }}
-                  onClone={canMutate && onClone ? () => onClone(current) : undefined}
+                  onClone={canClone && onClone ? () => onClone(current) : undefined}
                 />
               </CardBody>
             </Card>
@@ -2212,7 +2238,7 @@ function XrDrawer({
           </Card>
 
           {/* ─── Danger zone: deprovision ─── */}
-          {!isGone && !deleting ? (
+          {!isGone && !deleting && canDelete ? (
             <Card>
               <CardHeader>
                 <div className="text-sm font-semibold text-rose-700 dark:text-rose-300">
@@ -2231,18 +2257,14 @@ function XrDrawer({
                       {composedRefs(current).length === 1 ? '' : 's'}). This cannot
                       be undone.
                     </p>
-                    {canMutate && isProtected(current) ? (
+                    {isProtected(current) ? (
                       <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted" title="Turn deletion protection off under Operations first">
                         Protected — turn protection off to deprovision
                       </span>
-                    ) : canMutate ? (
+                    ) : (
                       <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}>
                         Deprovision
                       </Button>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-                        Deprovision <K8sRolePill perm="crds.write" />
-                      </span>
                     )}
                   </div>
                 ) : (
@@ -2293,7 +2315,9 @@ function XrDrawer({
                           variant="danger"
                           size="sm"
                           disabled={deleteTyped !== current.metadata.name || deleteMut.isPending}
-                          onClick={() => deleteMut.mutate()}
+                          onClick={() => {
+                            if (canDelete) deleteMut.mutate()
+                          }}
                         >
                           {deleteMut.isPending ? 'Deleting…' : 'Deprovision'}
                         </Button>
@@ -2358,7 +2382,6 @@ function ConnectionSecretSection({
   xr: XR
   cluster?: string
 }) {
-  const canReveal = useHasK8sPermission('secrets.read')
   const [revealed, setRevealed] = useState<Record<string, boolean>>({})
   const [copied, setCopied] = useState<string | null>(null)
 
@@ -2367,6 +2390,9 @@ function ConnectionSecretSection({
     | { name?: string; namespace?: string }
     | undefined
   const secretNs = xr.metadata.namespace ?? connRef?.namespace
+  // Revealing decodes what `get secrets` returned — ask for exactly that.
+  const readCheck = canResource(GVRS.secrets, 'get', { namespace: secretNs, name: secretName })
+  const canReveal = useCan(readCheck, { enabled: Boolean(secretName && secretNs) })
 
   const secretQ = useQuery({
     queryKey: ['platform', 'xr-conn-secret', secretNs ?? '-', secretName ?? '-', cluster ?? '-'],
@@ -2415,9 +2441,7 @@ function ConnectionSecretSection({
             <code className="font-mono">{secretName}</code> once provisioning completes.
           </p>
         ) : status === 403 ? (
-          <p className="flex flex-wrap items-center gap-1.5 text-[12px] text-content-muted">
-            You aren't permitted to read the connection secret. <K8sRolePill perm="secrets.read" />
-          </p>
+          <AccessDenied what="this connection secret" check={readCheck} compact />
         ) : secretQ.isError ? (
           <p className="text-[12px] text-rose-700 dark:text-rose-300">
             Couldn't read the connection secret: {(secretQ.error as Error).message}
@@ -2454,9 +2478,7 @@ function ConnectionSecretSection({
                           >
                             {isRevealed ? 'Hide' : 'Reveal'}
                           </Button>
-                        ) : (
-                          <K8sRolePill perm="secrets.read" />
-                        )}
+                        ) : null}
                         {isRevealed && decoded ? (
                           <Button
                             size="xs"
@@ -2798,7 +2820,7 @@ function ComposedResourceInspector({
                   </div>
                 ) : null}
               </div>
-              {conditionBadge(c)}
+              {conditionStatusBadge(c)}
             </li>
           ))}
         </ul>
@@ -3141,6 +3163,43 @@ function CountTile({
   )
 }
 
+/**
+ * A row's write actions, each asked for on its own object: Clone is a create
+ * in the row's namespace, Delete a delete of the row itself.
+ */
+function XrRowMutations({
+  gvr,
+  xr,
+  singular,
+  onClone,
+  onDelete,
+}: {
+  gvr: k8s.GVR
+  xr: XR
+  singular: string
+  onClone(): void
+  onDelete(): void
+}) {
+  const canClone = useCan(canResource(gvr, 'create', { namespace: xr.metadata.namespace }))
+  const canDelete = useCan(
+    canResource(gvr, 'delete', { namespace: xr.metadata.namespace, name: xr.metadata.name }),
+  )
+  return (
+    <>
+      {canClone ? (
+        <RowBtn title={`Provision a copy of ${xr.metadata.name}`} onClick={onClone}>
+          Clone
+        </RowBtn>
+      ) : null}
+      {canDelete && !xr.metadata.deletionTimestamp && !isProtected(xr) ? (
+        <RowBtn title={`Delete this ${singular.toLowerCase()}`} danger onClick={onDelete}>
+          Delete
+        </RowBtn>
+      ) : null}
+    </>
+  )
+}
+
 function RowBtn({ title, onClick, danger = false, children }: { title: string; onClick(): void; danger?: boolean; children: React.ReactNode }) {
   return (
     <button
@@ -3192,6 +3251,16 @@ function conditionBadge(xr: XR, type: 'Ready' | 'Synced') {
       <StatusBadge kind={kind}>{c.status === 'True' ? type : (c.reason ?? type)}</StatusBadge>
     </div>
   )
+}
+
+/**
+ * Badge for a single condition already in hand (the composed-resource drill-in
+ * lists every condition). Previously this called `conditionBadge(c)` with the
+ * condition as if it were an XR, so every row rendered "—".
+ */
+function conditionStatusBadge(c: { status: string }) {
+  const kind: StatusKind = c.status === 'True' ? 'healthy' : c.status === 'False' ? 'degraded' : 'unknown'
+  return <StatusBadge kind={kind}>{c.status}</StatusBadge>
 }
 
 function findCondition(xr: XR, type: string) {

@@ -51,3 +51,16 @@ export {
   handleSession,
   readSession,
 } from './handlers.ts'
+// The console permission catalogue is pure data shared with the browser; it is
+// re-exported here so BFF code takes it from the server entrypoint and never
+// pulls the client bundle (React contexts) into the server graph.
+export {
+  accessCheckKey,
+  CONSOLE_API_GROUP,
+  CONSOLE_PERMISSIONS,
+  consoleCheck,
+  consoleResourceCatalogue,
+  type AccessCheck,
+  type ConsolePermission,
+  type ConsolePermissionName,
+} from './console-permissions.ts'

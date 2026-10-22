@@ -18,7 +18,8 @@ export type InlineToken =
   | { kind: 'strong'; text: string }
   | { kind: 'em'; text: string }
   | { kind: 'link'; text: string; href: string }
-  | { kind: 'image'; alt: string }
+  | { kind: 'image'; alt: string; src: string }
+  | { kind: 'image-link'; alt: string; src: string; href: string }
 
 /**
  * Order matters, and the image cases come first.

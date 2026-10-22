@@ -5,6 +5,10 @@ import type { Tenant } from '@adhar/tenancy'
 import { useOrganizations } from './use-organizations.ts'
 import { type TeamSummary, useTeams } from './use-teams.ts'
 import { useClickOutside } from './use-click-outside.ts'
+import { useCan } from './can.tsx'
+import { Button } from './button.tsx'
+import { Input } from './form.tsx'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth'
 
 interface Props {
   /** Fallback list used until the live `/api/organizations` list loads. */
@@ -49,6 +53,18 @@ export function TenantSwitcher({
   // the org changes. Passing undefined before the live list arrives keeps it
   // quiet rather than firing a request against an id that isn't settled yet.
   const teams = useTeams(org.ready ? org.activeId : undefined)
+
+  // Kubernetes RBAC, asked here (the trigger is always mounted) rather than in
+  // the menu, so the answers are in by the time it opens and nothing pops in.
+  // Entries the person may not use are hidden, not disabled (docs/rbac.md).
+  const perms = {
+    orgCreate: useCan(CONSOLE_PERMISSIONS.orgCreate),
+    orgUpdate: useCan(CONSOLE_PERMISSIONS.orgUpdate),
+    orgDelete: useCan(CONSOLE_PERMISSIONS.orgDelete),
+    teamCreate: useCan(CONSOLE_PERMISSIONS.teamsCreate),
+    teamUpdate: useCan(CONSOLE_PERMISSIONS.teamsUpdate),
+    teamDelete: useCan(CONSOLE_PERMISSIONS.teamsDelete),
+  }
 
   // Live data once loaded, else the props passed by the shell (keeps the
   // switcher populated during the initial fetch / when signed out). The
@@ -123,7 +139,12 @@ export function TenantSwitcher({
           items={items}
           activeId={activeId}
           manageable={usingLive}
-          canDelete={usingLive && items.length > 1}
+          canCreate={perms.orgCreate}
+          canRename={usingLive && perms.orgUpdate}
+          canDelete={usingLive && perms.orgDelete && items.length > 1}
+          canCreateTeam={usingLive && perms.teamCreate}
+          canRenameTeam={usingLive && perms.teamUpdate}
+          canDeleteTeam={usingLive && perms.teamDelete}
           teams={usingLive && teams.ready ? teams.teams : []}
           activeTeamId={teams.activeId}
           teamBusy={teams.switching || teams.busy !== null}
@@ -218,6 +239,7 @@ export function TenantSwitcher({
       {teamCreateOpen ? (
         <OrgNameDialog
           title="New team"
+          nameLabel="Team name"
           description="Teams divide an organization's projects and access. Members you add to a team inherit its access to repositories, namespaces and dashboards."
           submitLabel="Create team"
           busyLabel="Creating…"
@@ -239,6 +261,7 @@ export function TenantSwitcher({
       {teamRenameFor ? (
         <OrgNameDialog
           title="Rename team"
+          nameLabel="Team name"
           description="The new name shows everywhere this team appears. Its slug, members and the Keycloak group behind it are unchanged."
           initial={teamRenameFor.name}
           submitLabel="Save name"
@@ -283,8 +306,13 @@ function Menu({
   collapsed = false,
   items,
   activeId,
-  manageable,
+  manageable: _manageable,
+  canCreate,
+  canRename,
   canDelete,
+  canCreateTeam,
+  canRenameTeam,
+  canDeleteTeam,
   teams,
   activeTeamId,
   teamBusy,
@@ -305,7 +333,16 @@ function Menu({
   activeId: string
   /** Rename/delete are only offered on the live server-backed list. */
   manageable: boolean
+  /** RBAC: `create organizations`. */
+  canCreate: boolean
+  /** RBAC: `update organizations` (and the live list). */
+  canRename: boolean
+  /** RBAC: `delete organizations` (and more than one org). */
   canDelete: boolean
+  /** RBAC: `create`/`update`/`delete workspace-teams`. */
+  canCreateTeam: boolean
+  canRenameTeam: boolean
+  canDeleteTeam: boolean
   /** Teams inside the active organization. Empty until the live list loads. */
   teams: TeamSummary[]
   activeTeamId: string
@@ -327,7 +364,7 @@ function Menu({
       <div
         role="listbox"
         className={cn(
-          'absolute z-50 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-lg ring-1 ring-black/5 dark:ring-white/10',
+          'pop-in absolute z-50 overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-xl',
           collapsed ? 'left-full ml-2 w-64' : 'left-0 right-0',
           placement === 'top' ? 'bottom-full mb-2' : 'top-full mt-2',
         )}
@@ -348,7 +385,7 @@ function Menu({
                   className={cn(
                     'flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors',
                     isActive ? 'bg-surface-sunken' : 'hover:bg-surface-sunken',
-                    manageable && 'pr-16',
+                    (canRename || canDelete) && 'pr-16',
                   )}
                 >
                   <OrgAvatar name={t.name} />
@@ -360,8 +397,9 @@ function Menu({
                     <div className="truncate text-[11px] text-content-subtle">{t.subtitle}</div>
                   </div>
                 </button>
-                {manageable ? (
-                  <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                {canRename || canDelete ? (
+                  <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
+                    {canRename ? (
                     <button
                       type="button"
                       title={`Rename ${t.name}`}
@@ -371,6 +409,7 @@ function Menu({
                     >
                       <IconPencil />
                     </button>
+                    ) : null}
                     {canDelete ? (
                       <button
                         type="button"
@@ -414,7 +453,7 @@ function Menu({
                       className={cn(
                         'flex w-full items-center gap-2.5 py-1.5 pl-3 text-left transition-colors',
                         isActive ? 'bg-surface-sunken' : 'hover:bg-surface-sunken',
-                        manageable ? 'pr-16' : 'pr-3',
+                        canRenameTeam || canDeleteTeam ? 'pr-16' : 'pr-3',
                       )}
                     >
                       {/* Indented under the org list to show the nesting. */}
@@ -448,8 +487,9 @@ function Menu({
                         : null}
                       {isActive ? <IconCheck /> : null}
                     </button>
-                    {manageable ? (
-                      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                    {canRenameTeam || canDeleteTeam ? (
+                      <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
+                        {canRenameTeam ? (
                         <button
                           type="button"
                           title={`Rename ${t.name}`}
@@ -459,6 +499,8 @@ function Menu({
                         >
                           <IconPencil />
                         </button>
+                        ) : null}
+                        {canDeleteTeam ? (
                         <button
                           type="button"
                           title={`Delete ${t.name}`}
@@ -468,6 +510,7 @@ function Menu({
                         >
                           <IconTrash />
                         </button>
+                        ) : null}
                       </div>
                     ) : null}
                   </li>
@@ -482,7 +525,7 @@ function Menu({
                 No teams yet. A team groups projects and the access that comes with them.
               </p>
             ) : null}
-            {manageable ? (
+            {canCreateTeam ? (
               <div className="px-1 pb-1">
                 <button
                   type="button"
@@ -497,6 +540,7 @@ function Menu({
           </>
         ) : null}
 
+        {canCreate ? (
         <div className="border-t border-edge-subtle p-1">
           <button
             type="button"
@@ -507,6 +551,7 @@ function Menu({
             New organization
           </button>
         </div>
+        ) : null}
       </div>
     </>
   )
@@ -535,18 +580,21 @@ function DialogFrame({
   }, [busy, onClose])
 
   return createPortal(
-    <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
+    // z-60 like every other overlay (it was z-100, above the toasts that
+    // report what the dialog did).
+    <div className="fixed inset-0 z-60 flex items-end justify-center sm:items-center sm:p-4">
       <button
         type="button"
-        aria-label="Close"
+        tabIndex={-1}
+        aria-hidden="true"
         onClick={() => !busy && onClose()}
-        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
+        className="fade-in absolute inset-0 bg-scrim/45 backdrop-blur-[2px]"
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-edge-default bg-surface-raised p-6 shadow-2xl ring-1 ring-black/5 dark:ring-white/10"
+        className="pop-in relative w-full overflow-hidden rounded-t-2xl border border-edge-default bg-surface-raised p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl sm:max-w-sm sm:rounded-2xl sm:pb-6"
       >
         {children}
       </div>
@@ -564,14 +612,12 @@ function ErrorNote({ text }: { text: string | null }) {
   )
 }
 
-const CANCEL_BTN =
-  'inline-flex h-9 items-center rounded-lg border border-edge-default bg-surface-raised px-3 text-sm font-medium text-content-muted transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-60'
-
 /** Name form used for both "New organization" and "Rename organization". */
 function OrgNameDialog({
   title,
   description,
   initial = '',
+  nameLabel = 'Organization name',
   submitLabel,
   busyLabel,
   busy,
@@ -582,6 +628,8 @@ function OrgNameDialog({
   title: string
   description: string
   initial?: string
+  /** The field's label — the same dialog names organizations and teams. */
+  nameLabel?: string
   submitLabel: string
   busyLabel: string
   busy: boolean
@@ -604,7 +652,7 @@ function OrgNameDialog({
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) {
-      setLocalError('Give your organization a name.')
+      setLocalError(nameLabel === 'Team name' ? 'Give the team a name.' : 'Give your organization a name.')
       return
     }
     if (unchanged) {
@@ -622,33 +670,27 @@ function OrgNameDialog({
       <p className="mt-1 text-[13px] text-content-muted">{description}</p>
       <form onSubmit={submit} className="mt-4 space-y-3">
         <div>
-          <label htmlFor="org-name" className="mb-1 block text-[12px] font-medium text-content-muted">
-            Organization name
+          <label htmlFor="org-name" className="mb-1.5 block text-[13px] font-medium text-content">
+            {nameLabel}
           </label>
-          <input
+          <Input
             id="org-name"
             ref={inputRef}
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={60}
-            placeholder="Your organization name"
+            placeholder={nameLabel === 'Team name' ? 'e.g. Payments' : 'Your organization name'}
             disabled={busy}
-            className="h-10 w-full rounded-lg border border-edge-default bg-surface-app px-3 text-sm text-content shadow-sm outline-none transition-colors placeholder:text-content-subtle focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-60"
           />
         </div>
         <ErrorNote text={localError ?? error} />
         <div className="flex items-center justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} disabled={busy} className={CANCEL_BTN}>
+          <Button onClick={onClose} disabled={busy}>
             Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={busy || !name.trim() || unchanged}
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-600 px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 disabled:opacity-60"
-          >
-            {busy ? <MiniSpinner light /> : null}
+          </Button>
+          <Button type="submit" variant="primary" loading={busy} disabled={!name.trim() || unchanged}>
             {busy ? busyLabel : submitLabel}
-          </button>
+          </Button>
         </div>
       </form>
     </DialogFrame>
@@ -681,18 +723,12 @@ function ConfirmDeleteDialog({
       <div className="mt-4 space-y-3">
         <ErrorNote text={error} />
         <div className="flex items-center justify-end gap-2 pt-1">
-          <button type="button" onClick={onClose} disabled={busy} className={CANCEL_BTN}>
+          <Button onClick={onClose} disabled={busy}>
             Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void onConfirm()}
-            disabled={busy}
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-rose-600 px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-rose-700 disabled:opacity-60"
-          >
-            {busy ? <MiniSpinner light /> : null}
+          </Button>
+          <Button variant="danger" onClick={() => void onConfirm()} loading={busy}>
             {busy ? 'Deleting…' : `Delete ${entity}`}
-          </button>
+          </Button>
         </div>
       </div>
     </DialogFrame>

@@ -1,4 +1,4 @@
-import { StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, StatusBadge, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   useFeatureFlags,
@@ -13,6 +13,14 @@ import {
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
+
+/**
+ * Flag state is a docStore singleton (`/api/store/workspace.feature-flags`)
+ * with no dedicated catalogue entry — an organisation setting, so toggling
+ * needs `update organizations`. Without it the toggles are hidden; each row's
+ * "enabled / off" badge still shows the state.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 /**
  * Feature previews — org-level opt-ins for console capabilities that are
@@ -64,9 +72,7 @@ export function FeatureFlags() {
         />
       </div>
 
-      <RequirePermission perm="org.write" required={['admin', 'owner']} readOnly>
-        <FlagList flags={flags} />
-      </RequirePermission>
+      <FlagList flags={flags} />
     </Shell>
   )
 }
@@ -76,7 +82,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <ViewShell
       title="Feature previews"
       description="Opt this organization into console capabilities that are still maturing. Toggles persist immediately and modules read them at load — flip one off to roll the whole org back instantly."
-      required={['admin', 'owner']}
+      writeCheck={WRITE}
     >
       {children}
     </ViewShell>
@@ -85,6 +91,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function FlagList({ flags }: { flags: FeatureFlagState[] }) {
   const save = useSaveFeatureFlag()
+  const toast = useToast()
 
   return (
     <>
@@ -100,7 +107,7 @@ function FlagList({ flags }: { flags: FeatureFlagState[] }) {
             >
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-content">{f.name}</span>
+                  <span className="min-w-0 truncate text-sm font-medium text-content" title={f.name}>{f.name}</span>
                   <StatusBadge kind={f.stage === 'beta' ? 'info' : 'paused'}>
                     {f.stage}
                   </StatusBadge>
@@ -111,22 +118,26 @@ function FlagList({ flags }: { flags: FeatureFlagState[] }) {
                 <p className="mt-0.5 max-w-xl text-[12px] text-content-muted">{f.description}</p>
                 <p className="mt-1 font-mono text-[10px] text-content-subtle">{f.id}</p>
               </div>
-              <ToggleField
-                checked={f.enabled}
-                disabled={save.isPending && save.variables?.id === f.id}
-                onChange={(v) => save.mutate({ id: f.id, enabled: v })}
-                label={f.enabled ? 'On' : 'Off'}
-              />
+              <RequirePermission check={WRITE}>
+                <ToggleField
+                  checked={f.enabled}
+                  disabled={save.isPending && save.variables?.id === f.id}
+                  onChange={(v) =>
+                    save.mutate(
+                      { id: f.id, enabled: v },
+                      {
+                        onError: (e) =>
+                          toast.error(`Could not ${v ? 'enable' : 'disable'} ${f.name}`, { description: (e as Error)?.message }),
+                      },
+                    )}
+                  label={f.enabled ? 'On' : 'Off'}
+                />
+              </RequirePermission>
             </div>
           ))}
         </div>
       </SettingsCard>
 
-      {save.isError ? (
-        <p className="text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the feature toggle.'}
-        </p>
-      ) : null}
     </>
   )
 }

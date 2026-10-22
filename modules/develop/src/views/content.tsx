@@ -588,7 +588,7 @@ function FieldInput({ name, attr, value, onChange }: { name: string; attr: Conte
   const label = (
     <span className="block text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
       {prettyLabel(name)}
-      {attr.required ? <span className="text-rose-600"> *</span> : null}
+      {attr.required ? <span className="text-rose-600 dark:text-rose-400"> *</span> : null}
       <span className="ml-1 font-normal normal-case tracking-normal text-content-subtle">{attr.type}</span>
     </span>
   )

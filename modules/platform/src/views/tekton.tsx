@@ -16,6 +16,9 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  canResource,
+  useAccessReview,
+  useCan,
 } from '@adhar/shell-ui';
 import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s';
 import { kube } from '@adhar/api-clients/k8s';
@@ -25,9 +28,9 @@ import { clusterParam, useActiveCluster } from '../data/client.ts';
 import { CodeEditor } from '../components/code-editor.tsx';
 import { LogConsole, useLogStream } from '../components/log-console.tsx';
 import { useGeneric } from '../data/hooks.ts';
-import { useHasK8sPermission } from '../data/access.ts';
+import { GVRS } from '../data/gvr.ts';
 import { age } from '../data/format.ts';
-import { K8sRolePill } from '../components/role-gate.tsx';
+import { AccessDenied } from '../components/role-gate.tsx';
 import { DrawerSection, DrawerStatusTile, Row } from './resource-drawer.tsx';
 import { ScanGateSection } from './scan-gate.tsx';
 import { ListShell, matchesSearch } from './list-shell.tsx';
@@ -1508,14 +1511,19 @@ function PipelineRunDrawer(
   const { cluster } = useActiveCluster();
   const cp = clusterParam(cluster);
   const qc = useQueryClient();
-  const canWrite = useHasK8sPermission('crds.write');
+  const toast = useToast();
   const ns = initial.metadata?.namespace;
   const name = initial.metadata?.name ?? '';
+  // Each action asks for the request it sends: Cancel is a merge PATCH of
+  // spec.status, Re-run creates a new PipelineRun in this namespace, Delete
+  // deletes this one.
+  const canCancel = useCan(canResource(PIPELINERUNS_GVR, 'patch', { namespace: ns, name }));
+  const canRerun = useCan(canResource(PIPELINERUNS_GVR, 'create', { namespace: ns }));
+  const canDelete = useCan(canResource(PIPELINERUNS_GVR, 'delete', { namespace: ns, name }));
   useTick();
 
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [deleted, setDeleted] = useState(false);
 
   // Live single-run refetch so the drawer reflects progress.
@@ -1641,11 +1649,11 @@ function PipelineRunDrawer(
         cluster: cp,
       }),
     onSuccess: () => {
-      setActionError(null);
+      toast.success(`Cancelling ${name}`);
       runQ.refetch();
       invalidate();
     },
-    onError: (e) => setActionError(describeErr(e, 'Cancel failed')),
+    onError: (e) => toast.error('Cancel failed', { description: describeErr(e, 'Cancel failed') }),
   });
 
   const rerunMut = useMutation({
@@ -1667,23 +1675,23 @@ function PipelineRunDrawer(
     // they most want to watch something — the run they just started. `apply`
     // answers with the created PipelineRun, so the parent can simply select it.
     onSuccess: (created) => {
-      setActionError(null);
+      toast.success('Re-run started', { description: created?.metadata?.name });
       invalidate();
       if (created?.metadata?.name) onReplace?.(created);
       else onClose();
     },
-    onError: (e) => setActionError(describeErr(e, 'Re-run failed')),
+    onError: (e) => toast.error('Re-run failed', { description: describeErr(e, 'Re-run failed') }),
   });
 
   const deleteMut = useMutation({
     mutationFn: () => kube.delete(PIPELINERUNS_GVR, ns, name, { cluster: cp }),
     onSuccess: () => {
-      setActionError(null);
+      toast.success(`Deleted ${name}`, { description: 'The run and its TaskRuns were removed.' });
       setDeleted(true);
       setConfirmDelete(false);
       invalidate();
     },
-    onError: (e) => setActionError(describeErr(e, 'Delete failed')),
+    onError: (e) => toast.error('Delete failed', { description: describeErr(e, 'Delete failed') }),
   });
 
   useEffect(() => {
@@ -1704,7 +1712,7 @@ function PipelineRunDrawer(
 
   if (typeof document === 'undefined') return null;
   return createPortal(
-    <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true'>
+    <div className='fixed inset-0 z-[60] flex justify-end' role='dialog' aria-modal='true'>
       <button
         type='button'
         aria-label='Close'
@@ -1720,13 +1728,6 @@ function PipelineRunDrawer(
             <h2 className='mt-0.5 truncate text-lg font-semibold text-content'>{name}</h2>
             <div className='mt-1 flex items-center gap-2 text-[11px] font-mono text-content-muted'>
               tekton.dev/v1
-              {runQ.isFetching
-                ? (
-                  <span className='inline-flex items-center gap-1 text-content-subtle'>
-                    <Spinner size={12} /> refreshing
-                  </span>
-                )
-                : null}
             </div>
           </div>
           <div className='flex shrink-0 items-center gap-2'>
@@ -1743,70 +1744,59 @@ function PipelineRunDrawer(
           </div>
         </header>
 
-        {/* Action bar */}
-        <div className='flex flex-wrap items-center gap-2 border-b border-edge-default bg-surface-sunken/50 px-6 py-2.5'>
-          {canWrite
-            ? (
-              <>
-                <Button
-                  size='sm'
-                  variant='secondary'
-                  disabled={!running || cancelMut.isPending}
-                  onClick={() => cancelMut.mutate()}
-                  title={running
-                    ? 'Cancel this running PipelineRun'
-                    : 'Only running PipelineRuns can be cancelled'}
-                >
-                  <IconCancel />
-                  {cancelMut.isPending ? 'Cancelling…' : 'Cancel'}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='secondary'
-                  disabled={rerunMut.isPending}
-                  onClick={() => rerunMut.mutate()}
-                  title='Start a new run from this run’s spec'
-                >
-                  <IconRerun />
-                  {rerunMut.isPending ? 'Starting…' : 'Re-run'}
-                </Button>
-                <Button
-                  size='sm'
-                  variant='danger'
-                  disabled={deleteMut.isPending || deleted}
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <IconTrash />
-                  Delete
-                </Button>
-              </>
-            )
-            : (
-              <span className='inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted'>
-                Manage runs <K8sRolePill perm='crds.write' />
-              </span>
-            )}
-          {deleted
-            ? (
-              <span className='text-[12px] text-content-muted'>
-                Deleted — this run has been removed.
-              </span>
-            )
-            : null}
-        </div>
-
-        {actionError
+        {/* Action bar — only the actions this user may perform; none, no bar. */}
+        {canCancel || canRerun || canDelete || deleted
           ? (
-            <div
-              className='border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-2 text-[12px] text-rose-800 dark:text-rose-300'
-              role='alert'
-            >
-              {actionError}
+            <div className='flex flex-wrap items-center gap-2 border-b border-edge-default bg-surface-sunken/50 px-6 py-2.5'>
+              {canCancel
+                ? (
+                  <Button
+                    size='sm'
+                    variant='secondary'
+                    disabled={!running || cancelMut.isPending || deleted}
+                    onClick={() => cancelMut.mutate()}
+                    title={running
+                      ? 'Cancel this running PipelineRun'
+                      : 'Only running PipelineRuns can be cancelled'}
+                  >
+                    <IconCancel />
+                    {cancelMut.isPending ? 'Cancelling…' : 'Cancel'}
+                  </Button>
+                )
+                : null}
+              {canRerun
+                ? (
+                  <Button
+                    size='sm'
+                    variant='secondary'
+                    disabled={rerunMut.isPending}
+                    onClick={() => rerunMut.mutate()}
+                    title='Start a new run from this run’s spec'
+                  >
+                    <IconRerun />
+                    {rerunMut.isPending ? 'Starting…' : 'Re-run'}
+                  </Button>
+                )
+                : null}
+              {canDelete
+                ? (
+                  <Button
+                    size='sm'
+                    variant='danger'
+                    disabled={deleteMut.isPending || deleted}
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <IconTrash />
+                    Delete
+                  </Button>
+                )
+                : null}
+              {deleted ? <StatusBadge kind='unknown'>Deleted</StatusBadge> : null}
             </div>
           )
           : null}
 
-        {confirmDelete
+        {confirmDelete && canDelete
           ? (
             <div
               className='border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-3'
@@ -1873,10 +1863,12 @@ function PipelineRunDrawer(
           <DrawerSection title='Pipeline stages'>
             {taskRunsForbidden
               ? (
-                <div className='mb-2 flex items-center gap-1.5 text-[11px] text-content-muted'>
-                  Task status hidden <K8sRolePill perm='crds.read' />{' '}
-                  — the graph shows structure only.
-                </div>
+                <AccessDenied
+                  compact
+                  className='mb-2'
+                  what='this run’s task status — the graph shows structure only'
+                  check={canResource(TASKRUNS_GVR, 'list', { namespace: ns })}
+                />
               )
               : null}
             <BlueOceanStages
@@ -2380,7 +2372,6 @@ function BlueOceanStageDetail({
   running: boolean;
   cluster?: string;
 }) {
-  const canLogs = useHasK8sPermission('pods.logs');
   const steps = useMemo(() => {
     const s = taskRun?.status?.steps ?? [];
     if (s.length) return s;
@@ -2406,6 +2397,15 @@ function BlueOceanStageDetail({
   const container = activeStep?.container ??
     (activeStep?.name ? `step-${activeStep.name}` : undefined);
   const cond = tektonCondition(taskRun?.status?.conditions);
+  // Step logs are `get pods/log` on the TaskRun's pod. Unknown → nothing yet;
+  // a definite no → say so (a read, so it explains itself rather than vanish).
+  const logsCheck = canResource(GVRS.pods, 'get', {
+    namespace,
+    name: podName,
+    subresource: 'log',
+  });
+  const logsAccess = useAccessReview(logsCheck, { cluster, enabled: Boolean(podName) });
+  const logsDenied = !logsAccess.loading && logsAccess.results[0] === false;
 
   if (!taskRun) {
     return (
@@ -2449,7 +2449,7 @@ function BlueOceanStageDetail({
                         type='button'
                         onClick={() => setActive(i)}
                         className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition-colors',
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400/40',
                           i === active
                             ? 'bg-brand-50 font-medium text-brand-800 dark:bg-brand-500/10 dark:text-brand-300'
                             : 'text-content-muted hover:bg-surface-sunken hover:text-content',
@@ -2461,7 +2461,7 @@ function BlueOceanStageDetail({
                         />
                         <span className='min-w-0 flex-1 truncate'>{s.name ?? `step-${i}`}</span>
                         {s.terminated?.exitCode
-                          ? <span className='font-mono text-[10px] text-rose-600'>×{s.terminated.exitCode}</span>
+                          ? <span className='font-mono text-[10px] text-rose-600 dark:text-rose-400'>×{s.terminated.exitCode}</span>
                           : s.terminated
                           ? <span className='font-mono text-[10px] text-content-subtle'>
                             {duration(s.running?.startedAt ?? s.terminated.startedAt, s.terminated.finishedAt)}
@@ -2477,10 +2477,12 @@ function BlueOceanStageDetail({
         </div>
         {/* console */}
         <div className='min-w-0'>
-          {!canLogs
+          {podName && logsDenied
+            ? <AccessDenied compact className='m-3' what='this step’s logs' check={logsCheck} />
+            : podName && !logsAccess.allowed
             ? (
-              <div className='flex items-center gap-1.5 px-3 py-3 text-[12px] text-content-muted'>
-                Streaming step logs requires <K8sRolePill perm='pods.logs' />
+              <div className='flex items-center gap-2 px-3 py-6 text-[12px] text-content-subtle'>
+                <Spinner size={12} />
               </div>
             )
             : !podName
@@ -2727,7 +2729,10 @@ function PipelineDrawer({
   onRun(p: TektonPipelineObj): void;
 }) {
   const width = useDrawerWidth('platform.tekton-pipeline', { base: 'max-w-3xl' });
-  const canWrite = useHasK8sPermission('crds.write');
+  // Run creates a PipelineRun in the pipeline's namespace.
+  const canRun = useCan(
+    canResource(PIPELINERUNS_GVR, 'create', { namespace: pipeline.metadata?.namespace }),
+  );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -2741,7 +2746,7 @@ function PipelineDrawer({
 
   if (typeof document === 'undefined') return null;
   return createPortal(
-    <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true'>
+    <div className='fixed inset-0 z-[60] flex justify-end' role='dialog' aria-modal='true'>
       <button
         type='button'
         aria-label='Close'
@@ -2760,17 +2765,13 @@ function PipelineDrawer({
             <div className='mt-1 text-[11px] font-mono text-content-muted'>tekton.dev/v1</div>
           </div>
           <div className='flex shrink-0 items-center gap-2'>
-            {canWrite
+            {canRun
               ? (
-                <Button size='sm' onClick={() => onRun(pipeline)}>
+                <Button size='sm' variant='primary' onClick={() => onRun(pipeline)}>
                   Run
                 </Button>
               )
-              : (
-                <span className='inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted'>
-                  Run <K8sRolePill perm='crds.write' />
-                </span>
-              )}
+              : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type='button'
@@ -2857,6 +2858,7 @@ function RunPipelineModal({ pipeline, onClose }: { pipeline: TektonPipelineObj; 
   const pname = pipeline.metadata?.name ?? '';
   const paramSpecs = pipeline.spec?.params ?? [];
   const workspaces = pipeline.spec?.workspaces ?? [];
+  const canRun = useCan(canResource(PIPELINERUNS_GVR, 'create', { namespace: ns }));
 
   const [values, setValues] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
@@ -2930,7 +2932,7 @@ function RunPipelineModal({ pipeline, onClose }: { pipeline: TektonPipelineObj; 
           className='flex-1 space-y-4 overflow-y-auto px-5 py-4'
           onSubmit={(e) => {
             e.preventDefault();
-            runMut.mutate();
+            if (canRun) runMut.mutate();
           }}
         >
           {paramSpecs.length
@@ -2998,9 +3000,13 @@ function RunPipelineModal({ pipeline, onClose }: { pipeline: TektonPipelineObj; 
           <Button variant='ghost' size='sm' onClick={onClose} disabled={runMut.isPending}>
             Cancel
           </Button>
-          <Button size='sm' disabled={runMut.isPending} onClick={() => runMut.mutate()}>
-            {runMut.isPending ? 'Starting…' : 'Start run'}
-          </Button>
+          {canRun
+            ? (
+              <Button size='sm' variant='primary' disabled={runMut.isPending} onClick={() => runMut.mutate()}>
+                {runMut.isPending ? 'Starting…' : 'Start run'}
+              </Button>
+            )
+            : null}
         </footer>
       </div>
     </div>,
@@ -3125,7 +3131,7 @@ function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void })
   const spec = task.spec;
   if (typeof document === 'undefined') return null;
   return createPortal(
-    <div className='fixed inset-0 z-50 flex justify-end' role='dialog' aria-modal='true'>
+    <div className='fixed inset-0 z-[60] flex justify-end' role='dialog' aria-modal='true'>
       <button
         type='button'
         aria-label='Close'

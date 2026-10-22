@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Link, useRouterState } from '@tanstack/react-router'
 import { cn } from '@adhar/utils'
 import { NavShuttle } from './nav-shuttle.tsx'
 import type { Tenant } from '@adhar/tenancy'
 import type { User } from '@adhar/auth'
 import { TenantSwitcher } from './tenant-switcher.tsx'
 import { hasActiveDescendant, isItemActive, NavItem } from './nav-item.tsx'
-import { DEFAULT_NAV, type NavItem as TNavItem, type NavSection } from './nav-tree.tsx'
+import { DEFAULT_NAV, type NavSection } from './nav-tree.tsx'
 import { AdharSymbol, AdharWordmarkStack } from './brand.tsx'
+import { useNavByAccess } from './can.tsx'
 
 interface Props {
   tenants: Tenant[]
@@ -23,6 +24,11 @@ interface Props {
   onSignOut?(): void
   /** Wires the ⌘K keyboard shortcut. The visible trigger lives in the Topbar. */
   onOpenCommandPalette?(): void
+  /**
+   * Rendered as the phone's slide-over sheet: the header's collapse control
+   * becomes "Close navigation" (AppShell closes the sheet on it).
+   */
+  sheet?: boolean
 }
 
 /**
@@ -48,19 +54,21 @@ export function Sidebar({
   sections = DEFAULT_NAV,
   collapsed: controlledCollapsed,
   onCollapseChange,
-  onOpenCommandPalette,
+  onOpenCommandPalette: _onOpenCommandPalette,
+  sheet = false,
 }: Props) {
   const [internalCollapsed, setInternalCollapsed] = useState(false)
   const collapsed = controlledCollapsed ?? internalCollapsed
 
   /*
    * The console shows *all details* to every persona — navigation is not
-   * gated by role (a viewer sees the same surfaces as an admin). What differs
-   * is write access: pages enable/disable their edit controls via the
-   * capability layer (`useCan`). So the sidebar renders the full nav tree; the
-   * signed-in persona is surfaced by the topbar RoleChip, not by hiding menus.
+   * gated by persona role (a viewer sees the same surfaces as an admin). What
+   * differs is write access, which pages gate with `<Can>`. The one filter here
+   * is Kubernetes RBAC on rows that declare `access` (nav-access.ts): a page
+   * the person cannot even READ (Billing without `get billing`) and an entry
+   * that is itself a write ("Create New") are left out.
    */
-  const visibleSections = sections
+  const visibleSections = useNavByAccess(sections)
 
   /*
    * Accordion expansion is derived from the active route — whichever
@@ -74,7 +82,8 @@ export function Sidebar({
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   // The shuttle measures rows against this scroll container.
   const navRef = useRef<HTMLElement | null>(null)
-  const routeSearch = useRouterState({ select: (s) => s.location.search })
+  // See nav-item.tsx: unregistered router type → cast the selected search.
+  const routeSearch = useRouterState({ select: (s) => s.location.search }) as unknown as Record<string, unknown>
 
   /**
    * The search, as a value the shuttle's effect can be keyed on.
@@ -95,10 +104,10 @@ export function Sidebar({
       for (const item of section.items) {
         if (!item.children?.length) continue
         const hasActiveChild = item.children.some((c) =>
-          isItemActive(c, pathname, routeSearch as Record<string, unknown>) ||
-          hasActiveDescendant(c, pathname, routeSearch as Record<string, unknown>),
+          isItemActive(c, pathname, routeSearch) ||
+          hasActiveDescendant(c, pathname, routeSearch),
         )
-        const isParentActive = isItemActive(item, pathname, routeSearch as Record<string, unknown>)
+        const isParentActive = isItemActive(item, pathname, routeSearch)
         if (hasActiveChild || isParentActive) return item.id
       }
     }
@@ -154,7 +163,7 @@ export function Sidebar({
         collapsed ? 'w-16' : 'w-64',
       )}
     >
-      <Header collapsed={collapsed} onToggle={toggleCollapsed} />
+      <Header collapsed={collapsed} onToggle={toggleCollapsed} sheet={sheet} />
       {collapsed ? <ExpandRow onToggle={toggleCollapsed} /> : null}
 
       {/* The nav hides its scrollbar, so a column taller than the window used
@@ -214,9 +223,11 @@ export function Sidebar({
 function Header({
   collapsed,
   onToggle,
+  sheet,
 }: {
   collapsed: boolean
   onToggle(): void
+  sheet: boolean
 }) {
   return (
     <div
@@ -251,11 +262,11 @@ function Header({
         <button
           type="button"
           onClick={onToggle}
-          aria-label="Collapse sidebar"
-          title="Collapse sidebar (⌘B)"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-hover hover:text-content"
+          aria-label={sheet ? 'Close navigation' : 'Collapse sidebar'}
+          title={sheet ? 'Close (Esc)' : 'Collapse sidebar (⌘B)'}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-hover hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
         >
-          <IconSidebarCollapse />
+          {sheet ? <IconClose /> : <IconSidebarCollapse />}
         </button>
       )}
     </div>
@@ -400,6 +411,15 @@ function IconSidebarCollapse() {
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <path d="M9 4v16" />
       <path d="m14 10-2 2 2 2" />
+    </svg>
+  )
+}
+
+function IconClose() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
     </svg>
   )
 }

@@ -48,6 +48,9 @@ function resolveConfig(): KcConfig | null {
   }
 }
 
+/** Per-call ceiling for Keycloak admin/token requests. */
+const KC_TIMEOUT_MS = 10_000
+
 export class KeycloakAdmin {
   #cfg: KcConfig
   #token: { value: string; expiresAt: number } | null = null
@@ -69,6 +72,9 @@ export class KeycloakAdmin {
           client_id: this.#cfg.clientId,
           client_secret: this.#cfg.clientSecret,
         }),
+        // These calls run inside user requests (team/role changes, org
+        // provisioning); a hung Keycloak must not hang them with it.
+        signal: AbortSignal.timeout(KC_TIMEOUT_MS),
       })
       if (!res.ok) {
         console.warn(`[workspace] keycloak admin token request failed (${res.status})`)
@@ -102,6 +108,7 @@ export class KeycloakAdmin {
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(KC_TIMEOUT_MS),
       })
       if (res.status === 401 || res.status === 403) {
         console.warn(`[workspace] keycloak admin call ${method} ${path} denied (${res.status}) — check the admin client's service-account roles`)

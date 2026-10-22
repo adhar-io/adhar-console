@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, EmptyState, Skeleton, useOverlayDismiss, useToast, DrawerWidenButton, useDrawerWidth } from '@adhar/shell-ui'
+import { Button, EmptyState, Skeleton, useCan, useOverlayDismiss, useToast, DrawerWidenButton, useDrawerWidth } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { useAbortRollout, usePromoteRollout, useRetryRollout } from '../data/delivery.ts'
+import { rolloutControlChecks } from '../data/access.ts'
 import { attentionNote, envLabel, type RolloutApp, type RolloutEnv } from '../data/rollout-apps.ts'
 import {
   type ArgoHistoryLike,
@@ -64,7 +65,7 @@ export function RolloutDetail({
   if (typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`${app.app} rollouts`}>
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={`${app.app} rollouts`}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full min-w-0 flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 pt-4 sm:px-6">
@@ -147,6 +148,8 @@ function CurrentRollout({ env }: { env: RolloutEnv }) {
     ).finally(() => setConfirm(null))
 
   const busy = promote.isPending || abort.isPending || retry.isPending
+  // RBAC: the controls patch the Rollout and its status — hidden without both.
+  const canControl = useCan(rolloutControlChecks(env.namespace, env.name))
   // Open the conditions only when they are the explanation: a degraded rollout.
   const failing = r.phase === 'Degraded' ? env.conditions.filter((c) => c.status !== 'True' && c.message) : []
 
@@ -166,6 +169,7 @@ function CurrentRollout({ env }: { env: RolloutEnv }) {
           </div>
         </div>
         {/* Only the actions that can do something — rules in rollout-state.ts. */}
+        {canControl ? (
         <div className="flex flex-wrap items-center gap-2">
           {r.canPromote ? (
             <Button
@@ -196,6 +200,7 @@ function CurrentRollout({ env }: { env: RolloutEnv }) {
             <Button size="sm" variant="danger" disabled={busy} onClick={() => setConfirm('abort')}>Abort</Button>
           ) : null}
         </div>
+        ) : null}
       </div>
 
       <div className="space-y-4 px-4 py-4">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Button, DataTable, EmptyState, Input, Select, StatusBadge, Tabs, useToast } from '@adhar/shell-ui'
+import { Button, DataTable, EmptyState, Input, Select, Spinner, StatusBadge, Tabs, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { useGeneric } from '../data/hooks.ts'
 import { age } from '../data/format.ts'
@@ -170,8 +170,9 @@ function KindPanel({ kind, namespace, onBack }: { kind: KindDef; namespace?: str
           </div>
           <div className="flex items-center gap-2">
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by name or namespace…" className="w-56" aria-label="Filter objects" />
-            <Button size="sm" variant="secondary" onClick={() => q.refetch()} disabled={q.isFetching}>
-              {q.isFetching ? 'Refreshing…' : 'Refresh'}
+            {/* House rule: a spinner, never "Refreshing…" text, while a refetch is in flight. */}
+            <Button size="sm" variant="secondary" onClick={() => q.refetch()} disabled={q.isFetching} aria-busy={q.isFetching}>
+              {q.isFetching ? <Spinner size={13} /> : null} Refresh
             </Button>
           </div>
         </div>
@@ -287,7 +288,7 @@ function CrDrawer({ obj, kind, onClose }: { obj: CrObject; kind: KindDef; onClos
       >
         {(v) =>
           v === 'yaml' ? (
-            <PodYamlPanel pod={obj} gvr={kind.gvr} writePerm="crds.write" />
+            <PodYamlPanel pod={obj} gvr={kind.gvr} />
           ) : (
             <div className="space-y-4">
               {st.message ? (

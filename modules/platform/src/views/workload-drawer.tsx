@@ -3,11 +3,13 @@ import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Button,
+  canResource,
   DonutGauge,
   Kbd,
   Spinner,
   StatusBadge,
   Tabs,
+  useAccessReview,
   useLiveRefetch,
   type StatusKind,
   type TabDef,
@@ -16,7 +18,7 @@ import {
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
+import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age, formatBytes, formatCpu, parseQuantity, shortImage } from '../data/format.ts'
 import { usePods } from '../data/hooks.ts'
@@ -25,8 +27,7 @@ import { PodLogsPanel } from './pod-logs.tsx'
 import { PodYamlPanel } from './pod-yaml.tsx'
 import { PodMetricsPanel } from './pod-metrics.tsx'
 import { WorkloadOpsForKind } from './workload-ops.tsx'
-import { K8sPermissionDenied } from '../components/role-gate.tsx'
-import { useHasK8sPermission } from '../data/access.ts'
+import { AccessDenied } from '../components/role-gate.tsx'
 
 /**
  * Rich, OpenShift-style detail drawer for Deployments / StatefulSets /
@@ -193,26 +194,39 @@ interface Props {
 }
 
 export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
+  const { cluster } = useActiveCluster()
   const width = useDrawerWidth('platform.workload', { base: 'max-w-4xl' })
   const gvr = KIND_GVR[kind]
-  const wlKey = ['k8s', 'workload', kind, namespace, name]
+  const wlKey = ['k8s', 'workload', kind, namespace, name, cluster]
   const wl = useQuery({
     queryKey: wlKey,
     queryFn: () =>
-      client.getGeneric(LOCAL_CLUSTER, gvr, namespace, name) as unknown as Promise<WorkloadObj>,
-    refetchInterval: useLiveRefetch({ ...gvr, namespace }, [wlKey], 10_000),
+      client.getGeneric(cluster, gvr, namespace, name) as unknown as Promise<WorkloadObj>,
+    refetchInterval: useLiveRefetch({ ...gvr, namespace, cluster: clusterParam(cluster) }, [wlKey], 10_000),
   })
 
-  const canExec = useHasK8sPermission('pods.exec')
-  const canLogs = useHasK8sPermission('pods.logs')
+  // Logs / Shell act on the workload's pods: `get pods/log` and `create
+  // pods/exec` in its namespace. A tab is dropped once the answer is a definite
+  // no; while loading it stays (its panel asks again per pod and shows nothing
+  // actionable until allowed).
+  const logsCheck = canResource(GVRS.pods, 'get', { namespace, subresource: 'log' })
+  const execCheck = canResource(GVRS.pods, 'create', { namespace, subresource: 'exec' })
+  const logsAccess = useAccessReview(logsCheck)
+  const execAccess = useAccessReview(execCheck)
+  const logsDenied = logsAccess.results[0] === false
+  const execDenied = execAccess.results[0] === false
+  const tabs = useMemo(
+    () => TABS.filter((t) => !(t.id === 'logs' && logsDenied) && !(t.id === 'shell' && execDenied)),
+    [logsDenied, execDenied],
+  )
 
   // Close on Esc — matches the pod drawer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [onClose])
 
   const obj = wl.data
@@ -221,7 +235,7 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
@@ -247,7 +261,7 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
           </div>
         </header>
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <Tabs<Sub> tabs={TABS} defaultValue="overview" ariaLabel="Workload sections">
+          <Tabs<Sub> tabs={tabs} defaultValue="overview" ariaLabel="Workload sections">
             {(active) => (
               <>
                 {active === 'overview' && (
@@ -275,7 +289,7 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
                   />
                 )}
                 {active === 'logs' && (
-                  canLogs ? (
+                  !logsDenied ? (
                     <PodScopedTab
                       namespace={namespace}
                       matchLabels={matchLabels}
@@ -289,11 +303,11 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
                       )}
                     />
                   ) : (
-                    <K8sPermissionDenied perm="pods.logs" />
+                    <AccessDenied what="logs in this namespace" check={logsCheck} />
                   )
                 )}
                 {active === 'shell' && (
-                  canExec ? (
+                  !execDenied ? (
                     <PodScopedTab
                       namespace={namespace}
                       matchLabels={matchLabels}
@@ -308,11 +322,11 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
                       )}
                     />
                   ) : (
-                    <K8sPermissionDenied perm="pods.exec" />
+                    <AccessDenied what="shells in this namespace" check={execCheck} />
                   )
                 )}
                 {active === 'yaml' && (
-                  <PodYamlPanel pod={obj} gvr={gvr} writePerm="workloads.write" />
+                  <PodYamlPanel pod={obj} gvr={gvr} />
                 )}
                 {active === 'events' && (
                   <Events namespace={namespace} name={name} kind={kind} />
@@ -567,21 +581,22 @@ function RelatedResources({
   namespace: string
   matchLabels?: Record<string, string>
 }) {
-  const svcKey = ['k8s', 'workload-related-svc', namespace]
-  const ingKey = ['k8s', 'workload-related-ing', namespace]
+  const { cluster } = useActiveCluster()
+  const svcKey = ['k8s', 'workload-related-svc', namespace, cluster]
+  const ingKey = ['k8s', 'workload-related-ing', namespace, cluster]
   const svcQ = useQuery({
     queryKey: svcKey,
     enabled: Boolean(namespace && matchLabels),
     retry: false,
-    refetchInterval: useLiveRefetch({ ...GVRS.services, namespace }, [svcKey], 30_000),
-    queryFn: () => client.listServices(LOCAL_CLUSTER, namespace) as unknown as Promise<ServiceLite[]>,
+    refetchInterval: useLiveRefetch({ ...GVRS.services, namespace, cluster: clusterParam(cluster) }, [svcKey], 30_000),
+    queryFn: () => client.listServices(cluster, namespace) as unknown as Promise<ServiceLite[]>,
   })
   const ingQ = useQuery({
     queryKey: ingKey,
     enabled: Boolean(namespace && matchLabels),
     retry: false,
-    refetchInterval: useLiveRefetch({ ...GVRS.ingresses, namespace }, [ingKey], 30_000),
-    queryFn: () => client.listIngresses(LOCAL_CLUSTER, namespace) as unknown as Promise<IngressLite[]>,
+    refetchInterval: useLiveRefetch({ ...GVRS.ingresses, namespace, cluster: clusterParam(cluster) }, [ingKey], 30_000),
+    queryFn: () => client.listIngresses(cluster, namespace) as unknown as Promise<IngressLite[]>,
   })
 
   const services = useMemo(
@@ -653,11 +668,12 @@ function RelatedResources({
 }
 
 function WorkloadRecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: WorkloadKind }) {
-  const queryKey = ['k8s', 'workload-events', namespace, kind, name]
+  const { cluster } = useActiveCluster()
+  const queryKey = ['k8s', 'workload-events', namespace, kind, name, cluster]
   const q = useQuery({
     queryKey,
-    queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 15_000),
+    queryFn: () => client.listEvents(cluster, namespace),
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
     retry: false,
   })
   const events = (q.data ?? [])
@@ -857,14 +873,15 @@ function HpaCard({
   namespace: string
   name: string
 }) {
-  const queryKey = ['k8s', 'workload-hpa', namespace, kind, name]
+  const { cluster } = useActiveCluster()
+  const queryKey = ['k8s', 'workload-hpa', namespace, kind, name, cluster]
   const q = useQuery({
     queryKey,
-    refetchInterval: useLiveRefetch({ ...GVRS.hpa, namespace }, [queryKey], 15_000),
+    refetchInterval: useLiveRefetch({ ...GVRS.hpa, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
     retry: false,
     queryFn: async () => {
       const list = (await client
-        .listGeneric(LOCAL_CLUSTER, GVRS.hpa, namespace)
+        .listGeneric(cluster, GVRS.hpa, namespace)
         .catch(() => [])) as unknown as HpaObj[]
       return list.filter(
         (h) => h.spec?.scaleTargetRef?.kind === kind && h.spec?.scaleTargetRef?.name === name,
@@ -955,21 +972,22 @@ function ArgoRolloutLadder({
   kind,
   namespace,
   name,
-  obj,
+  obj: _obj,
 }: {
   kind: WorkloadKind
   namespace: string
   name: string
   obj: WorkloadObj
 }) {
-  const queryKey = ['k8s', 'argo-rollouts', namespace, name]
+  const { cluster } = useActiveCluster()
+  const queryKey = ['k8s', 'argo-rollouts', namespace, name, cluster]
   const q = useQuery({
     queryKey,
-    refetchInterval: useLiveRefetch({ ...ARGO_ROLLOUTS_GVR, namespace }, [queryKey], 15_000),
+    refetchInterval: useLiveRefetch({ ...ARGO_ROLLOUTS_GVR, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
     retry: false,
     queryFn: async () => {
       const list = (await client
-        .listGeneric(LOCAL_CLUSTER, ARGO_ROLLOUTS_GVR, namespace)
+        .listGeneric(cluster, ARGO_ROLLOUTS_GVR, namespace)
         // 404 = Argo Rollouts CRD not installed → genuinely no Rollout. Any
         // other failure (RBAC, gateway) surfaces as an error, not "plain".
         .catch((err) => {
@@ -1237,6 +1255,7 @@ function WorkloadMetricsRollup({
   namespace: string
   matchLabels?: Record<string, string>
 }) {
+  const { cluster } = useActiveCluster()
   const podsQ = usePods(namespace)
   const podNames = useMemo(() => {
     const set = new Set<string>()
@@ -1247,12 +1266,12 @@ function WorkloadMetricsRollup({
   }, [podsQ.data, matchLabels])
 
   const q = useQuery({
-    queryKey: ['k8s', 'workload-metrics-rollup', namespace],
+    queryKey: ['k8s', 'workload-metrics-rollup', namespace, cluster],
     refetchInterval: 10_000,
     retry: false,
     queryFn: async () =>
       (await client
-        .listGeneric(LOCAL_CLUSTER, GVRS.podMetrics, namespace)
+        .listGeneric(cluster, GVRS.podMetrics, namespace)
         .catch(() => [])) as unknown as PodMetricItem[],
   })
 
@@ -1291,11 +1310,12 @@ function WorkloadMetricsRollup({
 /* ── Events ──────────────────────────────────────────────────────────────── */
 
 function Events({ namespace, name, kind }: { namespace: string; name: string; kind: WorkloadKind }) {
-  const queryKey = ['k8s', 'workload-events', namespace, kind, name]
+  const { cluster } = useActiveCluster()
+  const queryKey = ['k8s', 'workload-events', namespace, kind, name, cluster]
   const q = useQuery({
     queryKey,
-    queryFn: () => client.listEvents(LOCAL_CLUSTER, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace }, [queryKey], 5_000),
+    queryFn: () => client.listEvents(cluster, namespace),
+    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 5_000),
   })
   const filtered = (q.data ?? []).filter(
     (e) =>

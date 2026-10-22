@@ -3,6 +3,8 @@ import { cn } from '@adhar/utils'
 import { assistStore, useAssist, type ChatEntry, type RunState, type ToolCallView } from '../agui/store.ts'
 import { GenerativeBlock } from '../agui/generative.tsx'
 import { useToast } from '../toast.tsx'
+import { useCan } from '../can.tsx'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth'
 import { Markdown } from './markdown.tsx'
 import { pretty, safeArgs, toolLabel } from './tool-label.ts'
 import { bestVoice, speakableChunks, speechLang, toSpeakable, whenVoicesReady } from './speech.ts'
@@ -200,6 +202,11 @@ function TurnFooter({ entry, isLast, busy, question }: { entry: ChatEntry; isLas
   const [sourcesOpen, setSourcesOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const g = entry.grounding
+  // Both write to the shared knowledge base (POST /api/ai/knowledge,
+  // /api/ai/feedback), which the BFF guards with these permissions — so a
+  // person without them is not offered the controls at all.
+  const canKeep = useCan(CONSOLE_PERMISSIONS.aiKnowledgeAdd)
+  const canRate = useCan(CONSOLE_PERMISSIONS.aiKnowledgeRate)
 
   const copy = () => {
     void navigator.clipboard?.writeText(entry.content)
@@ -235,6 +242,7 @@ function TurnFooter({ entry, isLast, busy, question }: { entry: ChatEntry; isLas
               <IconBook size={12} /> Grounded on {g.sources.length || g.chunkIds.length} source{(g.sources.length || g.chunkIds.length) === 1 ? '' : 's'}
               <span className={cn('transition-transform', sourcesOpen && 'rotate-180')}><IconChevronDown size={11} /></span>
             </button>
+            {canRate ? (
             <span className="inline-flex items-center rounded-md bg-surface-sunken/70 p-0.5">
               <FooterIcon title="These sources helped" active={g.vote === 'up'} activeClass="text-emerald-600 dark:text-emerald-400" onClick={() => void vote('up')} disabled={busy}>
                 <IconThumbUp size={12} />
@@ -243,12 +251,13 @@ function TurnFooter({ entry, isLast, busy, question }: { entry: ChatEntry; isLas
                 <IconThumbDown size={12} />
               </FooterIcon>
             </span>
+            ) : null}
             <span className="mx-1 h-3.5 w-px bg-edge-subtle" aria-hidden />
           </>
         ) : null}
         <FooterBtn onClick={copy} title="Copy the answer">{copied ? <IconCheck size={12} /> : <IconCopy size={12} />} {copied ? 'Copied' : 'Copy'}</FooterBtn>
         {entry.content ? <ReadAloud text={entry.content} /> : null}
-        {entry.content ? (
+        {entry.content && canKeep ? (
           <FooterBtn onClick={() => void remember()} title="Keep this answer in the platform's knowledge base so future answers can cite it" disabled={saving}>
             <IconSave size={12} /> {saving ? 'Keeping…' : 'Keep as knowledge'}
           </FooterBtn>

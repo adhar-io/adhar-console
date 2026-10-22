@@ -255,7 +255,7 @@ export async function getValidSession(
   if (!session) return null
 
   // Absolute lifetime cap — a rolling cookie can't be extended past this even
-  // while the offline refresh token lives. Forces a fresh interactive login.
+  // while the refresh token lives. Forces a fresh interactive login.
   if (
     typeof session.authTime === 'number' &&
     Date.now() - session.authTime > cfg.sessionAbsoluteTtlSeconds * 1000

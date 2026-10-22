@@ -205,7 +205,12 @@ export function AppShell({
             }}
             sections={sections}
             collapsed={false}
-            onCollapseChange={() => {}}
+            sheet
+            // The header's collapse control closes the sheet here — it used to
+            // be wired to a no-op, a button on the phone that did nothing.
+            onCollapseChange={(next) => {
+              if (next) setMobileOpen(false)
+            }}
             user={user}
             onSignOut={onSignOut}
             onOpenCommandPalette={openPalette}

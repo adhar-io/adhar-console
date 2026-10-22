@@ -141,7 +141,7 @@ export function SearchInput({
         }}
         placeholder={placeholder}
         aria-label={label ?? (placeholder === 'Search…' ? 'Search' : placeholder)}
-        className="h-full w-full rounded-lg border border-edge-default bg-surface-raised pl-9 pr-10 text-sm text-content placeholder:text-content-subtle transition-shadow focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+        className="h-full w-full rounded-md border border-edge-default bg-surface-raised pl-9 pr-10 text-sm text-content shadow-xs placeholder:text-content-subtle transition-[border-color,box-shadow] hover:border-edge-strong focus:border-brand-500 focus:outline-none focus:ring-[3px] focus:ring-brand-500/20 dark:focus:border-brand-400"
       />
       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-content-subtle">
         <IconSearch />
@@ -293,7 +293,8 @@ export function FilterBar<V extends string = string, S extends string = string>(
               aria-expanded={open}
               aria-haspopup="dialog"
               className={cn(
-                'inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[12px] font-medium transition-colors',
+                'inline-flex h-9 items-center gap-2 rounded-md border px-3 text-[13px] font-medium shadow-xs transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised',
                 activeCount > 0
                   ? 'border-brand-700 bg-brand-600 text-white shadow-sm hover:bg-brand-700'
                   : 'border-edge-default bg-surface-raised text-content hover:border-edge-strong hover:bg-surface-sunken',
@@ -559,7 +560,7 @@ function ViewSwitch<V extends string>({
     <div
       role="group"
       aria-label="View mode"
-      className="hidden h-9 items-center rounded-lg border border-edge-default bg-surface-raised p-0.5 shadow-sm sm:inline-flex"
+      className="hidden h-9 items-center gap-0.5 rounded-md border border-edge-default bg-surface-raised p-0.5 shadow-xs sm:inline-flex"
     >
       {options.map((o) => (
         <button
@@ -570,9 +571,10 @@ function ViewSwitch<V extends string>({
           aria-label={o.label}
           aria-pressed={value === o.value}
           className={cn(
-            'inline-flex h-8 w-8 items-center justify-center rounded-md transition',
+            'inline-flex h-7.5 w-8 items-center justify-center rounded-[5px] transition',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/50',
             value === o.value
-              ? 'bg-surface-sunken text-content'
+              ? 'bg-surface-sunken text-content shadow-[inset_0_0_0_1px_var(--color-edge-default)]'
               : 'text-content-subtle hover:bg-surface-sunken hover:text-content',
           )}
         >
@@ -593,14 +595,14 @@ function SortMenu<S extends string>({
   options: SortOption<S>[]
 }) {
   return (
-    <label className="hidden h-9 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] shadow-sm sm:inline-flex">
+    <label className="hidden h-9 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-[13px] shadow-xs transition-[border-color,box-shadow] hover:border-edge-strong focus-within:border-brand-500 focus-within:ring-[3px] focus-within:ring-brand-500/20 sm:inline-flex">
       <span className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         Sort
       </span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as S)}
-        className="rounded border-0 bg-transparent px-1 py-0 text-[12px] text-content focus:outline-none"
+        className="cursor-pointer rounded border-0 bg-transparent px-1 py-0 text-[13px] text-content focus:outline-none focus-visible:shadow-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { createPortal } from 'react-dom'
 import {
@@ -12,6 +12,7 @@ import {
   usePlatformApps,
   type ResolvedApp,
   useOverlayDismiss,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { PENDING_USER, useOptionalSession } from '@adhar/auth'
@@ -696,13 +697,24 @@ function LandingPage() {
   const saveLayout = useSaveOverviewLayout()
   const [customizeOpen, setCustomizeOpen] = useState(false)
   const [savedHint, setSavedHint] = useState(false)
+  const toast = useToast()
+  // One timer: a second save inside 1.5 s used to have its hint hidden early
+  // by the first save's timeout (and it could fire after unmount).
+  const savedHintTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(savedHintTimer.current), [])
 
   const layout = layoutQuery.data ?? DEFAULT_OVERVIEW_LAYOUT
 
   const updateLayout = (next: OverviewLayout) => {
-    saveLayout.mutate(next)
-    setSavedHint(true)
-    window.setTimeout(() => setSavedHint(false), 1500)
+    saveLayout.mutate(next, {
+      // "Saved" only once the save actually landed.
+      onSuccess: () => {
+        setSavedHint(true)
+        clearTimeout(savedHintTimer.current)
+        savedHintTimer.current = setTimeout(() => setSavedHint(false), 1500)
+      },
+      onError: (e) => toast.error('Could not save your layout', { description: e instanceof Error ? e.message : undefined }),
+    })
   }
 
   const visiblePanels = useMemo(() => resolveOrder(layout), [layout])
@@ -1408,7 +1420,9 @@ function ClusterSnapshotPanel() {
   }>({ pods: [], nodes: [], healthy: [], deploys: [] })
 
   useEffect(() => {
-    if (connecting) return
+    // An unreachable cluster summarises to zeros; recording those drew a
+    // sparkline of invented readings.
+    if (connecting || !connected) return
     setHistory((h) => ({
       pods: cap([...h.pods, s.pods.running]),
       nodes: cap([...h.nodes, s.nodes.ready]),
@@ -1418,7 +1432,7 @@ function ClusterSnapshotPanel() {
       deploys: cap([...h.deploys, s.newDeployments7d]),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.pods.running, s.nodes.ready, s.healthyDeploymentsPct, s.newDeployments7d, connecting])
+  }, [s.pods.running, s.nodes.ready, s.healthyDeploymentsPct, s.newDeployments7d, connecting, connected])
 
   // Percentages only exist when the cluster answered and there is something to
   // divide by — otherwise they are "—", never an invented 0 or 100.
@@ -1815,15 +1829,17 @@ function DoraPanel() {
   ]
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    // Two across even on a phone: four full-width cards holding one number
+    // each pushed the rest of the dashboard a screen down.
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       {tiles.map((s) => (
         <div
           key={s.label}
-          className="group relative overflow-hidden rounded-xl border border-edge-default bg-surface-raised p-5 shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md"
+          className="group relative min-w-0 overflow-hidden rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md sm:p-5"
         >
           <div className="relative z-10">
-            <div className="flex items-center justify-between">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-content-subtle" title={s.label}>
                 {s.label}
               </div>
               {s.delta ? <div className={`text-xs font-medium ${toneText(s.deltaTone)}`}>{s.delta}</div> : null}
@@ -2021,12 +2037,13 @@ function ComplianceCard({
   description: string
 }) {
   return (
-    <div className="rounded-xl border border-edge-default bg-surface-raised p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-content">{title}</div>
-        {badge}
-      </div>
-      <div className="mt-2 text-xs text-content-muted">{description}</div>
+    // Six across on a laptop leaves ~165px per card: the title and badge stack,
+    // and a long badge ("Argo Rollouts unreadable") wraps inside its pill
+    // instead of running out of the card.
+    <div className="flex min-w-0 flex-col rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
+      <div className="text-sm font-medium text-content">{title}</div>
+      <div className="mt-2 max-w-full [&>span]:max-w-full [&>span]:whitespace-normal">{badge}</div>
+      <div className="mt-2 text-xs leading-relaxed text-content-muted">{description}</div>
     </div>
   )
 }
@@ -2294,7 +2311,7 @@ function CustomizeSheet({
   // Portalled to <body>: the shell's <main> is `isolate`, so a fixed sheet
   // inside it stacks under the top bar, which hid this header on a phone.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-end">
+    <div className="fixed inset-0 z-[60] flex items-start justify-end">
       <button
         type="button"
         aria-label="Close"
@@ -2311,7 +2328,7 @@ function CustomizeSheet({
           <div>
             <h2 className="text-base font-semibold text-content">Customize overview</h2>
             <p className="mt-0.5 text-xs text-content-muted">
-              Toggle, reorder, and resize panels — saved to this browser.
+              Toggle, reorder, and resize panels — saved to your account.
             </p>
             <div className="mt-2 flex items-center gap-2 text-[11px]">
               <span className="text-content-subtle">{layout.enabled.length} of {PANELS.length} enabled</span>

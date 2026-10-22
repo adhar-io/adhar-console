@@ -22,3 +22,13 @@ export {
   type AuthProviderProps,
   type AuthStatus,
 } from './client.ts'
+export {
+  accessCheckKey,
+  CONSOLE_API_GROUP,
+  CONSOLE_PERMISSIONS,
+  consoleCheck,
+  consoleResourceCatalogue,
+  type AccessCheck,
+  type ConsolePermission,
+  type ConsolePermissionName,
+} from './console-permissions.ts'

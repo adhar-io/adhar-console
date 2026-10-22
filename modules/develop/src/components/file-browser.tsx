@@ -193,7 +193,7 @@ function TreeNode({
         onClick={() => onSelect(entry.path)}
         style={pad}
         className={`flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] hover:bg-surface-sunken ${
-          isActive ? 'bg-brand-50 font-medium text-brand-700' : 'text-content'
+          isActive ? 'bg-brand-50 font-medium text-brand-700 dark:text-brand-300 dark:bg-brand-500/10' : 'text-content'
         }`}
       >
         <span className='w-3.5 shrink-0' />
@@ -266,7 +266,7 @@ function FileView({
  */
 function FileContents(
   { data, path, repo, branch }: {
-    data: gitea.FileContent;
+    data: gitea.FileContents;
     path: string;
     repo: string;
     branch: string;

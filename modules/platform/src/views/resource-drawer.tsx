@@ -87,10 +87,11 @@ export function ResourceDrawer<T extends Resource>({
   }, [onClose])
 
   const ai = aiContextOf(resource)
+  const raw = redactSecret(resource)
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -113,7 +114,7 @@ export function ResourceDrawer<T extends Resource>({
               </div>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             {ai ? (
               <>
                 <AiButton
@@ -138,7 +139,7 @@ export function ResourceDrawer<T extends Resource>({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
             >
               <IconClose />
             </button>
@@ -194,7 +195,7 @@ export function ResourceDrawer<T extends Resource>({
             </CardHeader>
             <CardBody>
               <CodeEditor
-                value={JSON.stringify(resource, null, 2)}
+                value={JSON.stringify(raw, null, 2)}
                 language="json"
                 readOnly
                 height={384}
@@ -245,7 +246,7 @@ export function Row({
       <span className="shrink-0 text-xs font-medium uppercase tracking-wide text-content-subtle">
         {label}
       </span>
-      <span className={cn('text-right text-sm text-content', mono && 'font-mono text-xs')}>
+      <span className={cn('min-w-0 break-words text-right text-sm text-content', mono && 'font-mono text-xs')}>
         {value}
       </span>
     </div>
@@ -274,6 +275,18 @@ export function DrawerStatusTile({
       {sub ? <div className="mt-2 text-xs text-content-muted">{sub}</div> : null}
     </div>
   )
+}
+
+/**
+ * A Secret's values never reach the raw view: the Data section reveals them key
+ * by key, gated on `get secrets` — the raw JSON must not be a way around that.
+ */
+function redactSecret<T extends Resource>(resource: T): T {
+  if (resource.kind !== 'Secret') return resource
+  const r = resource as T & { data?: Record<string, string>; stringData?: Record<string, string> }
+  const mask = (m?: Record<string, string>) =>
+    m ? Object.fromEntries(Object.keys(m).map((k) => [k, '<redacted>'])) : undefined
+  return { ...r, data: mask(r.data), stringData: mask(r.stringData) }
 }
 
 function tagCloud(map: Record<string, string> | undefined, max = 6) {

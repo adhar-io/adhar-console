@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, EmptyState, Modal, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { usePlaneWorkspace } from '@adhar/shell-ui'
@@ -212,7 +213,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
     toast.success(`Exported ${rows.length} item${rows.length === 1 ? '' : 's'} to CSV`)
   }
 
-  if (!projectId) return <EmptyState title="Pick a project" description="Choose one from the project picker above to see its work items." />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" description="Choose one from the project picker above to see its work items." />
 
   const view = views.views.find((v) => v.id === activeView)
   const dirty = !!view && (view.data.jql !== jql || (!!view.data.groupBy && view.data.groupBy !== groupBy))
@@ -260,7 +261,7 @@ export function Issues({ projectId, appliedQuery }: Props) {
       {firstError && !scope.all.length ? (
         <PlaneErrorState error={firstError.error} />
       ) : !scope.isLoading && !items.length ? (
-        <EmptyState
+        <EmptyState icon={<EmptyIcon name="issues" />}
           title={scope.all.length ? 'No work items match' : 'No work items yet'}
           description={scope.all.length ? 'Loosen the query or clear the quick filters.' : 'Create the first one — press C.'}
           action={scope.all.length ? <Button size="sm" onClick={() => { run(''); setQuick([]) }}>Clear query</Button> : <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)}>New item</Button>}

@@ -10,6 +10,8 @@ import {
   type Notification,
   type NotificationKind,
   type NotificationSource,
+  canOpenSupportTicket,
+  useCreateSupportTicket,
 } from './notifications.ts'
 import { useAi } from './ai-assistant.tsx'
 import { useToast } from './toast.tsx'
@@ -70,6 +72,18 @@ export function NotificationCenter() {
   const api = useNotifications()
   const ai = useAi()
   const toast = useToast()
+  const ticket = useCreateSupportTicket()
+  const openTicket = (n: Notification) =>
+    ticket.mutate(n.id, {
+      onSuccess: (r) =>
+        toast.success(
+          r.outcome === 'exists' || r.outcome === 'suppressed' || r.outcome === 'commented'
+            ? `Already tracked as ${r.ticket?.key ?? 'a Plane work item'}`
+            : `Support ticket ${r.ticket?.key ?? ''} created in Plane`,
+          { description: 'Logs, metrics, traces and delivery context are attached to the work item.' },
+        ),
+      onError: (e) => toast.error('Could not create the support ticket', { description: (e as Error).message }),
+    })
   const [kind, setKind] = useState<NotificationKind | ''>('')
   const [source, setSource] = useState<NotificationSource | ''>('')
   const [unread, setUnread] = useState(false)
@@ -193,7 +207,7 @@ export function NotificationCenter() {
       />
 
       {/* list */}
-      <div className="overflow-hidden rounded-xl border border-edge-default bg-white shadow-sm dark:bg-surface-raised">
+      <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
         {feed.isLoading && !items.length ? (
           <div className="divide-y divide-edge-subtle">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -213,7 +227,7 @@ export function NotificationCenter() {
         ) : (
           grouped.map(([day, list]) => (
             <section key={day}>
-              <div className="sticky top-0 z-10 border-b border-edge-subtle bg-white/95 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle backdrop-blur dark:bg-surface-raised/95">{day}</div>
+              <div className="sticky top-0 z-10 border-b border-edge-subtle bg-surface-raised/95 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-subtle backdrop-blur">{day}</div>
               <ul className="divide-y divide-edge-subtle">
                 {list.map((n) => (
                   <NotificationCard
@@ -224,6 +238,8 @@ export function NotificationCenter() {
                     onRead={() => api.markRead(n.id)}
                     onDismiss={() => api.dismiss(n.id)}
                     onAsk={n.prompt ? () => { api.markRead(n.id); ai.ask({ prompt: n.prompt, title: n.title }) } : undefined}
+                    onTicket={canOpenSupportTicket(n) ? () => openTicket(n) : undefined}
+                    ticketPending={ticket.isPending && ticket.variables === n.id}
                   />
                 ))}
               </ul>
@@ -231,7 +247,7 @@ export function NotificationCenter() {
           ))
         )}
         {total > PAGE_SIZE ? (
-          <div className="flex items-center justify-between gap-3 border-t border-edge-subtle bg-white px-4 py-2 text-[12px] text-content-muted dark:bg-surface-raised">
+          <div className="flex items-center justify-between gap-3 border-t border-edge-subtle bg-surface-raised px-4 py-2 text-[12px] text-content-muted">
             <span>Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} of {total.toLocaleString()}</span>
             <div className="flex items-center gap-1">
               <Button size="sm" variant="secondary" onClick={() => setPage((p) => p - 1)} disabled={page === 0}>Previous</Button>
@@ -254,6 +270,8 @@ export function NotificationCard({
   onRead,
   onDismiss,
   onAsk,
+  onTicket,
+  ticketPending = false,
   compact = false,
 }: {
   n: Notification
@@ -262,6 +280,9 @@ export function NotificationCard({
   onRead(): void
   onDismiss(): void
   onAsk?(): void
+  /** "Create support ticket" — shown for platform failures with no ticket yet. */
+  onTicket?(): void
+  ticketPending?: boolean
   compact?: boolean
 }) {
   const tone = notificationTone(n.kind)
@@ -296,8 +317,16 @@ export function NotificationCard({
           {n.severity && (n.severity === 'high' || n.severity === 'critical') ? <span className="rounded bg-rose-50 px-1.5 py-0.5 font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">{n.severity}</span> : null}
           {n.target ? <span className="truncate font-mono">{n.target.type}/{n.target.label}</span> : null}
           {n.actor && n.source === 'workspace' ? <span>by {n.actor.label}</span> : null}
+          {n.ticket?.url || n.ticket?.key ? (
+            n.ticket.url
+              ? <a href={n.ticket.url} target="_blank" rel="noreferrer" className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono hover:underline" title="Plane support ticket">{n.ticket.key ?? 'ticket'}{n.ticket.state === 'resolved' ? ' · resolved' : ''} ↗</a>
+              : <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono">{n.ticket.key}</span>
+          ) : null}
+          {onTicket ? (
+            <button type="button" onClick={onTicket} disabled={ticketPending} className="ml-auto inline-flex items-center gap-1 rounded-md border border-edge-default px-2 py-0.5 font-medium text-content-muted hover:bg-surface-sunken disabled:opacity-60">{ticketPending ? 'Creating ticket…' : 'Create support ticket'}</button>
+          ) : null}
           {onAsk ? (
-            <button type="button" onClick={onAsk} className="ml-auto inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/15"><IconSpark /> Ask Adhar AI</button>
+            <button type="button" onClick={onAsk} className={cn(!onTicket && 'ml-auto', 'inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300 dark:hover:bg-brand-500/15')}><IconSpark /> Ask Adhar AI</button>
           ) : null}
         </div>
       </div>

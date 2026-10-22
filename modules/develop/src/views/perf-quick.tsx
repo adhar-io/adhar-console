@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Button, Field, Input, Modal, Select, Textarea, useToast } from '@adhar/shell-ui'
+import { Button, Field, Input, Modal, Select, Textarea, useCan, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { normaliseName } from '../data/perf-format.ts'
 import { newTestProblem, perfTestDir, perfTestName } from '../data/perf-location.ts'
 import { newTestLocation, usePerfSuite, useRunPerfTest, useSavePerfTest } from '../data/perf-suite.ts'
+import { runPerfTestChecks } from '../data/access.ts'
 import {
   fmtTotal,
   generateScript,
@@ -102,6 +103,9 @@ export function QuickTestModal({ open, onClose, onSaved, onStarted }: {
     }
   }
 
+  // "Save & run" also writes to the cluster in the chosen namespace (RBAC);
+  // saving alone is a Gitea commit.
+  const canRun = useCan(runPerfTestChecks(namespace || 'default'), { enabled: open })
   const setReq = (i: number, patch: Partial<QuickRequest>) => setRequests((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
 
   return (
@@ -120,7 +124,7 @@ export function QuickTestModal({ open, onClose, onSaved, onStarted }: {
           </span>
           <Button size="sm" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button size="sm" variant="secondary" disabled={!ready || !!busy} loading={busy === 'save'} onClick={() => doSave(false)}>Save to repo</Button>
-          <Button variant='primary' size="sm" disabled={!ready || !!busy} loading={busy === 'run'} onClick={() => doSave(true)}>Save &amp; run</Button>
+          {canRun ? <Button variant='primary' size="sm" disabled={!ready || !!busy} loading={busy === 'run'} onClick={() => doSave(true)}>Save &amp; run</Button> : null}
         </div>
       }
     >
@@ -202,7 +206,7 @@ function RequestEditor({ index, req: r, onChange, onRemove }: { index: number; r
         <div className="w-24"><Select aria-label="Method" value={r.method} onChange={(e) => onChange({ method: e.target.value as HttpMethod })} options={METHODS.map((m) => ({ value: m, label: m }))} /></div>
         <input value={r.url} onChange={(e) => onChange({ url: e.target.value })} placeholder="https://api.example.com/v1/items" aria-label="URL" className="h-9 min-w-0 flex-1 basis-60 rounded-md border border-edge-default bg-surface-app px-2 font-mono text-[12px] text-content focus:border-brand-400 focus:outline-none" />
         <button type="button" onClick={() => setMore((x) => !x)} className="text-[11px] font-medium text-content-muted hover:text-content">{more ? 'Less' : 'Headers, body…'}</button>
-        {onRemove ? <button type="button" onClick={onRemove} aria-label="Remove request" className="rounded px-1.5 text-content-subtle hover:bg-surface-sunken hover:text-rose-600">×</button> : null}
+        {onRemove ? <button type="button" onClick={onRemove} aria-label="Remove request" className="rounded px-1.5 text-content-subtle hover:bg-surface-sunken hover:text-rose-600 dark:hover:text-rose-400">×</button> : null}
       </div>
       {more ? (
         <div className="mt-2 grid grid-cols-1 gap-2 pl-7">
@@ -214,7 +218,7 @@ function RequestEditor({ index, req: r, onChange, onRemove }: { index: number; r
             <div key={i} className="grid grid-cols-[1fr_1.5fr_auto] gap-2">
               <Input value={k} onChange={(e) => onChange({ headers: r.headers.map((h, j) => (j === i ? [e.target.value, h[1]] : h)) })} placeholder="Header" />
               <Input value={v} onChange={(e) => onChange({ headers: r.headers.map((h, j) => (j === i ? [h[0], e.target.value] : h)) })} placeholder="Value — ${__ENV.TOKEN} reads an env var" />
-              <button type="button" onClick={() => onChange({ headers: r.headers.filter((_, j) => j !== i) })} aria-label="Remove header" className="px-1.5 text-content-subtle hover:text-rose-600">×</button>
+              <button type="button" onClick={() => onChange({ headers: r.headers.filter((_, j) => j !== i) })} aria-label="Remove header" className="px-1.5 text-content-subtle hover:text-rose-600 dark:hover:text-rose-400">×</button>
             </div>
           ))}
           <div className="flex gap-2">
@@ -238,7 +242,7 @@ function StageEditor({ stages, onChange }: { stages: Stage[]; onChange(s: Stage[
           <input type="number" min={0} value={s.target} onChange={(e) => onChange(stages.map((x, j) => (j === i ? { ...x, target: Math.max(0, Number(e.target.value) || 0) } : x)))} className="h-8 w-20 rounded-md border border-edge-default bg-surface-app px-2 text-content" aria-label={`Stage ${i + 1} target`} />
           <span className="text-content-muted">VUs over</span>
           <input value={s.duration} onChange={(e) => onChange(stages.map((x, j) => (j === i ? { ...x, duration: e.target.value.trim() } : x)))} className={cn('h-8 w-20 rounded-md border bg-surface-app px-2 font-mono text-content', Number.isFinite(durationSeconds(s.duration)) ? 'border-edge-default' : 'border-rose-400')} aria-label={`Stage ${i + 1} duration`} />
-          {stages.length > 1 ? <button type="button" onClick={() => onChange(stages.filter((_, j) => j !== i))} aria-label="Remove stage" className="px-1 text-content-subtle hover:text-rose-600">×</button> : null}
+          {stages.length > 1 ? <button type="button" onClick={() => onChange(stages.filter((_, j) => j !== i))} aria-label="Remove stage" className="px-1 text-content-subtle hover:text-rose-600 dark:hover:text-rose-400">×</button> : null}
         </div>
       ))}
       <Button size="xs" variant="ghost" onClick={() => onChange([...stages, { duration: '1m', target: stages[stages.length - 1]?.target ?? 10 }])}>+ Stage</Button>

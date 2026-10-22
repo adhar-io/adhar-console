@@ -66,7 +66,7 @@ export function IssueDrawer({ seed, repo, index, onClose }: { seed?: RepoIssue; 
           <div className='flex shrink-0 items-center gap-1.5'>
             {issue.html_url
               ? (
-                <a href={issue.html_url} target='_blank' rel='noopener' className='inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700'>
+                <a href={issue.html_url} target='_blank' rel='noopener noreferrer' className='inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300'>
                   Gitea <IconExternal />
                 </a>
               )
@@ -80,7 +80,7 @@ export function IssueDrawer({ seed, repo, index, onClose }: { seed?: RepoIssue; 
         <div className='min-w-0'>
           {editingBody
             ? (
-              <div className='mb-3 rounded-lg border border-brand-300 bg-surface-raised p-3'>
+              <div className='mb-3 rounded-lg border border-brand-300 bg-surface-raised p-3 dark:border-brand-500/30'>
                 <Textarea rows={8} value={bodyDraft} onChange={(e) => setBodyDraft(e.target.value)} aria-label='Description' />
                 <div className='mt-2 flex justify-end gap-2'>
                   <Button size='sm' variant='ghost' onClick={() => setEditingBody(false)}>Cancel</Button>

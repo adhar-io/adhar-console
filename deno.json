@@ -94,7 +94,6 @@
     "@adhar/api-clients/k8s": "./packages/api-clients/src/k8s/index.ts",
     "@adhar/api-clients/kyverno": "./packages/api-clients/src/kyverno/index.ts",
     "@adhar/api-clients/crossplane": "./packages/api-clients/src/crossplane/index.ts",
-    "@adhar/api-clients/argo-workflows": "./packages/api-clients/src/argo-workflows/index.ts",
     "@adhar/api-clients/argo-rollouts": "./packages/api-clients/src/argo-rollouts/index.ts",
     "@adhar/api-clients/lgtm": "./packages/api-clients/src/lgtm/index.ts",
     "jose": "npm:jose@^5.9.6",

@@ -1,4 +1,4 @@
-import { useToast } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, useToast } from '@adhar/shell-ui'
 import { useEffect, useState } from 'react'
 import { formatRelative } from '@adhar/utils'
 import {
@@ -27,6 +27,13 @@ import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
 const ENVIRONMENTS = ['dev', 'staging', 'prod', 'preview'] as const
+
+/**
+ * Resource defaults are a docStore singleton (`/api/store/workspace.defaults`)
+ * with no dedicated catalogue entry — an organisation setting, so they need
+ * `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 /**
  * Resource defaults — org-wide values new projects, apps, and environments
@@ -81,7 +88,7 @@ export function WorkspaceDefaults() {
         </p>
       ) : null}
 
-      <RequirePermission perm="org.write" required={['admin', 'owner']} readOnly>
+      <RequirePermission check={WRITE} readOnly>
         <Editor doc={doc} />
       </RequirePermission>
     </Shell>
@@ -93,7 +100,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <ViewShell
       title="Resource defaults"
       description="What new resources inherit at creation time. Existing projects and environments are not rewritten — these values apply from the next resource onward."
-      required={['admin', 'owner']}
+      writeCheck={WRITE}
     >
       {children}
     </ViewShell>
@@ -167,8 +174,13 @@ function Editor({ doc }: { doc: DefaultsDoc }) {
     </div>
   )
 
-  // Page-level actions belong in the ViewShell header (right side).
-  const headerActions = <ViewActions>{saveBar}</ViewActions>
+  // Page-level actions belong in the ViewShell header (right side). They are
+  // portalled out of the read-only fieldset, so they are gated (hidden) here.
+  const headerActions = (
+    <RequirePermission check={WRITE}>
+      <ViewActions>{saveBar}</ViewActions>
+    </RequirePermission>
+  )
 
   return (
     <>
@@ -265,14 +277,16 @@ function Editor({ doc }: { doc: DefaultsDoc }) {
         title="Default labels"
         description="Stamped on every resource the platform creates — useful for cost allocation and policy selectors."
         actions={
-          <SecondaryButton onClick={() => setLabels((ls) => [...ls, { key: '', value: '' }])}>
-            Add label
-          </SecondaryButton>
+          <RequirePermission check={WRITE}>
+            <SecondaryButton onClick={() => setLabels((ls) => [...ls, { key: '', value: '' }])}>
+              Add label
+            </SecondaryButton>
+          </RequirePermission>
         }
       >
         {labels.length === 0 ? (
           <p className="text-sm text-content-muted">
-            No default labels. Add one to have it applied to every new resource.
+            No default labels. Labels added here are applied to every new resource.
           </p>
         ) : (
           <div className="space-y-2">
@@ -311,12 +325,14 @@ function Editor({ doc }: { doc: DefaultsDoc }) {
                       </p>
                     ) : null}
                   </div>
-                  <SecondaryButton
-                    tone="rose"
-                    onClick={() => setLabels((ls) => ls.filter((_, j) => j !== i))}
-                  >
-                    Remove
-                  </SecondaryButton>
+                  <RequirePermission check={WRITE}>
+                    <SecondaryButton
+                      tone="rose"
+                      onClick={() => setLabels((ls) => ls.filter((_, j) => j !== i))}
+                    >
+                      Remove
+                    </SecondaryButton>
+                  </RequirePermission>
                 </div>
               )
             })}

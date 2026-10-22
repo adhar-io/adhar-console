@@ -1,36 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  AirbyteIcon,
-  ArgoCDIcon,
-  ArgoRolloutsIcon,
-  ArgoWorkflowsIcon,
   Badge,
   Button,
+  Can,
   Card,
-  CrossplaneIcon,
+  CONSOLE_PERMISSIONS,
   EmptyState,
-  GiteaIcon,
-  GrafanaIcon,
-  HarborIcon,
   IcebergIcon,
-  KargoIcon,
-  KeycloakIcon,
-  KubernetesIcon,
-  KyvernoIcon,
-  LokiIcon,
-  MetabaseIcon,
-  MinIOIcon,
-  OTelIcon,
-  PlaneIcon,
-  PrometheusIcon,
   Skeleton,
   Spinner,
   StatusBadge,
-  TempoIcon,
   type StatusKind,
   DrawerWidenButton,
+  hasToolLogo,
+  ToolLogo,
   useDrawerWidth,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import {
@@ -668,8 +654,8 @@ function categoryHue(cat: string): number {
 function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
   const chart = app.chart
   const toggle = useToggleApp()
+  const toast = useToast()
   const busy = toggle.isPending
-  const err = toggle.error as Error | undefined
   const tags = (chart?.tags ?? []).slice(0, 2)
 
   return (
@@ -754,26 +740,25 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
           <IconGit size={12} />
           <span className="truncate">{app.enabled ? 'Installed via GitOps' : 'Not installed'}</span>
         </span>
-        <Button
-          variant={app.enabled ? 'secondary' : 'primary'}
-          size="xs"
-          loading={busy}
-          aria-label={app.enabled ? `Disable ${app.name}` : `Enable ${app.name}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            toggle.mutate({ app, enabled: !app.enabled })
-          }}
-        >
-          {busy ? 'Committing…' : app.enabled ? 'Disable' : 'Enable'}
-        </Button>
+        {/* POST /api/platform/appset/toggle is authorized as `update packages`. */}
+        <Can check={CONSOLE_PERMISSIONS.packagesToggle}>
+          <Button
+            variant={app.enabled ? 'secondary' : 'primary'}
+            size="xs"
+            className="shrink-0"
+            loading={busy}
+            aria-label={app.enabled ? `Disable ${app.name}` : `Enable ${app.name}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              toggle.mutate({ app, enabled: !app.enabled }, {
+                onError: (err) => toast.error(`Could not ${app.enabled ? 'disable' : 'enable'} ${app.name}`, { description: (err as Error).message }),
+              })
+            }}
+          >
+            {busy ? 'Committing…' : app.enabled ? 'Disable' : 'Enable'}
+          </Button>
+        </Can>
       </div>
-
-      {err ? (
-        <div className="border-t border-rose-200 px-4 py-2 text-[11px] text-rose-800 dark:border-rose-500/25 dark:text-rose-300">
-          <span className="font-semibold">Toggle failed.</span>{' '}
-          <span className="wrap-break-word font-mono">{err.message}</span>
-        </div>
-      ) : null}
     </Card>
   )
 }
@@ -825,7 +810,7 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -891,22 +876,24 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                   reconciles the change — exactly like editing the file directly.
                 </p>
               </div>
-              <Button
-                variant={app.enabled ? 'secondary' : 'primary'}
-                size="sm"
-                disabled={toggle.isPending}
-                onClick={() => toggle.mutate({ app, enabled: !app.enabled })}
-              >
-                {toggle.isPending ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Spinner size={12} /> Committing…
-                  </span>
-                ) : app.enabled ? (
-                  'Disable'
-                ) : (
-                  'Enable'
-                )}
-              </Button>
+              <Can check={CONSOLE_PERMISSIONS.packagesToggle}>
+                <Button
+                  variant={app.enabled ? 'secondary' : 'primary'}
+                  size="sm"
+                  disabled={toggle.isPending}
+                  onClick={() => toggle.mutate({ app, enabled: !app.enabled })}
+                >
+                  {toggle.isPending ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Spinner size={12} /> Committing…
+                    </span>
+                  ) : app.enabled ? (
+                    'Disable'
+                  ) : (
+                    'Enable'
+                  )}
+                </Button>
+              </Can>
             </div>
 
             {toggle.isPending ? (
@@ -1039,27 +1026,12 @@ function SyncBadge({ sync }: { sync: string }) {
 
 /* ─────────────────────────── icons + enrichment atoms ─────────────────────────── */
 
+/**
+ * Hand-drawn marks kept only where no official logo is bundled in
+ * `@adhar/shell-ui` (`ToolLogo` covers everything else).
+ */
 const ICON_BY_ID: Record<string, (props: { size?: number }) => ReactNode> = {
-  argocd: ArgoCDIcon,
-  argoworkflows: ArgoWorkflowsIcon,
-  argorollouts: ArgoRolloutsIcon,
-  kargo: KargoIcon,
-  kyverno: KyvernoIcon,
-  keycloak: KeycloakIcon,
-  harbor: HarborIcon,
-  crossplane: CrossplaneIcon,
-  plane: PlaneIcon,
-  grafana: GrafanaIcon,
-  prometheus: PrometheusIcon,
-  loki: LokiIcon,
-  tempo: TempoIcon,
-  minio: MinIOIcon,
-  airbyte: AirbyteIcon,
-  metabase: MetabaseIcon,
   iceberg: IcebergIcon,
-  kubernetes: KubernetesIcon,
-  otel: OTelIcon,
-  gitea: GiteaIcon,
 }
 
 const TONES = [
@@ -1079,6 +1051,10 @@ function toneFor(key: string): string {
 }
 
 function AppIcon({ app, size = 40 }: { app: MarketplaceApp; size?: number }) {
+  // Official logo by the ApplicationSet name (adhar-* → the Adhar symbol),
+  // then by the curated chart's id / icon id.
+  const logoName = [app.name, app.chart?.id, app.chart?.iconId].find((n) => hasToolLogo(n))
+  if (logoName) return <ToolLogo tool={logoName} size={size} />
   const Component = app.chart?.iconId ? ICON_BY_ID[app.chart.iconId] : undefined
   if (Component) {
     return (

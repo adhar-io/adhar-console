@@ -38,7 +38,10 @@ export function PostHogState({ error, onRetry, compact = false }: { error: unkno
   const starting = isStartingUp(error)
   useEffect(() => {
     if (!starting) return
-    const id = setInterval(onRetry, 20_000)
+    // No point waking PostHog from a background tab; the next visible tick retries.
+    const id = setInterval(() => {
+      if (!document.hidden) onRetry()
+    }, 20_000)
     return () => clearInterval(id)
   }, [starting, onRetry])
   const status = (error as { status?: number } | null)?.status

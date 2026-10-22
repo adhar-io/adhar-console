@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert'
+import { assertEquals } from 'jsr:@std/assert@^1'
 import { groupByOwner, repoOwner } from './repo-grouping.ts'
 import type { gitea } from '@adhar/api-clients'
 

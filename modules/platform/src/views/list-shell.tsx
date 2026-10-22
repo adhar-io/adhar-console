@@ -63,7 +63,7 @@ export function ListShell({
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-3 py-2 shadow-sm">
         {title ? (
           <div className="mr-2 flex min-w-0 items-baseline gap-2">
-            <span className="text-sm font-semibold text-content">{title}</span>
+            <span className="truncate text-sm font-semibold text-content" title={title}>{title}</span>
             <span className="font-mono text-[11px] tabular-nums text-content-subtle">
               {isFiltered ? `${visible} / ${total}` : total}
             </span>
@@ -99,7 +99,7 @@ export function ListShell({
 
         {filters ? <div className="flex flex-wrap items-center gap-1.5">{filters}</div> : null}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
           {lastUpdatedAt ? <UpdatedChip at={lastUpdatedAt} /> : null}
           {onRefresh ? (
             <button
@@ -110,6 +110,7 @@ export function ListShell({
               className={cn(
                 'flex h-8 w-8 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors',
                 'hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
                 'disabled:cursor-not-allowed disabled:opacity-60',
               )}
             >
@@ -139,7 +140,7 @@ const PILL_TONE: Record<NonNullable<FilterPill<string>['tone']>, string> = {
   rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-500/25',
   sky: 'bg-sky-50 dark:bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-sky-200 dark:ring-sky-500/25',
   violet: 'bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 ring-violet-200 dark:ring-violet-500/25',
-  slate: 'bg-slate-100 text-content-muted ring-edge-default',
+  slate: 'bg-surface-sunken text-content ring-edge-default',
 }
 
 export function StatusFilterPills<T extends string>({
@@ -168,7 +169,7 @@ export function StatusFilterPills<T extends string>({
             type="button"
             onClick={() => onChange(p.value as T | 'all')}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors',
+              'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
               on
                 ? p.tone
                   ? `ring-1 ring-inset ${tone}`

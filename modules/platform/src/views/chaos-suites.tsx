@@ -6,10 +6,13 @@ import {
   Card,
   CardBody,
   CardHeader,
+  consoleCheck,
+  CONSOLE_PERMISSIONS,
   EmptyState,
   Modal,
   Spinner,
   StatusBadge,
+  useCan,
   useToast,
   type StatusKind,
 } from '@adhar/shell-ui'
@@ -441,6 +444,9 @@ function RunControl(
   // judged against. Absent for runs started elsewhere; the Job's start time
   // stands in then.
   const before = useRef(new Map<string, string | undefined>())
+  // POST /api/resilience/runs is authorized in the environment's namespace, so
+  // a team that is admin of its own namespace may run suites there only.
+  const canRun = useCan(consoleCheck(CONSOLE_PERMISSIONS.resilienceRun, row.namespace))
 
   const run: ResilienceRun | undefined = useMemo(
     () => runs?.runs.find((r) => r.app === app && r.namespace === row.namespace),
@@ -477,8 +483,6 @@ function RunControl(
     ? runs.detail
       ? `The resilience runner could not be read: ${runs.detail}`
       : `The resilience runner (${RUNNER_CRONJOB}) is not installed — enable the adhar-scorecards package.`
-    : !runs.allowed
-    ? 'Running a suite needs the platform-admin, platform-engineer or application-admin role.'
     : active
     ? 'A run for this environment is in progress.'
     : undefined
@@ -501,9 +505,11 @@ function RunControl(
 
   return (
     <div className="flex max-w-xs flex-col items-end gap-1 text-right">
-      <Button size="sm" disabled={!!disabledReason || starting} title={disabledReason} onClick={() => void start()}>
-        {starting ? 'Starting…' : active ? 'Running…' : 'Run suite'}
-      </Button>
+      {canRun ? (
+        <Button size="sm" disabled={!!disabledReason || starting} title={disabledReason} onClick={() => void start()}>
+          {starting ? 'Starting…' : active ? 'Running…' : 'Run suite'}
+        </Button>
+      ) : null}
       {run && outcome ? (
         <>
           <div className="flex items-center gap-1.5">

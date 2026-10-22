@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button } from '@adhar/shell-ui'
+import { Button, canResource, useAccessReview } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { LogConsole, type LogSource, useLogStream } from '../components/log-console.tsx'
+import { clusterParam, useActiveCluster } from '../data/client.ts'
+import { GVRS } from '../data/gvr.ts'
+import { AccessDenied } from '../components/role-gate.tsx'
 import {
   SEVERITIES,
   SEVERITY_DOT,
@@ -23,6 +26,10 @@ import {
  *
  * It previously carried its own copy of all of that, plus its own streaming and
  * reconnect logic, which is why its behaviour drifted from the pipeline console.
+ *
+ * Streaming is `get pods/log` on this pod (Kubernetes RBAC, as the signed-in
+ * user): the stream opens once allowed, and a definite "no" shows a notice
+ * naming the rule instead of an empty console.
  */
 
 export function PodLogsPanel({
@@ -34,6 +41,9 @@ export function PodLogsPanel({
   podName: string
   containers: string[]
 }) {
+  const { cluster } = useActiveCluster()
+  const logsCheck = canResource(GVRS.pods, 'get', { namespace, name: podName, subresource: 'log' })
+  const logsAccess = useAccessReview(logsCheck)
   const [container, setContainer] = useState<string>(containers[0] ?? '')
   const [tailLines, setTailLines] = useState<number>(500)
   const [since, setSince] = useState<SinceLabel>('all')
@@ -63,10 +73,13 @@ export function PodLogsPanel({
   const stream = useLogStream({
     namespace,
     sources,
+    // The pod came from the active cluster's list — stream from that cluster too.
+    cluster: clusterParam(cluster),
     follow: effectiveFollow,
     tailLines,
     previous,
     sinceSeconds: sinceSecondsFor(since),
+    enabled: logsAccess.allowed,
   })
 
   const lines = useMemo(
@@ -76,6 +89,10 @@ export function PodLogsPanel({
 
   const toggleSeverity = (s: Severity) => setShown((prev) => ({ ...prev, [s]: !prev[s] }))
 
+  if (logsAccess.results[0] === false) {
+    return <AccessDenied what="this pod's logs" check={logsCheck} />
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge-default bg-surface-sunken p-2">
@@ -84,7 +101,7 @@ export function PodLogsPanel({
           <select
             value={container}
             onChange={(e) => setContainer(e.target.value)}
-            className="rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs"
+            className="min-w-0 max-w-[12rem] truncate rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
           >
             {containers.map((c) => (
               <option key={c} value={c}>
@@ -98,7 +115,7 @@ export function PodLogsPanel({
           <select
             value={tailLines}
             onChange={(e) => setTailLines(Number(e.target.value))}
-            className="rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs"
+            className="min-w-0 max-w-[12rem] truncate rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
           >
             {TAIL_OPTIONS.map((n) => (
               <option key={n} value={n}>
@@ -112,7 +129,7 @@ export function PodLogsPanel({
           <select
             value={since}
             onChange={(e) => setSince(e.target.value as SinceLabel)}
-            className="rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs"
+            className="min-w-0 max-w-[12rem] truncate rounded border border-edge-default bg-surface-raised px-2 py-0.5 text-xs text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
           >
             {SINCE_OPTIONS.map((s) => (
               <option key={s.label} value={s.label}>

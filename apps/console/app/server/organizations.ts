@@ -7,7 +7,13 @@ import {
 } from '@adhar/auth/server'
 import { requireUser, unauthorized } from './request-user.ts'
 import { originOk } from './k8s/gateway.ts'
+import { requirePermission } from './k8s/access.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 import { getProvisioningJob, listProvisioningJobs, startProvisioning } from './provisioning-jobs.ts'
+import { apiServerFetch } from './k8s/gateway.ts'
+import { getK8sServiceToken } from './tool-registry.ts'
+import { getKeycloakAdmin } from './workspace/keycloak-admin.ts'
+import { groupForOrg } from './tenant-provisioner.ts'
 
 /**
  * Organization (workspace) management — `/api/organizations/*`.
@@ -65,6 +71,68 @@ interface Registry {
  * console from generating a write it knows will be rejected.
  */
 const RESERVED_ORG_SLUGS = new Set(['default', 'kube-system', 'kube-public', 'kube-node-lease', 'adhar-system'])
+
+/**
+ * Namespaces the platform itself runs in. Refused on CREATE (the list above is
+ * only what the control plane refuses): the provisioner binds the `admin`
+ * ClusterRole to `org-<slug>` inside namespace `<slug>` and adds the creator to
+ * that group, so an organisation named `argocd` would hand its creator admin
+ * over Argo CD's namespace. `slugConflict` below catches any existing
+ * namespace; this list also covers installs where that check cannot run.
+ */
+const PLATFORM_NAMESPACE_RE = /^(kube-|adhar-|openshift-)|^(argocd|argo|argo-rollouts|argo-workflows|kargo|keycloak|gitea|harbor|crossplane-system|cert-manager|ingress-nginx|kyverno|tekton-pipelines|tekton-pipelines-resolvers|monitoring|observability|grafana|loki|mimir|tempo|vault|openbao|cilium|istio-system|velero|external-secrets|coder|plane|strapi|nexus|metabase|airbyte|opencost|trivy-system|falco|cnpg-system|postgres|minio|rustfs)$/
+
+/**
+ * Why a new organisation may not take `slug`, or null when it may.
+ *
+ * Tenant names are GLOBAL across the platform — namespace `<slug>`, Keycloak
+ * group `org-<slug>`, Gitea org `<slug>` — and the provisioner treats "already
+ * exists" as success and then adds the creator to the group. Without this
+ * check, creating an organisation with the same name as someone else's made
+ * the creator a member of THEIR group, with admin over THEIR namespace.
+ *
+ * Checked with the console's own credentials (the same ones the provisioner
+ * will use). A check that cannot run (no SA token / no Keycloak admin) is
+ * skipped, because then the provisioner cannot act on that system either.
+ */
+export async function slugConflict(
+  slug: string,
+  deps: {
+    namespaceExists: (slug: string) => Promise<boolean | null>
+    groupExists: (name: string) => Promise<boolean | null>
+  } = { namespaceExists: k8sNamespaceExists, groupExists: keycloakGroupExists },
+): Promise<'reserved' | 'taken' | null> {
+  if (RESERVED_ORG_SLUGS.has(slug) || PLATFORM_NAMESPACE_RE.test(slug)) return 'reserved'
+  const [ns, group] = await Promise.all([deps.namespaceExists(slug), deps.groupExists(groupForOrg(slug))])
+  return ns || group ? 'taken' : null
+}
+
+/** true / false, or null when the console cannot ask. */
+async function k8sNamespaceExists(slug: string): Promise<boolean | null> {
+  const token = getK8sServiceToken()
+  if (!token) return null
+  try {
+    const res = await apiServerFetch(token, `/api/v1/namespaces/${encodeURIComponent(slug)}`, {
+      signal: AbortSignal.timeout(10_000),
+    })
+    await res.body?.cancel()
+    if (res.status === 404) return false
+    // Anything but a definite "not found" — including a 403 — is treated as
+    // taken: refusing a name is recoverable, adopting someone's namespace is not.
+    return true
+  } catch {
+    return true
+  }
+}
+
+async function keycloakGroupExists(name: string): Promise<boolean | null> {
+  const kc = getKeycloakAdmin()
+  if (!kc) return null
+  return Boolean(await kc.findGroup(name))
+}
+
+/** Tenant ids the console uses for its own records (session-store-db.ts). */
+const SYSTEM_TENANTS = new Set(['auth'])
 
 const NAME_MAX = 60
 /** Truncated rather than rejected — a long description is not a failed create. */
@@ -166,6 +234,9 @@ export async function activeOrgSlug(userId: string, activeTenant: string): Promi
 
 /** Re-sign the session cookie with a new activeTenant. */
 async function activeTenantCookie(req: Request, tenantId: string): Promise<string | null> {
+  // `auth` is the system tenant the session store keeps everyone's tokens in;
+  // no session may ever be scoped to it, whatever a registry says.
+  if (SYSTEM_TENANTS.has(tenantId)) return null
   const cfg = getServerAuthConfig()
   if (!cfg) return null
   const result = await getValidSession(req, cfg)
@@ -221,19 +292,33 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
     }
     // POST /api/organizations  → create + activate
     if (seg.length === 0 && method === 'POST') {
+      // RBAC `create organizations.console.adhar.io`. The platform grants it to
+      // every signed-in user by default (self-service onboarding); an operator
+      // who wants tenants created only by the platform team removes that grant.
+      const denied = await requirePermission(req, CONSOLE_PERMISSIONS.orgCreate)
+      if (denied) return attach(denied)
       const body = (await req.json().catch(() => ({}))) as {
         name?: string
         description?: string
         contactEmail?: string
         contactName?: string
       }
-      const name = (body.name ?? '').trim()
+      const name = typeof body.name === 'string' ? body.name.trim() : ''
       if (!name) return attach(json({ error: 'name_required' }, 400))
       if (name.length > NAME_MAX) return attach(json({ error: 'name_too_long' }, 400))
+      const conflict = await slugConflict(slugify(name))
+      if (conflict) {
+        return attach(json({
+          error: conflict === 'reserved' ? 'name_reserved' : 'name_taken',
+          detail: conflict === 'reserved'
+            ? 'That name is reserved by the platform. Choose another name for the organization.'
+            : 'An organization with that name already exists on this platform. Choose another name.',
+        }, 409))
+      }
       // Onboarding asks what the org is for and shows the answer back on the
       // review step, so it has to be stored — a field that is collected,
       // confirmed and then dropped is worse than never asking.
-      const description = (body.description ?? '').trim().slice(0, DESCRIPTION_MAX)
+      const description = (typeof body.description === 'string' ? body.description : '').trim().slice(0, DESCRIPTION_MAX)
       const id = `${slugify(name)}-${randomSuffix()}`.slice(0, 63)
       const org: Organization = {
         id,
@@ -303,11 +388,13 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
     }
     // PATCH /api/organizations/<id>  → rename
     if (seg.length === 1 && method === 'PATCH') {
+      const denied = await requirePermission(req, CONSOLE_PERMISSIONS.orgUpdate)
+      if (denied) return attach(denied)
       const id = seg[0]
       const idx = reg.orgs.findIndex((o) => o.id === id)
       if (idx === -1) return attach(json({ error: 'not_found' }, 404))
-      const body = (await req.json().catch(() => ({}))) as { name?: string }
-      const name = (body.name ?? '').trim()
+      const body = (await req.json().catch(() => ({}))) as { name?: unknown }
+      const name = typeof body.name === 'string' ? body.name.trim() : ''
       if (!name || name.length > NAME_MAX) return attach(json({ error: 'invalid_name' }, 400))
       const orgs = [...reg.orgs]
       orgs[idx] = { ...orgs[idx], name }
@@ -316,6 +403,8 @@ export async function handleOrganizations(req: Request, subpath: string): Promis
     }
     // DELETE /api/organizations/<id>
     if (seg.length === 1 && method === 'DELETE') {
+      const denied = await requirePermission(req, CONSOLE_PERMISSIONS.orgDelete)
+      if (denied) return attach(denied)
       const id = seg[0]
       if (reg.orgs.length <= 1) return attach(json({ error: 'cannot_delete_last' }, 400))
       if (!reg.orgs.some((o) => o.id === id)) return attach(json({ error: 'not_found' }, 404))

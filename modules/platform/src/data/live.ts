@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { kube } from '@adhar/api-clients/k8s'
-import { useLiveK8sList } from '@adhar/shell-ui'
+import { useAccessReview, useLiveK8sList } from '@adhar/shell-ui'
 import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s'
 import { clusterParam, useActiveCluster, useActiveNamespace } from './client.ts'
 
@@ -67,7 +67,11 @@ export function useDiscovery() {
   })
 }
 
-/** Reactive SelfSubjectAccessReview — gate action buttons on it. */
+/**
+ * Reactive SelfSubjectAccessReview — gate action buttons on it. A thin adapter
+ * over shell-ui's shared `useAccessReview` (batched, cached page-wide), keeping
+ * the `{ data }` shape existing callers read: `undefined` while unknown.
+ */
 export function useAccess(attrs: {
   verb: string
   group?: string
@@ -77,12 +81,7 @@ export function useAccess(attrs: {
   subresource?: string
   enabled?: boolean
 }) {
-  const { enabled = true, ...rest } = attrs
-  const { cluster } = useActiveCluster()
-  return useQuery({
-    queryKey: ['k8s', 'access', rest.verb, rest.group ?? '', rest.resource, rest.namespace ?? '', rest.name ?? '', cluster],
-    queryFn: () => kube.access(rest, { cluster: clusterParam(cluster) }).then((r) => r.allowed),
-    enabled,
-    staleTime: 60_000,
-  })
+  const { enabled = true, ...check } = attrs
+  const state = useAccessReview(check, { enabled })
+  return { data: state.results[0], isLoading: state.loading }
 }

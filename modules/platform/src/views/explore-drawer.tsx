@@ -13,11 +13,13 @@ import {
   type TabDef,
   DrawerWidenButton,
   useDrawerWidth,
+  canResource,
+  useAccessReview,
+  useCan,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube, type DiscoveredResource, type GatewayGVR as GVR, type KubeObject } from '@adhar/api-clients/k8s'
 import { clusterParam, useActiveCluster } from '../data/client.ts'
-import { useAccess } from '../data/live.ts'
 import { age } from '../data/format.ts'
 import {
   apiVersionOf,
@@ -27,8 +29,8 @@ import {
   kindForObject,
   kubectlGet,
   type PrinterColumn,
-  writePermFor,
 } from '../data/explore.ts'
+import { AccessDenied } from '../components/role-gate.tsx'
 import { EventsTimeline } from './events-timeline.tsx'
 import { PodYamlPanel } from './pod-yaml.tsx'
 
@@ -81,7 +83,12 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
     [raw, kind],
   )
 
-  const canDelete = useAccess({ verb: 'delete', group: gvr.group, resource: gvr.resource, namespace: ns, name: target.name })
+  const isSecret = kind.group === '' && kind.name === 'secrets'
+  const canDelete = useCan(canResource(gvr, 'delete', { namespace: ns, name: target.name }))
+  // Revealing a Secret's manifest is a read of its values: `get secrets`.
+  const revealCheck = canResource(gvr, 'get', { namespace: ns, name: target.name })
+  const reveal = useAccessReview(revealCheck, { enabled: isSecret })
+  const revealDenied = isSecret && !reveal.loading && reveal.results[0] === false
   const [confirming, setConfirming] = useState(false)
   const [revealSecret, setRevealSecret] = useState(false)
   const del = useMutation({
@@ -108,7 +115,6 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
   }
 
   const status = obj ? deriveStatus(obj) : null
-  const isSecret = kind.group === '' && kind.name === 'secrets'
   const isEvent = kind.kind === 'Event'
   const tabs: TabDef<Sub>[] = [
     { id: 'overview', label: 'Overview' },
@@ -127,7 +133,7 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={`${kind.kind} ${target.name}`}>
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={`${kind.kind} ${target.name}`}>
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 py-4 sm:px-6">
@@ -153,7 +159,7 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
-                className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
               >
                 <CloseGlyph />
               </button>
@@ -181,7 +187,7 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
             <Button size="sm" variant="secondary" leading={<TerminalGlyph />} onClick={() => copy(kubectlGet(kind, target), 'kubectl command')}>
               kubectl
             </Button>
-            {canDelete.data && obj ? (
+            {canDelete && obj ? (
               <Button size="sm" variant="danger" onClick={() => setConfirming(true)} disabled={confirming}>
                 Delete
               </Button>
@@ -189,7 +195,7 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
           </div>
         </header>
 
-        {confirming ? (
+        {confirming && canDelete ? (
           <div className="flex flex-wrap items-center gap-3 border-b border-rose-200 bg-rose-50/70 px-4 py-3 dark:border-rose-500/25 dark:bg-rose-500/10 sm:px-6" role="alert">
             <div className="min-w-0 flex-1 text-sm">
               <div className="break-all font-semibold text-rose-900 dark:text-rose-300">
@@ -231,18 +237,22 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
                 active === 'overview' ? (
                   <Overview obj={obj} kind={kind} kinds={kinds} printer={printer} onOpen={onOpen} onFilterLabel={onFilterLabel} onCopy={copy} />
                 ) : active === 'yaml' ? (
-                  isSecret && !revealSecret ? (
+                  revealDenied ? (
+                    <AccessDenied what="this Secret's values" check={revealCheck} />
+                  ) : isSecret && !(revealSecret && reveal.allowed) ? (
                     <EmptyState
                       title="Secret values are hidden"
                       description="The manifest carries every value of this Secret (base64-encoded, not encrypted). Reveal it only when you need to read or edit it."
                       action={
-                        <Button size="sm" variant="secondary" onClick={() => setRevealSecret(true)}>
-                          Reveal YAML
-                        </Button>
+                        reveal.allowed ? (
+                          <Button size="sm" variant="secondary" onClick={() => setRevealSecret(true)}>
+                            Reveal YAML
+                          </Button>
+                        ) : undefined
                       }
                     />
                   ) : (
-                    <PodYamlPanel pod={obj as never} gvr={gvr} writePerm={writePermFor(kind)} />
+                    <PodYamlPanel pod={obj as never} gvr={gvr} />
                   )
                 ) : (
                   <EventsTimeline namespace={ns} name={target.name} kind={kind.kind} />

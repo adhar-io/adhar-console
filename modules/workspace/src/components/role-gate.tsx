@@ -1,111 +1,62 @@
 import type { ReactNode } from 'react'
-import { StatusBadge } from '@adhar/shell-ui'
-import { cn } from '@adhar/utils'
-import {
-  ROLE_LABEL,
-  ROLE_TONE,
-  rolesHavePermission,
-  useCurrentRoles,
-  type Permission,
-  type Role,
-} from '../data/access.ts'
+import { StatusBadge, useAccessReview, type AccessCheck } from '@adhar/shell-ui'
+import { ROLE_LABEL, ROLE_TONE, type Role } from '../data/access.ts'
 
 /**
- * Wraps a section / button so that it renders read-only or fully hides
- * depending on whether the current user has the required permission. The
- * "Required role" pill is shown so the operator immediately understands
- * who can change a setting (segregation-of-duty UX).
+ * Write gating for Settings — Kubernetes RBAC, asked as the signed-in user
+ * (docs/rbac.md). Every write a settings page makes goes to a BFF endpoint
+ * guarded by a `CONSOLE_PERMISSIONS` entry; the page asks the same question
+ * before it offers the action.
+ *
+ * Blocked actions are HIDDEN, not disabled — and stay hidden while the answer
+ * loads. A form the user may read but not change stays visible in `readOnly`
+ * mode: its controls are inert (a disabled fieldset), and its submit buttons
+ * live in the page header where they are wrapped without `readOnly`, so they
+ * simply are not there.
  */
 export function RequirePermission({
-  perm,
-  /** Roles that satisfy the permission — purely cosmetic; affects the pill. */
-  required,
+  check,
   children,
-  fallback,
-  /** When true, render children with `pointerEvents:none` and a disabled tone instead of hiding. */
+  fallback = null,
   readOnly = false,
 }: {
-  perm: Permission
-  required: Role[]
+  /** One check, or several that must ALL be allowed (CONSOLE_PERMISSIONS entries). */
+  check: AccessCheck | readonly AccessCheck[]
   children: ReactNode
+  /** Rendered instead when not allowed (and while loading). Default: nothing. */
   fallback?: ReactNode
+  /** Keep the children visible but inert — for forms that double as the read-only view. */
   readOnly?: boolean
 }) {
-  const roles = useCurrentRoles()
-  const allowed = rolesHavePermission(roles, perm)
-  if (!allowed && !readOnly) {
-    return (
-      <>
-        {fallback ?? (
-          <PermissionDenied required={required} perm={perm} />
-        )}
-      </>
-    )
-  }
-  if (!allowed && readOnly) {
-    // Dimmed and inert, and that is all. The pill used to be absolutely
-    // positioned at `right-3 top-3` OVER this content: fine above a large
-    // form, and on top of the words when the gated thing is a button — which
-    // is what "Invite member", "New custom role" and every other gated action
-    // looked like, with a role pill sitting across the label.
-    //
-    // It was also saying nothing new. Every settings view but one already
-    // declares `required` on its ViewShell, which renders the same pill beside
-    // the page title, so the requirement is stated once, in a place that
-    // cannot collide with a control.
-    return (
-      <div
-        className="pointer-events-none opacity-60"
-        aria-disabled="true"
-        title={`Requires ${required.map((r) => ROLE_LABEL[r]).join(' or ')}`}
-      >
-        {children}
-      </div>
-    )
-  }
-  return <>{children}</>
-}
-
-export function PermissionDenied({ required, perm }: { required: Role[]; perm: Permission }) {
+  const { allowed } = useAccessReview(check)
+  if (allowed) return <>{children}</>
+  if (!readOnly) return <>{fallback}</>
+  // `display: contents` keeps the form's own layout; `disabled` on a fieldset
+  // makes every nested input, select and button inert in one place.
   return (
-    <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-6 text-sm text-amber-900">
-      <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 text-amber-700">
-          <IconLock />
-        </span>
-        <div className="min-w-0">
-          <div className="font-semibold">Restricted</div>
-          <p className="mt-1 text-[12px] text-amber-800">
-            Editing this section requires the{' '}
-            <code className="font-mono text-amber-900">{required.map((r) => ROLE_LABEL[r]).join(' or ')}</code>{' '}
-            role. Permission needed: <code className="font-mono text-amber-900">{perm}</code>.
-          </p>
-        </div>
-      </div>
-    </div>
+    <fieldset disabled className="contents" aria-readonly="true">
+      {children}
+    </fieldset>
   )
 }
 
-export function RequiredRolePill({
-  required,
-  className,
-}: {
-  required: Role[]
-  className?: string
-}) {
-  if (!required.length) return null
-  const primary = required[0]
+/**
+ * "Read only" pill beside a settings page title, shown once the user is known
+ * NOT to hold the page's write permission — it explains why the page has no
+ * buttons. Nothing while loading, when unknown, or when allowed.
+ */
+export function ReadOnlyPill({ check }: { check: AccessCheck | readonly AccessCheck[] }) {
+  // Only a definite "no" — an answer that could not be obtained (cluster
+  // unreachable, no session) is not evidence the page is read-only.
+  const { results } = useAccessReview(check)
+  if (!results.some((r) => r === false)) return null
   return (
     <span
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider shadow-sm align-middle',
-        'border-edge-default text-content-muted',
-        className,
-      )}
-      title={`Required role${required.length > 1 ? 's' : ''}: ${required.map((r) => ROLE_LABEL[r]).join(', ')}`}
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-edge-default bg-surface-sunken px-2 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider text-content-muted"
+      title="Your Kubernetes RBAC on this cluster does not allow changes here. Ask a workspace admin for access."
     >
       <IconLock />
-      <span className="whitespace-nowrap">{ROLE_LABEL[primary]}{required.length > 1 ? ` +${required.length - 1}` : ''}</span>
+      Read only
     </span>
   )
 }
@@ -116,7 +67,7 @@ export function RoleBadge({ role }: { role: Role }) {
 
 function IconLock() {
   return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <rect x="3" y="11" width="18" height="11" rx="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>

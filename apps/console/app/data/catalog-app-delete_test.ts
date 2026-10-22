@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert'
-import { belongsToDeletingApp, composedRefs, pruneStaleScaffolded, roleCanDeleteApplications, splitApplications } from './catalog-app-delete-model.ts'
+import { belongsToDeletingApp, composedRefs, pruneStaleScaffolded, splitApplications } from './catalog-app-delete-model.ts'
 import type { Entity } from './catalog.ts'
 
 const xr = (name: string, deletionTimestamp?: string) => ({ metadata: { name, ...(deletionTimestamp ? { deletionTimestamp } : {}) } })
@@ -23,11 +23,6 @@ Deno.test('composedRefs: Crossplane v1 and v2 shapes', () => {
   assertEquals(composedRefs({ apiVersion: 'x', kind: 'Application', metadata: { name: 'a' }, spec: { resourceRefs: [ref] } }), [{ kind: 'Object', name: 'check-server-dev' }])
   assertEquals(composedRefs({ apiVersion: 'x', kind: 'Application', metadata: { name: 'a' }, spec: { crossplane: { resourceRefs: [ref] } } }), [{ kind: 'Object', name: 'check-server-dev' }])
   assertEquals(composedRefs(undefined), [])
-})
-
-Deno.test('roleCanDeleteApplications mirrors the server gate', () => {
-  for (const r of ['super-admin', 'platform-admin', 'platform-engineer', 'application-admin']) assertEquals(roleCanDeleteApplications(r), true)
-  for (const r of ['developer', 'viewer', null, undefined]) assertEquals(roleCanDeleteApplications(r), false)
 })
 
 const scaffolded = (name: string, createdAt: string): Entity => ({

@@ -1,4 +1,4 @@
-import { assertEquals } from 'jsr:@std/assert'
+import { assertEquals } from 'jsr:@std/assert@^1'
 import { dirOf, isExternal, normalizePath, resolveReadmeImage } from './readme-assets.ts'
 
 const CTX = { owner: 'adhar', repo: 'test-service', ref: 'main', dir: '' }

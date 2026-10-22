@@ -1,10 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, EmptyState, StatusBadge, useActiveCluster, useOptionalUser } from '@adhar/shell-ui'
+import {
+  type AccessCheck,
+  Button,
+  canResource,
+  StatusBadge,
+  useAccessReview,
+  useActiveCluster,
+  useCan,
+  useOptionalUser,
+} from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { KubeObject } from '@adhar/api-clients/k8s'
 import { NamespacePicker } from '../components/namespace-picker.tsx'
-import { K8sRolePill } from '../components/role-gate.tsx'
-import { K8S_ROLE_LABEL, useHasK8sPermission, useK8sCurrentRoles } from '../data/access.ts'
+import { AccessDenied } from '../components/role-gate.tsx'
 import { clusterParam } from '../data/client.ts'
 import { useLiveList } from '../data/live.ts'
 import { GVRS } from '../data/gvr.ts'
@@ -47,6 +55,12 @@ import { PodTerminal, type PodTerminalHandle, type TerminalAction, type Terminal
  *     per-user pod carrying that person's impersonation kubeconfig.
  * See platform/stack/packages/core/adhar-console/manifests/cloud-shell.yaml.
  *
+ * Access   — every launch is `create pods/exec` on its target pod, asked as the
+ *            signed-in user (docs/rbac.md); a launch the user may not make is
+ *            not offered. Exec is namespaced, so there is no page-wide gate:
+ *            someone who may exec only in their team's namespace still gets
+ *            the workbench for that namespace.
+ *
  * Layout   — identity / cluster / tools-pod header, a collapsible sidebar
  *            (Launch · Snippets · Recent) and a tabbed terminal workbench with
  *            optional side-by-side **split** panes, a **broadcast** bar that
@@ -69,6 +83,11 @@ interface PodLike extends KubeObject {
 }
 
 type Mode = 'pod' | 'cluster'
+
+/** The RBAC check behind opening a shell in `namespace/pod`. */
+function execCheck(namespace: string, pod?: string): AccessCheck {
+  return canResource(GVRS.pods, 'create', { namespace, name: pod || undefined, subresource: 'exec' })
+}
 
 /** Where the kubectl/k9s tools pod lives, and how it is labeled. */
 const TOOLS_NAMESPACE = 'adhar-system'
@@ -107,9 +126,7 @@ const nextId = () => `s${++seq}-${Date.now().toString(36)}`
 type SidebarTab = 'launch' | 'snippets' | 'recent'
 
 export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}) {
-  const canExec = useHasK8sPermission('pods.exec')
   const user = useOptionalUser()
-  const roles = useK8sCurrentRoles()
   const { cluster: activeCluster } = useActiveCluster()
   const clusterName = clusterParam(activeCluster)
 
@@ -301,12 +318,18 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
 
   const toolPods = useLiveList<PodLike>(GVRS.pods, { namespace: TOOLS_NAMESPACE, labelSelector: TOOLS_LABEL })
   const toolsPod = useMemo(() => toolPods.data.find((p) => p.status?.phase === 'Running'), [toolPods.data])
+  // The cluster shell is an exec into the shared tools pod.
+  const canClusterShell = useCan(execCheck(TOOLS_NAMESPACE, toolsPod?.metadata?.name), { enabled: Boolean(toolsPod) })
+  // "Reconnect all" re-opens every remembered target — offered only when each is allowed.
+  const restoreAccess = useAccessReview(
+    restorable.length ? restorable.map((r) => execCheck(r.namespace, r.pod)) : null,
+  )
 
   /** Launch the cluster (kubectl/k9s/helm) shell without going via the sidebar. */
   const launchCluster = useCallback(
     (split?: boolean) => {
       const container = toolsPod?.spec?.containers?.[0]?.name
-      if (!toolsPod || !container) return
+      if (!toolsPod || !container || !canClusterShell) return
       open(
         {
           kind: 'cluster',
@@ -321,25 +344,8 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
         { split },
       )
     },
-    [toolsPod, clusterName, open],
+    [toolsPod, clusterName, open, canClusterShell],
   )
-
-  if (!canExec) {
-    return (
-      <div className="rounded-2xl border border-edge-default bg-surface-raised p-8 shadow-sm">
-        <EmptyState
-          title="Cloud Shell needs exec permission"
-          description={
-            <>
-              Opening a shell in a container requires the Developer role or higher. Your current role
-              {roles.length ? ` (${roles.map((r) => K8S_ROLE_LABEL[r]).join(', ')})` : ''} can browse but not exec.
-            </>
-          }
-          action={<K8sRolePill perm="pods.exec" />}
-        />
-      </div>
-    )
-  }
 
   return (
     <div
@@ -360,7 +366,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
             <span className="font-mono">{restorable.map((r) => r.label).join(', ')}</span>
           </span>
           <span className="ml-auto flex items-center gap-1.5">
-            <Button size="xs" variant="primary" onClick={restore}>Reconnect all</Button>
+            {restoreAccess.allowed ? <Button size="xs" variant="primary" onClick={restore}>Reconnect all</Button> : null}
             <Button size="xs" variant="ghost" onClick={() => { setRestorable([]); saveOpenSessions([]) }}>Dismiss</Button>
           </span>
         </div>
@@ -379,6 +385,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
             clusterName={clusterName}
             toolsPod={toolsPod}
             toolsLoading={toolPods.isLoading}
+            canClusterShell={canClusterShell}
             canSplit={!!active}
             active={active}
             recents={recents}
@@ -413,15 +420,16 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
                   onReconnect={() => handles.current.get(s.id)?.reconnect()}
                 />
               ))}
-              <button
-                type="button"
-                onClick={() => launchCluster()}
-                disabled={!toolsPod}
-                title={toolsPod ? 'Open a kubectl / k9s / helm shell on the cluster' : `No Running pod labeled ${TOOLS_LABEL} in ${TOOLS_NAMESPACE}`}
-                className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-content-muted hover:bg-surface-raised hover:text-content disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <IconPrompt /> Cluster
-              </button>
+              {canClusterShell ? (
+                <button
+                  type="button"
+                  onClick={() => launchCluster()}
+                  title="Open a kubectl / k9s / helm shell on the cluster"
+                  className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-content-muted hover:bg-surface-raised hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
+                >
+                  <IconPrompt /> Cluster
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -473,7 +481,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
             {sessions.length === 0 ? (
               <WorkbenchEmpty
                 onLaunch={() => { setSidebarTab('launch'); setPrefs({ sidebar: true }) }}
-                onCluster={() => launchCluster()}
+                onCluster={canClusterShell ? () => launchCluster() : undefined}
                 sidebarHidden={!prefs.sidebar}
                 toolsReady={!!toolsPod}
               />
@@ -530,8 +538,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
             </span>
             <span className="hidden md:inline">cluster {clusterName ?? 'local'}</span>
             <span className="ml-auto hidden items-center gap-1 sm:inline-flex">
-              <IconShield /> exec runs as {user?.name || user?.email || 'you'}
-              {roles.length ? ` (${K8S_ROLE_LABEL[roles[0]]})` : ''} · audited
+              <IconShield /> exec runs as {user?.name || user?.email || 'you'} · audited
             </span>
           </div>
         </section>
@@ -550,6 +557,7 @@ function Sidebar({
   clusterName,
   toolsPod,
   toolsLoading,
+  canClusterShell,
   canSplit,
   active,
   recents,
@@ -564,6 +572,7 @@ function Sidebar({
   clusterName?: string
   toolsPod?: PodLike
   toolsLoading: boolean
+  canClusterShell: boolean
   canSplit: boolean
   active: Session | null
   recents: RecentTarget[]
@@ -597,7 +606,7 @@ function Sidebar({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {tab === 'launch' ? (
-          <Launcher initialNs={initialNs} prefs={prefs} clusterName={clusterName} toolsPod={toolsPod} toolsLoading={toolsLoading} canSplit={canSplit} onOpen={onOpen} />
+          <Launcher initialNs={initialNs} prefs={prefs} clusterName={clusterName} toolsPod={toolsPod} toolsLoading={toolsLoading} canClusterShell={canClusterShell} canSplit={canSplit} onOpen={onOpen} />
         ) : tab === 'snippets' ? (
           <Snippets active={active} onPaste={onPaste} />
         ) : (
@@ -616,6 +625,7 @@ function Launcher({
   clusterName,
   toolsPod,
   toolsLoading,
+  canClusterShell,
   canSplit,
   onOpen,
 }: {
@@ -624,10 +634,14 @@ function Launcher({
   clusterName?: string
   toolsPod?: PodLike
   toolsLoading: boolean
+  /** `create pods/exec` on the tools pod — false hides the cluster-shell mode. */
+  canClusterShell: boolean
   canSplit: boolean
   onOpen(s: Omit<Session, 'id' | 'status' | 'startedAt'>, opts?: { split?: boolean }): void
 }) {
-  const [mode, setMode] = useState<Mode>(toolsPod ? 'cluster' : 'pod')
+  const [modeChoice, setMode] = useState<Mode>(toolsPod ? 'cluster' : 'pod')
+  // Without exec on the tools pod there is only one way in: a pod the user may exec into.
+  const mode: Mode = canClusterShell ? modeChoice : 'pod'
   const [namespace, setNamespace] = useState<string | undefined>(initialNs)
   const [podFilter, setPodFilter] = useState('')
   const [pod, setPod] = useState<string | undefined>()
@@ -647,9 +661,12 @@ function Launcher({
   const selectedPod = useMemo(() => running.find((p) => p.metadata?.name === pod), [running, pod])
   const containers = useMemo(() => [...(selectedPod?.spec?.containers ?? []), ...(selectedPod?.spec?.initContainers ?? [])].map((c) => c.name), [selectedPod])
   const effectiveContainer = container && containers.includes(container) ? container : containers[0]
+  const podExecCheck = execCheck(selectedPod?.metadata?.namespace ?? namespace ?? 'default', pod)
+  const podExec = useAccessReview(podExecCheck, { enabled: Boolean(selectedPod) })
 
   const toolsContainer = toolsPod?.spec?.containers?.[0]?.name
   const openCluster = (split?: boolean) =>
+    canClusterShell &&
     toolsPod &&
     toolsContainer &&
     onOpen(
@@ -666,6 +683,7 @@ function Launcher({
       { split },
     )
   const openPod = (split?: boolean) =>
+    podExec.allowed &&
     selectedPod &&
     effectiveContainer &&
     onOpen(
@@ -684,24 +702,26 @@ function Launcher({
 
   return (
     <div className="space-y-3 p-3">
-      <div className="grid grid-cols-2 gap-1 rounded-lg border border-edge-default bg-surface-sunken p-0.5">
-        {(
-          [
-            ['cluster', 'Cluster shell', 'kubectl · k9s · helm'],
-            ['pod', 'Pod exec', 'shell into a container'],
-          ] as const
-        ).map(([value, label, hint]) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => setMode(value)}
-            className={cn('rounded-md px-2 py-1.5 text-left transition-colors', mode === value ? 'bg-surface-raised shadow-sm ring-1 ring-edge-default' : 'hover:bg-surface-raised/60')}
-          >
-            <div className={cn('text-[12px] font-semibold', mode === value ? 'text-content' : 'text-content-muted')}>{label}</div>
-            <div className="text-[10px] text-content-subtle">{hint}</div>
-          </button>
-        ))}
-      </div>
+      {canClusterShell ? (
+        <div className="grid grid-cols-2 gap-1 rounded-lg border border-edge-default bg-surface-sunken p-0.5">
+          {(
+            [
+              ['cluster', 'Cluster shell', 'kubectl · k9s · helm'],
+              ['pod', 'Pod exec', 'shell into a container'],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setMode(value)}
+              className={cn('rounded-md px-2 py-1.5 text-left transition-colors', mode === value ? 'bg-surface-raised shadow-sm ring-1 ring-edge-default' : 'hover:bg-surface-raised/60')}
+            >
+              <div className={cn('text-[12px] font-semibold', mode === value ? 'text-content' : 'text-content-muted')}>{label}</div>
+              <div className="text-[10px] text-content-subtle">{hint}</div>
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {mode === 'cluster' ? (
         toolsLoading ? (
@@ -719,10 +739,13 @@ function Launcher({
               <StatusBadge kind="healthy">ready</StatusBadge>
               <span className="truncate font-mono text-[11px] text-content-muted">{TOOLS_NAMESPACE}/{toolsPod.metadata?.name}</span>
             </div>
-            <p className="text-[11px] text-content-subtle">A shell with kubectl, k9s and helm on PATH, authorised as you.</p>
+            <p className="text-[11px] text-content-subtle">
+              A shell with kubectl, k9s and helm on PATH. kubectl there runs as the tools pod's read-only
+              service account, not as you.
+            </p>
             <div className="flex gap-1.5">
               <Button size="sm" variant="primary" className="flex-1" onClick={() => openCluster(false)}>Open cluster shell</Button>
-              {canSplit ? <Button size="sm" variant="secondary" title="Open beside the active session" onClick={() => openCluster(true)}><IconSplit /></Button> : null}
+              {canSplit ? <Button size="sm" variant="secondary" title="Open beside the active session" aria-label="Open beside the active session" onClick={() => openCluster(true)}><IconSplit /></Button> : null}
             </div>
           </div>
         )
@@ -797,10 +820,16 @@ function Launcher({
               />
             ) : null}
           </Field>
-          <div className="flex gap-1.5 pt-1">
-            <Button size="sm" variant="primary" className="flex-1" disabled={!selectedPod || !effectiveContainer} onClick={() => openPod(false)}>Open shell</Button>
-            {canSplit ? <Button size="sm" variant="secondary" disabled={!selectedPod || !effectiveContainer} title="Open beside the active session" onClick={() => openPod(true)}><IconSplit /></Button> : null}
-          </div>
+          {!selectedPod ? (
+            <p className="pt-1 text-[11px] text-content-subtle">Pick a running pod to open a shell in it.</p>
+          ) : podExec.allowed ? (
+            <div className="flex gap-1.5 pt-1">
+              <Button size="sm" variant="primary" className="flex-1" disabled={!effectiveContainer} onClick={() => openPod(false)}>Open shell</Button>
+              {canSplit ? <Button size="sm" variant="secondary" disabled={!effectiveContainer} title="Open beside the active session" aria-label="Open beside the active session" onClick={() => openPod(true)}><IconSplit /></Button> : null}
+            </div>
+          ) : podExec.results[0] === false ? (
+            <AccessDenied compact what="a shell in this pod" check={podExecCheck} />
+          ) : null}
         </div>
       )}
     </div>
@@ -955,10 +984,9 @@ function Recents({
               <div className="truncate font-mono text-[11px] text-content">{r.kind === 'cluster' ? 'cluster shell' : `${r.namespace}/${r.pod}`}</div>
               <div className="truncate text-[10px] text-content-subtle">{r.kind === 'pod' ? `${r.container} · ${r.shell} · ` : ''}{fmtAgo(r.lastOpened)}</div>
             </div>
-            <Button
-              size="xs"
-              variant="secondary"
-              onClick={() =>
+            <RecentOpen
+              target={r}
+              onOpen={() =>
                 onOpen({
                   kind: r.kind,
                   cluster: r.cluster,
@@ -970,13 +998,22 @@ function Recents({
                   label: r.kind === 'cluster' ? 'cluster' : r.pod,
                 })
               }
-            >
-              Open
-            </Button>
+            />
           </li>
         ))}
       </ul>
     </div>
+  )
+}
+
+/** A recent target's Open — only when the user may still exec into it, on ITS cluster. */
+function RecentOpen({ target, onOpen }: { target: RecentTarget; onOpen(): void }) {
+  const allowed = useCan(execCheck(target.namespace, target.pod), target.cluster ? { cluster: target.cluster } : {})
+  if (!allowed) return null
+  return (
+    <Button size="xs" variant="secondary" onClick={onOpen}>
+      Open
+    </Button>
   )
 }
 
@@ -1188,7 +1225,8 @@ function WorkbenchEmpty({
   toolsReady,
 }: {
   onLaunch(): void
-  onCluster(): void
+  /** Absent when the user may not exec into the tools pod — the card is not offered. */
+  onCluster?: () => void
   sidebarHidden: boolean
   toolsReady: boolean
 }) {
@@ -1200,25 +1238,27 @@ function WorkbenchEmpty({
         </span>
         <h3 className="mt-3 text-sm font-semibold text-content">A terminal into the cluster, as you</h3>
         <p className="mx-auto mt-1 max-w-md text-[12px] leading-relaxed text-content-muted">
-          Sessions run through the exec gateway with your own Kubernetes RBAC — you can only reach what
-          you could reach with kubectl, and every session is audited.
+          Opening a session is an exec checked against your own Kubernetes RBAC — you can only open
+          shells in pods you could exec into with kubectl, and every session is audited.
         </p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={onCluster}
-            disabled={!toolsReady}
-            className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <div className="text-[12px] font-medium text-content">Cluster shell</div>
-            <div className="mt-0.5 text-[11px] leading-relaxed text-content-subtle">
-              {toolsReady ? 'kubectl, k9s and helm already on PATH.' : 'The tools pod is not running in this cluster.'}
-            </div>
-          </button>
+        <div className={cn('mt-4 grid gap-2', onCluster && 'sm:grid-cols-2')}>
+          {onCluster ? (
+            <button
+              type="button"
+              onClick={onCluster}
+              disabled={!toolsReady}
+              className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <div className="text-[12px] font-medium text-content">Cluster shell</div>
+              <div className="mt-0.5 text-[11px] leading-relaxed text-content-subtle">
+                {toolsReady ? 'kubectl, k9s and helm already on PATH.' : 'The tools pod is not running in this cluster.'}
+              </div>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onLaunch}
-            className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300"
+            className="rounded-xl border border-edge-default bg-surface-app p-3 text-left transition-colors hover:border-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
           >
             <div className="text-[12px] font-medium text-content">Pod shell</div>
             <div className="mt-0.5 text-[11px] leading-relaxed text-content-subtle">

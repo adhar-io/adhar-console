@@ -1,55 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { isValidElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar/utils'
 import { useClickOutside } from './use-click-outside.ts'
 import { autofocusSearch } from './use-media-query.ts'
 import {
-  AirbyteIcon,
-  ArgoCDIcon,
-  ArgoRolloutsIcon,
-  ArgoWorkflowsIcon,
-  CoderIcon,
-  GiteaIcon,
-  GrafanaIcon,
-  CiliumIcon,
-  HarborIcon,
-  HeadlampIcon,
-  JupyterIcon,
-  KafkaIcon,
-  KargoIcon,
-  KeycloakIcon,
   KubernetesIcon,
-  KyvernoIcon,
-  MetabaseIcon,
-  NexusIcon,
-  OpenCostIcon,
-  PlaneIcon,
-  PostHogIcon,
-  PrometheusIcon,
-  StrapiIcon,
-  TektonIcon,
-  DagsterIcon,
-  FaroIcon,
-  KubeflowIcon,
-  LibreDBIcon,
-  LitmusIcon,
-  MLflowIcon,
-  LakeFSIcon,
-  LokiIcon,
-  MimirIcon,
-  N8nIcon,
-  OnCallIcon,
-  OpenMetadataIcon,
-  OpenBaoIcon,
-  OpenSearchIcon,
-  PenpotIcon,
-  PrefectIcon,
-  PyroscopeIcon,
-  RabbitMQIcon,
-  RustFSIcon,
-  TempoIcon,
-  TrinoIcon,
-  ValkeyIcon,
 } from './brand-icons.tsx'
+import { ToolLogo, toolLogoWantsLightTile } from './tool-logo.tsx'
 
 export type AppCategory =
   | 'Code'
@@ -80,6 +36,9 @@ export interface AppLink {
   via?: { tool: string; path: string }
 }
 
+/** A launcher tile's official bundled logo (28px, inside the tile's own box). */
+const logo = (tool: string) => <ToolLogo tool={tool} size={28} tile={false} />
+
 /** Grafana Explore deep-link for a given datasource. */
 const exploreLeft = (datasource: string) =>
   `/explore?left=${encodeURIComponent(JSON.stringify({ datasource }))}`
@@ -101,7 +60,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Source control & code review',
     url: 'https://gitea.adhar.localtest.me:8443',
     category: 'Code',
-    icon: <GiteaIcon />,
+    icon: logo('gitea'),
   },
   {
     id: 'plane',
@@ -109,7 +68,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Issues, sprints & roadmaps',
     url: 'https://plane.adhar.localtest.me:8443',
     category: 'Code',
-    icon: <PlaneIcon />,
+    icon: logo('plane'),
   },
   {
     id: 'coder',
@@ -117,7 +76,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Cloud development workspaces',
     url: 'https://coder.adhar.localtest.me:8443',
     category: 'Code',
-    icon: <CoderIcon />,
+    icon: logo('coder'),
   },
 
   // ── Build & CI ────────────────────────────────────────────────────────────
@@ -127,7 +86,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Kubernetes-native build tasks',
     url: 'https://tekton.adhar.localtest.me:8443',
     category: 'Build & CI',
-    icon: <TektonIcon />,
+    icon: logo('tekton'),
   },
 
   // ── Deploy ────────────────────────────────────────────────────────────────
@@ -137,7 +96,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'GitOps continuous delivery',
     url: 'https://argocd.adhar.localtest.me:8443',
     category: 'Deploy',
-    icon: <ArgoCDIcon />,
+    icon: logo('argo'),
   },
   {
     id: 'kargo',
@@ -145,7 +104,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Multi-stage promotion',
     url: 'https://kargo.adhar.localtest.me:8443',
     category: 'Deploy',
-    icon: <KargoIcon />,
+    icon: logo('kargo'),
   },
   {
     id: 'argo-rollouts',
@@ -154,7 +113,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     url: 'https://argo-rollout.adhar.localtest.me:8443',
     category: 'Deploy',
     sub: 'argo-rollout',
-    icon: <ArgoRolloutsIcon />,
+    icon: logo('argo'),
   },
 
   // ── Registry ──────────────────────────────────────────────────────────────
@@ -164,7 +123,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Container images & artifacts',
     url: 'https://harbor.adhar.localtest.me:8443',
     category: 'Registry',
-    icon: <HarborIcon />,
+    icon: logo('harbor'),
   },
 
   // ── Observe ───────────────────────────────────────────────────────────────
@@ -174,7 +133,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Dashboards & alerting',
     url: GRAFANA_DEV,
     category: 'Observe',
-    icon: <GrafanaIcon />,
+    icon: logo('grafana'),
   },
   {
     id: 'prometheus',
@@ -184,7 +143,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     category: 'Observe',
     tools: ['grafana', 'prometheus', 'mimir'],
     via: { tool: 'grafana', path: exploreLeft('prometheus') },
-    icon: <PrometheusIcon />,
+    icon: logo('prometheus'),
   },
   {
     id: 'hubble',
@@ -192,7 +151,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Network flows (Cilium)',
     url: 'https://hubble.adhar.localtest.me:8443',
     category: 'Observe',
-    icon: <CiliumIcon />,
+    icon: logo('hubble'),
   },
   {
     id: 'kafka-ui',
@@ -200,7 +159,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Topics, consumers & messages',
     url: 'https://kafka-ui.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <KafkaIcon />,
+    icon: logo('kafka-ui'),
   },
   {
     id: 'jupyterhub',
@@ -208,7 +167,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Notebooks & data science',
     url: 'https://jupyterhub.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <JupyterIcon />,
+    icon: logo('jupyterhub'),
   },
   {
     id: 'opencost',
@@ -216,7 +175,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Cost allocation & spend',
     url: 'https://opencost.adhar.localtest.me:8443',
     category: 'Observe',
-    icon: <OpenCostIcon />,
+    icon: logo('opencost'),
   },
 
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -226,7 +185,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'ELT & data ingestion',
     url: 'https://airbyte.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <AirbyteIcon />,
+    icon: logo('airbyte'),
   },
   {
     id: 'metabase',
@@ -234,7 +193,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'BI & ad-hoc analytics',
     url: 'https://metabase.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <MetabaseIcon />,
+    icon: logo('metabase'),
   },
   {
     id: 'posthog',
@@ -242,7 +201,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Product analytics & flags',
     url: 'https://posthog.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <PostHogIcon />,
+    icon: logo('posthog'),
   },
 
   // ── Security ──────────────────────────────────────────────────────────────
@@ -252,7 +211,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Identity & SSO',
     url: 'https://keycloak.adhar.localtest.me:8443',
     category: 'Security',
-    icon: <KeycloakIcon />,
+    icon: logo('keycloak'),
   },
   {
     // The platform ships OpenBao, the Linux Foundation fork of Vault. Its
@@ -265,7 +224,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     sub: 'openbao',
     url: 'https://openbao.adhar.localtest.me:8443',
     category: 'Security',
-    icon: <OpenBaoIcon />,
+    icon: logo('openbao'),
   },
   {
     // Kyverno + Trivy have no standalone UI; Policy Reporter is where their
@@ -275,7 +234,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Kyverno policy & Trivy vulnerability reports',
     url: 'https://policy-reporter.adhar.localtest.me:8443',
     category: 'Security',
-    icon: <KyvernoIcon />,
+    icon: logo('kyverno'),
   },
 
   // ── Registry ──────────────────────────────────────────────────────────────
@@ -285,7 +244,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Artifact & dependency repository',
     url: 'https://nexus.adhar.localtest.me:8443',
     category: 'Registry',
-    icon: <NexusIcon />,
+    icon: logo('nexus'),
   },
 
   // ── Platform ──────────────────────────────────────────────────────────────
@@ -297,7 +256,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Kubernetes cluster dashboard',
     url: 'https://headlamp.adhar.localtest.me:8443',
     category: 'Platform',
-    icon: <HeadlampIcon />,
+    icon: logo('headlamp'),
   },
   {
     // The platform ships LitmusChaos, not Chaos Mesh: `chaos-mesh.<domain>`
@@ -309,7 +268,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Chaos engineering experiments',
     url: 'https://litmus.adhar.localtest.me:8443',
     category: 'Platform',
-    icon: <LitmusIcon />,
+    icon: logo('litmus'),
   },
   {
     id: 'n8n',
@@ -317,7 +276,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Workflow automation',
     url: 'https://n8n.adhar.localtest.me:8443',
     category: 'Platform',
-    icon: <N8nIcon />,
+    icon: logo('n8n'),
   },
   {
     id: 'strapi',
@@ -325,7 +284,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Headless CMS & content API',
     url: 'https://strapi.adhar.localtest.me:8443',
     category: 'Code',
-    icon: <StrapiIcon />,
+    icon: logo('strapi'),
   },
   {
     id: 'penpot',
@@ -333,7 +292,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Design & prototyping',
     url: 'https://penpot.adhar.localtest.me:8443',
     category: 'Code',
-    icon: <PenpotIcon />,
+    icon: logo('penpot'),
   },
 
   // ── Observe (LGTM + Grafana products) ──────────────────────────────────────
@@ -350,7 +309,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     category: 'Observe',
     tools: ['grafana', 'loki'],
     via: { tool: 'grafana', path: exploreLeft('loki') },
-    icon: <LokiIcon />,
+    icon: logo('loki'),
   },
   {
     id: 'tempo',
@@ -360,7 +319,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     category: 'Observe',
     tools: ['grafana', 'tempo'],
     via: { tool: 'grafana', path: exploreLeft('tempo') },
-    icon: <TempoIcon />,
+    icon: logo('tempo'),
   },
   {
     id: 'pyroscope',
@@ -368,7 +327,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Continuous profiling',
     url: 'https://pyroscope.adhar.localtest.me:8443',
     category: 'Observe',
-    icon: <PyroscopeIcon />,
+    icon: logo('pyroscope'),
   },
   {
     id: 'oncall',
@@ -376,7 +335,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'On-call schedules & escalations',
     url: 'https://oncall.adhar.localtest.me:8443',
     category: 'Observe',
-    icon: <OnCallIcon />,
+    icon: logo('oncall'),
   },
 
   // ── Data platform ──────────────────────────────────────────────────────────
@@ -386,7 +345,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Data orchestration',
     url: 'https://dagster.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <DagsterIcon />,
+    icon: logo('dagster'),
   },
   {
     id: 'prefect',
@@ -394,7 +353,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Workflow orchestration',
     url: 'https://prefect.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <PrefectIcon />,
+    icon: logo('prefect'),
   },
   {
     id: 'kubeflow',
@@ -402,7 +361,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'ML pipelines & notebooks',
     url: 'https://kubeflow.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <KubeflowIcon />,
+    icon: logo('kubeflow'),
   },
   {
     id: 'mlflow',
@@ -410,7 +369,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Experiment tracking & model registry',
     url: 'https://mlflow.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <MLflowIcon />,
+    icon: logo('mlflow'),
   },
   {
     id: 'open-metadata',
@@ -418,7 +377,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Data catalog & lineage',
     url: 'https://open-metadata.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <OpenMetadataIcon />,
+    icon: logo('open-metadata'),
   },
   {
     id: 'opensearch',
@@ -426,7 +385,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Search & analytics',
     url: 'https://opensearch.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <OpenSearchIcon />,
+    icon: logo('opensearch'),
   },
   {
     id: 'trino',
@@ -434,7 +393,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Distributed SQL queries',
     url: 'https://trino.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <TrinoIcon />,
+    icon: logo('trino'),
   },
   {
     id: 'rabbitmq',
@@ -442,7 +401,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Message broker',
     url: 'https://rabbitmq.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <RabbitMQIcon />,
+    icon: logo('rabbitmq'),
   },
   {
     // The UI is Redis Commander (MIT; RedisInsight is SSPL), but nobody on this
@@ -455,7 +414,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Browse & edit the platform caches',
     url: 'https://valkey-admin.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <ValkeyIcon />,
+    icon: logo('valkey'),
   },
   {
     id: 'rustfs',
@@ -463,7 +422,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'S3-compatible object storage',
     url: 'https://rustfs.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <RustFSIcon />,
+    icon: logo('rustfs'),
   },
   {
     id: 'libredb',
@@ -471,7 +430,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'SQL browser & database studio',
     url: 'https://libredb.adhar.localtest.me:8443',
     category: 'Data',
-    icon: <LibreDBIcon />,
+    icon: logo('libredb-studio'),
   },
 ]
 
@@ -749,7 +708,7 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
         description: 'Discovered from a route on this cluster',
         url,
         category: 'Platform',
-        icon: <GenericAppIcon label={id} />,
+        icon: <ToolLogo tool={id} size={28} tile={false} fallback={<GenericAppIcon label={id} />} />,
         configured: true,
       })
     }
@@ -1171,8 +1130,16 @@ function AppTile({
   onLaunch(): void
 }) {
   const tone = CATEGORY_TONE[a.category]
+  // Dark-on-transparent official logos sit on a light tile in dark mode.
+  const lightTile = isValidElement<{ tool?: string }>(a.icon) && a.icon.type === ToolLogo &&
+    toolLogoWantsLightTile(a.icon.props.tool)
   const iconBox = (
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle transition-transform duration-150 group-hover:scale-105 [&>svg]:h-7 [&>svg]:w-7">
+    <div
+      className={cn(
+        'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-surface-raised shadow-sm ring-1 ring-edge-subtle transition-transform duration-150 group-hover:scale-105 [&>svg]:h-7 [&>svg]:w-7',
+        lightTile && 'dark:bg-white',
+      )}
+    >
       {a.icon}
     </div>
   )

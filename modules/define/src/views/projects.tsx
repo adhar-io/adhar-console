@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import {
   Button,
   type Column,
@@ -118,7 +119,7 @@ export function Projects({ activeId, onPick }: Props) {
           onChange={(v) => setParams({ layout: v === 'cards' ? undefined : v })}
           options={[{ value: 'cards', label: 'Cards' }, { value: 'table', label: 'Table' }]}
         />
-        <Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>New project</Button>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>New project</Button>
       </div>
 
       <TeamScopeBar team={team.team} shown={teamScoped.length} total={all.length} noun="Plane projects" />
@@ -139,7 +140,6 @@ export function Projects({ activeId, onPick }: Props) {
               </button>
             ))}
             <span><b className="font-semibold tabular-nums text-content">{rows.filter((r) => r.activeSprint).length}</b> with an active sprint</span>
-            {portfolio.fetching ? <span className="text-content-subtle">refreshing…</span> : null}
           </div>
         )
         : null}
@@ -147,7 +147,7 @@ export function Projects({ activeId, onPick }: Props) {
       {portfolio.error && !portfolio.loading ? <ProblemState compact error={portfolio.error} /> : null}
 
       {all.length === 0
-        ? <EmptyState title="No projects yet" description="Create the first project to start planning work." action={<Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>New project</Button>} />
+        ? <EmptyState icon={<EmptyIcon name="folder" />} title="No projects yet" description="Create the first project to start planning work." action={<Button variant="primary" size="sm" onClick={() => setCreateOpen(true)}>New project</Button>} />
         : teamScoped.length === 0
         ? <EmptyState title={`No Plane projects linked to ${team.team}`} description="Link a Plane project to an Adhar project or team from its Settings tab, or show every project." />
         : shown.length === 0

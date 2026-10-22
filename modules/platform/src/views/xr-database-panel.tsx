@@ -9,6 +9,7 @@ import {
   Sparkline,
   StatusBadge,
   type StatusKind,
+  useToast,
 } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import type { KubeList } from '@adhar/api-clients/k8s'
@@ -233,7 +234,7 @@ function CnpgInsight({ name, namespace, cluster }: { name: string; namespace?: s
                       aria-selected={range === k}
                       onClick={() => setRange(k)}
                       className={cn(
-                        'rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+                        'rounded-md px-2 py-0.5 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400/40',
                         range === k
                           ? 'bg-surface-raised text-content shadow-sm'
                           : 'text-content-muted hover:text-content',
@@ -556,6 +557,7 @@ function ConnectionsTile({
 }
 
 function EndpointRow({ label, host, namespace }: { label: string; host?: string; namespace?: string }) {
+  const toast = useToast()
   if (!host) return null
   const fqdn = namespace ? `${host}.${namespace}.svc:5432` : `${host}:5432`
   return (
@@ -563,10 +565,13 @@ function EndpointRow({ label, host, namespace }: { label: string; host?: string;
       <span className="shrink-0 text-xs text-content-muted">{label}</span>
       <button
         type="button"
-        className="group min-w-0 truncate font-mono text-xs text-content hover:text-brand-700 dark:hover:text-brand-300"
-        title="Copy"
+        className="group min-w-0 truncate rounded font-mono text-xs text-content outline-none hover:text-brand-700 focus-visible:ring-2 focus-visible:ring-brand-400/40 dark:hover:text-brand-300"
+        title={`Copy ${fqdn}`}
         onClick={() => {
-          void navigator.clipboard?.writeText(fqdn)
+          navigator.clipboard?.writeText(fqdn).then(
+            () => toast.success('Endpoint copied', { description: fqdn }),
+            () => toast.error('Could not copy'),
+          )
         }}
       >
         {fqdn}

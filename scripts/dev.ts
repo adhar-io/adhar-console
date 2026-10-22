@@ -69,7 +69,9 @@ async function pipe(
   stream: ReadableStream<Uint8Array>,
   sink: (line: string) => void,
 ) {
-  const reader = stream.pipeThrough(new TextDecoderStream()).getReader()
+  // Cast: TextDecoderStream is typed for `BufferSource`, which TS 5.7 no
+  // longer matches against a `Uint8Array` stream.
+  const reader = stream.pipeThrough(new TextDecoderStream() as unknown as TransformStream<Uint8Array, string>).getReader()
   let buffer = ''
   try {
     while (true) {

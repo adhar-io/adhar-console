@@ -38,10 +38,10 @@ export function EventsTimeline({ namespace, name, kind }: { namespace?: string; 
     return parts.length ? parts.join(',') : undefined
   }, [name, kind])
 
-  const live = useLiveList<TimelineEvent>(GVRS.events, { namespace, fieldSelector })
+  const live = useLiveList(GVRS.events, { namespace, fieldSelector })
 
   const events = useMemo(() => {
-    return (live.data ?? []).slice().sort((a, b) => eventTime(b) - eventTime(a))
+    return ((live.data ?? []) as unknown as TimelineEvent[]).slice().sort((a, b) => eventTime(b) - eventTime(a))
   }, [live.data])
 
   return (
@@ -84,14 +84,14 @@ function TimelineRow({ event: e }: { event: TimelineEvent }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-content">{e.reason ?? '—'}</span>
+            <span className="truncate font-medium text-content" title={e.reason}>{e.reason ?? '—'}</span>
             {count > 1 ? (
               <span className="rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-content-muted">
                 ×{count}
               </span>
             ) : null}
           </div>
-          {e.message ? <div className="mt-0.5 text-sm text-content-muted">{e.message}</div> : null}
+          {e.message ? <div className="mt-0.5 break-words text-sm text-content-muted">{e.message}</div> : null}
           {obj?.kind || obj?.name ? (
             <div className="mt-1 text-[11px] text-content-subtle">
               <span className="font-mono text-content-muted">{obj?.kind || '—'}</span>
@@ -115,7 +115,11 @@ function cnDot(warning: boolean): string {
 
 function LiveDot({ status }: { status: string }) {
   const live = status === 'live'
-  const color = live ? 'text-emerald-600' : status === 'error' ? 'text-rose-600' : 'text-amber-600'
+  const color = live
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : status === 'error'
+      ? 'text-rose-600 dark:text-rose-400'
+      : 'text-amber-600 dark:text-amber-400'
   const label = live ? 'live' : status
   return (
     <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${color}`}>

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
+  canResource,
   Card,
   CardBody,
   CardHeader,
@@ -13,17 +14,19 @@ import {
   Modal,
   Select,
   StatusBadge,
+  useAccessReview,
+  useCan,
   useOverlayDismiss,
   DrawerWidenButton,
   useDrawerWidth,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import type { KubeObject } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
 import { useDeployments, useHorizontalPodAutoscalers, useStatefulSets } from '../data/hooks.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
+import { AccessDenied } from '../components/role-gate.tsx'
 import { age } from '../data/format.ts'
 import { ListShell, matchesSearch } from './list-shell.tsx'
 
@@ -31,7 +34,8 @@ import { ListShell, matchesSearch } from './list-shell.tsx'
  * HorizontalPodAutoscaler dashboard — live (watch-backed) `autoscaling/v2`
  * list with real current-vs-target metric readings from `status.currentMetrics`,
  * scaling conditions straight from the controller, and RBAC-gated
- * create / edit-bounds / delete. Metric values are only ever rendered from
+ * create / edit-bounds / delete (Kubernetes RBAC as the signed-in user; actions
+ * the user may not take are not rendered). Metric values are only ever rendered from
  * what the apiserver reports — a metric with no reading shows "—", never a
  * made-up number.
  */
@@ -152,9 +156,21 @@ function condition(hpa: Hpa, type: string): HpaCondition | undefined {
 
 /* ── list view ─────────────────────────────────────────────────────────── */
 
+/**
+ * Create is a server-side apply of a new HPA, which the apiserver authorizes as
+ * `patch` AND `create` on horizontalpodautoscalers in the target namespace.
+ * Without a namespace the question is cluster-wide (all namespaces).
+ */
+function createChecks(namespace?: string) {
+  return [
+    canResource(GVRS.hpa, 'create', { namespace }),
+    canResource(GVRS.hpa, 'patch', { namespace }),
+  ]
+}
+
 export function AutoscalingView({ namespace }: { namespace?: string }) {
   const live = useHorizontalPodAutoscalers(namespace)
-  const canWrite = useHasK8sPermission('workloads.write')
+  const canCreate = useCan(createChecks(namespace))
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -191,15 +207,11 @@ export function AutoscalingView({ namespace }: { namespace?: string }) {
         onSearchChange={setSearch}
         searchPlaceholder="Search by name or target…"
         actions={
-          canWrite ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+          canCreate ? (
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               Create HPA
             </Button>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-              Create <K8sRolePill perm="workloads.write" />
-            </span>
-          )
+          ) : null
         }
       >
         <DataTable
@@ -286,14 +298,16 @@ export function AutoscalingView({ namespace }: { namespace?: string }) {
           empty={
             <EmptyState
               title="No HorizontalPodAutoscalers"
-              description="Create one to scale a Deployment or StatefulSet on live metrics."
+              description={canCreate
+                ? 'Create one to scale a Deployment or StatefulSet on live metrics.'
+                : 'None in scope. Ask a platform admin to add one for a Deployment or StatefulSet that should scale on live metrics.'}
             />
           }
         />
       </ListShell>
 
       {selectedHpa ? <HpaDrawer hpa={selectedHpa} onClose={() => setSelected(null)} /> : null}
-      {creating ? <CreateHpaModal namespace={namespace} onClose={() => setCreating(false)} /> : null}
+      {creating && canCreate ? <CreateHpaModal namespace={namespace} onClose={() => setCreating(false)} /> : null}
     </>
   )
 }
@@ -313,18 +327,23 @@ function HpaStatusBadge({ hpa }: { hpa: Hpa }) {
 
 function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
   const width = useDrawerWidth('platform.hpa', { base: 'max-w-2xl' })
-  const canWrite = useHasK8sPermission('workloads.write')
-  const canDelete = useHasK8sPermission('workloads.delete')
+  const target = { namespace: hpa.metadata.namespace, name: hpa.metadata.name }
+  // Edit bounds is a merge-PATCH; Delete is a DELETE — of this exact HPA.
+  const canEdit = useCan(canResource(GVRS.hpa, 'patch', target))
+  const canDelete = useCan(canResource(GVRS.hpa, 'delete', target))
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const qc = useQueryClient()
+  const toast = useToast()
 
   const deleteMut = useMutation({
     mutationFn: () => kube.delete(GVRS.hpa, hpa.metadata.namespace, hpa.metadata.name),
     onSuccess: () => {
+      toast.success(`Deleted HPA ${hpa.metadata.name}`)
       qc.invalidateQueries({ queryKey: ['k8s'] })
       onClose()
     },
+    onError: (e) => toast.error('Could not delete HPA', { description: (e as Error).message }),
   })
 
   const metrics = hpa.spec?.metrics ?? []
@@ -334,7 +353,7 @@ function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -350,31 +369,23 @@ function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
               </code>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <HpaStatusBadge hpa={hpa} />
-            {canWrite ? (
+            {canEdit ? (
               <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
                 Edit bounds
               </Button>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-                Edit <K8sRolePill perm="workloads.write" />
-              </span>
-            )}
+            ) : null}
             {canDelete ? (
               <Button size="sm" variant="danger" onClick={() => setConfirmingDelete(true)}>
                 Delete
               </Button>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-                Delete <K8sRolePill perm="workloads.delete" />
-              </span>
-            )}
+            ) : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content"
+              className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
               aria-label="Close"
             >
               ✕
@@ -382,7 +393,7 @@ function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
           </div>
         </header>
 
-        {confirmingDelete ? (
+        {confirmingDelete && canDelete ? (
           <div
             className="flex flex-wrap items-center gap-3 border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-3"
             role="alert"
@@ -392,11 +403,6 @@ function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
               <div className="text-[12px] text-content-muted">
                 The workload keeps its current replica count but stops autoscaling.
               </div>
-              {deleteMut.isError ? (
-                <div className="mt-1 text-xs text-rose-700 dark:text-rose-300">
-                  {(deleteMut.error as Error).message}
-                </div>
-              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <Button variant="ghost" size="sm" onClick={() => setConfirmingDelete(false)} disabled={deleteMut.isPending}>
@@ -524,7 +530,7 @@ function HpaDrawer({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
         </div>
       </aside>
 
-      {editing ? <EditBoundsModal hpa={hpa} onClose={() => setEditing(false)} /> : null}
+      {editing && canEdit ? <EditBoundsModal hpa={hpa} onClose={() => setEditing(false)} /> : null}
     </div>,
     document.body,
   )
@@ -543,6 +549,7 @@ function ReplicaTile({ label, value }: { label: string; value: number | string }
 
 function EditBoundsModal({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const [min, setMin] = useState(String(hpa.spec?.minReplicas ?? 1))
   const [max, setMax] = useState(String(hpa.spec?.maxReplicas ?? 1))
 
@@ -563,9 +570,11 @@ function EditBoundsModal({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
         'merge',
       ),
     onSuccess: () => {
+      toast.success(`Updated bounds of ${hpa.metadata.name}`, { description: `min ${minN} · max ${maxN}` })
       qc.invalidateQueries({ queryKey: ['k8s'] })
       onClose()
     },
+    onError: (e) => toast.error('Could not update bounds', { description: (e as Error).message }),
   })
 
   return (
@@ -579,7 +588,7 @@ function EditBoundsModal({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
           <Button variant="ghost" size="sm" onClick={onClose} disabled={mut.isPending}>
             Cancel
           </Button>
-          <Button size="sm" disabled={Boolean(invalid) || mut.isPending} onClick={() => mut.mutate()}>
+          <Button size="sm" variant="primary" disabled={Boolean(invalid) || mut.isPending} onClick={() => mut.mutate()}>
             {mut.isPending ? 'Saving…' : 'Save'}
           </Button>
         </>
@@ -593,11 +602,6 @@ function EditBoundsModal({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
           <Input type="number" min={1} value={max} onChange={(e) => setMax(e.target.value)} />
         </Field>
       </div>
-      {mut.isError ? (
-        <div className="mt-3 rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
-          {(mut.error as Error).message}
-        </div>
-      ) : null}
     </Modal>
   )
 }
@@ -606,6 +610,7 @@ function EditBoundsModal({ hpa, onClose }: { hpa: Hpa; onClose(): void }) {
 
 function CreateHpaModal({ namespace, onClose }: { namespace?: string; onClose(): void }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const deployments = useDeployments(namespace)
   const statefulsets = useStatefulSets(namespace)
 
@@ -649,6 +654,11 @@ function CreateHpaModal({ namespace, onClose }: { namespace?: string; onClose():
       ? 'Min must be ≥ 1 and Max must be ≥ Min.'
       : undefined
   const utilError = Number.isNaN(utilN) || utilN < 1 || utilN > 100 ? 'Target must be 1–100%.' : undefined
+  // The entry point asked about the list's namespace (or all of them); the
+  // workload picked here names the namespace the HPA actually lands in.
+  const pickedChecks = createChecks(picked?.ns)
+  const pickedAccess = useAccessReview(pickedChecks, { enabled: Boolean(picked) })
+  const deniedCheck = pickedChecks.find((_, i) => pickedAccess.results[i] === false)
 
   const mut = useMutation({
     mutationFn: () =>
@@ -669,9 +679,11 @@ function CreateHpaModal({ namespace, onClose }: { namespace?: string; onClose():
         },
       }),
     onSuccess: () => {
+      toast.success(`Created HPA ${picked?.name ?? ''}`, { description: picked ? `in ${picked.ns}` : undefined })
       qc.invalidateQueries({ queryKey: ['k8s'] })
       onClose()
     },
+    onError: (e) => toast.error('Could not create HPA', { description: (e as Error).message }),
   })
 
   const loadingWorkloads = deployments.isLoading || statefulsets.isLoading
@@ -688,13 +700,16 @@ function CreateHpaModal({ namespace, onClose }: { namespace?: string; onClose():
           <Button variant="ghost" size="sm" onClick={onClose} disabled={mut.isPending}>
             Cancel
           </Button>
-          <Button
-            size="sm"
-            disabled={!picked || Boolean(boundsError) || Boolean(utilError) || mut.isPending}
-            onClick={() => mut.mutate()}
-          >
-            {mut.isPending ? 'Creating…' : 'Create'}
-          </Button>
+          {!picked || pickedAccess.allowed ? (
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={!picked || Boolean(boundsError) || Boolean(utilError) || mut.isPending}
+              onClick={() => mut.mutate()}
+            >
+              {mut.isPending ? 'Creating…' : 'Create'}
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -745,10 +760,8 @@ function CreateHpaModal({ namespace, onClose }: { namespace?: string; onClose():
             <Input type="number" min={1} value={max} onChange={(e) => setMax(e.target.value)} />
           </Field>
         </div>
-        {mut.isError ? (
-          <div className="rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
-            {(mut.error as Error).message}
-          </div>
+        {deniedCheck ? (
+          <AccessDenied compact what={`creating autoscalers in ${picked?.ns}`} check={deniedCheck} />
         ) : null}
       </div>
     </Modal>

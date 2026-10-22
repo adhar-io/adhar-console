@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, type ComponentType, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useState, type ComponentType, type ReactNode } from 'react'
 import { ErrorBoundary } from '@adhar/shell-ui'
 
 interface Props {
@@ -23,9 +23,25 @@ interface Props {
 export function RemoteModule({ loader, fallback, componentProps = {}, label }: Props) {
   // `useMemo` prevents React.lazy from being recreated across renders when
   // componentProps change — same loader ref = same chunk, no reload.
-  const Lazy = useMemo(() => lazy(loader), [loader])
+  // `attempt` is the one deliberate exception: React.lazy caches a REJECTED
+  // load forever, so the boundary's "Try again" used to re-throw the same
+  // failed import (a network blip, a remote mid-rollout) with no way out
+  // short of a full reload. A retry builds a fresh lazy that imports again.
+  const [attempt, setAttempt] = useState(0)
+  const Lazy = useMemo(() => lazy(loader), [loader, attempt])
   return (
-    <ErrorBoundary>
+    <ErrorBoundary
+      fallback={(error, reset) => (
+        <LoadFailed
+          label={label}
+          error={error}
+          onRetry={() => {
+            setAttempt((n) => n + 1)
+            reset()
+          }}
+        />
+      )}
+    >
       <Suspense fallback={fallback ?? <DefaultFallback label={label} />}>
         <Lazy {...componentProps} />
       </Suspense>
@@ -40,6 +56,50 @@ export function RemoteModule({ loader, fallback, componentProps = {}, label }: P
  */
 export function RemoteRoutes({ loader, fallback, label }: Props) {
   return <RemoteModule loader={loader} fallback={fallback} label={label} />
+}
+
+/**
+ * A module that failed to load or render. A chunk that 404s after a new
+ * release was deployed under the open tab can only be fixed by reloading the
+ * page (the old asset hashes are gone), so that is offered next to the retry.
+ */
+function LoadFailed({ label, error, onRetry }: { label?: string; error: Error; onRetry(): void }) {
+  const chunkLoad = /dynamically imported module|Failed to fetch|Loading chunk|remoteEntry|error loading/i.test(
+    error.message,
+  )
+  return (
+    <div
+      role="alert"
+      className="rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50 dark:bg-rose-500/10 p-6 text-rose-900 dark:text-rose-200"
+    >
+      <div className="text-sm font-semibold">
+        {chunkLoad ? `${label ?? 'This section'} could not be loaded` : 'Something went wrong'}
+      </div>
+      <p className="mt-1 text-xs">
+        {chunkLoad
+          ? 'The network dropped or the console was just updated. Try again, or reload the page to pick up the latest version.'
+          : error.message}
+      </p>
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-md border border-rose-300 bg-surface-raised px-3 py-1.5 text-sm font-medium text-rose-900 dark:text-rose-200 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+        >
+          Try again
+        </button>
+        {chunkLoad ? (
+          <button
+            type="button"
+            onClick={() => globalThis.location?.reload()}
+            className="rounded-md border border-rose-300 bg-surface-raised px-3 py-1.5 text-sm font-medium text-rose-900 dark:text-rose-200 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+          >
+            Reload page
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
 }
 
 /**

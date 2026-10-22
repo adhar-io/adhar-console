@@ -329,7 +329,7 @@ function PrRow({ pr, showRepo, onOpen, onRepo, onAuthor, onLabel }: {
       <div className='min-w-0 flex-1'>
         <div className='flex flex-wrap items-center gap-x-2 gap-y-1'>
           {showRepo
-            ? <button type='button' onClick={stop(onRepo)} className='text-[12px] font-medium text-content-muted hover:text-brand-700 hover:underline'>{pr.repo}</button>
+            ? <button type='button' onClick={stop(onRepo)} className='text-[12px] font-medium text-content-muted hover:text-brand-700 hover:underline dark:hover:text-brand-300'>{pr.repo}</button>
             : null}
           <span className='text-sm font-semibold text-content group-hover:text-brand-700 dark:group-hover:text-brand-300'>{pr.title}</span>
           {s === 'draft' ? <span className='rounded-full border border-edge-default px-1.5 text-[10px] font-medium text-content-muted'>draft</span> : null}

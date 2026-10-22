@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Modal } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, Modal, useCan, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
   ALL_ROLES,
@@ -121,18 +121,18 @@ export function RolesPermissions() {
     <ViewShell
       title="Roles & permissions"
       description="Built-in roles enforce strict segregation of duties. Billing, security, and execution responsibilities are split so a single person cannot both change cluster posture and approve their own purchase."
-      required={['owner']}
+      writeCheck={CONSOLE_PERMISSIONS.rolesUpdate}
       actions={
-        <RequirePermission perm="roles.write" required={['owner']} readOnly>
-          <SecondaryButton onClick={openCreate}>
+        <RequirePermission check={CONSOLE_PERMISSIONS.rolesCreate}>
+          <PrimaryButton onClick={openCreate}>
             <IconPlus /> New custom role
-          </SecondaryButton>
+          </PrimaryButton>
         </RequirePermission>
       }
     >
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatTile label="Built-in roles" value={ALL_ROLES.length} />
-        <StatTile label="Custom roles" value={custom.length} hint="Owner-managed" />
+        <StatTile label="Custom roles" value={custom.length} hint="workspace-defined" />
         <StatTile
           label="Permissions"
           value={new Set(Object.values(ROLE_PERMISSIONS).flat()).size}
@@ -177,31 +177,37 @@ function CustomRolesCard({
   onNew(): void
   onEdit(r: CustomRole): void
 }) {
+  const toast = useToast()
   const del = useDeleteRole()
+  const canCreate = useCan(CONSOLE_PERMISSIONS.rolesCreate)
+  const canUpdate = useCan(CONSOLE_PERMISSIONS.rolesUpdate)
+  const canDelete = useCan(CONSOLE_PERMISSIONS.rolesDelete)
   return (
     <SettingsCard
       title="Custom roles"
       description="Owner-defined roles layered on top of the built-in set. Assign them to members like any built-in role."
       actions={
-        <RequirePermission perm="roles.write" required={['owner']} readOnly>
+        canCreate ? (
           <SecondaryButton onClick={onNew}>
             <IconPlus /> New
           </SecondaryButton>
-        </RequirePermission>
+        ) : null
       }
     >
       {loading ? (
         <p className="text-[12px] text-content-muted">Loading…</p>
       ) : roles.length === 0 ? (
         <p className="text-[12px] text-content-muted">
-          No custom roles yet. Create one to grant a tailored slice of permissions.
+          {canCreate
+            ? 'No custom roles yet. Create one to grant a tailored slice of permissions.'
+            : 'No custom roles yet. Ask a workspace admin to create one for a tailored slice of permissions.'}
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {roles.map((r) => (
             <div key={r.id} className="rounded-2xl border border-edge-default bg-surface-raised p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-500/15 dark:text-brand-200 ring-1 ring-inset ring-brand-200">
+                <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-semibold text-brand-800 ring-1 ring-inset ring-brand-200 dark:bg-brand-500/15 dark:text-brand-200 dark:ring-brand-500/30">
                   {r.name}
                 </span>
                 <span className="font-mono text-[11px] tabular-nums text-content-subtle">
@@ -214,18 +220,20 @@ function CustomRolesCard({
               <p className="mt-2 text-[10px] text-content-subtle">
                 Updated {formatRelative(r.updatedAt)}
               </p>
-              <div className="mt-3 flex justify-end gap-1.5">
-                <RequirePermission perm="roles.write" required={['owner']} readOnly>
-                  <SecondaryButton onClick={() => onEdit(r)}>Edit</SecondaryButton>
-                  <SecondaryButton
-                    tone="rose"
-                    disabled={del.isPending}
-                    onClick={() => del.mutate(r.id)}
-                  >
-                    Delete
-                  </SecondaryButton>
-                </RequirePermission>
-              </div>
+              {canUpdate || canDelete ? (
+                <div className="mt-3 flex justify-end gap-1.5">
+                  {canUpdate ? <SecondaryButton onClick={() => onEdit(r)}>Edit</SecondaryButton> : null}
+                  {canDelete ? (
+                    <SecondaryButton
+                      tone="rose"
+                      disabled={del.isPending}
+                      onClick={() => del.mutate(r.id, { onError: (e) => toast.error(`Could not delete ${r.name}`, { description: (e as Error)?.message }) })}
+                    >
+                      Delete
+                    </SecondaryButton>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -299,7 +307,7 @@ function RoleEditor({
       branded
       width="xl"
       title={initial ? 'Edit custom role' : 'New custom role'}
-      description="Name the role and pick the exact permissions it grants. Owner-only."
+      description="Name the role and pick the exact permissions it grants."
       footer={
         <>
           <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
@@ -391,7 +399,7 @@ function RoleEditor({
         </div>
 
         {save.isError ? (
-          <p className="text-[12px] text-rose-700">
+          <p className="text-[12px] text-rose-700 dark:text-rose-400">
             {(save.error as Error)?.message ?? 'Could not save the role.'}
           </p>
         ) : null}
@@ -476,7 +484,7 @@ function RowGroup({ group }: { group: PermGroup }) {
 
 function Tick() {
   return (
-    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
+    <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M20 6 9 17l-5-5" />
       </svg>

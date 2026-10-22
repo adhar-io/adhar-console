@@ -26,6 +26,7 @@ import { describeSupport, REVIEWED_AT, SUPPORT_TABLE, type SupportStatus, suppor
 import { parseImageRef } from '~/data/catalog-techstack.ts'
 import { driftOf, effectiveVersion, type RunningEnv, runningByEnv } from '~/data/catalog-running.ts'
 import { useRunningVersions } from '~/data/catalog-running-query.ts'
+import { isSafeLinkUrl } from '~/data/safe-url.ts'
 
 /**
  * The catalog entity drawer's "Tech stack" tab.
@@ -263,7 +264,7 @@ export function TechStackTab({
     }
     if (version && declared) candidates.push({ value: version, from: declared, others: [] })
     if (data?.release) {
-      candidates.push({ value: data.release.version, from: `latest ${data.release.kind} ${data.release.tag}`, href: data.release.url, others: [] })
+      candidates.push({ value: data.release.version, from: `latest ${data.release.kind} ${data.release.tag}`, href: isSafeLinkUrl(data.release.url) ? data.release.url : undefined, others: [] })
     }
     for (const h of data?.appVersions ?? []) candidates.push({ value: h.version, from: `${h.detail} · ${h.source}`, file: h.source, href: hrefFor(h.source), others: [] })
     if (!candidates.length) return undefined

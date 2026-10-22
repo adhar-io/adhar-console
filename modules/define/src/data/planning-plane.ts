@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { gitea, plane } from '@adhar/api-clients'
-import { usePlaneWorkspace } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, useCan, usePlaneWorkspace } from '@adhar/shell-ui'
 import { planeClient, planeError } from './plane.ts'
 import { dayKey, takeSnapshot, wallNow, withSnapshot, type WorkItem } from './planning-model.ts'
 import { type AutomationEvent, checkTransition, evaluateAutomation, issueKeysIn, type ItemView } from './planning-workflow.ts'
@@ -586,6 +586,9 @@ const SENT = new Set<string>()
 export function useDefineNotify(projectId?: string) {
   const meta = useProjectMeta(projectId)
   const qc = useQueryClient()
+  // Organisation-wide delivery needs `create notifications-broadcast`; without
+  // it the event still reaches the person who acted instead of being refused.
+  const canBroadcast = useCan(CONSOLE_PERMISSIONS.notificationsBroadcast)
   return useCallback(
     (event: keyof Omit<NotificationPrefs, 'broadcast'>, input: { title: string; description?: string; key: string; href?: string }) => {
       const prefs: ProjectMeta['notifications'] = meta.data?.notifications
@@ -596,12 +599,12 @@ export function useDefineNotify(projectId?: string) {
         method: 'POST',
         credentials: 'include',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ ...input, kind: 'info', source: 'workspace', broadcast: !!prefs.broadcast }),
+        body: JSON.stringify({ ...input, kind: 'info', source: 'workspace', broadcast: !!prefs.broadcast && canBroadcast }),
         keepalive: true,
       })
         .then(() => qc.invalidateQueries({ queryKey: ['notifications', 'feed'] }))
         .catch(() => undefined)
     },
-    [meta.data, qc],
+    [meta.data, qc, canBroadcast],
   )
 }

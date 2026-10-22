@@ -78,12 +78,23 @@ export function ReviewChanges({ owner, repo, branch, session, project, parse, ap
       })
       let pr: number | undefined
       if (mode === 'pr') {
-        const created = await giteaClient.createPullRequest(owner, repo.name, {
-          head: target,
-          base: branch,
-          title: message.trim().split('\n')[0] || 'Design changes',
-          body: prBody(changes, warnings),
-        })
+        let created: { number: number }
+        try {
+          created = await giteaClient.createPullRequest(owner, repo.name, {
+            head: target,
+            base: branch,
+            title: message.trim().split('\n')[0] || 'Design changes',
+            body: prBody(changes, warnings),
+          })
+        } catch (e) {
+          // The commit already landed on the new branch: retrying here would fail on
+          // "branch exists", so move the editor onto that branch and say what is left.
+          toast.error(`Changes pushed to ${target}, but the pull request could not be opened`, {
+            description: `${e instanceof Error ? e.message : String(e)} — open it from Develop → Pull requests.`,
+          })
+          onCommitted({ branch: target })
+          return
+        }
         pr = created.number
         toast.success(`Pull request #${pr} opened`, {
           description: `${repo.name}: ${target} → ${branch}`,

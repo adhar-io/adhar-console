@@ -262,7 +262,7 @@ export function LabelBrowser({
           {labels.isLoading ? (
             <li className="flex items-center gap-2 px-3 py-2 text-[11px] text-content-subtle"><Spinner size={11} /> Loading labels…</li>
           ) : labels.isError ? (
-            <li className="px-3 py-2 text-[11px] text-rose-600">Couldn’t list labels.</li>
+            <li className="px-3 py-2 text-[11px] text-rose-600 dark:text-rose-400">Couldn’t list labels.</li>
           ) : (labels.data ?? []).length === 0 ? (
             <li className="px-3 py-2 text-[11px] text-content-subtle">No labels in range.</li>
           ) : (
@@ -302,7 +302,7 @@ export function LabelBrowser({
             {!label ? null : values.isLoading ? (
               <div className="flex items-center gap-2 px-1 py-2 text-[11px] text-content-subtle"><Spinner size={11} /> Loading values…</div>
             ) : values.isError ? (
-              <div className="px-1 py-2 text-[11px] text-rose-600">Couldn’t list values.</div>
+              <div className="px-1 py-2 text-[11px] text-rose-600 dark:text-rose-400">Couldn’t list values.</div>
             ) : shownValues.length === 0 ? (
               <div className="px-1 py-2 text-[11px] text-content-subtle">No values.</div>
             ) : (
@@ -318,7 +318,7 @@ export function LabelBrowser({
                         'inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] transition-colors',
                         on
                           ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300'
-                          : 'border-edge-default bg-surface-raised text-content-muted hover:border-brand-300 hover:text-content',
+                          : 'border-edge-default bg-surface-raised text-content-muted hover:border-brand-300 hover:text-content dark:hover:border-brand-500/30',
                       )}
                     >
                       <span className="truncate">{v}</span>
@@ -374,7 +374,7 @@ export function LogDetailDrawer({
   const fields = Object.entries(parsed.fields)
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Log line details">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label="Log line details">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-5 py-4">
@@ -397,7 +397,7 @@ export function LogDetailDrawer({
                     goTrace(traceId)
                   }}
                   title={`Open trace ${traceId} in Traces`}
-                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content hover:border-brand-300"
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content hover:border-brand-300 dark:hover:border-brand-500/30"
                 >
                   Trace <IconArrowUpRight />
                 </button>
@@ -551,7 +551,7 @@ function ContextView({
               onWindow(from, to)
               onQuery(selector)
             }}
-            className="ml-2 inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted hover:border-brand-300 hover:text-content"
+            className="ml-2 inline-flex h-7 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted hover:border-brand-300 hover:text-content dark:hover:border-brand-500/30"
           >
             <IconArrowUpRight /> Open as query
           </button>
@@ -561,7 +561,7 @@ function ContextView({
       {q.isLoading ? (
         <div className="flex items-center gap-2 py-8 text-[12px] text-content-subtle"><Spinner size={12} /> Loading context…</div>
       ) : q.isError ? (
-        <div className="py-8 text-[12px] text-rose-600">Couldn’t load context from Loki.</div>
+        <div className="py-8 text-[12px] text-rose-600 dark:text-rose-400">Couldn’t load context from Loki.</div>
       ) : rows.list.length === 0 ? (
         <div className="py-8 text-[12px] text-content-subtle">No surrounding lines.</div>
       ) : (

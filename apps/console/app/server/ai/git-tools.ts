@@ -205,7 +205,9 @@ export async function executeGitTool(
   // The org is fixed; only the repo name comes from the model, and a name that
   // tries to escape it (`../other-org/repo`) is refused rather than encoded.
   const repoName = String(args.repo ?? '')
-  if (name !== 'git_list_repos' && !/^[A-Za-z0-9._-]+$/.test(repoName)) {
+  // `.`/`..` match the character class but are path segments: `fetch` resolves
+  // `/repos/<org>/../…` before sending, so they escape the org all the same.
+  if (name !== 'git_list_repos' && (!/^[A-Za-z0-9._-]+$/.test(repoName) || /^\.+$/.test(repoName))) {
     return JSON.stringify({ error: `invalid repository name: ${repoName}` })
   }
   const repo = `/repos/${encodeURIComponent(org)}/${encodeURIComponent(repoName)}`
@@ -311,6 +313,12 @@ export async function executeGitTool(
     case 'git_file': {
       const ref = args.ref ? `?ref=${encodeURIComponent(String(args.ref))}` : ''
       const path = String(args.path ?? '').replace(/^\/+/, '')
+      // encodeURIComponent leaves `..` intact, and the URL parser then climbs
+      // out of `/repos/<org>/<repo>/raw/` — into another org's repository or
+      // Gitea's admin API, read with the console's admin credentials.
+      if (path.split('/').some((seg) => seg === '.' || seg === '..')) {
+        return JSON.stringify({ error: `invalid path: ${path}` })
+      }
       const res = await api(`${repo}/raw/${path.split('/').map(encodeURIComponent).join('/')}${ref}`)
       if (!res.ok) return await fail(res, `read ${path}`)
       const raw = await res.text()

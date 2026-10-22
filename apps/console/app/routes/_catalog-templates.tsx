@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   CardBody,
+  CONSOLE_PERMISSIONS,
   CardHeader,
   Field as FormField,
   Input,
@@ -12,8 +13,10 @@ import {
   Spinner,
   StatusBadge,
   Textarea,
+  useAccessReview,
   useGiteaOrg,
   useToolPublicUrl,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { useRegisterEntity, useCatalog, type Entity } from '~/data/catalog.ts'
@@ -145,6 +148,10 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
 
   const recentIds = useRecentTemplates()
   const recents = recentIds.map(getTemplate).filter((t): t is CatalogTemplate => Boolean(t))
+  // Scaffolding is `POST /api/scaffold`, gated on `create applications.console.adhar.io`.
+  // Without it the templates stay browsable; every launch point is hidden.
+  const createAccess = useAccessReview(CONSOLE_PERMISSIONS.applicationsCreate)
+  const canCreate = createAccess.allowed
 
   const launch = (t: CatalogTemplate) => {
     pushRecent(t.id)
@@ -195,7 +202,7 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
           onLang={setLangFilter}
           languages={languages}
           filterCount={filterCount}
-          recents={recents}
+          recents={canCreate ? recents : []}
           onLaunchRecent={launch}
           text={text}
           onText={setText}
@@ -209,7 +216,8 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
         {selected ? (
           <TemplateDetail
             template={selected}
-            onUse={() => launch(selected)}
+            onUse={canCreate ? () => launch(selected) : undefined}
+            useDenied={!createAccess.loading && !canCreate}
             onRemove={
               isUserTemplate(selected.id)
                 ? () => {
@@ -224,7 +232,7 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
         )}
       </div>
 
-      {wizardFor ? (
+      {wizardFor && canCreate ? (
         <ScaffoldWizard
           template={wizardFor}
           onClose={() => setWizardFor(null)}
@@ -796,10 +804,14 @@ function RecentChip({
 function TemplateDetail({
   template,
   onUse,
+  useDenied,
   onRemove,
 }: {
   template: CatalogTemplate
-  onUse(): void
+  /** Absent when the user may not create applications — the button is hidden. */
+  onUse?(): void
+  /** The answer is a definite no — say why there is no button (never while loading). */
+  useDenied?: boolean
   onRemove?(): void
 }) {
   const tone = TONES[template.tone]
@@ -846,16 +858,22 @@ function TemplateDetail({
                     <span>Remove</span>
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={onUse}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-600 px-4 text-[13px] font-semibold text-white shadow-md transition-colors hover:bg-brand-700 hover:shadow-lg"
-                >
-                  <span className="text-white">
-                    <IconWand />
+                {onUse ? (
+                  <button
+                    type="button"
+                    onClick={onUse}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-600 px-4 text-[13px] font-semibold text-white shadow-md transition-colors hover:bg-brand-700 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
+                  >
+                    <span className="text-white">
+                      <IconWand />
+                    </span>
+                    <span className="text-white">Use this template</span>
+                  </button>
+                ) : useDenied ? (
+                  <span className="max-w-[16rem] text-right text-[11px] leading-snug text-content-subtle">
+                    Creating applications needs access — ask a platform admin.
                   </span>
-                  <span className="text-white">Use this template</span>
-                </button>
+                ) : null}
               </div>
             </div>
             <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-content-muted">
@@ -1124,7 +1142,11 @@ function TemplatesEmpty({
     ? 'Gitea took too long to answer.'
     : gitea.error === 'network_error'
     ? 'The console could not reach its server.'
-    : gitea.error
+    : gitea.error === 'unauthenticated'
+    ? 'Your session has expired.'
+    : sentence(gitea.error)
+  // An expired session is fixed by signing in again, not by checking Gitea.
+  const signedOut = gitea.error === 'unauthenticated'
   return (
     <div
       role={failed ? 'alert' : undefined}
@@ -1147,9 +1169,13 @@ function TemplatesEmpty({
             Couldn't read templates from <span className="font-mono">{source}</span>
           </h2>
           <p className="mx-auto max-w-md text-[13px] leading-relaxed text-content-muted">
-            {reason} Check that Gitea is running and the <span className="font-mono">{source}</span> repository exists, then try again.
+            {signedOut ? (
+              <>{reason} Sign in again to read the templates.</>
+            ) : (
+              <>{reason} Check that Gitea is running and the <span className="font-mono">{source}</span> repository exists, then try again.</>
+            )}
           </p>
-          {gitea.detail ? (
+          {gitea.detail && !signedOut ? (
             <p className="mx-auto max-w-md break-words font-mono text-[11px] text-content-subtle">{gitea.detail}</p>
           ) : null}
         </div>
@@ -1202,6 +1228,13 @@ function TemplatesEmpty({
       </div>
     </div>
   )
+}
+
+/** A machine error code (`repo_not_found`) as a sentence ("Repo not found."). */
+function sentence(code: string | undefined): string {
+  if (!code) return ''
+  const text = code.replace(/[_-]+/g, ' ').trim()
+  return text ? `${text[0].toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? '' : '.'}` : ''
 }
 
 function IconRepoBook() {
@@ -1501,6 +1534,16 @@ function ScaffoldWizard({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [run, setRun] = useState<ScaffoldRun | null>(null)
   const [registered, setRegistered] = useState<Entity | null>(null)
+  const toast = useToast()
+  // The scaffold stream outlives a closed wizard; nothing it reports may set
+  // state or register an entity after unmount.
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   const steps = template.steps
   const isLastStep = stepIdx === steps.length - 1
@@ -1514,12 +1557,21 @@ function ScaffoldWizard({
   }
   const prev = () => {
     setErrors({})
-    if (stage === 'review') setStage('fields')
+    if (stage === 'run') {
+      // Only reachable after a failed run (see Footer): edit and retry.
+      setRun(null)
+      setStage('review')
+    } else if (stage === 'review') setStage('fields')
     else if (stepIdx > 0) setStepIdx((i) => i - 1)
   }
   const launch = () => {
     setStage('run')
     runScaffoldReal(template, values, setRun, async (result) => {
+      // A failed run reports `null`. It used to fall through, register an
+      // entity for a repository that was never created and announce success.
+      // Stay on the run stage instead: its log says what failed and the footer
+      // offers a way back.
+      if (!result || !mounted.current) return
       // The scaffolder created the real repo + GitOps app; also add a catalog
       // entry so it shows immediately (the live catalog will reconcile it too).
       // The Source link must be the Gitea repo the scaffolder created — never a
@@ -1535,8 +1587,16 @@ function ScaffoldWizard({
       }
       try {
         const saved = await register.mutateAsync(entity)
+        if (!mounted.current) return
         setRegistered(saved)
-      } catch {
+      } catch (e) {
+        if (!mounted.current) return
+        // The repository and GitOps app exist; only the catalog entry failed,
+        // and the live catalog will pick the app up on its own. Say so rather
+        // than claiming it is registered.
+        toast.warning('Scaffolded, but the catalog entry could not be saved', {
+          description: e instanceof Error ? e.message : 'It will appear once the live catalog finds it.',
+        })
         setRegistered(entity)
       }
       setStage('success')
@@ -1557,7 +1617,7 @@ function ScaffoldWizard({
     <Modal
       open
       onClose={() => {
-        if (stage === 'run') return
+        if (stage === 'run' && !run?.done) return
         onClose()
       }}
       title={
@@ -1588,6 +1648,7 @@ function ScaffoldWizard({
           onComplete={onComplete}
           isLastStep={isLastStep}
           running={register.isPending}
+          runFailed={Boolean(run?.done && run.failed)}
           alreadyExists={Boolean(values.name) && catalog.some((e) => e.metadata.name === values.name && e.kind === template.produces.kind)}
         />
       }
@@ -2356,17 +2417,23 @@ function OutputLink({ href, label, primary }: { href: string; label: string; pri
 
 function CopyIconButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
+  const toast = useToast()
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
   return (
     <button
       type="button"
       onClick={() => {
-        try {
-          navigator.clipboard?.writeText(text)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        } catch {
-          /* clipboard blocked */
-        }
+        // `writeText` rejects rather than throws; only claim "Copied" once it
+        // resolved.
+        const write = navigator.clipboard?.writeText(text) ?? Promise.reject(new Error('Clipboard unavailable'))
+        write
+          .then(() => {
+            setCopied(true)
+            clearTimeout(timer.current)
+            timer.current = setTimeout(() => setCopied(false), 1500)
+          })
+          .catch(() => toast.error('Could not copy'))
       }}
       className="shrink-0 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted hover:text-brand-700 dark:hover:text-brand-300"
     >
@@ -2389,6 +2456,7 @@ function Footer({
   onComplete,
   isLastStep,
   running,
+  runFailed,
   alreadyExists,
 }: {
   stage: WizardStage
@@ -2402,6 +2470,8 @@ function Footer({
   onComplete(): void
   isLastStep: boolean
   running: boolean
+  /** The run finished with an error — offer a way back instead of a dead "Working…". */
+  runFailed: boolean
   alreadyExists: boolean
 }) {
   if (stage === 'success') {
@@ -2410,7 +2480,19 @@ function Footer({
         <Button variant="secondary" onClick={onReset}>
           Scaffold another
         </Button>
-        <Button onClick={onComplete}>Open catalog</Button>
+        <Button variant="primary" onClick={onComplete}>Open catalog</Button>
+      </div>
+    )
+  }
+  if (stage === 'run' && runFailed) {
+    return (
+      <div className="flex w-full items-center justify-between">
+        <Button variant="ghost" onClick={onClose}>
+          Close
+        </Button>
+        <Button variant="primary" onClick={onPrev}>
+          Back to review
+        </Button>
       </div>
     )
   }
@@ -2442,12 +2524,12 @@ function Footer({
             {alreadyExists ? (
               <span className="text-[11px] text-amber-700 dark:text-amber-300">An entity with this name already exists — it will be overwritten.</span>
             ) : null}
-            <Button onClick={onLaunch} disabled={running}>
+            <Button variant="primary" onClick={onLaunch} disabled={running}>
               {running ? 'Working…' : 'Scaffold'}
             </Button>
           </>
         ) : (
-          <Button onClick={onNext}>
+          <Button variant="primary" onClick={onNext}>
             {isLastStep ? 'Review' : 'Next'} ({stepIdx + 1}/{totalSteps})
           </Button>
         )}
@@ -2626,7 +2708,6 @@ function RegisterTemplateModal({
 }) {
   const [mode, setMode] = useState<RegisterMode>('url')
   const [url, setUrl] = useState('')
-  const [importing, setImporting] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [family, setFamily] = useState<TemplateFamily>('service')
@@ -2642,7 +2723,6 @@ function RegisterTemplateModal({
     if (!open) return
     setMode('url')
     setUrl('')
-    setImporting(false)
     setTitle('')
     setDescription('')
     setFamily('service')
@@ -2657,42 +2737,37 @@ function RegisterTemplateModal({
   function importFromUrl() {
     if (!url.trim()) return
     setError(null)
-    setImporting(true)
-    // Simulate fetching + parsing the YAML. In production this is a BFF
-    // round-trip (the browser can't fetch the raw URL cross-origin without
-    // a proxy). We extract the repo slug as a friendly title and pre-fill
-    // sensible defaults — the user can still edit before saving.
-    setTimeout(() => {
-      try {
-        const u = new URL(url.trim())
-        const segments = u.pathname.split('/').filter(Boolean)
-        const slug = segments
-          .filter((s) => s !== 'blob' && s !== 'main' && s !== 'master' && !s.endsWith('.yaml'))
-          .pop() || ''
-        const friendly = slug
-          .replace(/-template$|-templates$/, '')
-          .replace(/-/g, ' ')
-          .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Imported template'
-        setTitle((current) => current || friendly)
-        setDescription(
-          (current) =>
-            current ||
-            `Imported from ${u.hostname}${u.pathname.replace(/\/[^/]*$/, '')}.`,
-        )
-        if (slug.toLowerCase().includes('java')) setLanguage('java')
-        else if (slug.toLowerCase().includes('go')) setLanguage('go')
-        else if (slug.toLowerCase().includes('python')) setLanguage('python')
-        if (slug.toLowerCase().includes('api')) setFamily('api')
-        else if (slug.toLowerCase().includes('lib')) setFamily('library')
-        else if (slug.toLowerCase().includes('infra') || slug.toLowerCase().includes('terra'))
-          setFamily('infra')
-        setMode('manual')
-      } catch {
-        setError('Couldn’t parse that URL — paste a full URL pointing to a template.yaml file.')
-      } finally {
-        setImporting(false)
-      }
-    }, 600)
+    // Nothing is fetched: the browser cannot read the raw URL cross-origin and
+    // there is no BFF import endpoint yet. Pre-fill from the URL itself,
+    // synchronously — the old 600 ms timer only made a guess look like a
+    // download.
+    try {
+      const u = new URL(url.trim())
+      const segments = u.pathname.split('/').filter(Boolean)
+      const slug = segments
+        .filter((s) => s !== 'blob' && s !== 'main' && s !== 'master' && !s.endsWith('.yaml'))
+        .pop() || ''
+      const friendly = slug
+        .replace(/-template$|-templates$/, '')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Imported template'
+      setTitle((current) => current || friendly)
+      setDescription(
+        (current) =>
+          current ||
+          `Imported from ${u.hostname}${u.pathname.replace(/\/[^/]*$/, '')}.`,
+      )
+      if (slug.toLowerCase().includes('java')) setLanguage('java')
+      else if (slug.toLowerCase().includes('go')) setLanguage('go')
+      else if (slug.toLowerCase().includes('python')) setLanguage('python')
+      if (slug.toLowerCase().includes('api')) setFamily('api')
+      else if (slug.toLowerCase().includes('lib')) setFamily('library')
+      else if (slug.toLowerCase().includes('infra') || slug.toLowerCase().includes('terra'))
+        setFamily('infra')
+      setMode('manual')
+    } catch {
+      setError('Couldn’t parse that URL — paste a full URL pointing to a template.yaml file.')
+    }
   }
 
   function submit(e: React.FormEvent) {
@@ -2789,7 +2864,6 @@ function RegisterTemplateModal({
                   variant="secondary"
                   size="sm"
                   onClick={importFromUrl}
-                  loading={importing}
                   disabled={!url.trim()}
                 >
                   Import
@@ -2797,8 +2871,8 @@ function RegisterTemplateModal({
               </div>
             </FormField>
             <p className="mt-3 text-[11px] text-content-muted">
-              We’ll fetch the file, parse the metadata, and pre-fill the fields below — you can
-              still edit anything before registering.
+              We’ll pre-fill the fields below from the URL — check them, and edit anything
+              before registering.
             </p>
           </div>
         ) : null}

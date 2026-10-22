@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { EmptyState, Modal, StatusBadge, useToast } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, EmptyState, Modal, StatusBadge, useCan, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
@@ -20,7 +20,6 @@ import {
   TextField,
   ViewShell,
 } from '../components/section-shell.tsx'
-import { RequirePermission } from '../components/role-gate.tsx'
 
 export function Teams() {
   const me = useWorkspaceMe()
@@ -28,6 +27,7 @@ export function Teams() {
   const members = useMembers()
   const deleteTeam = useDeleteTeam()
   const toast = useToast()
+  const canCreate = useCan(CONSOLE_PERMISSIONS.teamsCreate)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [managing, setManaging] = useState<WsTeam | null>(null)
@@ -40,21 +40,20 @@ export function Teams() {
   return (
     <ViewShell
       title="Teams"
-      required={['admin', 'owner']}
       description="Teams grant project-scoped access to groups of members. Each team maps to a Keycloak group (ws-team-<slug>) so cluster RBAC follows the console."
-      required={['admin', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.teamsUpdate}
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {me.data ? (
             <StatusBadge kind={me.data.keycloakConfigured ? 'healthy' : 'paused'}>
               {me.data.keycloakConfigured ? 'RBAC sync on' : 'console-only'}
             </StatusBadge>
           ) : null}
-          <RequirePermission perm="teams.write" required={['admin', 'owner']} readOnly>
+          {canCreate ? (
             <PrimaryButton onClick={() => setCreateOpen(true)}>
               <IconPlus /> New team
             </PrimaryButton>
-          </RequirePermission>
+          ) : null}
         </div>
       }
     >
@@ -78,14 +77,14 @@ export function Teams() {
             <div>
               <EmptyState
                 title="No teams yet"
-                description="Create a team to group members and grant project-scoped access."
-                action={
-                  <RequirePermission perm="teams.write" required={['admin', 'owner']} readOnly>
-                    <PrimaryButton onClick={() => setCreateOpen(true)}>
-                      <IconPlus /> New team
-                    </PrimaryButton>
-                  </RequirePermission>
-                }
+                description={canCreate
+                  ? 'Create a team to group members and grant project-scoped access.'
+                  : 'Ask a workspace admin to create a team to group members and grant project-scoped access.'}
+                action={canCreate ? (
+                  <PrimaryButton onClick={() => setCreateOpen(true)}>
+                    <IconPlus /> New team
+                  </PrimaryButton>
+                ) : undefined}
               />
             </div>
           ) : (
@@ -202,11 +201,6 @@ function CreateTeamModal({ open, onClose }: { open: boolean; onClose(): void }) 
             <span className="mb-1 block text-xs font-medium text-content">Description</span>
             <TextField value={description} onChange={setDescription} placeholder="What this team owns" />
           </label>
-          {create.isError ? (
-            <p className="text-[12px] text-rose-700 dark:text-rose-400">
-              {(create.error as Error)?.message ?? 'Could not create the team.'}
-            </p>
-          ) : null}
         </div>
       )}
     </Modal>
@@ -284,12 +278,6 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
               </StatusBadge>
             ) : null}
           </div>
-
-          {(add.isError || remove.isError) ? (
-            <p className="text-[12px] text-rose-700 dark:text-rose-400">
-              {((add.error ?? remove.error) as Error)?.message}
-            </p>
-          ) : null}
 
           <div className="divide-y divide-edge-subtle rounded-xl border border-edge-default">
             {inTeam.length === 0 ? (
@@ -369,6 +357,9 @@ function ConfirmDeleteModal({
 
 function TeamCard({ team, onManage, onDelete }: { team: WsTeam; onManage(): void; onDelete(): void }) {
   const hue = hashHue(team.slug)
+  // Team membership edits go through PATCH on the team → teamsUpdate.
+  const canManage = useCan(CONSOLE_PERMISSIONS.teamsUpdate)
+  const canDelete = useCan(CONSOLE_PERMISSIONS.teamsDelete)
   return (
     <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md dark:hover:border-brand-500/30">
       <div aria-hidden className="h-1.5 w-full" style={{ background: `linear-gradient(90deg, hsl(${hue} 65% 52%), hsl(${(hue + 40) % 360} 65% 45%))` }} />
@@ -402,12 +393,12 @@ function TeamCard({ team, onManage, onDelete }: { team: WsTeam; onManage(): void
             group · {team.keycloakGroup}
           </div>
         ) : null}
-        <RequirePermission perm="teams.write" required={['admin', 'owner']} fallback={<span />}>
+        {canManage || canDelete ? (
           <div className="mt-auto flex items-center justify-end gap-1.5 pt-1">
-            <SecondaryButton onClick={onManage}>Manage members</SecondaryButton>
-            <SecondaryButton tone="rose" onClick={onDelete}>Delete</SecondaryButton>
+            {canManage ? <SecondaryButton onClick={onManage}>Manage members</SecondaryButton> : null}
+            {canDelete ? <SecondaryButton tone="rose" onClick={onDelete}>Delete</SecondaryButton> : null}
           </div>
-        </RequirePermission>
+        ) : null}
       </div>
     </article>
   )

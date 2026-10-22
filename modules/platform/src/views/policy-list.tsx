@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { EmptyState, StatusBadge, Tabs, useAppConfig, useToast, type StatusKind, type TabDef } from '@adhar/shell-ui'
+import { canResource, EmptyState, StatusBadge, Tabs, useAppConfig, useCan, useToast, type StatusKind, type TabDef } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
 import { useGeneric } from '../data/hooks.ts'
@@ -448,6 +448,13 @@ function PolicyDrawer({
   const rules = policy.spec?.rules ?? []
   const mode = policyMode(policy)
   const conditions = policy.status?.conditions ?? []
+  // Edit YAML applies server-side (a PATCH) to the Policy / ClusterPolicy.
+  const canEdit = useCan(
+    canResource(policy.metadata.namespace ? GVR.policies : GVR.clusterPolicies, 'patch', {
+      namespace: policy.metadata.namespace,
+      name: policy.metadata.name,
+    }),
+  )
   return (
     <ResourceDrawer
       resource={{ ...policy, apiVersion: 'kyverno.io/v1', kind: policy.metadata.namespace ? 'Policy' : 'ClusterPolicy' }}
@@ -457,18 +464,20 @@ function PolicyDrawer({
     >
       <DrawerSection
         title="Manage"
-        actions={<span className="text-xs text-content-subtle">edit · report · explore</span>}
+        actions={<span className="text-xs text-content-subtle">{canEdit ? 'edit · report · explore' : 'report · explore'}</span>}
       >
         <div className="flex flex-wrap gap-2">
-          <ActionBtn primary onClick={onEdit}>Edit YAML</ActionBtn>
+          {canEdit ? <ActionBtn primary onClick={onEdit}>Edit YAML</ActionBtn> : null}
           {reporterUrl ? <ActionBtn href={`${reporterUrl.replace(/\/$/, '')}/#/policies/${encodeURIComponent(policy.metadata.name)}`}>Open in Policy Reporter</ActionBtn> : null}
           <ActionBtn href={`/platform?section=explore`}>Browse in Explore</ActionBtn>
           <ActionBtn href={`https://kyverno.io/policies/?policytypes=${encodeURIComponent(policyCategory(policy))}`}>Kyverno policy library</ActionBtn>
           <ActionBtn onClick={() => { void navigator.clipboard?.writeText(`kubectl get ${policy.metadata.namespace ? `policy -n ${policy.metadata.namespace}` : 'clusterpolicy'} ${policy.metadata.name} -o yaml`); toast.success('kubectl command copied') }}>Copy kubectl</ActionBtn>
         </div>
-        <p className="mt-2 text-[11px] text-content-subtle">
-          Switching Audit ↔ Enforce is a one-line change to <code className="font-mono">spec.validationFailureAction</code> in the YAML editor — dry-run first; if the policy is GitOps-managed, land the change in its repo.
-        </p>
+        {canEdit ? (
+          <p className="mt-2 text-[11px] text-content-subtle">
+            Switching Audit ↔ Enforce is a one-line change to <code className="font-mono">spec.validationFailureAction</code> in the YAML editor — dry-run first; if the policy is GitOps-managed, land the change in its repo.
+          </p>
+        ) : null}
       </DrawerSection>
 
       <DrawerSection title="About">
@@ -787,7 +796,7 @@ function Chip({ children }: { children: ReactNode }) {
 
 function ActionBtn({ children, href, onClick, primary = false }: { children: ReactNode; href?: string; onClick?(): void; primary?: boolean }) {
   const cls = cn(
-    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors',
+    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
     primary ? 'border-brand-600 bg-brand-600 text-white hover:bg-brand-700' : 'border-edge-default bg-surface-raised text-content-muted hover:border-brand-300 hover:text-content',
   )
   if (href) {

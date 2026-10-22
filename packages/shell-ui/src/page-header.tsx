@@ -31,7 +31,9 @@ export function PageHeader({
   return (
     <header
       className={cn(
-        'flex flex-col items-start gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6',
+        // Centred on the cross axis from sm up: a one-line title (34px line)
+        // beside 36px buttons sat 2px high with `items-start`.
+        'flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6',
         compact ? 'mb-4' : 'mb-6',
         className,
       )}
@@ -44,7 +46,9 @@ export function PageHeader({
           {badge}
         </div>
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {/* Wraps rather than overflowing on a phone, where three actions are
+          wider than the screen. */}
+      {actions ? <div className="flex max-w-full flex-wrap items-center gap-2 sm:shrink-0 sm:flex-nowrap">{actions}</div> : null}
     </header>
   )
 }

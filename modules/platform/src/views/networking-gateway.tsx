@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { DataTable, EmptyState, StatusBadge, useAppConfig, type StatusKind } from '@adhar/shell-ui'
+import { canResource, DataTable, EmptyState, StatusBadge, useAppConfig, useCan, type StatusKind } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
 import { useGeneric } from '../data/hooks.ts'
@@ -24,7 +24,9 @@ import type { NetworkPolicyObject } from './networking-list.tsx'
  *   Gateway Classes — controller name, Accepted status, gateways per class.
  *
  * All from the live cluster with the user's RBAC; a 404 on the CRDs renders a
- * "Gateway API not installed" guide rather than an empty table.
+ * "Gateway API not installed" guide rather than an empty table. "Edit YAML"
+ * opens the manifest editor (server-side apply = PATCH), so it is shown only
+ * when RBAC allows `patch` on that object.
  */
 
 /* ─────────── raw shapes ─────────── */
@@ -224,6 +226,7 @@ function GatewayDrawer({ gateway, routes, onClose, onEdit }: { gateway: GatewayO
   const lstatus = gateway.status?.listeners ?? []
   const attached = routes.filter((r) => (r.spec?.parentRefs ?? []).some((p) => p.name === gateway.metadata.name && (p.namespace ?? r.metadata.namespace) === gateway.metadata.namespace))
   const programmed = cond(gateway.status?.conditions, 'Programmed')
+  const canEdit = useCan(canResource(GVRS.gateways, 'patch', { namespace: gateway.metadata.namespace, name: gateway.metadata.name }))
   return (
     <ResourceDrawer
       resource={{ ...gateway, apiVersion: 'gateway.networking.k8s.io/v1', kind: 'Gateway' }}
@@ -233,7 +236,7 @@ function GatewayDrawer({ gateway, routes, onClose, onEdit }: { gateway: GatewayO
     >
       <DrawerSection title="Manage">
         <div className="flex flex-wrap gap-2">
-          <ActionBtn primary onClick={onEdit}>Edit YAML</ActionBtn>
+          {canEdit ? <ActionBtn primary onClick={onEdit}>Edit YAML</ActionBtn> : null}
           <ActionBtn href="/platform?section=explore">Browse in Explore</ActionBtn>
           <ActionBtn href="https://gateway-api.sigs.k8s.io/api-types/gateway/">Gateway docs</ActionBtn>
         </div>
@@ -399,6 +402,9 @@ export function RoutesTable({ namespace }: { namespace?: string }) {
 function RouteDrawer({ route, proto, onClose, onEdit }: { route: RouteObject & { kind: string }; proto: string; onClose(): void; onEdit(): void }) {
   const parents = route.status?.parents ?? []
   const ok = parents.length > 0 && parents.every((p) => cond(p.conditions, 'Accepted')?.status === 'True')
+  const canEdit = useCan(
+    canResource(route.kind === 'GRPCRoute' ? GVRS.grpcroutes : GVRS.httproutes, 'patch', { namespace: route.metadata.namespace, name: route.metadata.name }),
+  )
   return (
     <ResourceDrawer
       resource={{ ...route, apiVersion: 'gateway.networking.k8s.io/v1' }}
@@ -408,7 +414,7 @@ function RouteDrawer({ route, proto, onClose, onEdit }: { route: RouteObject & {
     >
       <DrawerSection title="Manage">
         <div className="flex flex-wrap gap-2">
-          <ActionBtn primary onClick={onEdit}>Edit YAML</ActionBtn>
+          {canEdit ? <ActionBtn primary onClick={onEdit}>Edit YAML</ActionBtn> : null}
           {(route.spec?.hostnames ?? []).filter((h) => !h.includes('*')).slice(0, 3).map((h) => <ActionBtn key={h} href={`${proto}//${h}`}>Open {h}</ActionBtn>)}
           <ActionBtn href="/platform?section=explore">Browse in Explore</ActionBtn>
           <ActionBtn href={`https://gateway-api.sigs.k8s.io/api-types/${route.kind === 'GRPCRoute' ? 'grpcroute' : 'httproute'}/`}>{route.kind} docs</ActionBtn>
@@ -515,17 +521,20 @@ export function IngressDrawer({ ingress, onClose }: { ingress: k8s.Ingress; onCl
   const status = (ingress as { status?: { loadBalancer?: { ingress?: Array<{ ip?: string; hostname?: string }> } } }).status
   const lb = status?.loadBalancer?.ingress ?? []
   const [editing, setEditing] = useState(false)
+  const canEdit = useCan(canResource(GVRS.ingresses, 'patch', { namespace: ingress.metadata.namespace, name: ingress.metadata.name }))
   const proto = spec?.tls?.length ? 'https:' : 'http:'
   return (
     <>
       <ResourceDrawer resource={{ ...ingress, apiVersion: 'networking.k8s.io/v1', kind: 'Ingress' } as k8s.Ingress & { apiVersion: string; kind: string }} kindLabel="Ingress" statusBadge={<StatusBadge kind={lb.length ? 'healthy' : 'progressing'}>{lb.length ? 'load balancer assigned' : 'pending address'}</StatusBadge>} onClose={onClose}>
         <DrawerSection title="Manage">
           <div className="flex flex-wrap gap-2">
-            <ActionBtn primary onClick={() => setEditing(true)}>Edit YAML</ActionBtn>
+            {canEdit ? <ActionBtn primary onClick={() => setEditing((v) => !v)}>{editing ? 'Close editor' : 'Edit YAML'}</ActionBtn> : null}
             {(spec?.rules ?? []).filter((r) => r.host).slice(0, 3).map((r) => <ActionBtn key={r.host} href={`${proto}//${r.host}`}>Open {r.host}</ActionBtn>)}
             <ActionBtn href="/platform?section=explore">Browse in Explore</ActionBtn>
           </div>
         </DrawerSection>
+        {/* Inside the drawer: rendered after it, the editor sat under the z-[60] overlay. */}
+        {editing && canEdit ? <ManifestEditor gvr={GVRS.ingresses} namespace={ingress.metadata.namespace} name={ingress.metadata.name} onClose={() => setEditing(false)} /> : null}
         <DrawerSection title="Spec">
           <div className="divide-y divide-edge-subtle text-sm">
             <Row label="Class" value={spec?.ingressClassName ?? '— (default)'} mono />
@@ -535,7 +544,7 @@ export function IngressDrawer({ ingress, onClose }: { ingress: k8s.Ingress; onCl
           </div>
         </DrawerSection>
         <DrawerSection title="Rules">
-          <div className="overflow-hidden rounded-lg border border-edge-default">
+          <div className="overflow-x-auto rounded-lg border border-edge-default">
             <table className="w-full text-sm">
               <thead className="bg-surface-sunken text-xs text-content-subtle"><tr><th className="px-3 py-2 text-left font-medium">Host</th><th className="px-3 py-2 text-left font-medium">Path</th><th className="px-3 py-2 text-left font-medium">Type</th><th className="px-3 py-2 text-left font-medium">Backend</th></tr></thead>
               <tbody className="divide-y divide-edge-subtle font-mono text-[12px]">
@@ -548,7 +557,6 @@ export function IngressDrawer({ ingress, onClose }: { ingress: k8s.Ingress; onCl
           <p className="mt-2 text-[11px] text-content-subtle">Ingress is the legacy API — new exposure on the Adhar platform uses Gateway API HTTPRoutes (see the Routes tab).</p>
         </DrawerSection>
       </ResourceDrawer>
-      {editing ? <ManifestEditor gvr={GVRS.ingresses} namespace={ingress.metadata.namespace} name={ingress.metadata.name} onClose={() => setEditing(false)} /> : null}
     </>
   )
 }
@@ -578,6 +586,7 @@ export function NetworkPolicyDrawer({ policy, onClose }: { policy: NetworkPolicy
   const spec = policy.spec as { podSelector?: { matchLabels?: Record<string, string> }; policyTypes?: string[]; ingress?: PeerRule[]; egress?: PeerRule[] } | undefined
   const types = spec?.policyTypes ?? ['Ingress']
   const [editing, setEditing] = useState(false)
+  const canEdit = useCan(canResource(GVRS.networkpolicies, 'patch', { namespace: policy.metadata.namespace, name: policy.metadata.name }))
   const renderRules = (rules: PeerRule[] | undefined, dir: 'from' | 'to') => {
     if (!rules) return <p className="text-[12px] text-content-subtle">Not restricted by this policy.</p>
     if (rules.length === 0) return <p className="rounded-md bg-rose-50 px-2 py-1.5 text-[12px] text-rose-800 dark:bg-rose-500/10 dark:text-rose-200">Deny all — no {dir === 'from' ? 'ingress' : 'egress'} allowed.</p>
@@ -597,11 +606,12 @@ export function NetworkPolicyDrawer({ policy, onClose }: { policy: NetworkPolicy
       <ResourceDrawer resource={{ ...policy, apiVersion: 'networking.k8s.io/v1', kind: 'NetworkPolicy' } as NetworkPolicyObject & { apiVersion: string; kind: string }} kindLabel="NetworkPolicy" statusBadge={<StatusBadge kind="info">{types.join(' + ')}</StatusBadge>} onClose={onClose}>
         <DrawerSection title="Manage">
           <div className="flex flex-wrap gap-2">
-            <ActionBtn primary onClick={() => setEditing(true)}>Edit YAML</ActionBtn>
+            {canEdit ? <ActionBtn primary onClick={() => setEditing((v) => !v)}>{editing ? 'Close editor' : 'Edit YAML'}</ActionBtn> : null}
             <ActionBtn href="/platform?section=explore">Browse in Explore</ActionBtn>
             <ActionBtn href="https://kubernetes.io/docs/concepts/services-networking/network-policies/">NetworkPolicy docs</ActionBtn>
           </div>
         </DrawerSection>
+        {editing && canEdit ? <ManifestEditor gvr={GVRS.networkpolicies} namespace={policy.metadata.namespace} name={policy.metadata.name} onClose={() => setEditing(false)} /> : null}
         <DrawerSection title="Applies to">
           <div className="divide-y divide-edge-subtle text-sm">
             <Row label="Pod selector" value={Object.entries(spec?.podSelector?.matchLabels ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') || 'all pods in namespace'} mono />
@@ -612,7 +622,6 @@ export function NetworkPolicyDrawer({ policy, onClose }: { policy: NetworkPolicy
         {types.includes('Ingress') ? <DrawerSection title={`Ingress rules · ${spec?.ingress?.length ?? 0}`}>{renderRules(spec?.ingress, 'from')}</DrawerSection> : null}
         {types.includes('Egress') ? <DrawerSection title={`Egress rules · ${spec?.egress?.length ?? 0}`}>{renderRules(spec?.egress, 'to')}</DrawerSection> : null}
       </ResourceDrawer>
-      {editing ? <ManifestEditor gvr={GVRS.networkpolicies} namespace={policy.metadata.namespace} name={policy.metadata.name} onClose={() => setEditing(false)} /> : null}
     </>
   )
 }
@@ -638,7 +647,7 @@ function Chip({ children }: { children: ReactNode }) {
 
 function ActionBtn({ children, href, onClick, primary = false }: { children: ReactNode; href?: string; onClick?(): void; primary?: boolean }) {
   const cls = cn(
-    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors',
+    'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
     primary ? 'border-brand-600 bg-brand-600 text-white hover:bg-brand-700' : 'border-edge-default bg-surface-raised text-content-muted hover:border-brand-300 hover:text-content',
   )
   if (href) {

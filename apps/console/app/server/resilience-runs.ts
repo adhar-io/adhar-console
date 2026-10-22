@@ -1,4 +1,5 @@
-import { normaliseToken } from './role-tokens.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
+import { authorize, requirePermission } from './k8s/access.ts'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { apiServerFetch, originOk, resolveIdentity, type K8sIdentity } from './k8s/gateway.ts'
 import { getK8sServiceToken } from './tool-registry.ts'
@@ -22,8 +23,9 @@ import { getK8sServiceToken } from './tool-registry.ts'
  * binds the narrow `adhar-resilience-gate` Role to it (get that one CronJob,
  * create/get/list Jobs, get pods and pods/log in adhar-system) — the same
  * rights a project's gate has, and nothing a person would otherwise hold in
- * adhar-system. Because the SA acts for whoever clicks, the role check below
- * is the gate for starting a run; reading status and logs is limited to Jobs
+ * adhar-system. Because the SA acts for whoever clicks, the RBAC check below
+ * (`create resilience-runs.console.adhar.io` in the app's namespace, asked as
+ * the CALLER) is the gate for starting a run; reading status and logs is limited to Jobs
  * that carry the gate label, so this cannot become a log reader for anything
  * else in the namespace.
  */
@@ -34,23 +36,6 @@ export const GATE_LABEL = 'adhar.io/resilience-gate'
 export const NAMESPACE_LABEL = 'adhar.io/resilience-namespace'
 export const ENVIRONMENT_LABEL = 'adhar.io/resilience-environment'
 export const TRIGGER_LABEL = 'adhar.io/triggered-by'
-
-/** Console roles allowed to start a suite. The server is the gate; the UI mirrors it. */
-const ALLOWED_TOKENS = new Set([
-  'admin', 'super-admin', 'superadmin',
-  'platform-admin', 'platform-admins',
-  'platform-engineer', 'platform-engineers', 'platform-eng',
-  'application-admin', 'application-admins', 'app-admin', 'tenant-admin',
-])
-
-/** True when the user may start a resilience run (it load-tests and breaks pods). */
-export function canRunSuites(user: { roles?: readonly string[]; groups?: readonly string[] } | null | undefined): boolean {
-  if (!user) return false
-  for (const raw of [...(user.roles ?? []), ...(user.groups ?? [])]) {
-    if (typeof raw === 'string' && ALLOWED_TOKENS.has(normaliseToken(raw))) return true
-  }
-  return false
-}
 
 /* ─────────────────────────── pure: request + manifest ─────────────────────────── */
 
@@ -286,7 +271,9 @@ export async function handleResilienceRuns(req: Request, subpath: string): Promi
       const cronRes = await apiServerFetch(id, CRON)
       const installed = cronRes.ok
       await cronRes.body?.cancel()
-      const allowed = canRunSuites(auth.user)
+      // Cluster-wide answer, for clients that still read `allowed`; the Chaos
+      // page asks per namespace with <Can>, which is what POST enforces.
+      const allowed = (await authorize(req, CONSOLE_PERMISSIONS.resilienceRun)).allowed
       let runs: ResilienceRun[] = []
       if (installed) {
         const list = await apiServerFetch(id, JOBS, { search: `?labelSelector=${encodeURIComponent(GATE_LABEL)}` })
@@ -310,9 +297,6 @@ export async function handleResilienceRuns(req: Request, subpath: string): Promi
 
     if (method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
     if (!originOk(req)) return json({ error: 'origin_not_allowed' }, 403, cookie)
-    if (!canRunSuites(auth.user)) {
-      return json({ error: 'forbidden', detail: 'Running a resilience suite needs the platform-admin, platform-engineer or application-admin role.' }, 403, cookie)
-    }
 
     let body: unknown
     try {
@@ -322,6 +306,13 @@ export async function handleResilienceRuns(req: Request, subpath: string): Promi
     }
     const v = validateRunRequest(body)
     if (!v.ok) return json({ error: 'invalid_request', detail: v.detail }, 400, cookie)
+    // A run load-tests and breaks pods in that namespace — asked there, so a
+    // team that is admin of its own namespace may run its own suites.
+    const denied = await requirePermission(req, CONSOLE_PERMISSIONS.resilienceRun, { namespace: v.namespace })
+    if (denied) {
+      if (cookie) denied.headers.append('set-cookie', cookie)
+      return denied
+    }
 
     const cronRes = await apiServerFetch(id, CRON)
     if (cronRes.status === 404) {

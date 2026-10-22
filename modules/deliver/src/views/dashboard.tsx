@@ -21,6 +21,9 @@ import { useRuntimeAgents, useRuntimeEvents } from '../data/runtime.ts'
 import type { RuntimeEvent, RuntimeSeverity } from '../data/runtime-events.ts'
 import { orderStages, shortFreight, stageStatus } from '../data/stage-order.ts'
 
+/** Empty states inside a panel: the panel is the frame, so no second dashed box. */
+const PANEL_EMPTY = 'rounded-none border-0 bg-transparent'
+
 /**
  * Workspace-level Deliver dashboard. Aggregates Argo CD, Kargo, Argo Rollouts,
  * trivy-operator and the runtime agents (Tetragon / Falco) into a single
@@ -161,7 +164,7 @@ export function Dashboard() {
             ) : apps.error ? (
               <SourceError source="Argo CD" error={apps.error} retry={apps.retry} />
             ) : appList.length === 0 ? (
-              <EmptyState
+              <EmptyState className={PANEL_EMPTY}
                 compact
                 title="No apps yet"
                 description="Argo CD Applications appear here with their sync and health once an application is delivered."
@@ -188,7 +191,7 @@ export function Dashboard() {
             ) : stages.error ? (
               <SourceError source="Kargo" error={stages.error} retry={stages.retry} />
             ) : stageList.length === 0 ? (
-              <EmptyState
+              <EmptyState className={PANEL_EMPTY}
                 compact
                 title="No stages"
                 description="Kargo Stages appear here in promotion order once a project defines its environments."
@@ -215,7 +218,7 @@ export function Dashboard() {
             ) : scans.error ? (
               <SourceError source="trivy-operator" error={scans.error} retry={scans.retry} />
             ) : scanList.length === 0 ? (
-              <EmptyState
+              <EmptyState className={PANEL_EMPTY}
                 compact
                 title="No scan reports yet"
                 description="trivy-operator writes a report for each running workload's image; counts by severity appear here once the first one lands."
@@ -255,7 +258,7 @@ export function Dashboard() {
             ) : runtime.error ? (
               <SourceError source="the cluster (runtime-security agents)" error={runtime.error} retry={runtime.retry} />
             ) : !runtimeInstalled ? (
-              <EmptyState
+              <EmptyState className={PANEL_EMPTY}
                 compact
                 title="No runtime-security agent is installed"
                 description="Install Tetragon or Falco on the cluster; their alerts appear here."
@@ -268,7 +271,7 @@ export function Dashboard() {
                 retry={runtime.retry}
               />
             ) : alerts.length === 0 ? (
-              <EmptyState
+              <EmptyState className={PANEL_EMPTY}
                 compact
                 title="No alerts in the recent log"
                 description={`${feed.events.length} event${feed.events.length === 1 ? '' : 's'} read, none at medium severity or above.`}
@@ -338,7 +341,7 @@ function PanelLoading({ text }: { text: string }) {
 
 function SourceError({ source, error, retry }: { source: string; error: unknown; retry(): void }) {
   return (
-    <EmptyState
+    <EmptyState className={PANEL_EMPTY}
       compact
       title={`Couldn't reach ${source}`}
       description={errText(error)}
@@ -367,7 +370,7 @@ function AppRow({ app: a }: { app: argocd.Application }) {
   // an Application mid-creation can have neither — never crash the dashboard.
   const source = a.spec?.source ?? a.spec?.sources?.[0]
   return (
-    <li className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-brand-50/40">
+    <li className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/10">
       <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-bold text-white ${syncBg(sync)}`}>
         {a.metadata.name.slice(0, 2).toUpperCase()}
       </span>
@@ -465,7 +468,7 @@ const SEVERITY_KIND: Record<RuntimeSeverity, StatusKind> = {
 
 function EventRow({ event: e }: { event: RuntimeEvent }) {
   return (
-    <li className="px-5 py-3 transition-colors hover:bg-brand-50/40">
+    <li className="px-5 py-3 transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/10">
       <div className="flex items-center gap-2">
         <StatusBadge kind={SEVERITY_KIND[e.severity]}>{e.severity}</StatusBadge>
         <span className="truncate text-sm font-semibold text-content">{e.title}</span>
@@ -576,10 +579,10 @@ function QuickStartCard({
   tone: 'brand' | 'amber' | 'violet' | 'rose'
 }) {
   const accent = {
-    brand: 'border-brand-200/60 bg-brand-50/30',
-    amber: 'border-amber-200/60 bg-amber-50/30',
-    violet: 'border-violet-200/60 bg-violet-50/30',
-    rose: 'border-rose-200/60 bg-rose-50/30',
+    brand: 'border-brand-200/60 bg-brand-50/30 dark:bg-brand-500/10 dark:border-brand-500/30',
+    amber: 'border-amber-200/60 bg-amber-50/30 dark:bg-amber-500/10 dark:border-amber-500/30',
+    violet: 'border-violet-200/60 bg-violet-50/30 dark:bg-violet-500/10 dark:border-violet-500/30',
+    rose: 'border-rose-200/60 bg-rose-50/30 dark:bg-rose-500/10 dark:border-rose-500/30',
   }[tone]
   return (
     <Card className={`${accent} border`}>
@@ -593,7 +596,7 @@ function QuickStartCard({
             <li key={l.href}>
               <a
                 href={l.href}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:text-brand-800 hover:underline"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-700 hover:text-brand-800 hover:underline dark:text-brand-300 dark:hover:text-brand-300"
               >
                 <IconArrow /> {l.label}
               </a>

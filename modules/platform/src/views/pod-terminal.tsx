@@ -36,6 +36,9 @@ import { loadXterm } from '../components/xterm-loader.ts'
  * icons with `title`/`aria-label`), and in `fill` mode it drops the status
  * badge and target — a workbench already shows both in its own status bar, so
  * repeating them here only steals width from the actions.
+ *
+ * Mounting connects. Gating is the caller's job: render this only once
+ * `create pods/exec` on the target is allowed (`pod-shell.tsx`, `cloud-shell.tsx`).
  */
 
 export type TerminalStatus = 'connecting' | 'connected' | 'disconnected' | 'error'

@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react'
+import { useItemsByAccess, useNavByAccess } from './can.tsx'
 import { useNavigate } from '@tanstack/react-router'
 import { assistStore } from './agui/store.ts'
 import { consumePendingAsk } from './ai-assistant.tsx'
@@ -34,6 +35,8 @@ export interface CommandPaletteProps {
   sections?: NavSection[]
 }
 
+const NO_ITEMS: CommandItem[] = []
+
 export function CommandPalette({ open, onClose, items, sections = DEFAULT_NAV }: CommandPaletteProps) {
   if (!open) return null
   return <AssistHost variant="overlay" onClose={onClose} items={items} sections={sections} />
@@ -49,6 +52,10 @@ export interface AssistHostProps {
 /** Boots config, drains a queued `ask()`, wires the frontend tools, mounts the surface. */
 export function AssistHost({ variant, onClose, items, sections = DEFAULT_NAV }: AssistHostProps) {
   const navigate = useNavigate()
+  // RBAC: pages the person cannot read and commands that are writes they may
+  // not perform are not offered (nav-access.ts) — same rule as the sidebar.
+  const visibleSections = useNavByAccess(sections)
+  const visibleItems = useItemsByAccess(items ?? NO_ITEMS)
 
   const onNavigate = useCallback((to: string, search?: Record<string, unknown>) => {
     navigate({ to, search: search as never })
@@ -94,5 +101,13 @@ export function AssistHost({ variant, onClose, items, sections = DEFAULT_NAV }: 
     }
   }, [navigate, onClose, variant])
 
-  return <AssistSurface variant={variant} onClose={onClose} onNavigate={onNavigate} items={items} sections={sections} />
+  return (
+    <AssistSurface
+      variant={variant}
+      onClose={onClose}
+      onNavigate={onNavigate}
+      items={items ? visibleItems : undefined}
+      sections={visibleSections}
+    />
+  )
 }

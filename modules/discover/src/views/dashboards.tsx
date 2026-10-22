@@ -137,7 +137,7 @@ function Library({
               href={grafanaBase}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content hover:bg-surface-sunken"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2.5 text-sm font-medium text-content transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
             >
               <GrafanaIcon size={14} /> Open Grafana ↗
             </a>

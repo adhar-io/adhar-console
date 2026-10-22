@@ -1,84 +1,60 @@
-import type { ReactNode } from 'react'
-import { StatusBadge } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
-import {
-  K8S_PERMISSION_LABEL,
-  K8S_ROLE_LABEL,
-  K8S_ROLE_TONE,
-  rolesHaveK8sPermission,
-  useK8sCurrentRoles,
-  whichRolesHave,
-  type K8sPermission,
-  type K8sRole,
-} from '../data/access.ts'
+import type { AccessCheck } from '@adhar/shell-ui'
 
 /**
- * Wraps an action so it renders normally when the current roles satisfy the
- * permission, or in one of two restricted modes otherwise:
+ * Access gating in the cluster views is Kubernetes RBAC, asked as the
+ * signed-in user with a SelfSubjectAccessReview (docs/rbac.md): wrap every
+ * mutating action in shell-ui's `<Can check={canResource(GVR, verb, {namespace,
+ * name})}>` (or gate it on `useCan` / `useAccess`). Blocked ACTIONS are hidden,
+ * not disabled, and stay hidden while the answer loads.
  *
- *   - default: replaces children with a friendly "Restricted" card showing
- *              who CAN run the action.
- *   - readOnly: keeps the children visible but disables interaction and
- *               overlays a small "required role" pill, so the user can still
- *               see what the screen would do.
+ * This file holds the one thing that is not an action: the notice shown in
+ * place of a READ the user is not allowed — a Logs or Shell tab body, a Secret
+ * value — so the panel explains itself instead of rendering blank.
  */
-export function RequireK8sPermission({
-  perm,
-  children,
-  fallback,
-  readOnly = false,
-}: {
-  perm: K8sPermission
-  children: ReactNode
-  fallback?: ReactNode
-  readOnly?: boolean
-}) {
-  const roles = useK8sCurrentRoles()
-  const allowed = rolesHaveK8sPermission(roles, perm)
-  if (allowed) return <>{children}</>
-  if (!readOnly) {
-    return <>{fallback ?? <K8sPermissionDenied perm={perm} />}</>
-  }
-  return (
-    <div className="relative" aria-disabled="true">
-      <div className="pointer-events-none opacity-55">{children}</div>
-      <div className="pointer-events-none absolute right-2 top-2 z-10 max-w-[calc(100%-1rem)]">
-        <K8sRolePill perm={perm} />
-      </div>
-    </div>
-  )
+
+/** `get pods/log in shop` — the RBAC rule a check asks for, as an operator would type it. */
+export function ruleText(check: AccessCheck): string {
+  const res = check.group ? `${check.resource}.${check.group}` : check.resource
+  const sub = check.subresource ? `/${check.subresource}` : ''
+  const where = check.namespace ? ` in ${check.namespace}` : ''
+  return `${check.verb} ${res}${sub}${where}`
 }
 
-export function K8sPermissionDenied({
-  perm,
+export function AccessDenied({
+  what,
+  check,
   compact = false,
+  className,
 }: {
-  perm: K8sPermission
+  /** What the user cannot see, e.g. "this pod's logs". */
+  what: string
+  /** The check that came back "no" — named so an admin knows what to grant. */
+  check: AccessCheck
   compact?: boolean
+  className?: string
 }) {
-  const required = whichRolesHave(perm)
   return (
     <div
       className={cn(
-        'rounded-2xl border border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10 text-sm text-amber-900 dark:text-amber-200',
-        compact ? 'p-3' : 'p-6',
+        'rounded-xl border border-edge-default bg-surface-sunken text-sm text-content',
+        compact ? 'p-3' : 'p-5',
+        className,
       )}
-      role="alert"
+      role="note"
     >
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-500/15 text-amber-700 dark:text-amber-300">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-raised text-content-muted ring-1 ring-edge-default">
           <IconLock />
         </span>
         <div className="min-w-0">
-          <div className="font-semibold">{K8S_PERMISSION_LABEL[perm]} requires elevated access</div>
-          <p className="mt-1 text-[12px] leading-relaxed text-amber-800 dark:text-amber-300">
-            Your current role doesn't include{' '}
-            <code className="font-mono text-amber-900 dark:text-amber-200">{perm}</code>. Ask an administrator to grant
-            the role{' '}
-            <code className="font-mono text-amber-900 dark:text-amber-200">
-              {required.map((r) => K8S_ROLE_LABEL[r]).join(' or ')}
+          <div className="font-medium">You don't have access to {what}</div>
+          <p className="mt-1 text-[12px] leading-relaxed text-content-muted">
+            Your Kubernetes RBAC on this cluster doesn't allow{' '}
+            <code className="break-all rounded bg-surface-raised px-1 py-0.5 font-mono text-[11px] text-content">
+              {ruleText(check)}
             </code>
-            .
+            . Ask a platform admin to grant it.
           </p>
         </div>
       </div>
@@ -86,43 +62,11 @@ export function K8sPermissionDenied({
   )
 }
 
-export function K8sRolePill({
-  perm,
-  className,
-}: {
-  perm: K8sPermission
-  className?: string
-}) {
-  const required = whichRolesHave(perm)
-  if (!required.length) return null
-  const primary = required[0]
-  return (
-    <span
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border bg-surface-raised px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider text-content-muted shadow-sm align-middle',
-        'border-edge-default',
-        className,
-      )}
-      title={`Requires ${required.map((r) => K8S_ROLE_LABEL[r]).join(', ')} · ${K8S_PERMISSION_LABEL[perm]}`}
-    >
-      <IconLock />
-      <span className="whitespace-nowrap">
-        {K8S_ROLE_LABEL[primary]}
-        {required.length > 1 ? ` +${required.length - 1}` : ''}
-      </span>
-    </span>
-  )
-}
-
-export function K8sRoleBadge({ role }: { role: K8sRole }) {
-  return <StatusBadge kind={K8S_ROLE_TONE[role]}>{K8S_ROLE_LABEL[role]}</StatusBadge>
-}
-
 function IconLock() {
   return (
     <svg
-      width="11"
-      height="11"
+      width="12"
+      height="12"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

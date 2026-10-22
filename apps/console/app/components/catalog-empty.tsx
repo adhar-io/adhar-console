@@ -1,6 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button, useToast } from '@adhar/shell-ui'
+import { Button, CONSOLE_PERMISSIONS, useAccessReview, useToast } from '@adhar/shell-ui'
 import type { SourceStatus } from '~/data/catalog-live.ts'
 
 /**
@@ -17,6 +17,10 @@ export function CatalogEmpty({ sources, onRegister }: { sources: SourceStatus[];
   const toast = useToast()
   const failing = sources.filter((s) => s.state === 'error')
   const unreachable = failing.length > 0 && failing.length === sources.length
+  // Creating is `POST /api/scaffold` (create applications.console.adhar.io):
+  // hidden without it, and the copy says who can instead.
+  const create = useAccessReview(CONSOLE_PERMISSIONS.applicationsCreate)
+  const createDenied = !create.loading && !create.allowed
 
   return (
     <section className="flex flex-col items-center px-4 py-14 text-center sm:py-20" aria-labelledby="catalog-empty-title">
@@ -27,7 +31,11 @@ export function CatalogEmpty({ sources, onRegister }: { sources: SourceStatus[];
       <p className="mt-2 max-w-lg text-sm leading-relaxed text-content-muted">
         {unreachable
           ? 'Applications appear here from the cluster and from Gitea. Neither answered, so there is nothing to list right now.'
-          : 'Every application your teams create on Adhar shows up here automatically — with its environments, deployments, tech stack and docs. Create your first one from a golden path, or register a service that already exists.'}
+          : `Every application your teams create on Adhar shows up here automatically — with its environments, deployments, tech stack and docs. ${
+            createDenied
+              ? 'Ask a platform admin to create the first one from a golden path, or register a service that already exists.'
+              : 'Create your first one from a golden path, or register a service that already exists.'
+          }`}
       </p>
 
       {failing.length ? (
@@ -56,7 +64,7 @@ export function CatalogEmpty({ sources, onRegister }: { sources: SourceStatus[];
           >
             Try again
           </Button>
-        ) : (
+        ) : create.allowed ? (
           <Link
             to="/catalog"
             search={{ section: 'create' } as never}
@@ -67,7 +75,7 @@ export function CatalogEmpty({ sources, onRegister }: { sources: SourceStatus[];
             </svg>
             Create a new app
           </Link>
-        )}
+        ) : null}
         <Button variant="secondary" size="sm" onClick={onRegister}>
           Register existing service
         </Button>

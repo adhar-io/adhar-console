@@ -42,6 +42,7 @@ import {
   useScanArtifact,
   type AdmissionPolicies,
 } from '../data/delivery.ts'
+import { safeExternalUrl } from '../data/safe-url.ts'
 
 /**
  * Artifact registry — Harbor (container images) and Nexus (language packages)
@@ -370,7 +371,7 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
                     type="button"
                     aria-label={`Remove tag ${t.name}`}
                     onClick={(e) => { e.stopPropagation(); act(`Tag ${t.name} removed.`, () => delTag.mutateAsync({ repo: repoName, ref: a.digest, tag: t.name })) }}
-                    className="hidden text-brand-500 hover:text-rose-600 group-hover:inline"
+                    className="hidden text-brand-500 hover:text-rose-600 group-hover:inline dark:hover:text-rose-400"
                   >
                     ×
                   </button>
@@ -636,7 +637,7 @@ function ArtifactDrawer({
   ]
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Artifact detail">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label="Artifact detail">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -866,9 +867,9 @@ function SupplyChainTab({ artifact: a, repo, host, scanners }: { artifact: harbo
               rows={[
                 [
                   'Repository',
-                  prov.sourceUrl
-                    ? <a key="s" href={prov.sourceUrl} target="_blank" rel="noreferrer" className="font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300">{prov.sourceUrl}</a>
-                    : 'not recorded',
+                  safeExternalUrl(prov.sourceUrl)
+                    ? <a key="s" href={safeExternalUrl(prov.sourceUrl)} target="_blank" rel="noreferrer" className="font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300">{prov.sourceUrl}</a>
+                    : prov.sourceUrl ? <span key="s" className="font-mono text-[11px]">{prov.sourceUrl}</span> : 'not recorded',
                 ],
                 ['Revision', prov.revision ? <span key="r" className="font-mono text-[11px]">{prov.revision}</span> : 'not recorded'],
                 ['Version', prov.version ?? 'not recorded'],
@@ -1186,7 +1187,7 @@ function VulnPanel({ repo, artifact: a, scanningPossible }: { repo: string; arti
       value: (v) => v.id,
       cell: (v) => (
         <div>
-          {v.links[0] ? <a href={v.links[0]} target="_blank" rel="noreferrer" className="font-mono text-brand-700 hover:underline dark:text-brand-300">{v.id}</a> : <span className="font-mono text-content">{v.id}</span>}
+          {safeExternalUrl(v.links[0]) ? <a href={safeExternalUrl(v.links[0])} target="_blank" rel="noreferrer" className="font-mono text-brand-700 hover:underline dark:text-brand-300">{v.id}</a> : <span className="font-mono text-content">{v.id}</span>}
           {v.description ? <p className="mt-0.5 line-clamp-2 text-[11px] text-content-muted" title={v.description}>{v.description}</p> : null}
         </div>
       ),
@@ -1495,7 +1496,7 @@ function NexusComponentDrawer({ component: c, onClose }: { component: nexus.Nexu
   }, [onClose])
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label="Package detail">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label="Package detail">
       <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px] dark:bg-black/60" />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -1526,8 +1527,8 @@ function NexusComponentDrawer({ component: c, onClose }: { component: nexus.Nexu
                           {a.blobStoreName ? ` · blob store ${a.blobStoreName}` : ''}
                         </div>
                       </div>
-                      {a.downloadUrl ? (
-                        <a href={a.downloadUrl} target="_blank" rel="noreferrer" className="shrink-0 text-[11px] text-brand-700 hover:underline dark:text-brand-300">download ↗</a>
+                      {safeExternalUrl(a.downloadUrl) ? (
+                        <a href={safeExternalUrl(a.downloadUrl)} target="_blank" rel="noreferrer" className="shrink-0 text-[11px] text-brand-700 hover:underline dark:text-brand-300">download ↗</a>
                       ) : null}
                     </div>
                     <dl className="mt-2 space-y-0.5">

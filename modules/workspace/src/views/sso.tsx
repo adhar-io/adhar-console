@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, DataTable, EmptyState, Modal, StatusBadge, useCan, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   testOidcDiscovery,
@@ -23,9 +23,18 @@ import {
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
+/**
+ * SSO configs are docStore writes (`/api/store/workspace.sso-connection`) with
+ * no dedicated catalogue entry — they are organisation settings, so they need
+ * `update organizations` (CONSOLE_PERMISSIONS.orgUpdate).
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
+
 export function Sso() {
+  const toast = useToast()
   const sso = useSsoConnections()
   const del = useDeleteSsoConnection()
+  const canWrite = useCan(WRITE)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<SsoConnection | null>(null)
 
@@ -46,9 +55,9 @@ export function Sso() {
     <ViewShell
       title="Single sign-on"
       description="Federate authentication via OIDC or SAML. Connections saved here are tenant-shared configuration; activation happens in Keycloak (identity providers), and the status column says exactly which state each record is in."
-      required={['security', 'owner']}
+      writeCheck={WRITE}
       actions={
-        <RequirePermission perm="sso.write" required={['security', 'owner']} readOnly>
+        <RequirePermission check={WRITE}>
           <PrimaryButton onClick={openCreate}>
             <IconPlus /> Add provider config
           </PrimaryButton>
@@ -81,7 +90,11 @@ export function Sso() {
             empty={
               <EmptyState
                 title="No identity providers configured"
-                description="Add an OIDC or SAML provider config to get started. Nothing is pre-provisioned."
+                description={
+                  canWrite
+                    ? 'Add an OIDC or SAML provider config to get started. Nothing is pre-provisioned.'
+                    : 'Nothing is configured yet. Ask a workspace admin to add an OIDC or SAML provider.'
+                }
               />
             }
             columns={[
@@ -89,9 +102,9 @@ export function Sso() {
                 key: 'name',
                 header: 'Provider',
                 cell: (c) => (
-                  <div>
-                    <div className="font-medium text-content">{c.name}</div>
-                    <div className="text-xs text-content-muted">domain {c.domain}</div>
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-content" title={c.name}>{c.name}</div>
+                    <div className="truncate text-xs text-content-muted" title={c.domain}>domain {c.domain}</div>
                   </div>
                 ),
               },
@@ -136,13 +149,13 @@ export function Sso() {
                 key: 'actions',
                 header: '',
                 cell: (c) => (
-                  <RequirePermission perm="sso.write" required={['security', 'owner']} readOnly>
+                  <RequirePermission check={WRITE}>
                     <div className="flex justify-end gap-1.5">
                       <SecondaryButton onClick={() => openEdit(c)}>Edit</SecondaryButton>
                       <SecondaryButton
                         tone="rose"
                         disabled={del.isPending && del.variables === c.id}
-                        onClick={() => del.mutate(c.id)}
+                        onClick={() => del.mutate(c.id, { onError: (e) => toast.error(`Could not delete ${c.name}`, { description: (e as Error)?.message }) })}
                       >
                         Delete
                       </SecondaryButton>
@@ -166,7 +179,9 @@ export function Sso() {
         />
       </SettingsCard>
 
-      <SsoEditor open={editorOpen} initial={editing} onClose={() => setEditorOpen(false)} />
+      {canWrite ? (
+        <SsoEditor open={editorOpen} initial={editing} onClose={() => setEditorOpen(false)} />
+      ) : null}
     </ViewShell>
   )
 }
@@ -183,6 +198,7 @@ function SsoEditor({
   onClose(): void
 }) {
   const save = useSaveSsoConnection()
+  const toast = useToast()
   const [name, setName] = useState('')
   const [protocol, setProtocol] = useState<SsoProtocol>('oidc')
   const [domain, setDomain] = useState('')
@@ -237,7 +253,13 @@ function SsoEditor({
           jit,
         },
       },
-      { onSuccess: onClose },
+      {
+        onSuccess: () => {
+          toast.success(initial ? 'Provider config saved' : 'Provider config added')
+          onClose()
+        },
+        onError: (e) => toast.error('Could not save the SSO configuration', { description: (e as Error)?.message }),
+      },
     )
 
   return (
@@ -318,11 +340,11 @@ function SsoEditor({
             </span>
           ) : null}
           {testResult ? (
-            <span className="mt-2 flex items-center gap-2 text-[12px]">
+            <span className="mt-2 flex min-w-0 items-center gap-2 text-[12px]">
               <StatusBadge kind={testResult.ok ? 'healthy' : 'failed'}>
                 {testResult.ok ? 'reachable' : 'failed'}
               </StatusBadge>
-              <span className="text-content-muted">{testResult.detail}</span>
+              <span className="min-w-0 truncate text-content-muted" title={testResult.detail}>{testResult.detail}</span>
             </span>
           ) : null}
         </label>
@@ -347,12 +369,6 @@ function SsoEditor({
             description="Create members on first sign-in."
           />
         </div>
-
-        {save.isError ? (
-          <p className="text-[12px] text-rose-700 dark:text-rose-400">
-            {(save.error as Error)?.message ?? 'Could not save the SSO configuration.'}
-          </p>
-        ) : null}
       </div>
     </Modal>
   )

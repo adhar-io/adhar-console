@@ -15,11 +15,13 @@ import {
   useToast,
   DrawerWidenButton,
   useDrawerWidth,
+  canResource,
+  useCan,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import { GVRS } from '../data/gvr.ts'
-import { useAccess, useLiveList } from '../data/live.ts'
+import { useLiveList } from '../data/live.ts'
 import { age } from '../data/format.ts'
 import { groupByNamespace, type LimitRange, type LimitRangeItem, type ResourceQuota, useNamespacesLive } from '../data/namespaces.ts'
 import {
@@ -76,8 +78,10 @@ export function QuotasView({ namespace }: { namespace?: string }) {
   const quotas = useLiveList<ResourceQuota>(GVRS.resourcequotas, { namespace })
   const limits = useLiveList<LimitRange>(GVRS.limitranges, { namespace })
   const nss = useNamespacesLive()
-  const canQuota = useAccess({ verb: 'create', resource: 'resourcequotas', namespace })
-  const canLimit = useAccess({ verb: 'create', resource: 'limitranges', namespace })
+  // Without a namespace scope these ask cluster-wide; Namespace coverage asks
+  // per row, so a team admin of one namespace still gets "Add quota" there.
+  const canQuota = useCan(canResource(GVRS.resourcequotas, 'create', { namespace }))
+  const canLimit = useCan(canResource(GVRS.limitranges, 'create', { namespace }))
 
   const [tab, setTab] = useState<Tab>('quotas')
   const [creating, setCreating] = useState<{ kind: 'quota' | 'limits'; namespace?: string } | null>(null)
@@ -120,12 +124,12 @@ export function QuotasView({ namespace }: { namespace?: string }) {
         ariaLabel="Quota and limits"
         actions={
           <div className="flex items-center gap-2">
-            {canLimit.data ? (
+            {canLimit ? (
               <Button size="sm" variant="secondary" onClick={() => setCreating({ kind: 'limits', namespace })}>
                 New limit range
               </Button>
             ) : null}
-            {canQuota.data ? (
+            {canQuota ? (
               <Button size="sm" variant="primary" onClick={() => setCreating({ kind: 'quota', namespace })}>
                 New quota
               </Button>
@@ -135,7 +139,7 @@ export function QuotasView({ namespace }: { namespace?: string }) {
       >
         {(active) =>
           active === 'quotas' ? (
-            <QuotaTable live={quotas} />
+            <QuotaTable live={quotas} canCreate={canQuota} />
           ) : active === 'limits' ? (
             <LimitTable live={limits} />
           ) : (
@@ -144,8 +148,6 @@ export function QuotasView({ namespace }: { namespace?: string }) {
               loading={nss.isLoading}
               quotaByNs={quotaByNs}
               limitByNs={limitByNs}
-              canQuota={!!canQuota.data}
-              canLimit={!!canLimit.data}
               onCreate={setCreating}
             />
           )}
@@ -185,7 +187,7 @@ function UsageBar({ pct, pressure, className }: { pct: number | null; pressure: 
 
 /* ═════════════════════════ quotas ═════════════════════════ */
 
-function QuotaTable({ live }: { live: ReturnType<typeof useLiveList<ResourceQuota>> }) {
+function QuotaTable({ live, canCreate }: { live: ReturnType<typeof useLiveList<ResourceQuota>>; canCreate: boolean }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const rows = useMemo(
@@ -275,7 +277,11 @@ function QuotaTable({ live }: { live: ReturnType<typeof useLiveList<ResourceQuot
           empty={
             <EmptyState
               title="No ResourceQuotas"
-              description="Without a quota a namespace can consume the whole cluster. Create one from the button above or from Namespace coverage."
+              description={
+                canCreate
+                  ? 'Without a quota a namespace can consume the whole cluster. Create one from the button above or from Namespace coverage.'
+                  : 'Without a quota a namespace can consume the whole cluster. Ask a platform admin to add one.'
+              }
             />
           }
         />
@@ -287,8 +293,10 @@ function QuotaTable({ live }: { live: ReturnType<typeof useLiveList<ResourceQuot
 
 function QuotaDrawer({ quota, onClose }: { quota: ResourceQuota; onClose(): void }) {
   const ns = quota.metadata.namespace
-  const canUpdate = useAccess({ verb: 'update', resource: 'resourcequotas', namespace: ns, name: quota.metadata.name })
-  const canDelete = useAccess({ verb: 'delete', resource: 'resourcequotas', namespace: ns, name: quota.metadata.name })
+  const target = { namespace: ns, name: quota.metadata.name }
+  // Edit opens the manifest editor, which applies server-side — a PATCH.
+  const canEdit = useCan(canResource(GVRS.resourcequotas, 'patch', target))
+  const canDelete = useCan(canResource(GVRS.resourcequotas, 'delete', target))
   const lines = quotaLines(quota)
   const [editing, setEditing] = useState(false)
   return (
@@ -302,9 +310,9 @@ function QuotaDrawer({ quota, onClose }: { quota: ResourceQuota; onClose(): void
           ? <StatusBadge kind={PRESSURE_TONE[lines[0]?.pressure ?? 'ok'].badge}>{lines[0] && lines[0].pressure !== 'unbounded' ? PRESSURE_TONE[lines[0].pressure].label : 'Healthy'}</StatusBadge>
           : <StatusBadge kind="unknown">Pending</StatusBadge>
       }
-      canEdit={!!canUpdate.data}
+      canEdit={canEdit}
       onEdit={() => setEditing(true)}
-      canDelete={!!canDelete.data}
+      canDelete={canDelete}
       deleteGvr={GVRS.resourcequotas}
       deleteNote="Pods already running keep running; new pods in this namespace are no longer capped."
     >
@@ -350,7 +358,7 @@ function QuotaDrawer({ quota, onClose }: { quota: ResourceQuota; onClose(): void
           and limits for the resources capped here — a LimitRange can supply defaults.
         </p>
       </section>
-      {editing ? <ManifestEditor gvr={GVRS.resourcequotas} namespace={ns} name={quota.metadata.name} onClose={() => setEditing(false)} /> : null}
+      {editing && canEdit ? <ManifestEditor gvr={GVRS.resourcequotas} namespace={ns} name={quota.metadata.name} onClose={() => setEditing(false)} /> : null}
     </DrawerFrame>
   )
 }
@@ -432,8 +440,9 @@ function LimitTable({ live }: { live: ReturnType<typeof useLiveList<LimitRange>>
 
 function LimitDrawer({ lr, onClose }: { lr: LimitRange; onClose(): void }) {
   const ns = lr.metadata.namespace
-  const canUpdate = useAccess({ verb: 'update', resource: 'limitranges', namespace: ns, name: lr.metadata.name })
-  const canDelete = useAccess({ verb: 'delete', resource: 'limitranges', namespace: ns, name: lr.metadata.name })
+  const target = { namespace: ns, name: lr.metadata.name }
+  const canEdit = useCan(canResource(GVRS.limitranges, 'patch', target))
+  const canDelete = useCan(canResource(GVRS.limitranges, 'delete', target))
   const [editing, setEditing] = useState(false)
   const cols: Array<[string, Exclude<keyof LimitRangeItem, 'type'>]> = [
     ['Min', 'min'],
@@ -448,9 +457,9 @@ function LimitDrawer({ lr, onClose }: { lr: LimitRange; onClose(): void }) {
       name={lr.metadata.name}
       namespace={ns}
       onClose={onClose}
-      canEdit={!!canUpdate.data}
+      canEdit={canEdit}
       onEdit={() => setEditing(true)}
-      canDelete={!!canDelete.data}
+      canDelete={canDelete}
       deleteGvr={GVRS.limitranges}
       deleteNote="Existing pods are unaffected; new containers stop receiving default requests and limits."
     >
@@ -490,7 +499,7 @@ function LimitDrawer({ lr, onClose }: { lr: LimitRange; onClose(): void }) {
         Defaults are written into containers that don't set their own requests or limits when they are admitted; min and
         max reject containers outside the bounds.
       </p>
-      {editing ? <ManifestEditor gvr={GVRS.limitranges} namespace={ns} name={lr.metadata.name} onClose={() => setEditing(false)} /> : null}
+      {editing && canEdit ? <ManifestEditor gvr={GVRS.limitranges} namespace={ns} name={lr.metadata.name} onClose={() => setEditing(false)} /> : null}
     </DrawerFrame>
   )
 }
@@ -502,16 +511,12 @@ function CoverageTable({
   loading,
   quotaByNs,
   limitByNs,
-  canQuota,
-  canLimit,
   onCreate,
 }: {
   namespaces: string[]
   loading: boolean
   quotaByNs: Map<string, ResourceQuota[]>
   limitByNs: Map<string, LimitRange[]>
-  canQuota: boolean
-  canLimit: boolean
   onCreate(c: { kind: 'quota' | 'limits'; namespace?: string }): void
 }) {
   const [search, setSearch] = useState('')
@@ -591,21 +596,41 @@ function CoverageTable({
             key: 'act',
             header: '',
             align: 'right',
-            cell: (r) => (
-              <div className="flex justify-end gap-1.5">
-                {!r.quotas.length && canQuota ? (
-                  <Button size="sm" variant="secondary" onClick={() => onCreate({ kind: 'quota', namespace: r.ns })}>Add quota</Button>
-                ) : null}
-                {!r.limits.length && canLimit ? (
-                  <Button size="sm" variant="ghost" onClick={() => onCreate({ kind: 'limits', namespace: r.ns })}>Add limits</Button>
-                ) : null}
-              </div>
-            ),
+            cell: (r) =>
+              r.quotas.length && r.limits.length ? null : (
+                <CoverageActions ns={r.ns} needsQuota={!r.quotas.length} needsLimits={!r.limits.length} onCreate={onCreate} />
+              ),
           },
         ]}
         empty={<EmptyState title="No namespaces" />}
       />
     </ListShell>
+  )
+}
+
+/** Per-row create actions, asked in that row's namespace (checks batch per tick). */
+function CoverageActions({
+  ns,
+  needsQuota,
+  needsLimits,
+  onCreate,
+}: {
+  ns: string
+  needsQuota: boolean
+  needsLimits: boolean
+  onCreate(c: { kind: 'quota' | 'limits'; namespace?: string }): void
+}) {
+  const canQuota = useCan(canResource(GVRS.resourcequotas, 'create', { namespace: ns }), { enabled: needsQuota })
+  const canLimit = useCan(canResource(GVRS.limitranges, 'create', { namespace: ns }), { enabled: needsLimits })
+  return (
+    <div className="flex justify-end gap-1.5">
+      {needsQuota && canQuota ? (
+        <Button size="sm" variant="secondary" onClick={() => onCreate({ kind: 'quota', namespace: ns })}>Add quota</Button>
+      ) : null}
+      {needsLimits && canLimit ? (
+        <Button size="sm" variant="ghost" onClick={() => onCreate({ kind: 'limits', namespace: ns })}>Add limits</Button>
+      ) : null}
+    </div>
   )
 }
 
@@ -652,7 +677,7 @@ function DrawerFrame({
   useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -666,10 +691,10 @@ function DrawerFrame({
             {canEdit ? <Button size="sm" variant="secondary" onClick={onEdit}>Edit</Button> : null}
             {canDelete ? <Button size="sm" variant="danger" onClick={() => setConfirming(true)}>Delete</Button> : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
-            <button type="button" onClick={onClose} className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content" aria-label="Close">✕</button>
+            <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-content-muted hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40" aria-label="Close">✕</button>
           </div>
         </header>
-        {confirming ? (
+        {confirming && canDelete ? (
           <div className="flex flex-wrap items-center gap-3 border-b border-rose-200 bg-rose-50/70 px-6 py-3 dark:border-rose-500/25 dark:bg-rose-500/10" role="alert">
             <div className="min-w-0 flex-1 text-sm">
               <div className="font-semibold text-rose-900 dark:text-rose-300">Delete {kind} {name}?</div>

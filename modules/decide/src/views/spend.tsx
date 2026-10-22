@@ -262,7 +262,10 @@ export function SpendSummary() {
           ? `OpenCost label aggregation (${labelKey || 'app.kubernetes.io/name'}) is cluster-wide; the project filter does not apply.`
           : `${win.label}. Efficiency = share of CPU and memory spend backed by actual use.`}
       >
-        {current.isLoading ? <Skeleton height={220} /> : (
+        {current.isLoading ? <Skeleton height={220} /> : rows.length === 0 ? (
+          // One message, not one per half (chart + table) at different heights.
+          <p className="py-8 text-center text-xs text-content-subtle">No allocation in this range.</p>
+        ) : (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
             <RankBars
               rows={rows.slice(0, 8).map((r) => ({

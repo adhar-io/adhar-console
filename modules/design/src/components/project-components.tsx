@@ -7,6 +7,7 @@ import { useGiteaFileUrl } from '../data/gitea.ts'
 import { useGoDesign } from '../data/nav.ts'
 import { useScopeRepos } from './token-integrations.tsx'
 import { IconArrowRight } from './ux-kit.tsx'
+import { Icon } from './ui-bits.tsx'
 
 /**
  * The project's own UI components, discovered from the repositories its
@@ -27,6 +28,7 @@ export function ProjectComponents({ scope, shellNames }: { scope: DesignScope; s
   if (!targets.length) {
     return (
       <EmptyState
+        icon={<Icon name="component" size={22} />}
         title={`No application repositories in ${scope.label}`}
         description="Components are discovered from the Gitea repositories of the platform Applications in this scope. Deploy an application from the Service Catalog, or pick another project."
       />

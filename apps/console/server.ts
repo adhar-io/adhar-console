@@ -43,6 +43,7 @@ import { handleResilienceReports, startResilienceReports } from './app/server/re
 import { handleScanSecurity } from './app/server/scan-waivers.ts'
 import { handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
+import { handleSupportApi } from './app/server/support/handlers.ts'
 import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { startPlatformEvents } from './app/server/events/platform-events.ts'
@@ -52,6 +53,14 @@ import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
 import { handleStatus } from './app/server/status.ts'
 import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
+import {
+  csrfRejected,
+  guardJsonBody,
+  isMutating,
+  RequestBodyError,
+  withDeadline,
+  withSecurityHeaders,
+} from './app/server/http-hardening.ts'
 
 // Keep the Keycloak tokens server-side (Postgres) so the session cookie stays
 // small — inlining them exceeds the browser cookie-size limit and drops the
@@ -98,7 +107,15 @@ function cacheHeader(pathname: string): string {
 }
 
 async function serveStatic(pathname: string): Promise<Response | null> {
-  const rel = normalize(decodeURIComponent(pathname)).replace(/^(\.\.[/\\])+/, '').replace(/^\/+/, '')
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    // Malformed percent-encoding (`/%E0%A4%A`) is not a file we have — let the
+    // SPA fallback answer instead of the router's 500.
+    return null
+  }
+  const rel = normalize(decoded).replace(/^(\.\.[/\\])+/, '').replace(/^\/+/, '')
   const filePath = join(DIST, rel)
   // Path-traversal guard: resolved path must stay within DIST.
   if (filePath !== DIST && !filePath.startsWith(DIST + '/')) return null
@@ -150,10 +167,7 @@ async function readyz(): Promise<Response> {
   // with a short timeout and report reachability, but stay ready regardless.
   let keycloak: 'ok' | 'unreachable' = 'ok'
   try {
-    await Promise.race([
-      getDiscovery(cfg),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('discovery timeout')), 3000)),
-    ])
+    await withDeadline(getDiscovery(cfg), 3000, 'discovery timeout')
   } catch {
     keycloak = 'unreachable'
   }
@@ -188,25 +202,33 @@ function apiConfig(): Promise<Response> {
  *
  * Read-only; contains no secrets (only public OIDC metadata + status). The
  * kubernetes probe is included only when a session is present.
+ *
+ * Anonymous callers get the statuses and hints only. The endpoint has to work
+ * before sign-in does (it is how a broken login is debugged), but the internal
+ * backchannel URL, the apiserver address and raw upstream error text (which
+ * names in-cluster hosts) are a map of the cluster for anyone who can reach
+ * the console — so they are shown to signed-in users only.
  */
 async function diagnostics(req: Request): Promise<Response> {
   const out: Record<string, unknown> = { ts: new Date().toISOString() }
 
   const cfg = getServerAuthConfig()
+  const id = cfg ? await resolveIdentity(req) : null
+  // No identity provider at all is a laptop; there is nothing to protect.
+  const detailed = !cfg || Boolean(id)
+  const errText = (e: unknown) => (detailed ? (e instanceof Error ? e.message : String(e)) : undefined)
   out.auth = { configured: Boolean(cfg), publicUrl: cfg?.publicUrl ?? null }
 
   // Session-store mode — 'postgres' means the session cookie is small (a session
   // id only). 'inline-fallback' means tokens are inlined and login can fail if
   // the cookie exceeds the browser's ~4 KB limit; set DATABASE_URL to fix.
-  out.sessionStore = sessionStoreStatus()
+  const store = sessionStoreStatus()
+  out.sessionStore = detailed ? store : { mode: store.mode }
 
   // ── Keycloak (OIDC discovery + resolved endpoint origins) ──
   if (cfg) {
     try {
-      const disc = await Promise.race([
-        getDiscovery(cfg),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('discovery timeout after 5s')), 5000)),
-      ])
+      const disc = await withDeadline(getDiscovery(cfg), 5000, 'discovery timeout after 5s')
       const origin = (u?: string) => {
         try {
           return u ? new URL(u).origin : null
@@ -223,7 +245,7 @@ async function diagnostics(req: Request): Promise<Response> {
         tokenEndpointOrigin: origin(disc.token_endpoint),
         jwksOrigin: origin(disc.jwks_uri),
         authorizeEndpointOrigin: origin(disc.authorization_endpoint),
-        internalBackchannel: cfg.internalUrl ?? null,
+        internalBackchannel: detailed ? cfg.internalUrl ?? null : undefined,
         // The kube-apiserver validates the token `iss` strictly against its
         // --oidc-issuer-url (https). If this is false, apiserver token
         // acceptance AND console id-token verification will fail.
@@ -232,7 +254,7 @@ async function diagnostics(req: Request): Promise<Response> {
           : 'Issuer is not https — Keycloak is emitting a non-https issuer over the backchannel. Set hostname-strict-backchannel=true on Keycloak.',
       }
     } catch (e) {
-      out.keycloak = { status: 'unreachable', error: e instanceof Error ? e.message : String(e) }
+      out.keycloak = { status: 'unreachable', error: errText(e) }
     }
   } else {
     out.keycloak = { status: 'not_configured' }
@@ -245,22 +267,18 @@ async function diagnostics(req: Request): Promise<Response> {
       ? { status: (await pingDb()) ? 'ok' : 'down', configured: true }
       : { status: 'unconfigured', configured: false }
   } catch (e) {
-    out.db = { status: 'error', error: e instanceof Error ? e.message : String(e) }
+    out.db = { status: 'error', error: errText(e) }
   }
 
   // ── Kubernetes apiserver (real call as the signed-in user) ──
   const apiUrl = env('K8S_API_URL') ?? 'https://kubernetes.default.svc'
-  const k8s: Record<string, unknown> = { apiUrl }
-  const id = cfg ? await resolveIdentity(req) : null
+  const k8s: Record<string, unknown> = detailed ? { apiUrl } : {}
   if (!id) {
     k8s.status = 'no_session'
     k8s.hint = 'Sign in first — the cluster is reached with your Keycloak token (per-user impersonation).'
   } else {
     try {
-      const res = await Promise.race([
-        apiServerFetch(id, '/version'),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error('apiserver timeout after 8s')), 8000)),
-      ])
+      const res = await apiServerFetch(id, '/version', { signal: AbortSignal.timeout(8000) })
       if (res.ok) {
         const body = (await res.json().catch(() => ({}))) as { gitVersion?: string }
         k8s.status = 'ok'
@@ -291,6 +309,8 @@ async function diagnostics(req: Request): Promise<Response> {
   }
   out.kubernetes = k8s
 
+  if (!detailed) return Response.json(out, { headers: { 'cache-control': 'no-store' } })
+
   // ── realtime hub load ──
   // `watches` is the number of upstream apiserver watches this process holds;
   // `subscribers` is how many browser subscriptions they serve. Identical
@@ -314,6 +334,13 @@ async function route(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const path = url.pathname
   const method = req.method.toUpperCase()
+
+  if (path.startsWith('/api/') && isMutating(method)) {
+    // CSRF: see http-hardening.ts for why SameSite=Lax alone is not enough here.
+    const csrf = csrfRejected(req)
+    if (csrf) return csrf
+    guardJsonBody(req)
+  }
 
   // Health/config (dependency-light).
   if (path === '/healthz') return healthz()
@@ -365,7 +392,16 @@ async function route(req: Request): Promise<Response> {
 
   // Console-owned document store: /api/store/<kind>[/<id>]
   const store = path.match(/^\/api\/store\/([^/]+)(?:\/(.+))?$/)
-  if (store) return handleDocuments(req, decodeURIComponent(store[1]), store[2] ? decodeURIComponent(store[2]) : undefined)
+  if (store) {
+    let kind: string, id: string | undefined
+    try {
+      kind = decodeURIComponent(store[1])
+      id = store[2] ? decodeURIComponent(store[2]) : undefined
+    } catch {
+      return Response.json({ error: 'invalid_path' }, { status: 400 })
+    }
+    return handleDocuments(req, kind, id)
+  }
 
   // Software templates for Catalog → Create New — discovered from Gitea.
   if (path === '/api/templates') return handleListTemplates(req)
@@ -385,7 +421,8 @@ async function route(req: Request): Promise<Response> {
 
   // Run one application's resilience suite now (Chaos page): a gate-mode Job
   // from the resilience runner's own CronJob, created as the console SA behind
-  // a role check; plus the gate runs' status and log tails.
+  // an RBAC check (create resilience-runs.console.adhar.io in the app's
+  // namespace); plus the gate runs' status and log tails.
   const resilience = path.match(/^\/api\/resilience\/runs(\/.*)?$/)
   if (resilience) return handleResilienceRuns(req, resilience[1] ?? '')
   // Chaos Engineering run reports: one per resilience run, tagged with the
@@ -398,6 +435,12 @@ async function route(req: Request): Promise<Response> {
   // handler for why an unset token refuses rather than accepts.
   if (path === '/api/alerts/alertmanager') return handleAlertmanagerWebhook(req)
 
+  // Support tickets in Plane: open one by hand for a notification (the
+  // platform watcher and Alertmanager open them automatically) and report
+  // whether the pipeline is wired. See app/server/support/.
+  const support = path.match(/^\/api\/support\/(.*)$/)
+  if (support) return handleSupportApi(req, support[1])
+
   // Where a catalog entity is reachable — HTTPRoutes/Ingresses whose backend is
   // the entity's Service. Powers the drawer's "Open" button and the full URLs
   // on its Deployment tab.
@@ -409,12 +452,13 @@ async function route(req: Request): Promise<Response> {
 
   // Delete a custom application: its Application XR as the signed-in user
   // (Crossplane removes the Argo CD apps and composed resources), then,
-  // optionally, its Gitea repository. Role-gated server-side.
+  // optionally, its Gitea repository. RBAC-gated server-side (delete applications.console.adhar.io).
   if (path === '/api/apps/delete') return handleAppDelete(req)
 
   // Scan waivers (request → review → ConfigMap the CI/runtime enforce), scan
-  // policy, and the manual scan gate on paused PipelineRuns. Role-gated
-  // server-side; cluster writes go out as the signed-in user.
+  // policy, and the manual scan gate on paused PipelineRuns. RBAC-gated
+  // server-side (scan-waivers / scan-policies.console.adhar.io); cluster
+  // writes go out as the signed-in user.
   const sec = path.match(/^\/api\/security\/(.*)$/)
   if (sec) return handleScanSecurity(req, sec[1])
 
@@ -460,13 +504,15 @@ async function route(req: Request): Promise<Response> {
 
 async function handler(req: Request): Promise<Response> {
   try {
-    return await route(req)
+    return withSecurityHeaders(await route(req))
   } catch (err) {
+    // A malformed / oversized JSON body is the client's error, not ours.
+    if (err instanceof RequestBodyError) return withSecurityHeaders(err.toResponse())
     // Never let a handler error crash the server. Redact the query string —
     // `/api/auth/callback` carries a single-use `?code=` we must not log.
     const u = new URL(req.url)
     console.error(`[server] unhandled error for ${req.method} ${u.pathname}:`, err)
-    return Response.json({ error: 'internal_error' }, { status: 500 })
+    return withSecurityHeaders(Response.json({ error: 'internal_error' }, { status: 500 }))
   }
 }
 
@@ -491,13 +537,31 @@ const stopResilienceReports = startResilienceReports()
 console.log(`adhar-console listening on http://${HOSTNAME}:${PORT}  (dist: ${DIST})`)
 console.log(`  auth: ${isServerAuthConfigured() ? 'keycloak' : 'stub (KEYCLOAK_URL/AUTH_* not set)'}`)
 
+// `server.shutdown()` waits for every in-flight response to finish — and the
+// console holds long-lived ones by design (watch streams, log follows, the live
+// hub WebSocket, SSE chat). Without a deadline a drain never completes and the
+// pod sits in Terminating until the kubelet SIGKILLs it at the grace period,
+// cutting everything mid-write anyway. Exit on our own terms a little before
+// the default 30s grace instead; a second signal exits at once.
+const SHUTDOWN_DEADLINE_MS = Number(env('SHUTDOWN_DEADLINE_MS') ?? 25_000)
+let draining = false
+
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   try {
     Deno.addSignalListener(sig, () => {
-      console.log(`[server] ${sig} received — draining…`)
+      if (draining) {
+        console.log(`[server] ${sig} received again — exiting now`)
+        Deno.exit(0)
+      }
+      draining = true
+      console.log(`[server] ${sig} received — draining (deadline ${SHUTDOWN_DEADLINE_MS}ms)…`)
       stopPlatformEvents()
       stopGraph()
       stopResilienceReports()
+      setTimeout(() => {
+        console.warn('[server] drain deadline reached — closing remaining connections')
+        Deno.exit(0)
+      }, SHUTDOWN_DEADLINE_MS)
       server.shutdown().finally(() => Deno.exit(0))
     })
   } catch {

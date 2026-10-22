@@ -16,6 +16,7 @@ import { type IssueStatus, statusCounts } from '../data/plane-map.ts'
 import { IssueStateChip, PrBadge, ReviewBadge } from '../components/integrations.tsx'
 import { coverageHints, shortPersonaName } from '../data/ux-lib.ts'
 import { IconArrowRight, IconChevron, IconInfo, IconPlus, IconWarning } from '../components/ux-kit.tsx'
+import { Icon } from '../components/ui-bits.tsx'
 
 type Kind = 'adr' | 'diagram' | 'board' | 'persona' | 'journey' | 'wireframe' | 'spec'
 
@@ -166,7 +167,7 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
-        <SearchInput value={q} onChange={setQ} placeholder="Search every design artifact…" className="w-full sm:w-96" />
+        <SearchInput value={q} onChange={setQ} placeholder="Search every design artifact…" className="h-8 w-full sm:w-96" />
         <div className="ml-auto">
           <CreateMenu onPick={(section) => go(section, { new: '1' })} />
         </div>
@@ -202,6 +203,7 @@ export function Dashboard() {
           </div>
           {total === 0 ? (
             <EmptyState
+              icon={<Icon name="layers" size={22} />}
               title="Your design workspace is empty"
               description="Start with who you're building for, then map their journey — or record the first architecture decision."
               action={

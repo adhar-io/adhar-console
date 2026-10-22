@@ -5,7 +5,9 @@ import { PENDING_USER, useOptionalSession } from '@adhar/auth'
 import {
   BarChart,
   Button,
+  Can,
   Card,
+  CONSOLE_PERMISSIONS,
   DonutGauge,
   CardBody,
   DrawerWidenButton,
@@ -15,6 +17,7 @@ import {
   Input,
   Modal,
   Select,
+  Skeleton,
   Spinner,
   StatusBadge,
   type StatusKind,
@@ -43,7 +46,7 @@ import {
   useCatalog,
   useRegisterEntity,
 } from '~/data/catalog.ts'
-import { parseApiDefinition, type ParsedApi, type SourceStatus } from '~/data/catalog-live.ts'
+import { parseApiDefinition, type ParsedApi } from '~/data/catalog-live.ts'
 import {
   deriveDeployment,
   type EntityDeployment,
@@ -74,6 +77,7 @@ import { ResourcesTab } from './_catalog-resources.tsx'
 import { drawerTabAlias } from '~/data/catalog-resources-model.ts'
 import { CatalogDeleteDialog, useEntityDeleteMode } from '~/components/catalog-delete-app.tsx'
 import { loadGiteaTemplates } from '~/data/catalog-templates.ts'
+import { isHttpUrl, isSafeLinkUrl } from '~/data/safe-url.ts'
 import {
   CATEGORY_LABEL,
   type Check,
@@ -183,23 +187,6 @@ function searchFromFilter(f: FilterState): Partial<SearchState> {
   }
 }
 
-/** All resettable search keys set to undefined — applied before a saved view. */
-const EMPTY_FILTER_SEARCH: Partial<SearchState> = {
-  kind: undefined,
-  lifecycle: undefined,
-  owner: undefined,
-  system: undefined,
-  tags: undefined,
-  quick: undefined,
-  ho: undefined,
-  hd: undefined,
-  hr: undefined,
-  q: undefined,
-  view: undefined,
-  sort: undefined,
-}
-
-
 /* ─────────── "owned by me" resolution ─────────── */
 
 function computeMyOwnerRefs(list: Entity[], user: { email?: string; name?: string }): Set<string> {
@@ -266,10 +253,17 @@ const URL_ANNOTATIONS = [
  */
 function publicizeEntity(e: Entity, pub: (url: string) => string): Entity {
   let changed = false
-  const links = (e.metadata.links ?? []).map((l) => {
+  const links = (e.metadata.links ?? []).flatMap((l) => {
+    // Links are user-authored data (`catalog-info.yaml`, Register form);
+    // drop anything that is not plain web navigation (`javascript:` etc.)
+    // here, once, rather than trusting every card/tab that renders one.
+    if (!isSafeLinkUrl(l.url)) {
+      changed = true
+      return []
+    }
     const url = pub(l.url)
     if (url !== l.url) changed = true
-    return url !== l.url ? { ...l, url } : l
+    return [url !== l.url ? { ...l, url } : l]
   })
   const ann = e.metadata.annotations
   let annotations = ann
@@ -351,7 +345,13 @@ export function CatalogBrowse({ search }: { search: SearchState }) {
   // keystroke doesn't create a history entry per character.
   const searchQRef = useRef(search.q)
   searchQRef.current = search.q
-  useEffect(() => setText(search.q ?? ''), [search.q])
+  // Adopt the URL value only when it really differs from what is typed: the
+  // debounced push below writes `text.trim()`, and echoing that back stripped
+  // a trailing space mid-word and could replace newer keystrokes.
+  useEffect(() => {
+    const q = search.q ?? ''
+    setText((cur) => (cur.trim() === q ? cur : q))
+  }, [search.q])
   useEffect(() => {
     const h = setTimeout(() => {
       const next = text.trim() || undefined
@@ -702,6 +702,35 @@ function needsAttention(e: Entity): boolean {
   return false
 }
 
+/**
+ * The first load, shaped like the card grid it becomes (same columns, card
+ * height and inner rows) so the page does not jump when entities arrive.
+ */
+function CatalogCardsSkeleton() {
+  return (
+    <div role="status" aria-label="Loading the catalog" className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="flex h-52 flex-col gap-3 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
+          <div className="flex items-center gap-3">
+            <Skeleton width={36} height={36} rounded="lg" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Skeleton className="h-3.5 w-2/5" />
+              <Skeleton className="h-2.5 w-1/4" />
+            </div>
+          </div>
+          <Skeleton className="h-2.5 w-11/12" />
+          <Skeleton className="h-2.5 w-3/4" />
+          <div className="mt-auto flex gap-2">
+            <Skeleton className="h-5 w-16" rounded="full" />
+            <Skeleton className="h-5 w-12" rounded="full" />
+            <Skeleton className="h-5 w-14" rounded="full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /* ─────────── header ─────────── */
 
 function CatalogHeader({ onRegister }: { onRegister(): void }) {
@@ -725,24 +754,26 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
           </span>
           Register existing
         </button>
-        <Link
-          to="/catalog"
-          search={{ section: 'create' } as never}
-          // Start reading the templates from Gitea on intent, so Create New
-          // usually opens on a list rather than a loading state.
-          onMouseEnter={() => void loadGiteaTemplates()}
-          onFocus={() => void loadGiteaTemplates()}
-          // A link that looks and behaves like the page's primary button, so it
-          // takes the button's touch floor too — the base rule leaves bare
-          // `a[href]` alone, because a link inside a sentence is not a control.
-          role="button"
-          className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white pointer-coarse:h-11 sm:flex-none sm:justify-start"
-        >
-          <span className="text-white">
-            <IconPlus />
-          </span>
-          <span className="text-white">Create new</span>
-        </Link>
+        <Can check={CONSOLE_PERMISSIONS.applicationsCreate}>
+          <Link
+            to="/catalog"
+            search={{ section: 'create' } as never}
+            // Start reading the templates from Gitea on intent, so Create New
+            // usually opens on a list rather than a loading state.
+            onMouseEnter={() => void loadGiteaTemplates()}
+            onFocus={() => void loadGiteaTemplates()}
+            // A link that looks and behaves like the page's primary button, so it
+            // takes the button's touch floor too — the base rule leaves bare
+            // `a[href]` alone, because a link inside a sentence is not a control.
+            role="button"
+            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white pointer-coarse:h-11 sm:flex-none sm:justify-start"
+          >
+            <span className="text-white">
+              <IconPlus />
+            </span>
+            <span className="text-white">Create new</span>
+          </Link>
+        </Can>
       </div>
     </header>
   )
@@ -1322,7 +1353,10 @@ function BrowseAll({
 }) {
   const [visible, setVisible] = useState(PAGE_SIZE)
   // Reset paging whenever the result set changes (filter / search / view).
-  useEffect(() => setVisible(PAGE_SIZE), [list, view])
+  // Keyed on membership, not array identity: every background refetch (and a
+  // star toggle) builds a new `list`, which snapped "Show more" back to 60.
+  const listSig = useMemo(() => list.map(entityRef).join('\n'), [list])
+  useEffect(() => setVisible(PAGE_SIZE), [listSig, view])
 
   const shown = list.slice(0, visible)
 
@@ -1375,9 +1409,7 @@ function BrowseAll({
       />
 
       {loading ? (
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-10 text-sm text-content-muted shadow-sm">
-          <Spinner /> Loading catalog…
-        </div>
+        <CatalogCardsSkeleton />
       ) : list.length === 0 ? (
         <EmptyState
           title={searching ? 'No matching entities' : 'Nothing in the catalog yet'}
@@ -1511,72 +1543,6 @@ function estimateColumns(cards: HTMLElement[]): number {
     else break
   }
   return Math.max(1, cols)
-}
-
-/* ─────────── saved views + export menus ─────────── */
-
-
-
-function stripOrigin(list: Entity[]): Array<Omit<Entity, 'origin'>> {
-  return list.map(({ origin: _origin, ...rest }) => rest)
-}
-
-function downloadFile(name: string, content: string, mime: string) {
-  if (typeof document === 'undefined') return
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
-/** Tiny YAML serialiser — enough for the Backstage entity shape we emit. */
-function toYaml(value: unknown, indent = 0): string {
-  const pad = '  '.repeat(indent)
-  if (Array.isArray(value)) {
-    if (value.length === 0) return ' []\n'
-    return (
-      '\n' +
-      value
-        .map((item) => {
-          if (item !== null && typeof item === 'object') {
-            const body = toYaml(item, indent + 1).replace(/^\n/, '')
-            return `${pad}-\n${body}`
-          }
-          return `${pad}- ${yamlScalar(item)}\n`
-        })
-        .join('')
-    )
-  }
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).filter(
-      ([, v]) => v !== undefined,
-    )
-    if (entries.length === 0) return ' {}\n'
-    return (
-      (indent === 0 ? '' : '\n') +
-      entries
-        .map(([k, v]) => {
-          if (v !== null && typeof v === 'object') {
-            return `${pad}${k}:${toYaml(v, indent + 1)}`
-          }
-          return `${pad}${k}: ${yamlScalar(v)}\n`
-        })
-        .join('')
-    )
-  }
-  return `${pad}${yamlScalar(value)}\n`
-}
-
-function yamlScalar(v: unknown): string {
-  if (v === null || v === undefined) return 'null'
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  const s = String(v)
-  return /^[\w./@-]+$/.test(s) ? s : JSON.stringify(s)
 }
 
 /* ─────────── toolbar (single search + filter + view + sort row) ─────────── */
@@ -2543,7 +2509,17 @@ function TableView({
                 <tr
                   key={ref}
                   onClick={() => onPick(e)}
-                  className="cursor-pointer transition hover:bg-surface-sunken/40"
+                  // Rows open the entity; give keyboard users the same path.
+                  tabIndex={0}
+                  aria-label={`Open ${e.metadata.title ?? e.metadata.name}`}
+                  onKeyDown={(ev) => {
+                    if (ev.target !== ev.currentTarget) return
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                      ev.preventDefault()
+                      onPick(e)
+                    }
+                  }}
+                  className="cursor-pointer transition hover:bg-surface-sunken/40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
                 >
                   <td className="px-2 py-2.5">
                     <button
@@ -2646,10 +2622,14 @@ function sortEntities(rows: Entity[], by: SortKey): Entity[] {
   } else if (by === 'score') {
     // Worst first: the reason to sort by readiness is to find what to fix.
     // Unscoreable kinds (Groups, Domains) go last, alphabetically.
-    const val = (e: Entity) => {
+    // Score each entity once: calling the scorer inside the comparator ran
+    // every check ~2·n·log n times on a large catalog.
+    const scores = new Map<Entity, number>()
+    for (const e of out) {
       const sc = scoreEntity(e)
-      return sc.checks.length ? sc.score : 101
+      scores.set(e, sc.checks.length ? sc.score : 101)
     }
+    const val = (e: Entity) => scores.get(e) ?? 101
     out.sort(
       (a, b) =>
         val(a) - val(b) ||
@@ -2815,6 +2795,8 @@ function EntityCard({
   const docs = hasDocsLink(entity)
   const toast = useToast()
   const scoreable = score.checks.length > 0
+  // Delete is offered only to someone RBAC lets delete it (hidden, not disabled).
+  const canDelete = useEntityDeleteMode(entity) !== 'forbidden'
 
   // Everything a person might do from the card without opening it. Items
   // that would open on an empty tab are not offered.
@@ -2846,8 +2828,7 @@ function EntityCard({
       },
     },
     { label: starred ? 'Unstar' : 'Star', onSelect: () => toggleStar(ref) },
-    'sep',
-    { label: 'Delete…', tone: 'danger', onSelect: onDelete },
+    ...(canDelete ? (['sep', { label: 'Delete…', tone: 'danger', onSelect: onDelete }] as CardMenuItem[]) : []),
   ]
 
   return (
@@ -3539,7 +3520,7 @@ function EntityDrawer({
   // which one it is charting and let you pick another.
   const [metricsEnvKey, setMetricsEnvKey] = useState<string | undefined>(undefined)
   const ai = useAi()
-  // XR-backed apps get "Delete application…" (role-gated); others the teardown.
+  // XR-backed apps get "Delete application…", others the teardown — each RBAC-gated.
   const deleteMode = useEntityDeleteMode(entity)
 
   // Where this entity sits in the list it was opened from.
@@ -3551,7 +3532,13 @@ function EntityDrawer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Only the topmost dialog answers keys: with the delete confirmation
+      // (portalled after this drawer) open, one Esc closed both.
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]')
+      if (dialogs.length && dialogs[dialogs.length - 1] !== drawerRootRef.current) return
       if (e.key === 'Escape') {
+        // A nested surface (the graph's full-screen overlay) already used it.
+        if (e.defaultPrevented) return
         onClose()
         return
       }
@@ -3571,6 +3558,8 @@ function EntityDrawer({
     globalThis.addEventListener('keydown', onKey)
     return () => globalThis.removeEventListener('keydown', onKey)
   }, [onClose, onNavigate, position])
+
+  const drawerRootRef = useRef<HTMLDivElement | null>(null)
 
   // Focus management: move focus into the drawer on open, restore it to the
   // element that opened the drawer (the card) on close.
@@ -3770,7 +3759,7 @@ function EntityDrawer({
   if (typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div ref={drawerRootRef} className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -5422,17 +5411,24 @@ function argoHealthKind(status?: string): StatusKind {
 /** A subtle copy-to-clipboard button used for clone commands. */
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
+  const toast = useToast()
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
   return (
     <button
       type="button"
       onClick={() => {
-        try {
-          navigator.clipboard?.writeText(text)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        } catch {
-          /* clipboard blocked — no-op */
-        }
+        // `writeText` rejects (permission, insecure context) rather than
+        // throwing, so the old try/catch never saw a failure and the button
+        // said "Copied" regardless.
+        const write = navigator.clipboard?.writeText(text) ?? Promise.reject(new Error('Clipboard unavailable'))
+        write
+          .then(() => {
+            setCopied(true)
+            clearTimeout(timer.current)
+            timer.current = setTimeout(() => setCopied(false), 1500)
+          })
+          .catch(() => toast.error('Could not copy'))
       }}
       className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0"
     >
@@ -6383,6 +6379,11 @@ function TechDocsTab({ url, entity, monitorUrl, wide, onWide }: { url?: string; 
 /** A published documentation site, framed in place. */
 function DocsSiteFrame({ url, entity, monitorUrl }: { url: string; entity: Entity; monitorUrl?: string }) {
   const sourceUrl = (entity.metadata.links ?? []).find((l) => l.icon === 'repo')?.url
+  // The docs URL is entity data. `allow-scripts allow-same-origin` on a page
+  // served from the console's OWN origin cancels the sandbox (the frame can
+  // reach the console's cookies and DOM), so only another http(s) origin is
+  // framed; anything else is offered as a link only.
+  const framable = isHttpUrl(url) && new URL(url).origin !== globalThis.location?.origin
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-edge-default bg-surface-raised px-4 py-2.5 shadow-sm">
@@ -6397,6 +6398,7 @@ function DocsSiteFrame({ url, entity, monitorUrl }: { url: string; entity: Entit
           {monitorUrl ? <MonitorButton url={monitorUrl} compact /> : null}
         </div>
       </div>
+      {framable ? (
       <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
         <iframe
           src={url}
@@ -6406,8 +6408,12 @@ function DocsSiteFrame({ url, entity, monitorUrl }: { url: string; entity: Entit
           referrerPolicy="no-referrer"
         />
       </div>
+      ) : null}
       <p className="text-[11px] text-content-subtle">
-        If the frame stays blank the site refuses to be embedded (X-Frame-Options) — use "Open in new tab". A Markdown docs folder in the repository renders natively here instead.
+        {framable
+          ? 'If the frame stays blank the site refuses to be embedded (X-Frame-Options) — use "Open in new tab".'
+          : 'This documentation site is not shown in place — use "Open in new tab".'}
+        {' '}A Markdown docs folder in the repository renders natively here instead.
       </p>
     </div>
   )
@@ -7317,11 +7323,18 @@ function RegisterExistingModal({
   const ownerOptions = useMemo(() => owners.filter((o) => o.value !== 'all'), [owners])
   const systemOptions = useMemo(() => systems.filter((s) => s.value !== 'all'), [systems])
 
+  // Read through a ref so the reset below runs on OPEN only. `ownerOptions`
+  // is rebuilt on every background catalog refetch; as a dependency it wiped
+  // the form (and stole focus) while the user was typing.
+  const ownerOptionsRef = useRef(ownerOptions)
+  ownerOptionsRef.current = ownerOptions
+
   // Reset form whenever the dialog re-opens so an aborted draft doesn't
   // resurrect later. Owner default tracks the most common owner in the
   // catalog if one is available; otherwise a stable fallback.
   useEffect(() => {
     if (!open) return
+    const ownerOptions = ownerOptionsRef.current
     setRepoUrl('')
     setName('')
     setKind('Component')
@@ -7333,8 +7346,9 @@ function RegisterExistingModal({
     setMore(false)
     setError(null)
     // Focus on the URL field for the fastest path.
-    requestAnimationFrame(() => firstFieldRef.current?.focus())
-  }, [open, ownerOptions])
+    const raf = requestAnimationFrame(() => firstFieldRef.current?.focus())
+    return () => cancelAnimationFrame(raf)
+  }, [open])
 
   function detectFromUrl() {
     if (!repoUrl.trim()) return
@@ -7365,6 +7379,12 @@ function RegisterExistingModal({
     }
     if (!/^[a-z0-9][a-z0-9-]*$/.test(trimmed)) {
       setError('Name can only contain lowercase letters, numbers, and hyphens.')
+      return
+    }
+    // `type="url"` happily accepts `javascript:…`; the value becomes a link
+    // every catalog viewer can click, so only http(s) is stored.
+    if (repoUrl.trim() && !isHttpUrl(repoUrl)) {
+      setError('Repository URL must start with http:// or https://.')
       return
     }
     const links = repoUrl.trim()

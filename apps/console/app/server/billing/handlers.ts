@@ -1,5 +1,6 @@
-import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
+import { CONSOLE_PERMISSIONS, getServerAuthConfig, getValidSession } from '@adhar/auth/server'
 import { originOk } from '../k8s/gateway.ts'
+import { requirePermission } from '../k8s/access.ts'
 import {
   defaultSubscription,
   getBillingProvider,
@@ -16,7 +17,6 @@ import {
   type InvoiceDoc,
 } from './invoices.ts'
 import {
-  costForWindow,
   meterUsage,
   openCostAllocation,
   periodWindow,
@@ -124,6 +124,14 @@ async function meter(auth: Auth, period?: string): Promise<UsageReport> {
   })
 }
 
+/*
+ * Billing is authorized by Kubernetes RBAC on `billing.console.adhar.io`:
+ * `get` to see it, `update` for every write — plan, seats, payment methods,
+ * budgets, invoices. It replaced the workspace-role check (owner/admin/billing
+ * in the console DB) so the Billing page's <Can> and this handler ask the one
+ * same question; docs/rbac.md shows how to grant it to a billing group.
+ */
+
 /* ─────────────────── entry ─────────────────── */
 
 export async function handleBilling(req: Request, subpath: string): Promise<Response> {
@@ -139,7 +147,14 @@ export async function handleBilling(req: Request, subpath: string): Promise<Resp
 
   let res: Response
   try {
-    res = await route(req, method, seg, url, auth)
+    // Every write here changes what the organisation pays or how — plan,
+    // seats, payment methods, budgets, invoices — so it needs `update billing`;
+    // reading needs `get billing` (granted to every signed-in member by default).
+    const denied = await requirePermission(
+      req,
+      mutating ? CONSOLE_PERMISSIONS.billingManage : CONSOLE_PERMISSIONS.billingView,
+    )
+    res = denied ?? await route(req, method, seg, url, auth)
   } catch (e) {
     console.error(`[billing] ${method} /${subpath} failed:`, e instanceof Error ? e.message : e)
     res = bad('internal_error', 500)
@@ -264,6 +279,9 @@ async function getSubscription(auth: Auth): Promise<Response> {
 }
 
 async function putSubscription(req: Request, auth: Auth): Promise<Response> {
+  // With a real payment provider the plan changes only through its checkout
+  // and webhook; writing tier/status here would be a free upgrade.
+  if (getBillingProvider().id === 'stripe') return bad('managed_by_provider', 409)
   const conn = await getConn()
   if (!conn) return storeUnavailable()
   const body = await readJson(req)
@@ -386,6 +404,9 @@ async function generateInvoice(req: Request, auth: Auth): Promise<Response> {
 }
 
 async function payInvoice(auth: Auth, id: string): Promise<Response> {
+  // "Mark as paid" is the local provider's stand-in for a payment. With Stripe
+  // an invoice is paid when Stripe says so, never because a client asked.
+  if (getBillingProvider().id === 'stripe') return bad('managed_by_provider', 409)
   const conn = await getConn()
   if (!conn) return storeUnavailable()
   const { getDocument, putDocument, touchUser } = await db()

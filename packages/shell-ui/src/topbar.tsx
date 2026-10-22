@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link } from '@tanstack/react-router'
 import { formatRelative, cn } from '@adhar/utils'
 import { Kbd } from './primitives.tsx'
+import { Button } from './button.tsx'
 import { AppLauncher, type AppLink } from './app-launcher.tsx'
 import { ModeToggle } from './mode-toggle.tsx'
 import { LiveIndicator } from './live-indicator.tsx'
@@ -70,7 +71,7 @@ export function Topbar({
                 aria-label="Search"
                 className={cn(
                   'group hidden h-9 w-full min-w-0 max-w-md items-center gap-2.5 rounded-lg border border-edge-default bg-surface-sunken/40 px-3 text-sm text-content-muted transition-all duration-150',
-                  'hover:border-brand-300 hover:bg-surface-raised hover:text-content',
+                  'hover:border-brand-300 dark:hover:border-brand-400/50 hover:bg-surface-raised hover:text-content',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 sm:flex',
                 )}
               >
@@ -149,7 +150,7 @@ const IconButton = ({
     className={cn(
       'relative flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 items-center justify-center rounded-lg transition-all duration-150',
       active
-        ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200'
+        ? 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-1 ring-brand-200 dark:ring-brand-400/25'
         : 'text-content-muted hover:bg-surface-sunken hover:text-content',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40',
     )}
@@ -249,24 +250,25 @@ function NotificationsMenu() {
           </div>
 
           {!api.live && !api.loading ? (
-            <div className="px-3 py-10 text-center">
+            <div className="px-6 py-9 text-center">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-edge-default bg-surface-sunken text-content-subtle"><IconBellOff /></div>
               <div className="text-sm font-medium text-content">Notification feed unavailable</div>
-              <div className="mt-0.5 text-xs text-content-muted">
+              <div className="mx-auto mt-1 max-w-xs text-xs leading-relaxed text-content-muted">
                 {api.error ? `Couldn't reach /api/notifications (${api.error.message}).` : 'The feed needs the console database (DATABASE_URL) to record events.'}
               </div>
-              <button type="button" onClick={api.refresh} className="mt-3 inline-flex h-8 items-center rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted hover:border-brand-300 hover:text-content">
+              <Button size="sm" className="mt-4" onClick={api.refresh}>
                 Retry
-              </button>
+              </Button>
             </div>
           ) : visible.length === 0 ? (
-            <div className="px-3 py-10 text-center">
-              <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10"><IconCheck /></div>
+            <div className="px-6 py-9 text-center">
+              <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-400"><IconCheck /></div>
               <div className="text-sm font-medium text-content">{filter === 'unread' ? 'Nothing unread' : filter === 'insight' ? 'No insights yet' : "You're all caught up"}</div>
               <div className="mt-0.5 text-xs text-content-muted">{filter === 'insight' ? 'Run a scan to look for warnings, drift, policy failures and expiring certs.' : 'Operations, insights and Assist outcomes land here as they happen.'}</div>
               {filter === 'insight' && api.live ? (
-                <button type="button" onClick={() => void api.scan(true)} disabled={api.scanning} className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content-muted hover:border-brand-300 hover:text-content disabled:opacity-50">
+                <Button size="sm" className="mt-4" onClick={() => void api.scan(true)} loading={api.scanning}>
                   {api.scanning ? 'Scanning…' : 'Scan for insights'}
-                </button>
+                </Button>
               ) : null}
             </div>
           ) : (
@@ -508,7 +510,7 @@ function Dropdown({
       role="menu"
       style={style}
       className={cn(
-        'fixed z-[60] overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl ring-1 ring-edge-default',
+        'pop-in fixed z-[60] overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl',
         pos.narrow ? 'flex flex-col [&>*]:shrink-0' : widthClass,
       )}
     >
@@ -630,6 +632,17 @@ function IconMenu() {
       <path d="M4 7h16" />
       <path d="M4 12h16" />
       <path d="M4 17h16" />
+    </svg>
+  )
+}
+
+function IconBellOff() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5" />
+      <path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+      <path d="m2 2 20 20" />
     </svg>
   )
 }

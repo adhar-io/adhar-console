@@ -16,6 +16,7 @@ import { useUrlParams } from '../data/builder-nav.ts'
 import { matchApps, repoApi, useCatalogApps, useDesignerRepos, useLastCommit, useRepoBranches, useRepoFramework, useRepoFrameworks } from '../data/designer-repos.ts'
 import { uiVerdict, type CatalogApp } from '../data/designer-catalog.ts'
 import { ErrorBlock } from '../components/async-states.tsx'
+import { Icon } from '../components/ui-bits.tsx'
 import { ReviewChanges } from '../components/review-changes.tsx'
 
 /**
@@ -127,11 +128,11 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
     <div className='space-y-6'>
       <PageHeader title='Visual Designer' />
       {repos.error ? (
-        <ErrorBlock error={repos.error as Error} onRetry={() => void repos.refetch()} />
+        <ErrorBlock title='Couldn’t list repositories' error={repos.error as Error} onRetry={() => void repos.refetch()} />
       ) : repos.isLoading ? (
         <div className='space-y-2'>{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} height={64} className='block w-full' rounded='lg' />)}</div>
       ) : (repos.data ?? []).length === 0 ? (
-        <EmptyState title='No repositories yet' description={`The Visual Designer edits the web apps in your Gitea repositories — ${SUPPORTED_FRAMEWORKS}. Create or import a repository in Develop → Repositories, then open it here.`} />
+        <EmptyState icon={<Icon name='git' size={22} />} title='No repositories yet' description={`The Visual Designer edits the web apps in your Gitea repositories — ${SUPPORTED_FRAMEWORKS}. Create or import a repository in Develop → Repositories, then open it here.`} />
       ) : (
         <>
           <div className='flex flex-wrap items-center gap-3'>

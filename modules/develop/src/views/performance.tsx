@@ -17,6 +17,7 @@ import {
   Select,
   Spinner,
   StatusBadge,
+  useAccessReview,
   useCan,
   useLogStream,
   useOverlayDismiss,
@@ -40,6 +41,7 @@ import { ResultsView } from './perf-results.tsx'
 import { PerfReadiness } from './perf-readiness.tsx'
 import { SchedulesView } from './perf-schedules.tsx'
 import { harvestedRuns, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
+import { runPerfTestChecks, startTestRunChecks, testRunCheck, useAllowedNamespaces } from '../data/access.ts'
 import { DEFAULT_CONFIG, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
 import { usePerfSuite, usePerfTest } from '../data/perf-suite.ts'
 import {
@@ -95,6 +97,17 @@ const PERF_TABS: Array<[PerfTab, string]> = [
   ['readiness', 'Readiness'],
 ]
 
+/**
+ * Namespaces performance tests run in: those of existing runs, of every
+ * committed test's config, and the default the dialogs start from.
+ */
+function perfNamespaces(runs: TestRun[], insights: ReturnType<typeof usePerfInsights>): string[] {
+  const set = new Set<string>(['default'])
+  for (const r of runs) if (r.metadata.namespace) set.add(r.metadata.namespace)
+  for (const c of insights.configs.values()) if (c.namespace) set.add(c.namespace)
+  return [...set].sort()
+}
+
 export function Performance() {
   /*
    * "Overview" is the health of every test at a glance. "Tests" is the
@@ -121,13 +134,19 @@ export function Performance() {
   const [newTestToken, setNewTestToken] = useState(0)
   const [resultsFor, setResultsFor] = useState<string | undefined>(undefined)
   const [scheduleFor, setScheduleFor] = useState<string | undefined>(undefined)
-  const canCreate = useCan('develop')
   const crdMissing = runs.isError && isCrdMissing(runs.error)
 
   // Keep the result of every run the console started, as soon as it finishes.
   useHarvester(!crdMissing)
 
   const items = runs.data ?? []
+  // RBAC (docs/rbac.md): starting runs is a cluster write, so the entry points
+  // show only when the user may create TestRuns (and, for a committed test,
+  // its artefact ConfigMap) in at least one namespace tests run in. The
+  // dialogs re-check the namespace actually chosen.
+  const perfNs = perfNamespaces(items, insights)
+  const canStartScript = useAllowedNamespaces(perfNs, startTestRunChecks).size > 0
+  const canQuick = useAllowedNamespaces(perfNs, runPerfTestChecks).size > 0
   const inFlight = items.filter(isRunning).length
 
   const tabs = (
@@ -157,11 +176,11 @@ export function Performance() {
           </button>
         ))}
       </div>
-      {tab === 'runs' && canCreate && !crdMissing
+      {tab === 'runs' && !crdMissing
         ? (
           <div className="ml-auto flex items-center gap-1.5 pb-1">
             <ClearFinished runs={items} />
-            <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>Run a ConfigMap script</Button>
+            {canStartScript ? <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>Run a ConfigMap script</Button> : null}
           </div>
         )
         : null}
@@ -179,8 +198,9 @@ export function Performance() {
         actions={
           <>
             <Button size="sm" variant="secondary" onClick={() => { runs.refetch() }} aria-label="Refresh" title="Refresh">↻</Button>
-            {canCreate ? <Button size="sm" variant="secondary" onClick={() => { setTab('tests'); setNewTestToken((n) => n + 1) }}>New test</Button> : null}
-            {canCreate ? <Button variant="primary" size="sm" onClick={() => setQuick(true)}>Quick test</Button> : null}
+            {/* A new test is a commit to the app repository — Gitea authorises it. */}
+            <Button size="sm" variant="secondary" onClick={() => { setTab('tests'); setNewTestToken((n) => n + 1) }}>New test</Button>
+            {canQuick ? <Button variant="primary" size="sm" onClick={() => setQuick(true)}>Quick test</Button> : null}
           </>
         }
       />
@@ -198,7 +218,7 @@ export function Performance() {
               setResultsFor(t)
               setTab('results')
             }}
-            onQuickTest={() => setQuick(true)}
+            onQuickTest={canQuick ? () => setQuick(true) : undefined}
           />
         )
         : tab === 'tests'
@@ -272,7 +292,10 @@ export function Performance() {
 function ClearFinished({ runs }: { runs: TestRun[] }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const done = harvestedRuns(runs)
+  const harvested = harvestedRuns(runs)
+  // Only the runs in namespaces where the user may delete TestRuns.
+  const deletable = useAllowedNamespaces(harvested.map((r) => r.metadata.namespace), (ns) => [testRunCheck('delete', ns)])
+  const done = harvested.filter((r) => deletable.has(r.metadata.namespace ?? ''))
   const [armed, setArmed] = useState(false)
   const clear = useMutation({
     mutationFn: async () => {
@@ -327,7 +350,13 @@ function RunTable({
 }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const canManage = useCan('develop')
+  // Per-namespace RBAC for the row actions: pause/resume patch the TestRun,
+  // "Run again" creates one, Delete deletes it.
+  const runNamespaces = runs.map((r) => r.metadata.namespace)
+  const patchNs = useAllowedNamespaces(runNamespaces, (ns) => [testRunCheck('patch', ns)])
+  const startNs = useAllowedNamespaces(runNamespaces, startTestRunChecks)
+  const deleteNs = useAllowedNamespaces(runNamespaces, (ns) => [testRunCheck('delete', ns)])
+  const canManage = patchNs.size > 0 || startNs.size > 0 || deleteNs.size > 0
   const [busy, setBusy] = useState<string | null>(null)
 
   // Acting on a run meant opening it first. Re-running the same test after a
@@ -444,9 +473,10 @@ function RunTable({
       cell: (r) => {
         const key = `${r.metadata.namespace}/${r.metadata.name}`
         const running = isRunning(r)
+        const ns = r.metadata.namespace ?? ''
         return (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-            {running
+            {running && !patchNs.has(ns) ? null : !running && !startNs.has(ns) ? null : running
               ? (
                 <Button
                   size="xs"
@@ -469,15 +499,19 @@ function RunTable({
                   Run again
                 </Button>
               )}
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={busy === key}
-              className="text-rose-700 dark:text-rose-300"
-              onClick={() => act(key, `Deleted ${r.metadata.name}`, () => deleteTestRun(r.metadata.namespace ?? '', r.metadata.name))}
-            >
-              Delete
-            </Button>
+            {deleteNs.has(ns)
+              ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={busy === key}
+                  className="text-rose-700 dark:text-rose-300"
+                  onClick={() => act(key, `Deleted ${r.metadata.name}`, () => deleteTestRun(ns, r.metadata.name))}
+                >
+                  Delete
+                </Button>
+              )
+              : null}
           </div>
         )
       },
@@ -533,7 +567,7 @@ function RunDrawer({
   }, [defaultPod])
 
   const body = (
-    <div className="fixed inset-0 z-50 flex justify-end bg-scrim/60 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Test run">
+    <div className="fixed inset-0 z-[60] flex justify-end bg-scrim/60 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Test run">
       <button type="button" aria-label="Close" className="flex-1 cursor-default" onClick={onClose} />
       <div className={cn('flex h-full w-full flex-col bg-surface-raised shadow-2xl sm:border-l sm:border-edge-default', width.className)}>
         <DrawerHeader run={run.data} loading={run.isLoading} onClose={onClose} width={width} />
@@ -598,7 +632,11 @@ function DrawerHeader({
 }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const canManage = useCan('develop')
+  const ns = run?.metadata.namespace ?? ''
+  const canPause = useCan(testRunCheck('patch', ns, run?.metadata.name), { enabled: !!run })
+  const canRerun = useCan(startTestRunChecks(ns), { enabled: !!run })
+  const canDelete = useCan(testRunCheck('delete', ns, run?.metadata.name), { enabled: !!run })
+  const canManage = canPause || canRerun || canDelete
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['k6'] })
@@ -633,6 +671,9 @@ function DrawerHeader({
   })
 
   const busy = pause.isPending || rerun.isPending || remove.isPending
+  // Deleting a live run also stops its load generators; arm on first click
+  // (same pattern as "Clear finished") so a stray click cannot abort a test.
+  const [armDelete, setArmDelete] = useState(false)
 
   return (
     <div className="flex shrink-0 items-start gap-3 border-b border-edge-default px-4 py-3">
@@ -652,17 +693,29 @@ function DrawerHeader({
       {run && canManage ? (
         <div className="flex shrink-0 items-center gap-1.5">
           {isRunning(run) ? (
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => pause.mutate(!isPaused(run))}>
-              {isPaused(run) ? 'Resume' : 'Pause'}
-            </Button>
-          ) : (
+            canPause
+              ? (
+                <Button variant="ghost" size="sm" disabled={busy} onClick={() => pause.mutate(!isPaused(run))}>
+                  {isPaused(run) ? 'Resume' : 'Pause'}
+                </Button>
+              )
+              : null
+          ) : canRerun ? (
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => rerun.mutate()}>
               Run again
             </Button>
-          )}
-          <Button variant="ghost" size="sm" disabled={busy} onClick={() => remove.mutate()}>
-            Delete
+          ) : null}
+          {canDelete ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onBlur={() => setArmDelete(false)}
+            onClick={() => (armDelete ? remove.mutate(undefined, { onSettled: () => setArmDelete(false) }) : setArmDelete(true))}
+          >
+            {armDelete ? (isRunning(run) ? 'Stop and delete?' : 'Delete run?') : 'Delete'}
           </Button>
+          ) : null}
         </div>
       ) : null}
 
@@ -1164,6 +1217,9 @@ function NewRunDialog({ onClose }: { onClose(): void }) {
   })
 
   const ready = name.trim() && configMap && file && parallelism >= 1
+  // The run is created in the chosen namespace — ask there, not page-wide.
+  const targetNs = namespace || chosen?.namespace || 'default'
+  const access = useAccessReview(startTestRunChecks(targetNs))
 
   return (
     <Modal
@@ -1174,12 +1230,19 @@ function NewRunDialog({ onClose }: { onClose(): void }) {
       description="Fan a k6 script out across runner pods on the cluster."
       footer={
         <>
+          {!access.allowed && !access.loading
+            ? <span className="mr-auto self-center text-[12px] text-content-muted">Your access does not allow starting TestRuns in {targetNs}.</span>
+            : null}
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button disabled={!ready || create.isPending} onClick={() => create.mutate()}>
-            {create.isPending ? 'Creating…' : 'Run test'}
-          </Button>
+          {access.allowed
+            ? (
+              <Button variant="primary" disabled={!ready} loading={create.isPending} onClick={() => create.mutate()}>
+                Run test
+              </Button>
+            )
+            : null}
         </>
       }
     >

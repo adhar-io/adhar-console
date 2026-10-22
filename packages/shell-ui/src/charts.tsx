@@ -182,7 +182,7 @@ export function BarChart({
                   backgroundColor: b.color ?? color,
                 }}
               />
-              <div className="pointer-events-none absolute -top-7 whitespace-nowrap rounded bg-slate-900 px-1.5 py-0.5 text-[10px] font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+              <div className="pointer-events-none absolute -top-7 whitespace-nowrap rounded bg-code px-1.5 py-0.5 text-[10px] font-medium text-code-fg ring-1 ring-white/10 opacity-0 shadow-md transition-opacity group-hover:opacity-100">
                 {formatY(b.value)}
               </div>
             </div>

@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { XR_SECTIONS } from './xr-sections.ts'
 import { SETTINGS_CATEGORIES } from './settings-sections.ts'
 import type { StatusKind } from './status-badge.tsx'
+import type { NavAccess } from './nav-access.ts'
+import { CONSOLE_PERMISSIONS, consoleCheck } from '@adhar/auth'
 import {
   IconActivity,
   IconAppBox,
@@ -59,6 +61,13 @@ export interface NavItem {
   defaultExpanded?: boolean
   /** Requires at least one of these roles to render. */
   roles?: string[]
+  /**
+   * Kubernetes RBAC gate (nav-access.ts). `read` rows (the default) hide only
+   * when the person definitely cannot read what the page shows; `action` rows
+   * — entries that perform a write — show only once the check is allowed.
+   * Filtered by the Sidebar and the ⌘K palette.
+   */
+  access?: NavAccess
   /**
    * This row is a CONVENIENCE LINK to a page another group owns, so it never
    * claims the active highlight.
@@ -183,6 +192,8 @@ export const DEFAULT_NAV: NavSection[] = [
         description: 'Scaffold new services',
         badge: { kind: 'info', value: 'NEW' },
         roles: LIFECYCLE_ROLES,
+        // Scaffolding commits a new repository — a write, so it waits for a yes.
+        access: { check: consoleCheck(CONSOLE_PERMISSIONS.applicationsCreate), mode: 'action' },
       },
     ],
   },
@@ -239,7 +250,6 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'design.wireframes', label: 'Wireframes', to: '/design', search: 'wireframes' },
           { id: 'design.tokens', label: 'Design Tokens', to: '/design', search: 'tokens' },
           { id: 'design.apischemas', label: 'API & Schemas', to: '/design', search: 'api-schemas' },
-          { id: 'design.catalog', label: 'Component Catalog', to: '/design', search: 'catalog' },
           { id: 'design.builder', label: 'Visual Designer', to: '/design', search: 'builder' },
         ],
       },
@@ -490,6 +500,10 @@ export const DEFAULT_NAV: NavSection[] = [
         sectionDefault: i === 0 ? true : undefined,
         icon: WORKSPACE_ICON[c.id],
         roles: c.id === 'workloads' || c.id === 'connectivity' ? WORKSPACE_ADMIN_ROLES : ORG_ADMIN_ROLES,
+        // Every billing page is behind `get billing` in the BFF; someone who
+        // cannot read it would land on a wall of 403s. Other categories mix
+        // pages anyone may read, so they stay.
+        access: c.id === 'billing' ? { check: consoleCheck(CONSOLE_PERMISSIONS.billingView) } : undefined,
       })),
     ],
   },

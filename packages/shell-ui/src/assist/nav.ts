@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { NavItem, NavSection } from '../nav-tree.tsx'
+import type { NavAccess } from '../nav-access.ts'
 
 /**
  * The navigation lane — every page and command in the console, flattened and
@@ -19,6 +20,12 @@ export interface CommandItem {
   /** Custom action — runs instead of navigating. */
   onSelect?(): void
   keywords?: string[]
+  /**
+   * RBAC gate, as on nav rows (nav-access.ts). A command that performs a write
+   * passes `mode: 'action'` with the check its API enforces, and is hidden
+   * unless allowed.
+   */
+  access?: NavAccess
 }
 
 export function flattenNav(sections: NavSection[]): CommandItem[] {
@@ -34,6 +41,7 @@ export function flattenNav(sections: NavSection[]): CommandItem[] {
         group: groupLabel,
         icon: item.icon,
         keywords: item.description ? [item.description] : undefined,
+        access: item.access,
       })
     }
     item.children?.forEach((c) => walk(c, groupLabel))

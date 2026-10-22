@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
+  canResource,
   Card,
   CardBody,
   CardHeader,
@@ -11,16 +12,17 @@ import {
   StatusBadge,
   Tabs,
   type TabDef,
+  useCan,
   useOverlayDismiss,
   DrawerWidenButton,
   useDrawerWidth,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import { useNodes } from '../data/hooks.ts'
+import { clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
 import {
   age,
   findCondition,
@@ -80,9 +82,9 @@ function isEvictable(p: DrainPod): boolean {
  * (`POST /api/v1/namespaces/<ns>/pods/<pod>/eviction`) through the per-user
  * gateway — respects PodDisruptionBudgets, unlike a plain delete.
  */
-async function evictPod(namespace: string, name: string): Promise<void> {
+async function evictPod(namespace: string, name: string, cluster?: string): Promise<void> {
   const res = await fetch(
-    `/api/k8s/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(name)}/eviction`,
+    `/api/k8s/api/v1/namespaces/${encodeURIComponent(namespace)}/pods/${encodeURIComponent(name)}/eviction${cluster ? `?cluster=${encodeURIComponent(cluster)}` : ''}`,
     {
       method: 'POST',
       credentials: 'include',
@@ -234,11 +236,15 @@ function NodeDrawer({
   node: NonNullable<ReturnType<typeof useNodes>['data']>[number]
   onClose(): void
 }) {
+  const { cluster } = useActiveCluster()
   const width = useDrawerWidth('platform.node', { base: 'max-w-2xl' })
-  const canCordon = useHasK8sPermission('nodes.cordon')
-  const canEvict = useHasK8sPermission('pods.delete')
-  const canDrain = canCordon && canEvict
+  // Cordon = PATCH the node. Drain = cordon, then POST pods/<name>/eviction for
+  // every pod on the node — across namespaces, so eviction is asked cluster-wide.
+  const cordonCheck = canResource(GVRS.nodes, 'patch', { name: node.metadata.name })
+  const canCordon = useCan(cordonCheck)
+  const canDrain = useCan([cordonCheck, canResource(GVRS.pods, 'create', { subresource: 'eviction' })])
   const qc = useQueryClient()
+  const toast = useToast()
   // Local override reflects the new state immediately, before the node list
   // refetch catches up.
   const [override, setOverride] = useState<boolean | null>(null)
@@ -251,23 +257,27 @@ function NodeDrawer({
 
   const cordonMut = useMutation({
     mutationFn: async (next: boolean) => {
-      await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { unschedulable: next } }, 'merge')
+      await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { unschedulable: next } }, 'merge', { cluster: clusterParam(cluster) })
       return next
     },
     onSuccess: (next) => {
       setOverride(next)
       qc.invalidateQueries({ queryKey: ['k8s'] })
+      toast.success(`${node.metadata.name} ${next ? 'cordoned' : 'uncordoned'}`)
     },
+    // A rejected patch (RBAC, admission) used to leave the button silently idle.
+    onError: (e, next) => toast.error(`Could not ${next ? 'cordon' : 'uncordon'} ${node.metadata.name}: ${(e as Error).message}`),
   })
 
   // Blast-radius preview for the drain confirm — what's actually on the node.
   const drainPodsQ = useQuery<DrainPod[]>({
-    queryKey: ['k8s', 'node-pods', node.metadata.name],
+    queryKey: ['k8s', 'node-pods', node.metadata.name, cluster],
     enabled: confirmDrain,
     queryFn: async () =>
       (
         await kube.list<DrainPod>(GVRS.pods, {
           fieldSelector: `spec.nodeName=${node.metadata.name}`,
+          cluster: clusterParam(cluster),
         })
       ).items,
   })
@@ -281,6 +291,7 @@ function NodeDrawer({
         node.metadata.name,
         { spec: { unschedulable: true } },
         'merge',
+        { cluster: clusterParam(cluster) },
       )
       setOverride(true)
       // 2. Re-list the node's pods, then evict the evictable ones one by one
@@ -288,6 +299,7 @@ function NodeDrawer({
       const pods = (
         await kube.list<DrainPod>(GVRS.pods, {
           fieldSelector: `spec.nodeName=${node.metadata.name}`,
+          cluster: clusterParam(cluster),
         })
       ).items
       const targets = pods.filter(isEvictable)
@@ -297,7 +309,7 @@ function NodeDrawer({
       let evicted = 0
       for (const p of targets) {
         try {
-          await evictPod(p.metadata.namespace ?? 'default', p.metadata.name)
+          await evictPod(p.metadata.namespace ?? 'default', p.metadata.name, clusterParam(cluster))
           evicted++
         } catch (e) {
           failed.push({
@@ -313,6 +325,7 @@ function NodeDrawer({
       setDrainSummary(summary)
       qc.invalidateQueries({ queryKey: ['k8s'] })
     },
+    onError: (e) => toast.error('Drain failed', { description: (e as Error).message }),
     onSettled: () => setDrainProgress(null),
   })
 
@@ -323,7 +336,7 @@ function NodeDrawer({
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
@@ -339,7 +352,7 @@ function NodeDrawer({
               {node.metadata.name}
             </h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <StatusBadge kind={unschedulable ? 'paused' : 'healthy'}>
               {unschedulable ? 'Cordoned' : 'Schedulable'}
             </StatusBadge>
@@ -365,11 +378,7 @@ function NodeDrawer({
                   Cordon
                 </Button>
               )
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-                Cordon <K8sRolePill perm="nodes.cordon" />
-              </span>
-            )}
+            ) : null}
             {canDrain ? (
               <Button
                 size="sm"
@@ -383,23 +392,19 @@ function NodeDrawer({
               >
                 {drainMut.isPending ? 'Draining…' : 'Drain'}
               </Button>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-                Drain <K8sRolePill perm={canCordon ? 'pods.delete' : 'nodes.cordon'} />
-              </span>
-            )}
+            ) : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content"
+              className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
               aria-label="Close"
             >
               ✕
             </button>
           </div>
         </header>
-        {confirmCordon ? (
+        {confirmCordon && canCordon ? (
           <div className="flex flex-wrap items-center gap-3 border-b border-amber-200 dark:border-amber-500/25 bg-amber-50/70 dark:bg-amber-500/10 px-6 py-3" role="alert">
             <div className="min-w-0 flex-1 text-sm">
               <div className="font-semibold text-amber-900 dark:text-amber-300">Cordon this node?</div>
@@ -414,6 +419,7 @@ function NodeDrawer({
               </Button>
               <Button
                 size="sm"
+                variant="primary"
                 disabled={cordonMut.isPending}
                 onClick={() => {
                   cordonMut.mutate(true)
@@ -425,7 +431,7 @@ function NodeDrawer({
             </div>
           </div>
         ) : null}
-        {confirmDrain ? (
+        {confirmDrain && canDrain ? (
           <div
             className="border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-3"
             role="alertdialog"
@@ -505,11 +511,6 @@ function NodeDrawer({
                 }}
               />
             </div>
-          </div>
-        ) : null}
-        {drainMut.isError ? (
-          <div className="border-b border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-6 py-2 text-[12px] text-rose-800 dark:text-rose-300" role="alert">
-            Drain failed: {(drainMut.error as Error).message}
           </div>
         ) : null}
         {drainSummary ? (
@@ -682,8 +683,11 @@ interface NodeTaint {
 const TAINT_EFFECTS = ['NoSchedule', 'PreferNoSchedule', 'NoExecute'] as const
 
 function NodeTaints({ node }: { node: N }) {
-  const canEdit = useHasK8sPermission('nodes.cordon')
+  const { cluster } = useActiveCluster()
+  // Taints are a merge-PATCH of the node's spec.taints.
+  const canEdit = useCan(canResource(GVRS.nodes, 'patch', { name: node.metadata.name }))
   const qc = useQueryClient()
+  const toast = useToast()
   // Local override reflects the patched taint set immediately, before the
   // node list refetch lands.
   const [override, setOverride] = useState<NodeTaint[] | null>(null)
@@ -696,13 +700,14 @@ function NodeTaints({ node }: { node: N }) {
   const taintMut = useMutation({
     mutationFn: async (next: NodeTaint[]) => {
       // JSON-merge patch replaces the whole array — exactly what we want.
-      await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { taints: next } }, 'merge')
+      await kube.patch(GVRS.nodes, undefined, node.metadata.name, { spec: { taints: next } }, 'merge', { cluster: clusterParam(cluster) })
       return next
     },
     onSuccess: (next) => {
       setOverride(next)
       qc.invalidateQueries({ queryKey: ['k8s'] })
     },
+    onError: (e) => toast.error('Could not update taints', { description: (e as Error).message }),
   })
 
   const addTaint = () => {
@@ -720,7 +725,7 @@ function NodeTaints({ node }: { node: N }) {
   return (
     <div className="space-y-3">
       {rows.length ? (
-        <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+        <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-edge-default bg-surface-sunken text-left">
@@ -810,7 +815,7 @@ function NodeTaints({ node }: { node: N }) {
                 </option>
               ))}
             </select>
-            <Button size="sm" disabled={!newKey.trim() || taintMut.isPending} onClick={addTaint}>
+            <Button size="sm" variant="primary" disabled={!newKey.trim() || taintMut.isPending} onClick={addTaint}>
               {taintMut.isPending ? 'Applying…' : 'Add taint'}
             </Button>
           </div>
@@ -819,24 +824,18 @@ function NodeTaints({ node }: { node: N }) {
               NoExecute evicts running pods that don't tolerate the taint — apply with care.
             </p>
           ) : null}
-          {taintMut.isError ? (
-            <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
-              Error: {(taintMut.error as Error).message}
-            </p>
-          ) : null}
         </div>
-      ) : (
-        <p className="flex items-center gap-1.5 text-[11px] text-content-muted">
-          Editing taints requires <K8sRolePill perm="nodes.cordon" />
-        </p>
-      )}
+      ) : null}
     </div>
   )
 }
 
 function NodeLabels({ node }: { node: N }) {
-  const canEdit = useHasK8sPermission('nodes.cordon')
+  const { cluster } = useActiveCluster()
+  // Labels are a merge-PATCH of the node's metadata.labels.
+  const canEdit = useCan(canResource(GVRS.nodes, 'patch', { name: node.metadata.name }))
   const qc = useQueryClient()
+  const toast = useToast()
   const [override, setOverride] = useState<Record<string, string> | null>(null)
   const labels = override ?? node.metadata.labels ?? {}
   const entries = Object.entries(labels).sort(([a], [b]) => a.localeCompare(b))
@@ -853,6 +852,7 @@ function NodeLabels({ node }: { node: N }) {
         node.metadata.name,
         { metadata: { labels: change } },
         'merge',
+        { cluster: clusterParam(cluster) },
       )
       return change
     },
@@ -865,18 +865,19 @@ function NodeLabels({ node }: { node: N }) {
       setOverride(next)
       qc.invalidateQueries({ queryKey: ['k8s'] })
     },
+    onError: (e) => toast.error('Could not update labels', { description: (e as Error).message }),
   })
 
   return (
     <div className="space-y-3">
       {entries.length ? (
-        <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+        <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised">
           <table className="w-full text-sm">
             <tbody className="divide-y divide-edge-subtle">
               {entries.map(([k, v]) => (
                 <tr key={k}>
-                  <td className="px-4 py-2 font-mono text-xs text-content-muted">{k}</td>
-                  <td className="px-4 py-2 font-mono text-xs">{v}</td>
+                  <td className="max-w-[18rem] truncate px-4 py-2 font-mono text-xs text-content-muted" title={k}>{k}</td>
+                  <td className="max-w-[16rem] truncate px-4 py-2 font-mono text-xs text-content" title={v}>{v}</td>
                   {canEdit ? (
                     <td className="w-16 px-4 py-2 text-right">
                       <Button
@@ -921,6 +922,7 @@ function NodeLabels({ node }: { node: N }) {
             />
             <Button
               size="sm"
+              variant="primary"
               disabled={!newKey.trim() || labelMut.isPending}
               onClick={() => {
                 labelMut.mutate({ [newKey.trim()]: newValue.trim() })
@@ -931,17 +933,8 @@ function NodeLabels({ node }: { node: N }) {
               {labelMut.isPending ? 'Applying…' : 'Apply'}
             </Button>
           </div>
-          {labelMut.isError ? (
-            <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-300">
-              Error: {(labelMut.error as Error).message}
-            </p>
-          ) : null}
         </div>
-      ) : (
-        <p className="flex items-center gap-1.5 text-[11px] text-content-muted">
-          Editing labels requires <K8sRolePill perm="nodes.cordon" />
-        </p>
-      )}
+      ) : null}
     </div>
   )
 }

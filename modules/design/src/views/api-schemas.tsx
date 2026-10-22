@@ -37,7 +37,7 @@ import { copyText, downloadText, pickTextFile } from '../components/export.ts'
 import { useAutosave } from '../components/use-autosave.ts'
 import { Icon, Menu, SaveDot, SearchBox, Segmented, useConfirm } from '../components/ui-bits.tsx'
 import { slugify } from '../data/mermaid-util.ts'
-import { type DesignScope, notifyOrg, usePlatformCatalog, useDesignScope } from '../data/platform.ts'
+import { type DesignScope, useNotifyOrg, usePlatformCatalog, useDesignScope } from '../data/platform.ts'
 import { scopeFilter, type Scoped } from '../data/scope.ts'
 import { CatalogApis, ClientPanel, RepoPanel } from '../components/api-platform.tsx'
 import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
@@ -327,6 +327,7 @@ export function ApiSchemas() {
       {list.length === 0
         ? (
           <EmptyState
+            icon={<Icon name="api" size={22} />}
             title="Design APIs contract-first"
             description="Write OpenAPI, AsyncAPI or JSON Schema with live validation, browse endpoints with generated examples and request snippets, and track breaking changes between versions."
             action={
@@ -573,6 +574,7 @@ function SpecEditor({
   const update = useUpdate<SpecDoc>(KIND.apiSpec)
   const toast = useToast()
   const user = useOptionalUser()
+  const { notify: notifyOrg } = useNotifyOrg()
   const params = useDesignParams()
   const setParams = useSetDesignParams()
   const [draft, setDraft] = useState<Draft>({
@@ -611,6 +613,9 @@ function SpecEditor({
     [user?.name],
   )
   const autosave = useAutosave(draft, save, { key: spec.id, delay: 1000, onError: (e) => toast.error('Autosave failed', { description: e.message }) })
+  // Out-of-band writes (git link, scope) — a failure must surface, not become an unhandled rejection.
+  const saveMeta = (next: Parameters<typeof update.mutateAsync>[0]) =>
+    void update.mutateAsync(next).catch((e: Error) => toast.error('Could not save the spec', { description: e.message }))
 
   const deferred = useDeferredValue(draft.document)
   const { parsed, issues, kind } = useMemo(() => analyse(deferred), [deferred])
@@ -857,7 +862,7 @@ function SpecEditor({
         buildFiles={() => [{ path: spec.git?.path.split('/').pop() ?? `${base}.${isJson ? 'json' : 'yaml'}`, content: draft.document }]}
         onCommitted={(t) => {
           const at = new Date().toISOString()
-          void update.mutateAsync({
+          saveMeta({
             ...latest.current,
             ...draft,
             ...(publishVersion ? { version: publishVersion } : {}),
@@ -883,7 +888,7 @@ function SpecEditor({
         accept={/\.(ya?ml|json)$/i}
         onImport={(f) => {
           const at = new Date().toISOString()
-          void update.mutateAsync({ ...latest.current, ...draft, git: { repo: f.repo, branch: f.branch, path: f.path, at }, updated_at: at })
+          saveMeta({ ...latest.current, ...draft, git: { repo: f.repo, branch: f.branch, path: f.path, at }, updated_at: at })
           setTab('platform')
         }}
       />
@@ -894,7 +899,7 @@ function SpecEditor({
         scope={scope}
         onSave={(v) => {
           setScopeOpen(false)
-          void update.mutateAsync({ ...latest.current, ...draft, project: v.project, team: v.team, updated_at: new Date().toISOString() })
+          saveMeta({ ...latest.current, ...draft, project: v.project, team: v.team, updated_at: new Date().toISOString() })
         }}
       />
       <AskAiModal

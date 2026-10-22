@@ -205,12 +205,24 @@ export function selectorMatches(selector: Record<string, string> | undefined, la
 
 const WORKLOAD_KINDS = new Set(['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob', 'ReplicaSet'])
 
-/** `adhar.io/org` — how the provisioner marks a namespace as a tenant's. */
+/** `adhar.io/org` — how the console's own provisioner marks a namespace as a tenant's. */
 export const ORG_LABEL = 'adhar.io/org'
+
+/**
+ * The organisation a namespace belongs to. Two labels mean the same thing: the
+ * console's tenant provisioner stamps `adhar.io/org`, while the control plane's
+ * compositions — which now create tenant and environment namespaces — stamp
+ * `adhar.io/organisation`. Reading only the first put every control-plane
+ * namespace (dev/test/prod included) in no tenant at all, so their
+ * notifications all fell into the default tenant (2026-10-22).
+ */
+export function orgOfLabels(labels: Record<string, string> | undefined): string | undefined {
+  return labels?.[ORG_LABEL] || labels?.['adhar.io/organisation'] || undefined
+}
 
 export function fromNamespace(o: Obj): Contribution {
   const id = nodeId('namespace', name(o))
-  const org = o.metadata?.labels?.[ORG_LABEL]
+  const org = orgOfLabels(o.metadata?.labels)
   const nodes: GraphNode[] = [{
     id,
     kind: 'namespace',

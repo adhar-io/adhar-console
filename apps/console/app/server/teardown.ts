@@ -4,7 +4,9 @@ import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
 import { getTool } from './tool-registry.ts'
 import { toolPublicUrl } from './domain.ts'
-import { canDeleteApplications } from './app-delete.ts'
+import { catalogOrg, repoRefusal } from './app-delete.ts'
+import { authorize } from './k8s/access.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 
 /**
  * `POST /api/catalog/teardown` — remove a catalog entity from the platform.
@@ -232,22 +234,34 @@ export async function handleTeardown(req: Request): Promise<Response> {
   /* ── 5. Gitea repository ── */
   if (!body.repo) {
     step({ id: 'repo', label: 'Source repository', ok: true, skipped: true, detail: 'kept' })
-  } else if (!canDeleteApplications(auth.user)) {
+  } else if (!(await authorize(req, CONSOLE_PERMISSIONS.applicationsDelete, { id })).allowed) {
     // Gitea is driven with ADMIN credentials, so no Gitea permission check
-    // stands between the caller and the delete — the role check must.
-    step({ id: 'repo', label: 'Source repository', ok: false, detail: 'kept — deleting a repository needs the platform-admin, platform-engineer or application-admin role' })
+    // stands between the caller and the delete — the RBAC check must.
+    step({ id: 'repo', label: 'Source repository', ok: false, detail: 'kept — deleting a repository needs the Kubernetes RBAC permission "delete applications.console.adhar.io"' })
   } else {
     const target = giteaRepoOf(body.repo)
     const conn = giteaConn()
     if (!target) {
       step({ id: 'repo', label: 'Source repository', ok: true, skipped: true, detail: 'not on this platform’s Gitea — left as is' })
+    } else if (target.owner.toLowerCase() !== catalogOrg().toLowerCase()) {
+      // The delete runs with Gitea ADMIN credentials, so it is held to the
+      // same bounds as app-delete: only the catalog's org, never a platform,
+      // mirror or archived repository — whatever repo URL the caller sent.
+      step({ id: 'repo', label: 'Source repository', ok: false, detail: `kept — ${target.owner}/${target.repo} is outside the ${catalogOrg()} organization` })
     } else if (!conn) {
       step({ id: 'repo', label: 'Source repository', ok: false, detail: 'Gitea is not configured on the console' })
     } else {
       try {
         const api = giteaFetcher(conn)
-        const r = await api(`/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`, { method: 'DELETE' })
-        if (r.status === 404) step({ id: 'repo', label: 'Source repository', ok: true, skipped: true, detail: 'already gone' })
+        const repoPath = `/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}`
+        const info = await api(repoPath)
+        const meta = info.ok ? (await info.json()) as { name?: string; mirror?: boolean; archived?: boolean } : null
+        // Not found → "already gone" below; any other failure to READ it means
+        // it was not checked, and an unchecked repository is never deleted.
+        const why = meta ? repoRefusal({ ...meta, name: meta.name ?? target.repo }) : null
+        const r = why ? null : info.ok ? await api(repoPath, { method: 'DELETE' }) : info
+        if (!r) step({ id: 'repo', label: 'Source repository', ok: false, detail: `kept — ${why}` })
+        else if (r.status === 404) step({ id: 'repo', label: 'Source repository', ok: true, skipped: true, detail: 'already gone' })
         else if (r.ok || r.status === 204) step({ id: 'repo', label: 'Source repository', ok: true, detail: `${target.owner}/${target.repo}` })
         else step({ id: 'repo', label: 'Source repository', ok: false, detail: `${r.status} ${await readErr(r)}` })
       } catch (e) {

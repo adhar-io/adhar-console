@@ -1,9 +1,9 @@
 import { assert, assertEquals, assertThrows } from 'jsr:@std/assert'
-import { buildGateJob, canRunSuites, dnsSafe, gateJobName, runFromJob, validateRunRequest } from './resilience-runs.ts'
+import { buildGateJob, dnsSafe, gateJobName, runFromJob, validateRunRequest } from './resilience-runs.ts'
 
 /**
  * A gate run is created as the console's ServiceAccount on behalf of whoever
- * clicked, so the manifest and the role check are the whole safety story.
+ * clicked, so the manifest and the RBAC check are the whole safety story.
  */
 
 const CRON = {
@@ -91,13 +91,6 @@ Deno.test('requests: every value must be a DNS label; environment defaults to th
   for (const bad of [null, {}, { app: 'Shop', namespace: 'test' }, { app: 'shop', namespace: 'a/b' }, { app: 'shop', namespace: 'test', environment: 'te st' }]) {
     assertEquals(validateRunRequest(bad).ok, false)
   }
-})
-
-Deno.test('only admins, platform engineers and application admins may start a run', () => {
-  assertEquals(canRunSuites({ roles: ['platform-engineer'] }), true)
-  assertEquals(canRunSuites({ groups: ['/org/Application-Admins'] }), true)
-  assertEquals(canRunSuites({ roles: ['developer', 'viewer'] }), false)
-  assertEquals(canRunSuites(null), false)
 })
 
 Deno.test('a Kargo-started gate is read from its env when it has no namespace label', () => {

@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react'
-import { LogConsole, Spinner, StatusBadge, useLogStream, useToolPublicUrl } from '@adhar/shell-ui'
+import { canResource, LogConsole, Spinner, StatusBadge, useCan, useLogStream, useToolPublicUrl } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { CodeViewer } from './code-viewer.tsx'
 import { ConditionsTable, FieldList, NodeSidePanel, RelatedList, StatusCallout } from './resource-graph.tsx'
@@ -8,6 +8,8 @@ import { age, apiVersionOf, type CompNode, type CompositionGraph } from '~/data/
 import { useManagedResources } from '~/data/catalog-resources.ts'
 import { comparable, diffChunks, hostnamesOf, imagesOf, imageTag, lineDiff, podInfo, workloadReplicas } from '~/data/catalog-resources-model.ts'
 import { toYaml } from '~/data/k8s-yaml.ts'
+
+const PODS = { group: '', resource: 'pods', namespaced: true } as const
 
 /**
  * The one detail panel every resource view in the catalog drawer opens —
@@ -121,6 +123,8 @@ export function ResourceDetail({ graph, node, appRef, onClose, onSelect, now }: 
   }
   const hosts = hostnamesOf(node)
   if (hosts.length) fields.push(['Hostnames', hosts.join(', ')])
+  // Logs are `get pods/log` — offered only to someone RBAC lets read them.
+  const canLogs = useCan(canResource(PODS, 'get', { namespace: node.namespace, name: node.name, subresource: 'log' }), { enabled: isPod })
 
   const tabs: Array<{ value: DetailTab; label: string }> = [
     { value: 'summary', label: 'Summary' },
@@ -128,7 +132,7 @@ export function ResourceDetail({ graph, node, appRef, onClose, onSelect, now }: 
     { value: 'manifest', label: 'YAML' },
   ]
   if (outOfSync && !isApp && app) tabs.push({ value: 'diff', label: 'Diff' })
-  if (isPod) tabs.push({ value: 'logs', label: 'Logs' })
+  if (isPod && canLogs) tabs.push({ value: 'logs', label: 'Logs' })
 
   return (
     <NodeSidePanel<DetailTab>
@@ -178,7 +182,7 @@ export function ResourceDetail({ graph, node, appRef, onClose, onSelect, now }: 
         )
       ) : null}
       {tab === 'diff' ? <DiffPane managed={managed} id={node.id} /> : null}
-      {tab === 'logs' && pod ? <PodLogs namespace={node.namespace ?? ''} pod={node.name} containers={pod.containers.filter((c) => !c.init).map((c) => c.name)} /> : null}
+      {tab === 'logs' && pod && canLogs ? <PodLogs namespace={node.namespace ?? ''} pod={node.name} containers={pod.containers.filter((c) => !c.init).map((c) => c.name)} /> : null}
     </NodeSidePanel>
   )
 }

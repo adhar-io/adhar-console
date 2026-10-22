@@ -1,5 +1,6 @@
 import { env } from '@adhar/utils'
-import { normaliseToken } from './role-tokens.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
+import { requirePermission } from './k8s/access.ts'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
@@ -60,30 +61,15 @@ export interface AppDeleteResult {
   steps: AppDeleteStep[]
 }
 
-/** Console roles allowed to delete an application. The server is the gate; the UI only mirrors it. */
-export const APP_DELETE_ROLES = ['super-admin', 'platform-admin', 'platform-engineer', 'application-admin'] as const
-
-/** Raw role/group spellings that mean one of the allowed roles (mirrors @adhar/auth ROLE_ALIASES). */
-const ALLOWED_TOKENS = new Set([
-  'admin', 'super-admin', 'superadmin',
-  'platform-admin', 'platform-admins',
-  'platform-engineer', 'platform-engineers', 'platform-eng',
-  'application-admin', 'application-admins', 'app-admin', 'tenant-admin',
-])
+/*
+ * Who may delete an application is Kubernetes RBAC:
+ * `delete applications.console.adhar.io` (CONSOLE_PERMISSIONS.applicationsDelete).
+ * The XR delete below also runs as the caller, but the source repository is
+ * removed with Gitea ADMIN credentials, so the console's own check is the gate.
+ */
 
 /** DNS-1123 label — what an Application XR name and its repo name must be. */
 const DNS_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/
-
-export { normaliseToken }
-
-/** True when the user's roles or groups include a role allowed to delete applications. */
-export function canDeleteApplications(user: { roles?: readonly string[]; groups?: readonly string[] } | null | undefined): boolean {
-  if (!user) return false
-  for (const raw of [...(user.roles ?? []), ...(user.groups ?? [])]) {
-    if (typeof raw === 'string' && ALLOWED_TOKENS.has(normaliseToken(raw))) return true
-  }
-  return false
-}
 
 export type Validation =
   | { ok: true; name: string; deleteRepo: boolean }
@@ -122,7 +108,7 @@ export function repoRefusal(repo: { name?: string; mirror?: boolean; archived?: 
 }
 
 /** The Gitea org the catalog lists repositories from (same rule as /api/config's `giteaOrg`). */
-function catalogOrg(): string {
+export function catalogOrg(): string {
   return env('GITEA_TEMPLATES_ORG') ?? env('GITEA_ORG') ?? 'adhar'
 }
 
@@ -154,8 +140,10 @@ export async function handleAppDelete(req: Request): Promise<Response> {
   const cookie = auth.refreshedCookie
   const who = auth.user.username ?? auth.user.email ?? auth.user.id
 
-  if (!canDeleteApplications(auth.user)) {
-    return json({ error: 'forbidden', detail: 'Deleting an application needs the platform-admin, platform-engineer or application-admin role.' }, 403, cookie)
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.applicationsDelete)
+  if (denied) {
+    if (cookie) denied.headers.append('set-cookie', cookie)
+    return denied
   }
 
   let body: AppDeleteRequest

@@ -46,7 +46,9 @@ export function NavItem({
   }
 
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const search = useRouterState({ select: (s) => s.location.search })
+  // shell-ui has no registered router type, so `select`'s result would be
+  // inferred as the whole RouterState; the search object is what it returns.
+  const search = useRouterState({ select: (s) => s.location.search }) as unknown as Record<string, unknown>
 
   const hasChildren = !!item.children?.length
   const hasActiveDescendant = useMemo(
@@ -521,10 +523,10 @@ function CollapsedItem({
 
 function TooltipBubble({ label, description }: { label: string; description?: string }) {
   return (
-    <div className="pointer-events-none -translate-y-1.5 overflow-hidden rounded-lg bg-slate-900 px-2.5 py-1.5 text-white shadow-lg ring-1 ring-black/5">
+    <div className="pointer-events-none -translate-y-1.5 overflow-hidden rounded-lg bg-code px-2.5 py-1.5 text-code-fg shadow-lg ring-1 ring-white/10">
       <div className="text-[12px] font-medium leading-tight">{label}</div>
       {description ? (
-        <div className="mt-0.5 text-[11px] leading-tight text-slate-300">{description}</div>
+        <div className="mt-0.5 text-[11px] leading-tight text-code-fg/70">{description}</div>
       ) : null}
     </div>
   )

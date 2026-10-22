@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { EmptyState, Modal, StatusBadge } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, EmptyState, Modal, StatusBadge, useCan, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   INTEGRATION_TYPES,
@@ -23,10 +23,20 @@ import {
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
 
+/**
+ * Integration configs are docStore writes (`/api/store/workspace.integration`)
+ * with no dedicated catalogue entry — organisation settings, so they need
+ * `update organizations`. "Test" records its outcome on the same document, so
+ * it takes the same gate.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
+
 export function Integrations() {
+  const toast = useToast()
   const q = useIntegrations()
   const del = useDeleteIntegration()
   const test = useTestIntegration()
+  const canWrite = useCan(WRITE)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<Integration | null>(null)
 
@@ -47,9 +57,9 @@ export function Integrations() {
     <ViewShell
       title="Integrations"
       description="Third-party integration configs persisted in the tenant document store. The status shown is the outcome of the last real connectivity test from your browser — never a simulated health probe."
-      required={['admin', 'owner']}
+      writeCheck={WRITE}
       actions={
-        <RequirePermission perm="integrations.write" required={['admin', 'owner']} readOnly>
+        <RequirePermission check={WRITE}>
           <PrimaryButton onClick={openCreate}>
             <IconPlus /> Add integration
           </PrimaryButton>
@@ -76,18 +86,22 @@ export function Integrations() {
           {all.length === 0 ? (
             <EmptyState
               title="No integrations configured"
-              description="Add Slack, PagerDuty, GitHub, or a custom HTTP integration. Configs persist per tenant; secrets are stored masked."
+              description={
+                canWrite
+                  ? 'Add Slack, PagerDuty, GitHub, or a custom HTTP integration. Configs persist per tenant; secrets are stored masked.'
+                  : 'Nothing is connected yet. Ask a workspace admin to add Slack, PagerDuty, GitHub, or a custom HTTP integration.'
+              }
             />
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {all.map((i) => (
                 <div
                   key={i.id}
-                  className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm transition-colors hover:border-brand-300"
+                  className="min-w-0 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm transition-colors hover:border-edge-strong"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold text-content">{i.name}</div>
+                      <div className="truncate text-sm font-semibold text-content" title={i.name}>{i.name}</div>
                       <code className="mt-0.5 block truncate font-mono text-[11px] text-content-muted">
                         {i.baseUrl ?? 'no URL configured'}
                       </code>
@@ -100,15 +114,22 @@ export function Integrations() {
                     <KV label="Token" value={i.tokenMasked ?? 'not set'} />
                   </div>
                   {i.lastTestDetail ? (
-                    <p className="mt-2 text-[11px] text-content-subtle">
+                    <p className="mt-2 break-words text-[11px] text-content-subtle">
                       Last test {i.lastTestAt ? formatRelative(i.lastTestAt) : ''}: {i.lastTestDetail}
                     </p>
                   ) : null}
-                  <RequirePermission perm="integrations.write" required={['admin', 'owner']} readOnly>
+                  <RequirePermission check={WRITE}>
                     <div className="mt-3 flex items-center justify-end gap-1.5">
                       <SecondaryButton
                         disabled={!i.baseUrl || (test.isPending && test.variables?.id === i.id)}
-                        onClick={() => test.mutate(i)}
+                        onClick={() =>
+                          test.mutate(i, {
+                            onSuccess: (res) =>
+                              res.ok
+                                ? toast.success(`${i.name} is reachable`, { description: res.detail })
+                                : toast.error(`${i.name} is not reachable`, { description: res.detail }),
+                            onError: (e) => toast.error(`Could not test ${i.name}`, { description: (e as Error)?.message }),
+                          })}
                       >
                         {test.isPending && test.variables?.id === i.id ? 'Testing…' : 'Test'}
                       </SecondaryButton>
@@ -116,7 +137,7 @@ export function Integrations() {
                       <SecondaryButton
                         tone="rose"
                         disabled={del.isPending && del.variables === i.id}
-                        onClick={() => del.mutate(i.id)}
+                        onClick={() => del.mutate(i.id, { onError: (e) => toast.error(`Could not delete ${i.name}`, { description: (e as Error)?.message }) })}
                       >
                         Delete
                       </SecondaryButton>
@@ -129,7 +150,9 @@ export function Integrations() {
         </SettingsCard>
       )}
 
-      <IntegrationEditor open={editorOpen} initial={editing} onClose={() => setEditorOpen(false)} />
+      {canWrite ? (
+        <IntegrationEditor open={editorOpen} initial={editing} onClose={() => setEditorOpen(false)} />
+      ) : null}
     </ViewShell>
   )
 }
@@ -166,6 +189,7 @@ function IntegrationEditor({
   onClose(): void
 }) {
   const save = useSaveIntegration()
+  const toast = useToast()
   const [type, setType] = useState<IntegrationType>('slack')
   const [name, setName] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -201,7 +225,13 @@ function IntegrationEditor({
           notes: notes.trim() || undefined,
         },
       },
-      { onSuccess: onClose },
+      {
+        onSuccess: () => {
+          toast.success(initial ? 'Integration saved' : 'Integration added')
+          onClose()
+        },
+        onError: (e) => toast.error('Could not save the integration', { description: (e as Error)?.message }),
+      },
     )
 
   return (
@@ -283,11 +313,6 @@ function IntegrationEditor({
           description="Marks this integration active for the workspace."
         />
 
-        {save.isError ? (
-          <p className="text-[12px] text-rose-700 dark:text-rose-400">
-            {(save.error as Error)?.message ?? 'Could not save the integration.'}
-          </p>
-        ) : null}
       </div>
     </Modal>
   )

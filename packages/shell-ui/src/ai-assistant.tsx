@@ -110,7 +110,7 @@ export function AiButton({
       onClick={() => ai.ask({ agentId, context, prompt, title })}
       className={
         className ??
-        'inline-flex items-center gap-1.5 rounded-md border border-brand-200 dark:border-brand-500/25 bg-brand-50 dark:bg-brand-500/10 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:border-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/15'
+        'inline-flex items-center gap-1.5 rounded-md border border-brand-200 dark:border-brand-500/25 bg-brand-50 dark:bg-brand-500/10 px-2.5 py-1 text-xs font-medium text-brand-700 dark:text-brand-300 transition-colors hover:border-brand-300 dark:hover:border-brand-400/50 hover:bg-brand-100 dark:hover:bg-brand-500/15'
       }
     >
       <SparkIcon /> {label}

@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button, Spinner } from '@adhar/shell-ui'
+import { type AccessCheck, Button, canResource, Spinner, useCan, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
-import { client, LOCAL_CLUSTER } from '../data/client.ts'
-import { useHasK8sPermission, type K8sPermission } from '../data/access.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
+import { client, useActiveCluster } from '../data/client.ts'
 import { loadMonaco, type MonacoEditorInstance } from '../components/monaco-loader.ts'
 
 /**
@@ -18,8 +16,11 @@ import { loadMonaco, type MonacoEditorInstance } from '../components/monaco-load
  *             markers + a status line, Format (round-trip through
  *             `toYaml(parseYaml(…))`), a side-by-side Diff against the live
  *             cluster manifest, Reload-from-cluster, Copy, Download, and
- *             Apply (⌘S) gated on `writePerm` with the apiserver's 403/error
- *             surfaced verbatim.
+ *             Apply (⌘S) with the apiserver's 403/error surfaced verbatim.
+ *
+ * Edit/Apply exist only for users whose Kubernetes RBAC allows `update` on
+ * this exact object (Apply is a PUT via `replaceGeneric`); everyone else gets
+ * the read-only view with no edit affordances at all (docs/rbac.md).
  *
  * A "hide managedFields/status" toggle filters those server-managed keys from
  * the view for readability *without* mutating the object that Apply sends
@@ -75,25 +76,34 @@ interface YamlIssue {
 /**
  * The panel defaults to a Pod (the original use), but any caller — the workload
  * drawers, say — can point it at a different object by passing that object's
- * `gvr` and the write permission to gate Apply on. Everything else (serialize,
- * validate, diff, apply → `replaceGeneric`, cache-nudge) is kind-agnostic.
+ * `gvr`. Everything else (serialize, validate, diff, apply → `replaceGeneric`,
+ * cache-nudge) is kind-agnostic.
+ *
+ * Edit is gated on `update <gvr.resource>` for this object's namespace/name —
+ * exactly what the PUT asks the apiserver. Pass `writeCheck` only to ask
+ * something else (e.g. a different subresource).
  */
 export function PodYamlPanel({
   pod,
   gvr = POD_GVR,
-  writePerm = 'pods.write',
+  writeCheck,
 }: {
   pod: k8s.Pod | { metadata: { name: string; namespace?: string } } | undefined
   gvr?: k8s.GVR
-  writePerm?: K8sPermission
+  /** Overrides the derived `update` check on this object. */
+  writeCheck?: AccessCheck
 }) {
+  const { cluster } = useActiveCluster()
   const qc = useQueryClient()
-  const canWrite = useHasK8sPermission(writePerm)
+  const toast = useToast()
+  const canWrite = useCan(
+    writeCheck ??
+      canResource(gvr, 'update', { namespace: pod?.metadata.namespace, name: pod?.metadata.name }),
+    { enabled: Boolean(pod) },
+  )
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [applying, setApplying] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
   const [showDiff, setShowDiff] = useState(false)
   const [hideNoise, setHideNoise] = useState(true)
   const [minimap, setMinimap] = useState(false)
@@ -116,19 +126,29 @@ export function PodYamlPanel({
 
   const value = editing ? draft : base
 
+  // Access can be revoked (or the answer refreshed) mid-edit — drop back to view.
+  useEffect(() => {
+    if (!canWrite && editing) {
+      setEditing(false)
+      setShowDiff(false)
+    }
+  }, [canWrite, editing])
+
   const startEdit = () => {
     setDraft(base)
     setEditing(true)
-    setError(null)
-    setSuccess(false)
   }
   const cancel = () => {
     setDraft(base)
     setEditing(false)
     setShowDiff(false)
-    setError(null)
   }
-  const copy = () => navigator.clipboard?.writeText(value)
+  const copy = () => {
+    navigator.clipboard?.writeText(value).then(
+      () => toast.success('Manifest copied'),
+      () => toast.error('Could not copy to the clipboard'),
+    )
+  }
 
   const download = () => {
     if (!pod) return
@@ -146,13 +166,11 @@ export function PodYamlPanel({
       // Some sandboxes block programmatic downloads — degrade to clipboard so
       // the manifest is still recoverable.
       navigator.clipboard?.writeText(value)
-      setError('Download is blocked in this sandbox — copied the manifest to the clipboard instead.')
+      toast.info('Download blocked', { description: 'Copied the manifest to the clipboard instead.' })
     }
   }
 
   const reload = () => {
-    setError(null)
-    setSuccess(false)
     setDraft(base)
     if (pod) {
       qc.invalidateQueries({ queryKey: ['k8s', 'pod', pod.metadata.namespace, pod.metadata.name] })
@@ -161,7 +179,6 @@ export function PodYamlPanel({
   }
 
   const format = () => {
-    setError(null)
     try {
       const trimmed = draft.trimStart()
       const parsed = trimmed.startsWith('{') || trimmed.startsWith('[')
@@ -169,14 +186,12 @@ export function PodYamlPanel({
         : parseYaml(draft)
       setDraft(toYaml(parsed, skip))
     } catch (e) {
-      setError(`Cannot format — ${e instanceof Error ? e.message : String(e)}`)
+      toast.error('Cannot format', { description: e instanceof Error ? e.message : String(e) })
     }
   }
 
   const apply = async () => {
-    if (!pod) return
-    setError(null)
-    setSuccess(false)
+    if (!pod || !canWrite) return
     let parsed: unknown
     try {
       // Accept either format — power users may paste raw JSON into the editor.
@@ -185,19 +200,19 @@ export function PodYamlPanel({
         ? JSON.parse(draft)
         : parseYaml(draft)
     } catch (e) {
-      setError(`Parse error: ${e instanceof Error ? e.message : String(e)}`)
+      toast.error('Parse error', { description: e instanceof Error ? e.message : String(e) })
       return
     }
     setApplying(true)
     try {
       await client.replaceGeneric(
-        LOCAL_CLUSTER,
+        cluster,
         gvr,
         pod.metadata.namespace ?? '',
         pod.metadata.name,
         parsed,
       )
-      setSuccess(true)
+      toast.success('Applied', { description: 'The apiserver accepted the update.' })
       setEditing(false)
       setShowDiff(false)
       // Nudge any open queries so the drawer's other tabs refresh too.
@@ -207,11 +222,11 @@ export function PodYamlPanel({
       // K8s API errors carry body.message which is usually the useful bit.
       const status = (e as { status?: number }).status
       const body = (e as { body?: { message?: string } }).body
-      setError(
-        `${status ? `HTTP ${status} · ` : ''}${
+      toast.error('Apply failed', {
+        description: `${status ? `HTTP ${status} · ` : ''}${
           body?.message ?? (e instanceof Error ? e.message : String(e))
         }`,
-      )
+      })
     } finally {
       setApplying(false)
     }
@@ -261,10 +276,10 @@ export function PodYamlPanel({
           </Toggle>
         ) : null}
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <Button size="sm" variant="secondary" onClick={copy}>Copy</Button>
           <Button size="sm" variant="secondary" onClick={download}>Download</Button>
-          {editing ? (
+          {editing && canWrite ? (
             <>
               <Button size="sm" variant="secondary" onClick={reload} disabled={applying} title="Discard local edits and reload the manifest from the cluster">
                 Reload
@@ -275,12 +290,11 @@ export function PodYamlPanel({
               <Button size="sm" variant="secondary" onClick={cancel} disabled={applying}>Cancel</Button>
               <Button
                 size="sm"
+                variant="primary"
                 onClick={apply}
-                disabled={applying || !dirty || !canWrite || errorCount > 0}
+                disabled={applying || !dirty || errorCount > 0}
                 title={
-                  !canWrite
-                    ? 'Apply requires the Tenant Admin or Platform Admin role'
-                    : errorCount > 0
+                  errorCount > 0
                       ? 'Fix the YAML errors before applying'
                       : !dirty
                         ? 'No changes to apply'
@@ -296,30 +310,15 @@ export function PodYamlPanel({
             </Button>
           ) : null}
           {!editing && canWrite ? (
-            <Button size="sm" onClick={startEdit}>Edit</Button>
+            <Button size="sm" variant="primary" onClick={startEdit}>Edit</Button>
           ) : null}
           {!canWrite ? (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] text-content-muted"
-              title="Editing requires the Tenant Admin or Platform Admin role"
-            >
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] text-content-muted">
               <LockIcon /> read-only
-              <K8sRolePill perm={writePerm} />
             </span>
           ) : null}
         </div>
       </div>
-
-      {error ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-300">
-          <strong className="font-semibold">Apply failed:</strong> {error}
-        </div>
-      ) : null}
-      {success && !editing ? (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
-          <strong className="font-semibold">Applied.</strong> apiserver accepted the update.
-        </div>
-      ) : null}
 
       {/* ── editor ── */}
       {showDiff && editing && dirty ? (
@@ -327,7 +326,7 @@ export function PodYamlPanel({
       ) : (
         <MonacoYaml
           value={value}
-          readOnly={!editing}
+          readOnly={!editing || !canWrite}
           minimap={minimap}
           wordWrap={wordWrap}
           onChange={editing ? setDraft : undefined}

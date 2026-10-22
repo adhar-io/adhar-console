@@ -178,7 +178,7 @@ function PodDiagnostics({ props: p }: { props: Props }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-edge-subtle">
-              {[...initContainers.map((c) => ({ ...c, init: true })), ...containers].map((c, i) => {
+              {[...initContainers.map((c): Props => ({ ...c, init: true })), ...containers].map((c, i) => {
                 const state = str(c.state)
                 const restarts = num(c.restartCount) ?? 0
                 return (
@@ -1143,14 +1143,14 @@ export function GenerativeBlock({
  * renders after the element is created.
  */
 class BlockBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
-  state = { failed: false }
+  override state = { failed: false }
   static getDerivedStateFromError() {
     return { failed: true }
   }
-  componentDidCatch(error: Error, info: ErrorInfo) {
+  override componentDidCatch(error: Error, info: ErrorInfo) {
     console.warn('[agui] generative block failed to render', error, info.componentStack)
   }
-  render() {
+  override render() {
     if (this.state.failed) return <Empty text="This result could not be displayed." />
     return this.props.children
   }

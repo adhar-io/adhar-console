@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Checkbox, Field, Input, Select, Textarea, usePlaneWorkspace, useToast } from '@adhar/shell-ui'
+import { Button, Can, Checkbox, CONSOLE_PERMISSIONS, Field, Input, Select, Textarea, usePlaneWorkspace, useToast } from '@adhar/shell-ui'
 import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, planeError, useMembers, useProjectMembers, useUpdateProject } from '../data/plane.ts'
 import { useEstimatePoints, usePlanIssues } from '../data/planning-plane.ts'
@@ -352,9 +352,13 @@ export function NotificationsTab({ projectId }: { projectId: string }) {
             <Checkbox label={p.label} description={p.hint} checked={!!prefs[p.key]} disabled={meta.isLoading || meta.isError} onChange={(e) => set({ [p.key]: e.target.checked })} />
           </li>
         ))}
-        <li className="px-4 py-3">
-          <Checkbox label="Send to everyone in the organization" description="Off: only the person who acted sees them." checked={!!prefs.broadcast} disabled={meta.isLoading || meta.isError} onChange={(e) => set({ broadcast: e.target.checked })} />
-        </li>
+        {/* Organisation-wide delivery is a broadcast — `POST /api/notifications`
+            refuses it without `create notifications-broadcast` (docs/rbac.md). */}
+        <Can check={CONSOLE_PERMISSIONS.notificationsBroadcast}>
+          <li className="px-4 py-3">
+            <Checkbox label="Send to everyone in the organization" description="Off: only the person who acted sees them." checked={!!prefs.broadcast} disabled={meta.isLoading || meta.isError} onChange={(e) => set({ broadcast: e.target.checked })} />
+          </li>
+        </Can>
       </ul>
     </section>
   )

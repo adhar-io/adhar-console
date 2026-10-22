@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, Modal, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import {
+  CONSOLE_PERMISSIONS,
+  DataTable,
+  EmptyState,
+  Modal,
+  StatusBadge,
+  useCan,
+  useToast,
+  type StatusKind,
+} from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   isDbUnavailable,
@@ -23,7 +32,6 @@ import {
   TextField,
   ViewShell,
 } from '../components/section-shell.tsx'
-import { RequirePermission } from '../components/role-gate.tsx'
 
 const ROLE_KIND: Record<string, StatusKind> = {
   owner: 'failed',
@@ -48,6 +56,12 @@ export function Members() {
   const updateRole = useUpdateMemberRole()
   const removeMember = useRemoveMember()
   const revoke = useRevokeInvitation()
+  const toast = useToast()
+  // Per-action RBAC (docs/rbac.md) — the controls are hidden, not disabled,
+  // and stay hidden while the answer loads.
+  const canInvite = useCan(CONSOLE_PERMISSIONS.membersInvite)
+  const canUpdate = useCan(CONSOLE_PERMISSIONS.membersUpdate)
+  const canRemove = useCan(CONSOLE_PERMISSIONS.membersRemove)
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [invited, setInvited] = useState<CreatedInvitation | null>(null)
@@ -76,19 +90,19 @@ export function Members() {
     <ViewShell
       title="Members"
       description="Lifecycle, roles, and team affiliation — persisted per tenant, with role groups reflected into Keycloak for cluster RBAC."
-      required={['admin', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.membersInvite}
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {me.data ? (
             <StatusBadge kind={me.data.keycloakConfigured ? 'healthy' : 'paused'}>
               {me.data.keycloakConfigured ? 'RBAC sync on' : 'console-only'}
             </StatusBadge>
           ) : null}
-          <RequirePermission perm="members.invite" required={['admin', 'owner']} readOnly>
+          {canInvite ? (
             <PrimaryButton onClick={() => setInviteOpen(true)}>
               <IconPlus /> Invite member
             </PrimaryButton>
-          </RequirePermission>
+          ) : null}
         </div>
       }
     >
@@ -142,18 +156,20 @@ export function Members() {
               </div>
             }
           >
-            {updateRole.isError ? (
-              <p className="mb-3 text-[12px] text-rose-700 dark:text-rose-400">
-                {(updateRole.error as Error)?.message}
-              </p>
-            ) : null}
             <DataTable
               loading={members.isLoading}
               rows={filtered}
               rowKey={(m) => m.userId}
               empty={
                 (members.data?.length ?? 0) === 0
-                  ? <EmptyState title="No members yet" description="Invite people with the button above — they appear here once they accept." />
+                  ? (
+                    <EmptyState
+                      title="No members yet"
+                      description={canInvite
+                        ? 'Invite people with the button above — they appear here once they accept.'
+                        : 'Ask a workspace admin to invite people — they appear here once they accept.'}
+                    />
+                  )
                   : <EmptyState title="No members match" description="Clear the search or pick another role." />
               }
               columns={[
@@ -180,12 +196,8 @@ export function Members() {
                 {
                   key: 'role',
                   header: 'Role',
-                  cell: (m) => (
-                    <RequirePermission
-                      perm="members.update_role"
-                      required={['admin', 'owner']}
-                      fallback={<StatusBadge kind={ROLE_KIND[m.role] ?? 'unknown'}>{m.role}</StatusBadge>}
-                    >
+                  cell: (m) =>
+                    canUpdate ? (
                       <div className="w-28">
                         <SelectField<OrgRole>
                           value={m.role}
@@ -196,14 +208,17 @@ export function Members() {
                               {
                                 onSuccess: (r) =>
                                   setLastSync({ userId: m.userId, synced: r.keycloakSynced }),
+                                onError: (e) =>
+                                  toast.error(`Could not change ${m.name}'s role`, { description: (e as Error)?.message }),
                               },
                             )
                           }}
                           options={ROLE_OPTIONS}
                         />
                       </div>
-                    </RequirePermission>
-                  ),
+                    ) : (
+                      <StatusBadge kind={ROLE_KIND[m.role] ?? 'unknown'}>{m.role}</StatusBadge>
+                    ),
                 },
                 {
                   key: 'teams',
@@ -233,30 +248,21 @@ export function Members() {
                 {
                   key: 'actions',
                   header: '',
-                  cell: (m) => (
-                    <RequirePermission perm="members.remove" required={['admin', 'owner']} fallback={<span />}>
+                  // Hidden for yourself too — removing your own membership is not offered here.
+                  cell: (m) =>
+                    canRemove && m.userId !== me.data?.userId ? (
                       <div className="flex justify-end gap-1.5">
-                        <SecondaryButton
-                          tone="rose"
-                          disabled={m.userId === me.data?.userId}
-                          onClick={() => setPendingRemove(m)}
-                        >
+                        <SecondaryButton tone="rose" onClick={() => setPendingRemove(m)}>
                           Remove
                         </SecondaryButton>
                       </div>
-                    </RequirePermission>
-                  ),
+                    ) : null,
                 },
               ]}
             />
           </SettingsCard>
 
           <SettingsCard title="Pending invitations">
-            {revoke.isError ? (
-              <p className="mb-3 text-[12px] text-rose-700 dark:text-rose-400">
-                {(revoke.error as Error)?.message}
-              </p>
-            ) : null}
             <DataTable
               loading={invitations.isLoading}
               rows={pendingInvites}
@@ -279,19 +285,24 @@ export function Members() {
                 {
                   key: 'actions',
                   header: '',
-                  cell: (i) => (
-                    <RequirePermission perm="members.invite" required={['admin', 'owner']} fallback={<span />}>
+                  // DELETE /api/workspace/invitations/:id is guarded by membersRemove.
+                  cell: (i) =>
+                    canRemove ? (
                       <div className="flex justify-end gap-1.5">
                         <SecondaryButton
                           tone="rose"
                           disabled={revoke.isPending}
-                          onClick={() => revoke.mutate(i.id)}
+                          onClick={() =>
+                            revoke.mutate(i.id, {
+                              onSuccess: () => toast.success(`Invitation for ${i.email} revoked`),
+                              onError: (e) =>
+                                toast.error('Could not revoke the invitation', { description: (e as Error)?.message }),
+                            })}
                         >
                           Revoke
                         </SecondaryButton>
                       </div>
-                    </RequirePermission>
-                  ),
+                    ) : null,
                 },
               ]}
             />

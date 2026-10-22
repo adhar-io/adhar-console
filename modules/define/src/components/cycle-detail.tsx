@@ -228,7 +228,7 @@ function OverviewTab({ projectId, cycle, data }: { projectId: string; cycle: pla
       </div>
 
       <section>
-        <SectionTitle actions={<Segmented label="Chart" value={mode} onChange={setMode} options={[{ value: 'burndown', label: 'Burndown' }, { value: 'burnup', label: 'Burnup' }]} />}>
+        <SectionTitle actions={<Segmented<typeof mode> label="Chart" value={mode} onChange={setMode} options={[{ value: 'burndown', label: 'Burndown' }, { value: 'burnup', label: 'Burnup' }]} />}>
           {mode === 'burndown' ? 'Burndown' : 'Burnup'}
         </SectionTitle>
         {!b

@@ -11,11 +11,11 @@ import {
   Modal,
   Select,
   StatusBadge,
-  useCan,
   useToast,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { type PerfInsights, useSaveSchedule, useScheduleActions } from '../data/perf-automation.ts'
+import { cronJobCheck, runScheduleNowChecks, saveScheduleChecks, useAllowedNamespaces } from '../data/access.ts'
 import { CRON_PRESETS, cronError, describeCron, nextRuns } from '../data/perf-cron.ts'
 import {
   defaultScheduleName,
@@ -37,8 +37,19 @@ import { VerdictBadge } from './perf-bits.tsx'
  */
 
 export function SchedulesView({ insights, presetTest }: { insights: PerfInsights; presetTest?: string }) {
-  const { schedules, records, verdictOf, tests, configs } = insights
-  const canManage = useCan('develop')
+  const { schedules, records, verdictOf, tests: allTests, configs } = insights
+  // RBAC per namespace (docs/rbac.md). A schedule is a CronJob plus the
+  // runner and artefact it needs; run-now creates a Job; pause patches and
+  // delete deletes the CronJob. New schedules are offered only for tests whose
+  // namespace allows writing all of that.
+  const nsOf = (t: string) => configs.get(t)?.namespace || 'default'
+  const saveNs = useAllowedNamespaces([...allTests.map(nsOf), ...schedules.map((s) => s.namespace)], saveScheduleChecks)
+  const scheduleNs = schedules.map((s) => s.namespace)
+  const runNowNs = useAllowedNamespaces(scheduleNs, runScheduleNowChecks)
+  const patchNs = useAllowedNamespaces(scheduleNs, (ns) => [cronJobCheck('patch', ns)])
+  const deleteNs = useAllowedNamespaces(scheduleNs, (ns) => [cronJobCheck('delete', ns)])
+  const tests = allTests.filter((t) => saveNs.has(nsOf(t)))
+  const canManage = saveNs.size > 0 || runNowNs.size > 0 || patchNs.size > 0 || deleteNs.size > 0
   const toast = useToast()
   const { setSuspended, remove, runNow } = useScheduleActions()
   const [editing, setEditing] = useState<PerfSchedule | 'new' | null>(presetTest ? 'new' : null)
@@ -108,7 +119,7 @@ export function SchedulesView({ insights, presetTest }: { insights: PerfInsights
         const at = nextRuns(s.cron, Date.now(), 1, s.timeZone)[0]
         return at
           ? <span className="text-[12px] text-content-muted" title={formatAbsolute(at)}>{formatRelative(at)}</span>
-          : <span className="text-[12px] text-rose-600">invalid schedule</span>
+          : <span className="text-[12px] text-rose-600 dark:text-rose-400">invalid schedule</span>
       },
     },
     {
@@ -146,20 +157,29 @@ export function SchedulesView({ insights, presetTest }: { insights: PerfInsights
         const key = `${s.namespace}/${s.name}`
         return (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-            <Button size="xs" variant="ghost" disabled={busy === key} onClick={() => act(s, `Started ${s.name} now`, () => runNow.mutateAsync(s))}>
-              Run now
-            </Button>
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={busy === key}
-              onClick={() =>
-                act(s, s.suspend ? `Resumed ${s.name}` : `Paused ${s.name}`, () =>
-                  setSuspended.mutateAsync({ schedule: s, suspend: !s.suspend }))}
-            >
-              {s.suspend ? 'Resume' : 'Pause'}
-            </Button>
-            <Button size="xs" variant="ghost" disabled={busy === key} onClick={() => setEditing(s)}>Edit</Button>
+            {runNowNs.has(s.namespace)
+              ? (
+                <Button size="xs" variant="ghost" disabled={busy === key} onClick={() => act(s, `Started ${s.name} now`, () => runNow.mutateAsync(s))}>
+                  Run now
+                </Button>
+              )
+              : null}
+            {patchNs.has(s.namespace)
+              ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={busy === key}
+                  onClick={() =>
+                    act(s, s.suspend ? `Resumed ${s.name}` : `Paused ${s.name}`, () =>
+                      setSuspended.mutateAsync({ schedule: s, suspend: !s.suspend }))}
+                >
+                  {s.suspend ? 'Resume' : 'Pause'}
+                </Button>
+              )
+              : null}
+            {saveNs.has(s.namespace) ? <Button size="xs" variant="ghost" disabled={busy === key} onClick={() => setEditing(s)}>Edit</Button> : null}
+            {deleteNs.has(s.namespace) ? (
             <Button
               size="xs"
               variant="ghost"
@@ -174,6 +194,7 @@ export function SchedulesView({ insights, presetTest }: { insights: PerfInsights
             >
               {armed === key ? 'Confirm delete' : 'Delete'}
             </Button>
+            ) : null}
           </div>
         )
       },
@@ -190,9 +211,9 @@ export function SchedulesView({ insights, presetTest }: { insights: PerfInsights
             browser needed.
           </div>
         </div>
-        {canManage
+        {tests.length
           ? (
-            <Button className="ml-auto" size="sm" disabled={!tests.length} onClick={() => setEditing('new')}>
+            <Button className="ml-auto" size="sm" variant="primary" onClick={() => setEditing('new')}>
               New schedule
             </Button>
           )
@@ -203,7 +224,7 @@ export function SchedulesView({ insights, presetTest }: { insights: PerfInsights
         columns={columns}
         rows={schedules}
         rowKey={(s) => `${s.namespace}/${s.name}`}
-        onRowClick={canManage ? (s) => setEditing(s) : undefined}
+        onRowClick={(s) => (saveNs.has(s.namespace) ? setEditing(s) : undefined)}
         tableId="k6-schedules"
         features={{ search: true, filters: true, columns: true, density: true }}
         defaultSort={{ key: 'next', dir: 'asc' }}
@@ -212,12 +233,13 @@ export function SchedulesView({ insights, presetTest }: { insights: PerfInsights
           <EmptyState
             title="Nothing is scheduled"
             description="A schedule runs a test on a cron — nightly regression runs, hourly smoke tests, a weekly soak. Results land in Results and count towards the pass rate."
-            action={canManage && tests.length ? <Button onClick={() => setEditing('new')}>New schedule</Button> : undefined}
+            action={tests.length ? <Button variant="primary" onClick={() => setEditing('new')}>New schedule</Button> : undefined}
           />
         }
       />
 
-      {editing
+      {/* "new" waits for the RBAC answer: no test → nothing to schedule into. */}
+      {editing && (editing !== 'new' || tests.length)
         ? (
           <ScheduleDialog
             tests={tests}
@@ -321,8 +343,8 @@ function ScheduleDialog({
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button disabled={!ready || save.isPending} onClick={submit}>
-            {save.isPending ? 'Saving…' : existing ? 'Save schedule' : 'Create schedule'}
+          <Button variant="primary" disabled={!ready} loading={save.isPending} onClick={submit}>
+            {existing ? 'Save schedule' : 'Create schedule'}
           </Button>
         </>
       }

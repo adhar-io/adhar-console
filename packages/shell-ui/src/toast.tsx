@@ -79,24 +79,60 @@ let seq = 0
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
-  const timers = useRef(new Map<string, number>())
+  const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
+  /** When each running timer fires, and what is left of a paused one. */
+  const deadlines = useRef(new Map<string, number>())
+  const remaining = useRef(new Map<string, number>())
 
   const dismiss = useCallback((id: string) => {
     const t = timers.current.get(id)
     if (t) globalThis.clearTimeout(t)
     timers.current.delete(id)
+    deadlines.current.delete(id)
+    remaining.current.delete(id)
     setToasts((prev) => prev.filter((x) => x.id !== id))
   }, [])
 
+  const arm = useCallback((id: string, ms: number) => {
+    const existing = timers.current.get(id)
+    if (existing) globalThis.clearTimeout(existing)
+    timers.current.delete(id)
+    deadlines.current.delete(id)
+    if (ms > 0) {
+      timers.current.set(id, globalThis.setTimeout(() => dismiss(id), ms))
+      deadlines.current.set(id, Date.now() + ms)
+    }
+  }, [dismiss])
+
   const schedule = useCallback(
     (id: string, kind: ToastKind, duration?: number) => {
-      const ms = duration ?? DEFAULT_DURATION[kind]
-      const existing = timers.current.get(id)
-      if (existing) globalThis.clearTimeout(existing)
-      if (ms > 0) timers.current.set(id, globalThis.setTimeout(() => dismiss(id), ms))
+      remaining.current.delete(id)
+      arm(id, duration ?? DEFAULT_DURATION[kind])
     },
-    [dismiss],
+    [arm],
   )
+
+  /*
+   * Hovering (or focusing) a toast holds it: a message that vanishes while
+   * the pointer is on its "Undo" is the toast system's most common complaint.
+   * The drain bar pauses with it (CSS, on the same hover), so the bar and the
+   * timer stay in step.
+   */
+  const pause = useCallback((id: string) => {
+    const deadline = deadlines.current.get(id)
+    if (deadline === undefined) return
+    const t = timers.current.get(id)
+    if (t) globalThis.clearTimeout(t)
+    timers.current.delete(id)
+    deadlines.current.delete(id)
+    remaining.current.set(id, Math.max(800, deadline - Date.now()))
+  }, [])
+  const resume = useCallback((id: string) => {
+    const left = remaining.current.get(id)
+    if (left === undefined) return
+    remaining.current.delete(id)
+    arm(id, left)
+  }, [arm])
 
   const show = useCallback(
     (kind: ToastKind, title: ReactNode, opts: ToastOptions = {}) => {
@@ -150,7 +186,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      {typeof document !== 'undefined' ? createPortal(<Viewport toasts={toasts} onDismiss={dismiss} />, document.body) : null}
+      {typeof document !== 'undefined'
+        ? createPortal(<Viewport toasts={toasts} onDismiss={dismiss} onPause={pause} onResume={resume} />, document.body)
+        : null}
     </ToastContext.Provider>
   )
 }
@@ -179,15 +217,35 @@ export function useToast(): ToastApi {
 
 /* ─────────── viewport ─────────── */
 
-function Viewport({ toasts, onDismiss }: { toasts: Toast[]; onDismiss(id: string): void }) {
+function Viewport({
+  toasts,
+  onDismiss,
+  onPause,
+  onResume,
+}: {
+  toasts: Toast[]
+  onDismiss(id: string): void
+  onPause(id: string): void
+  onResume(id: string): void
+}) {
   return (
     <div
       aria-live="polite"
       aria-relevant="additions"
-      className="pointer-events-none fixed bottom-4 right-4 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
+      // Above every overlay (modals z-60, Adhar AI z-70): a toast confirming
+      // what a dialog just did must not open underneath it. Bottom-right on a
+      // desktop; on a phone it spans the width above the safe-area inset.
+      className="pointer-events-none fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] z-[120] flex flex-col gap-2 sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[min(24rem,calc(100vw-2.5rem))]"
     >
+      <style>{`@keyframes adhar-toast-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }`}</style>
       {toasts.map((t) => (
-        <ToastCard key={t.id} toast={t} onDismiss={() => onDismiss(t.id)} />
+        <ToastCard
+          key={t.id}
+          toast={t}
+          onDismiss={() => onDismiss(t.id)}
+          onPause={() => onPause(t.id)}
+          onResume={() => onResume(t.id)}
+        />
       ))}
     </div>
   )
@@ -201,7 +259,17 @@ const KIND_STYLE: Record<ToastKind, { ring: string; icon: string; bar: string }>
   loading: { ring: 'border-edge-default', icon: 'bg-surface-sunken text-content-muted', bar: 'bg-brand-500' },
 }
 
-function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss(): void }) {
+function ToastCard({
+  toast,
+  onDismiss,
+  onPause,
+  onResume,
+}: {
+  toast: Toast
+  onDismiss(): void
+  onPause(): void
+  onResume(): void
+}) {
   const [entered, setEntered] = useState(false)
   useEffect(() => {
     const id = requestAnimationFrame(() => setEntered(true))
@@ -212,8 +280,12 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss(): void }) {
   return (
     <div
       role={toast.kind === 'error' ? 'alert' : 'status'}
+      onMouseEnter={onPause}
+      onMouseLeave={onResume}
+      onFocus={onPause}
+      onBlur={onResume}
       className={cn(
-        'pointer-events-auto relative overflow-hidden rounded-xl border bg-surface-raised shadow-lg ring-1 ring-black/5 transition-all duration-200 ease-out dark:ring-white/10',
+        'group/toast pointer-events-auto relative overflow-hidden rounded-xl border bg-surface-raised shadow-lg ring-1 ring-black/5 transition-[opacity,transform] duration-200 ease-out dark:ring-white/10',
         s.ring,
         entered ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
       )}
@@ -251,12 +323,17 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss(): void }) {
       </div>
       {duration > 0 ? (
         <span
+          // Keyed on the toast's createdAt: an update in place (toast.promise)
+          // restarts the drain with the new duration.
+          key={toast.createdAt}
           aria-hidden
-          className={cn('absolute bottom-0 left-0 h-0.5 opacity-60', s.bar)}
-          style={{ width: '100%', animation: `adhar-toast-drain ${duration}ms linear forwards` }}
+          className={cn(
+            'absolute bottom-0 left-0 h-0.5 w-full origin-left opacity-60 group-hover/toast:[animation-play-state:paused] group-focus-within/toast:[animation-play-state:paused]',
+            s.bar,
+          )}
+          style={{ animation: `adhar-toast-drain ${duration}ms linear forwards` }}
         />
       ) : null}
-      <style>{`@keyframes adhar-toast-drain { from { width: 100%; } to { width: 0%; } }`}</style>
     </div>
   )
 }

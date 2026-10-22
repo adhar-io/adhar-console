@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { EmptyIcon } from '../components/empty-icon.tsx'
 import { Button, EmptyState, Modal, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
@@ -97,7 +98,7 @@ export function Backlog({ projectId }: { projectId?: string }) {
     estimate_point: ptsOf(i) ?? null,
   })
 
-  if (!projectId) return <EmptyState title="Pick a project" description="Choose one from the project picker above to plan its sprints." />
+  if (!projectId) return <EmptyState icon={<EmptyIcon name="folder" />} title="Pick a project" description="Choose one from the project picker above to plan its sprints." />
 
   const lists: Array<{ id: string; cycle?: plane.Cycle; items: WorkItem[] }> = [
     ...cycles.map((c) => ({ id: c.id, cycle: c, items: items.filter((i) => i.cycle === c.id) })),

@@ -2,20 +2,33 @@ import { useEffect, useState } from 'react'
 import { cn, formatRelative } from '@adhar/utils'
 import {
   applyTheme,
+  CONSOLE_PERMISSIONS,
   DEFAULT_THEME_ID,
   getStoredThemeId,
   ModeToggle,
   StatusBadge,
   THEMES,
   type ThemePreset,
+  useCan,
+  useToast,
 } from '@adhar/shell-ui'
 import { useSaveWorkspaceTheme, useWorkspaceTheme } from '../data/security.ts'
 import { PrimaryButton, SecondaryButton, ViewShell } from '../components/section-shell.tsx'
+
+/**
+ * The palette itself is a per-device choice anyone can make. Only "Save as
+ * workspace default" writes — a docStore singleton
+ * (`/api/store/workspace.theme`) with no dedicated catalogue entry, so it needs
+ * `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 export function Theming() {
   const [activeId, setActiveId] = useState<string>(DEFAULT_THEME_ID)
   const ws = useWorkspaceTheme()
   const save = useSaveWorkspaceTheme()
+  const toast = useToast()
+  const canSaveDefault = useCan(WRITE)
 
   useEffect(() => {
     setActiveId(getStoredThemeId())
@@ -61,7 +74,7 @@ export function Theming() {
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-edge-default bg-surface-raised p-4">
           <div className="min-w-0 text-xs text-content-muted">
             {ws.isLoading ? (
-              'Checking the workspace default theme…'
+              <span className="inline-block h-3 w-56 animate-pulse rounded bg-surface-sunken" aria-label="Loading" />
             ) : ws.isError ? (
               <span>
                 The tenant document store is unreachable, so a shared workspace default can't be
@@ -77,7 +90,9 @@ export function Theming() {
                 {ws.data?.updatedBy ? ` by ${ws.data.updatedBy}` : ''}
               </span>
             ) : (
-              'No workspace default saved yet — each member sees their own local choice.'
+              canSaveDefault
+                ? 'No workspace default saved yet — each member sees their own local choice.'
+                : 'No workspace default saved yet — each member sees their own local choice. A workspace admin can save one.'
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -86,23 +101,24 @@ export function Theming() {
                 Apply workspace default
               </SecondaryButton>
             ) : null}
-            <PrimaryButton
-              disabled={ws.isError || save.isPending || isWorkspaceDefault}
-              onClick={() => save.mutate(activeId)}
-            >
-              {save.isPending
-                ? 'Saving…'
-                : isWorkspaceDefault
-                  ? 'Saved as workspace default'
-                  : 'Save as workspace default'}
-            </PrimaryButton>
+            {canSaveDefault ? (
+              <PrimaryButton
+                disabled={ws.isError || save.isPending || isWorkspaceDefault}
+                onClick={() =>
+                  save.mutate(activeId, {
+                    onSuccess: () => toast.success('Saved as the workspace default theme'),
+                    onError: (e) => toast.error('Could not save the workspace theme', { description: (e as Error)?.message }),
+                  })}
+              >
+                {save.isPending
+                  ? 'Saving…'
+                  : isWorkspaceDefault
+                    ? 'Saved as workspace default'
+                    : 'Save as workspace default'}
+              </PrimaryButton>
+            ) : null}
           </div>
         </div>
-        {save.isError ? (
-          <p className="mt-2 text-[12px] text-rose-700 dark:text-rose-400">
-            {(save.error as Error)?.message ?? 'Could not save the workspace theme.'}
-          </p>
-        ) : null}
       </section>
 
       <section>
@@ -152,7 +168,7 @@ function ThemeCard({
       onClick={onSelect}
       aria-pressed={active}
       className={cn(
-        'group relative flex flex-col rounded-xl border bg-surface-raised p-4 text-left shadow-sm transition',
+        'group relative flex flex-col rounded-xl border bg-surface-raised p-4 text-left shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
         active
           ? 'border-brand-500 ring-2 ring-brand-500/25'
           : 'border-edge-default hover:-translate-y-0.5 hover:border-edge-strong hover:shadow-md',
@@ -166,8 +182,8 @@ function ThemeCard({
       />
       <div className="mt-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <div className="text-sm font-semibold text-content">{theme.name}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="truncate text-sm font-semibold text-content">{theme.name}</div>
             {active ? <StatusBadge kind="healthy">Active</StatusBadge> : null}
             {workspaceDefault ? <StatusBadge kind="info">Workspace</StatusBadge> : null}
           </div>
@@ -195,16 +211,16 @@ function Preview() {
   return (
     <div className="rounded-xl border border-edge-default bg-surface-raised p-6 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <button className="h-9 rounded-md bg-brand-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700">
+        <button type="button" className="h-9 rounded-md bg-brand-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700">
           Primary
         </button>
-        <button className="h-9 rounded-md border border-brand-200 bg-brand-50 dark:border-brand-500/40 dark:bg-brand-500/15 dark:text-brand-200 px-4 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-100">
+        <button type="button" className="h-9 rounded-md border border-brand-200 bg-brand-50 dark:border-brand-500/40 dark:bg-brand-500/15 dark:text-brand-200 px-4 text-sm font-medium text-brand-700 transition-colors hover:bg-brand-100 dark:hover:bg-brand-500/25">
           Soft
         </button>
-        <button className="h-9 rounded-md border border-edge-strong bg-surface-raised px-4 text-sm font-medium text-content transition-colors hover:bg-surface-sunken">
+        <button type="button" className="h-9 rounded-md border border-edge-strong bg-surface-raised px-4 text-sm font-medium text-content transition-colors hover:bg-surface-sunken">
           Secondary
         </button>
-        <button className="h-9 rounded-md bg-accent-500 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-600">
+        <button type="button" className="h-9 rounded-md bg-accent-500 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-accent-600">
           Accent
         </button>
         <StatusBadge kind="healthy">Healthy</StatusBadge>
@@ -216,17 +232,17 @@ function Preview() {
       <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-edge-default bg-surface-sunken p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-content-subtle">
-            Deploys (7d)
+            Stat tile
           </div>
-          <div className="mt-1 text-2xl font-semibold text-content">128</div>
-          <div className="mt-0.5 text-xs font-medium text-brand-600">+24% vs last week</div>
+          <div className="mt-1 text-2xl font-semibold text-content">Metric</div>
+          <div className="mt-0.5 text-xs font-medium text-brand-600 dark:text-brand-400">Brand trend colour</div>
         </div>
         <div className="rounded-lg border border-edge-default bg-surface-sunken p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-content-subtle">
-            Lead time
+            Stat tile
           </div>
-          <div className="mt-1 text-2xl font-semibold text-content">2h 14m</div>
-          <div className="mt-0.5 text-xs font-medium text-accent-600">−18% vs last week</div>
+          <div className="mt-1 text-2xl font-semibold text-content">Metric</div>
+          <div className="mt-0.5 text-xs font-medium text-accent-600 dark:text-accent-400">Accent trend colour</div>
         </div>
         <div
           className="overflow-hidden rounded-lg p-4 text-white shadow-sm"

@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
-import { PdfDocument, textWidth, toWinAnsi, wrapText } from './writer.ts'
+import { hex, PdfDocument, textWidth, toWinAnsi, wrapText } from './writer.ts'
 
 const decode = (b: Uint8Array) => Array.from(b, (c) => String.fromCharCode(c)).join('')
 
@@ -47,4 +47,15 @@ Deno.test('the file is a well-formed PDF with a valid xref and escaped strings',
     const start = m.index! + m[0].length
     assertEquals(out.slice(start + Number(m[1]), start + Number(m[1]) + 10), '\nendstream')
   }
+})
+
+Deno.test('degenerate inputs never hang or write NaN into the file', () => {
+  // A first-line indent wider than the line used to loop forever.
+  assertEquals(wrapText('abc', 'regular', 10, 5, 20).join(''), 'abc')
+  const doc = new PdfDocument()
+  doc.addPage()
+  doc.rect(Number.NaN, 10, 20, 20, { fill: hex('not-a-colour') })
+  const out = decode(doc.output())
+  assert(!out.includes('NaN'))
+  assert(out.includes('0 0 0 rg'))
 })

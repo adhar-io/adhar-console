@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { StatusBadge, useToast } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, StatusBadge, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   NOTIFICATION_CATEGORIES,
@@ -12,7 +12,6 @@ import {
   type NotificationCategory,
   type NotificationChannel,
   type NotificationRoutes,
-  type RouteTestResult,
 } from '../data/preferences.ts'
 import {
   PrimaryButton,
@@ -27,6 +26,16 @@ import {
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
+import { SupportTicketsCard } from './support-tickets-card.tsx'
+
+/**
+ * The routing table is a docStore singleton
+ * (`/api/store/workspace.notification-routing`) with no dedicated catalogue
+ * entry — an organisation setting, so it needs `update organizations`. The
+ * webhook "Test" records its outcome on the same document, so it takes the
+ * same gate as Save.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 /**
  * Notification routing — where each category of org event goes: in-app,
@@ -89,9 +98,11 @@ export function NotificationRouting() {
         </p>
       ) : null}
 
-      <RequirePermission perm="integrations.write" required={['admin', 'owner']} readOnly>
+      <RequirePermission check={WRITE} readOnly>
         <Editor routes={routes} saved={saved} />
       </RequirePermission>
+
+      <SupportTicketsCard />
     </Shell>
   )
 }
@@ -101,7 +112,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <ViewShell
       title="Notification routing"
       description="Route each category of organization event to in-app notifications, a shared email address, or a Slack-compatible webhook. Event delivery follows this table; per-endpoint payload webhooks live under Connectivity → Webhooks."
-      required={['admin', 'owner']}
+      writeCheck={WRITE}
     >
       {children}
     </ViewShell>
@@ -113,9 +124,6 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
   const toast = useToast()
   const test = useTestNotificationRoute()
   const [draft, setDraft] = useState<NotificationRoutes>(routes)
-  const [lastResult, setLastResult] = useState<
-    { category: NotificationCategory; result: RouteTestResult } | null
-  >(null)
 
   useEffect(() => {
     setDraft(routes)
@@ -155,8 +163,13 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
     </div>
   )
 
-  // Page-level actions belong in the ViewShell header (right side).
-  const headerActions = <ViewActions>{saveBar}</ViewActions>
+  // Page-level actions belong in the ViewShell header (right side). They are
+  // portalled out of the read-only fieldset, so they are gated (hidden) here.
+  const headerActions = (
+    <RequirePermission check={WRITE}>
+      <ViewActions>{saveBar}</ViewActions>
+    </RequirePermission>
+  )
 
   return (
     <>
@@ -179,7 +192,7 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium text-content">{c.label}</span>
                       {!r.enabled ? <StatusBadge kind="paused">muted</StatusBadge> : null}
                     </div>
@@ -229,43 +242,41 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
                     </div>
                   )}
                   {r.channel === 'webhook' ? (
-                    <SecondaryButton
-                      disabled={!testable || test.isPending}
-                      onClick={() => {
-                        setLastResult(null)
-                        test.mutate(c.id, {
-                          onSuccess: (result) => setLastResult({ category: c.id, result }),
-                        })
-                      }}
-                    >
-                      {testingThis ? 'Testing…' : 'Test'}
-                    </SecondaryButton>
+                    <RequirePermission check={WRITE}>
+                      <SecondaryButton
+                        disabled={!testable || test.isPending}
+                        onClick={() =>
+                          test.mutate(c.id, {
+                            onSuccess: (result) =>
+                              result.ok
+                                ? toast.success(`${c.label}: webhook reachable`, { description: result.detail })
+                                : toast.error(`${c.label}: webhook not reachable`, { description: result.detail }),
+                            onError: (e) =>
+                              toast.error('The reachability test failed to run', { description: (e as Error)?.message }),
+                          })}
+                      >
+                        {testingThis ? 'Testing…' : 'Test'}
+                      </SecondaryButton>
+                    </RequirePermission>
                   ) : null}
                 </div>
 
-                {r.channel === 'webhook' && !saved ? (
-                  <p className="mt-2 text-[11px] text-content-subtle">
-                    Save the routing table to enable the reachability test.
-                  </p>
-                ) : null}
-                {r.channel === 'webhook' && saved && dirty ? (
-                  <p className="mt-2 text-[11px] text-content-subtle">
-                    Save your changes to test the updated URL.
-                  </p>
-                ) : null}
+                {/* Save-to-test hints only mean something to someone who can save. */}
+                <RequirePermission check={WRITE}>
+                  {r.channel === 'webhook' && !saved ? (
+                    <p className="mt-2 text-[11px] text-content-subtle">
+                      Save the routing table to enable the reachability test.
+                    </p>
+                  ) : null}
+                  {r.channel === 'webhook' && saved && dirty ? (
+                    <p className="mt-2 text-[11px] text-content-subtle">
+                      Save your changes to test the updated URL.
+                    </p>
+                  ) : null}
+                </RequirePermission>
 
-                {lastResult?.category === c.id ? (
-                  <p
-                    className={
-                      lastResult.result.ok
-                        ? 'mt-2 text-[11px] text-emerald-700 dark:text-emerald-400'
-                        : 'mt-2 text-[11px] text-rose-700 dark:text-rose-400'
-                    }
-                  >
-                    {lastResult.result.detail}
-                  </p>
-                ) : r.lastTestAt ? (
-                  <p className="mt-2 flex items-center gap-1.5 text-[11px] text-content-subtle">
+                {r.lastTestAt ? (
+                  <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-content-subtle">
                     <StatusBadge kind={r.lastTestOk ? 'healthy' : 'failed'}>
                       {r.lastTestOk ? 'reachable' : 'failed'}
                     </StatusBadge>
@@ -279,11 +290,6 @@ function Editor({ routes, saved }: { routes: NotificationRoutes; saved: boolean 
         </div>
       </SettingsCard>
 
-      {test.isError ? (
-        <p className="text-[12px] text-rose-700 dark:text-rose-400">
-          {(test.error as Error)?.message ?? 'The reachability test failed to run.'}
-        </p>
-      ) : null}
     </>
   )
 }

@@ -9,10 +9,12 @@ import {
   Spinner,
   StatusBadge,
   type StatusKind,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { useFreight, usePromote, usePromotions, useStages } from '../data/delivery.ts'
 import { promotionChain } from '../data/promotion-chain.ts'
+import { useKargoProjectAccess } from '../data/access.ts'
 import {
   type ApplicationReleases,
   buildReleases,
@@ -42,6 +44,7 @@ export function Releases() {
   const freight = useFreight()
   const promotions = usePromotions()
   const promote = usePromote()
+  const toast = useToast()
 
   const [search, setSearch] = useState('')
   const [appFilter, setAppFilter] = useState('')
@@ -53,6 +56,8 @@ export function Releases() {
     [freight.data, stages.data, promotions.data],
   )
   const summary = useMemo(() => summariseReleases(releases), [releases])
+  // Promote is hidden in Kargo projects where RBAC does not allow it.
+  const access = useKargoProjectAccess(releases.map((r) => r.project ?? ''))
 
   const visible = releases.filter((r) => {
     const q = search.trim().toLowerCase()
@@ -106,6 +111,9 @@ export function Releases() {
     setBusy(r.id)
     try {
       await promote.mutateAsync({ stage, freight: r.id, project: r.project })
+      toast.success(`Promotion of ${r.alias ?? r.short} to ${stage} requested`)
+    } catch (e) {
+      toast.error(`Could not promote ${r.alias ?? r.short} to ${stage}`, { description: e instanceof Error ? e.message : String(e) })
     } finally {
       setBusy(null)
     }
@@ -163,7 +171,7 @@ export function Releases() {
                 <ReleaseCard
                   key={r.id}
                   release={r}
-                  next={nextStage(r)}
+                  next={access.canPromote(r.project) ? nextStage(r) : undefined}
                   busy={busy === r.id}
                   disabled={busy !== null}
                   onPromote={(stage) => doPromote(r, stage)}
@@ -267,6 +275,8 @@ function ReleaseCard({
   disabled: boolean
   onPromote(stage: string): void
 }) {
+  // A promotion moves this freight onto a live stage; the first click arms it.
+  const [armed, setArmed] = useState(false)
   return (
     <Card>
       <CardBody>
@@ -289,8 +299,19 @@ function ReleaseCard({
             </div>
           </div>
           {next ? (
-            <Button size="sm" onClick={() => onPromote(next)} loading={busy} disabled={disabled}>
-              Promote to {next}
+            <Button
+              size="sm"
+              variant={armed ? 'primary' : undefined}
+              onBlur={() => setArmed(false)}
+              onClick={() => {
+                if (!armed) return setArmed(true)
+                setArmed(false)
+                onPromote(next)
+              }}
+              loading={busy}
+              disabled={disabled}
+            >
+              {armed ? `Confirm promote to ${next}` : `Promote to ${next}`}
             </Button>
           ) : null}
         </div>

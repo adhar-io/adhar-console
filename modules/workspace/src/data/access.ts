@@ -1,10 +1,10 @@
-import { useMemo, type ReactNode } from 'react'
 import type { workspace } from '@adhar/api-clients'
-import { useWorkspaceMe } from './client.ts'
 
 /**
- * RBAC primitives — roles, permissions, and the segregation-of-duty matrix
- * used by every Settings view.
+ * Organisation roles, their labels, and the segregation-of-duty matrix shown
+ * on Roles & permissions. Informational only: what a user may actually DO is
+ * decided by Kubernetes RBAC (CONSOLE_PERMISSIONS, docs/rbac.md), asked per
+ * action through components/role-gate.tsx / useCan.
  *
  * Standard org roles (`workspace.OrgRole`) are extended here with a few
  * enterprise-only roles surfaced in the role matrix:
@@ -183,54 +183,6 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   viewer: READ_ONLY,
 }
 
-/* ─────────── current-user / role hooks ─────────── */
-
-/**
- * Map the caller's REAL org role (their `workspace.member` document, served by
- * `/api/workspace/me`) onto the access-matrix roles used across Settings.
- * `security` / `finance` are enterprise refinements not yet assignable as org
- * roles, so they never appear here — only via the permission matrix display.
- */
-const ORG_ROLE_TO_ACCESS: Record<workspace.OrgRole, Role[]> = {
-  owner: ['owner'],
-  admin: ['admin'],
-  billing: ['billing'],
-  member: ['member'],
-  viewer: ['viewer'],
-}
-
-const NO_ROLES: Role[] = []
-
-/**
- * The current user's roles, derived from their real workspace membership.
- * Returns an empty (fully restricted) set while membership is loading or when
- * the console database is unavailable — views surface those states explicitly
- * rather than granting stubbed access.
- */
-export function useCurrentRoles(): Role[] {
-  const me = useWorkspaceMe()
-  const role = me.data?.role
-  return useMemo(() => (role ? ORG_ROLE_TO_ACCESS[role] ?? NO_ROLES : NO_ROLES), [role])
-}
-
-export function useHasPermission(perm: Permission): boolean {
-  const roles = useCurrentRoles()
-  return rolesHavePermission(roles, perm)
-}
-
-export function rolesHavePermission(roles: Role[], perm: Permission): boolean {
-  for (const r of roles) {
-    if (ROLE_PERMISSIONS[r].includes(perm)) return true
-  }
-  return false
-}
-
-/** True when the user has at least one of the supplied roles. */
-export function useHasAnyRole(...roles: Role[]): boolean {
-  const cur = useCurrentRoles()
-  return roles.some((r) => cur.includes(r))
-}
-
 /* ─────────── helpers / re-exports ─────────── */
 
 export type WorkspaceOrgRole = workspace.OrgRole
@@ -240,10 +192,4 @@ export const ORG_ROLE_LABEL: Record<workspace.OrgRole, string> = {
   billing: 'Billing',
   member: 'Member',
   viewer: 'Viewer',
-}
-
-export interface RoleGateChildren {
-  allowed: boolean
-  reason?: string
-  children: ReactNode
 }

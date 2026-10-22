@@ -14,6 +14,7 @@ import {
   Modal,
   Select,
   StatusBadge,
+  canResource,
   useCan,
   useToast,
   type Column,
@@ -24,6 +25,7 @@ import {
   CHAOS_FAULTS,
   CHAOS_NAMESPACE,
   durationOf,
+  ENGINES_GVR,
   FAMILY_LABEL,
   faultById,
   faultOf,
@@ -94,7 +96,9 @@ export function ChaosView({ namespace }: { namespace?: string }) {
   const faults = useInstalledFaults()
   const results = useChaosResults()
   const [launching, setLaunching] = useState(false)
-  const canManage = useCan('platform.manage')
+  // Runs are ChaosEngines created in the platform namespace beside the
+  // operator (CHAOS_NAMESPACE) — that is where RBAC must allow the create.
+  const canLaunch = useCan(canResource(ENGINES_GVR, 'create', { namespace: CHAOS_NAMESPACE }))
 
   if (!isLoading && !installed) {
     // The suites still matter without Litmus: the load test and the promotion
@@ -202,21 +206,21 @@ export function ChaosView({ namespace }: { namespace?: string }) {
                 {faults.definitions > faults.installed.length ? ` (${faults.definitions} definitions in total)` : ''}.
               </div>
             </div>
-            {canManage ? (
-              <Button className="ml-auto" onClick={() => setLaunching(true)}>
+            {canLaunch ? (
+              <Button variant="primary" className="ml-auto" onClick={() => setLaunching(true)}>
                 New experiment
               </Button>
             ) : null}
           </div>
         </CardHeader>
         <CardBody className="p-0">
-          <ExperimentTable engines={engines} results={results} loading={isLoading} canManage={canManage} />
+          <ExperimentTable engines={engines} results={results} loading={isLoading} canLaunch={canLaunch} />
         </CardBody>
       </Card>
 
       <FaultCatalog installed={faults.installed} />
 
-      {launching ? (
+      {launching && canLaunch ? (
         <LaunchDialog installed={faults.installed} onClose={() => setLaunching(false)} />
       ) : null}
     </div>
@@ -319,12 +323,12 @@ function ExperimentTable({
   engines,
   results,
   loading,
-  canManage,
+  canLaunch,
 }: {
   engines: ChaosEngine[]
   results: Map<string, ChaosResult>
   loading: boolean
-  canManage: boolean
+  canLaunch: boolean
 }) {
   const resultOf = (e: ChaosEngine) => {
     const n = resultNameFor(e)
@@ -413,15 +417,14 @@ function ExperimentTable({
     },
   ]
 
-  if (canManage) {
-    columns.push({
-      key: 'actions',
-      header: '',
-      align: 'right',
-      sortable: false,
-      cell: (e) => <RowActions engine={e} />,
-    })
-  }
+  // Stop/Delete are asked per run (RowActions renders nothing it may not do).
+  columns.push({
+    key: 'actions',
+    header: '',
+    align: 'right',
+    sortable: false,
+    cell: (e) => <RowActions engine={e} />,
+  })
 
   return (
     <DataTable
@@ -436,7 +439,11 @@ function ExperimentTable({
       empty={
         <EmptyState
           title="No chaos experiments"
-          description="Nothing is being broken on purpose right now. Start with pod-delete on a non-critical workload — it is the experiment real clusters survive."
+          description={
+            canLaunch
+              ? 'Nothing is being broken on purpose right now. Start with pod-delete on a non-critical workload — it is the experiment real clusters survive.'
+              : 'Nothing is being broken on purpose right now. Ask a platform admin to run an experiment, or for permission to create ChaosEngines.'
+          }
         />
       }
     />
@@ -448,11 +455,15 @@ function RowActions({ engine }: { engine: ChaosEngine }) {
   const qc = useQueryClient()
   const live = isLive(engine)
   const phase = phaseOf(engine)
+  const ns = engine.metadata.namespace ?? CHAOS_NAMESPACE
+  // Stop is a merge-patch of spec.engineState; delete removes the engine.
+  const canStop = useCan(canResource(ENGINES_GVR, 'patch', { namespace: ns, name: engine.metadata.name }))
+  const canDelete = useCan(canResource(ENGINES_GVR, 'delete', { namespace: ns, name: engine.metadata.name }))
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['chaos'] })
 
   const stop = useMutation({
-    mutationFn: () => stopChaosEngine(engine.metadata.namespace ?? CHAOS_NAMESPACE, engine.metadata.name),
+    mutationFn: () => stopChaosEngine(ns, engine.metadata.name),
     onSuccess: () => {
       toast.success('Stopping — Litmus is recovering the fault')
       invalidate()
@@ -470,28 +481,31 @@ function RowActions({ engine }: { engine: ChaosEngine }) {
   })
 
   const over = phase === 'passed' || phase === 'failed' || phase === 'stopped'
+  if (!(canStop && !over) && !canDelete) return null
 
   return (
     <div className="flex justify-end gap-1">
       {/* A finished run has already recovered; there is nothing to stop and
           no resume — running the fault again is a new run with its own
           verdict, which is what the launcher is for. */}
-      {!over ? (
+      {!over && canStop ? (
         <Button variant="ghost" size="xs" disabled={stop.isPending || phase === 'recovering'} onClick={() => stop.mutate()}>
           Stop
         </Button>
       ) : null}
       {/* Deleting a live run can strand the injected fault with nothing left
           to recover it, so the only route to delete is: stop, then go. */}
-      <Button
-        variant="ghost"
-        size="xs"
-        disabled={live || remove.isPending}
-        title={live ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
-        onClick={() => remove.mutate()}
-      >
-        Delete
-      </Button>
+      {canDelete ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={live || remove.isPending}
+          title={live ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
+          onClick={() => remove.mutate()}
+        >
+          Delete
+        </Button>
+      ) : null}
     </div>
   )
 }

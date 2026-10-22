@@ -1,6 +1,7 @@
 import { env, platformDomain } from '@adhar/utils'
 import { getK8sServiceToken } from '../tool-registry.ts'
 import { getServerAuthConfig, getValidSession } from '@adhar/auth/server'
+import { handleAccessBatch } from './access.ts'
 
 /**
  * Kubernetes gateway — the server-side bridge between the browser and the
@@ -57,6 +58,9 @@ const MAX_BODY_BYTES = 3 * 1024 * 1024
 
 /** Non-streaming upstream calls get a hard timeout; watch/follow stream instead. */
 const UPSTREAM_TIMEOUT_MS = 30_000
+
+/** Ceiling for an `apiServerFetch` whose caller passed no signal (see there). */
+const DEFAULT_CALL_TIMEOUT_MS = 60_000
 
 /** True for streaming requests (watch list / log follow) that must not time out. */
 function isStreaming(search: string): boolean {
@@ -552,6 +556,13 @@ export async function apiServerFetch(
   }
   const clean = path.startsWith('/') ? path : `/${path}`
   const url = `${base}${clean}${init.search ?? ''}`
+  // A caller that set no signal gets a ceiling: teardown, waivers, scorecards,
+  // the AI tools and the provisioner all call this inside a user request, and
+  // a half-open apiserver connection would otherwise hold that request (and
+  // its socket) forever. Watches and log follows stream by design and are left
+  // to their caller's own abort.
+  const signal = init.signal ??
+    (isStreaming(init.search ?? '') ? undefined : AbortSignal.timeout(DEFAULT_CALL_TIMEOUT_MS))
 
   const send = () => {
     // A pair list, never `new Headers(...)` — see buildUpstreamHeaders.
@@ -561,7 +572,7 @@ export async function apiServerFetch(
       headers,
       body: init.body ?? undefined,
       redirect: 'manual',
-      signal: init.signal,
+      signal,
     })
   }
 
@@ -771,6 +782,7 @@ function groupListing(auth: K8sIdentity, subpath: 'api' | 'apis', cluster?: stri
  * Main entry: dispatch `/api/k8s/<subpath>`.
  *   /api/k8s/-/discovery        → aggregated API discovery
  *   /api/k8s/-/access           → SelfSubjectAccessReview (POST)
+ *   /api/k8s/-/access-batch     → many SSARs in one call, cached (POST; access.ts)
  *   /api/k8s/-/rules            → SelfSubjectRulesReview for a namespace (POST)
  *   /api/k8s/-/apply            → server-side apply (POST)
  *   /api/k8s/-/clusters         → clusters configured via K8S_CLUSTERS
@@ -924,6 +936,8 @@ async function handleMeta(
       return discoveryResponse(id, cluster)
     case 'access':
       return accessReview(req, id, cluster)
+    case 'access-batch':
+      return handleAccessBatch(req, id, cluster)
     case 'rules':
       return rulesReview(req, id, cluster)
     case 'apply':

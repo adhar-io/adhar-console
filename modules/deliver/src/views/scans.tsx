@@ -13,6 +13,7 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { harbor } from '@adhar/api-clients'
@@ -43,6 +44,7 @@ import { ReviewQueue } from './security/review.tsx'
 import { WaiversRegistry } from './security/waivers.tsx'
 import { PolicyEditor } from './security/policy-editor.tsx'
 import { Notice } from './security/shared.tsx'
+import { safeExternalUrl } from '../data/safe-url.ts'
 
 /**
  * Vulnerability Scans — what is in the images this platform ships.
@@ -86,6 +88,7 @@ export function ImageScans() {
   const registry = useRegistryArtifacts()
   const scanners = useHarborScanners()
   const scan = useScanArtifact()
+  const toast = useToast()
 
   const [search, setSearch] = useState('')
   const [severities, setSeverities] = useState<Severity[]>([])
@@ -109,10 +112,15 @@ export function ImageScans() {
 
   const unscanned = artifacts.filter((a) => !a.scanned && !a.failed && !a.running)
 
+  const errText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
   const rescan = async (a: ScannedArtifact) => {
     setBusy(a.digest)
     try {
       await scan.mutateAsync({ repo: a.repo, ref: a.digest })
+      toast.success(`Scan requested for ${a.repo}`)
+    } catch (e) {
+      toast.error(`Could not scan ${a.repo}`, { description: errText(e) })
     } finally {
       setBusy(null)
     }
@@ -120,12 +128,25 @@ export function ImageScans() {
 
   const scanAll = async () => {
     setBusy('all')
+    // Sequential: a registry-wide rescan is a real load on one scanner pod.
+    // One refused artifact must not stop the rest, so failures are tallied.
+    let failed = 0
+    let lastError: unknown
     try {
-      // Sequential: a registry-wide rescan is a real load on one scanner pod.
-      for (const a of unscanned) await scan.mutateAsync({ repo: a.repo, ref: a.digest })
+      for (const a of unscanned) {
+        try {
+          await scan.mutateAsync({ repo: a.repo, ref: a.digest })
+        } catch (e) {
+          failed++
+          lastError = e
+        }
+      }
     } finally {
       setBusy(null)
     }
+    const ok = unscanned.length - failed
+    if (!failed) toast.success(`Scan requested for ${ok} artifact${ok === 1 ? '' : 's'}`)
+    else toast.error(`${failed} of ${unscanned.length} scans could not be requested`, { description: errText(lastError) })
   }
 
   if (registry.isLoading) {
@@ -461,7 +482,7 @@ function VulnDrawer({ artifact: a, onClose }: { artifact: ScannedArtifact; onClo
   const shown = list.slice(0, limit)
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -583,7 +604,7 @@ function VulnDrawer({ artifact: a, onClose }: { artifact: ScannedArtifact; onClo
 
 function VulnRow({ vuln: v }: { vuln: harbor.Vulnerability }) {
   const sev = vulnSeverity(v)
-  const link = v.links?.[0]
+  const link = safeExternalUrl(v.links?.[0])
   return (
     <li className="px-6 py-3">
       <div className="flex flex-wrap items-center gap-2">

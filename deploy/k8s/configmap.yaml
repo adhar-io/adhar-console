@@ -24,7 +24,9 @@ data:
   KEYCLOAK_REALM: "adhar"
   KEYCLOAK_CLIENT_ID: "adhar-console"
   AUTH_PUBLIC_URL: "https://console.adhar.localtest.me:8443"
-  AUTH_SCOPES: "openid profile email offline_access"
+  # No offline_access: the session must follow Keycloak's SSO session, or tools
+  # opened from the console ask for the password again once it lapses.
+  AUTH_SCOPES: "openid profile email"
   AUTH_COOKIE_SECURE: "true"
   # Sliding 8h session, hard 24h ceiling before a fresh interactive login.
   AUTH_SESSION_TTL_SECONDS: "28800"

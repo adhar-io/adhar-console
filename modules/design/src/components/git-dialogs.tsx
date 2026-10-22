@@ -228,7 +228,7 @@ export function CommitToRepoModal({
             const url = fileUrl(repo, branch, paths[0])
             toast.success(`Committed to ${repo}@${branch}`, {
               description: `${res.created} created, ${res.updated} updated${res.sha ? ` · ${res.sha.slice(0, 7)}` : ''}`,
-              action: url ? { label: 'Open in Gitea', onClick: () => globalThis.open(url, '_blank') } : undefined,
+              action: url ? { label: 'Open in Gitea', onClick: () => globalThis.open(url, '_blank', 'noopener') } : undefined,
             })
           }
           onCommitted?.({ repo, branch, folder, sha: res.sha, paths, blobs: res.blobs, pr: res.pr })

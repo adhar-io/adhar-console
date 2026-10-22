@@ -491,9 +491,15 @@ export function auditQueryString(params: AuditParams): string {
   return search.toString()
 }
 
-export function useAuditEvents(params: AuditParams) {
+/**
+ * `liveMs` turns on the live tail. It rides TanStack's own `refetchInterval`
+ * (rather than a hand-rolled timer) so polling pauses while the tab is hidden
+ * and never overlaps an in-flight request.
+ */
+export function useAuditEvents(params: AuditParams, liveMs: number | false = false) {
   return useQuery({
     queryKey: K.audit(params),
+    refetchInterval: liveMs,
     queryFn: () => {
       const qs = auditQueryString(params)
       return wsFetch<AuditPage>(`audit${qs ? `?${qs}` : ''}`)

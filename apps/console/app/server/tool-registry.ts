@@ -1,5 +1,5 @@
 import { env } from '@adhar/utils'
-import { controlPlaneUrl, subdomainUrl, toolUrl } from './domain.ts'
+import { controlPlaneUrl, toolUrl } from './domain.ts'
 
 /**
  * Backing-tool registry — the single source of truth for how the BFF reaches
@@ -411,7 +411,10 @@ export function getToolRegistry(): Record<string, ToolDef> {
 }
 
 export function getTool(name: string): ToolDef | undefined {
-  return getToolRegistry()[name]
+  // Own keys only: `name` is a URL segment, and `__proto__` / `constructor`
+  // would otherwise resolve to Object.prototype members.
+  const reg = getToolRegistry()
+  return Object.hasOwn(reg, name) ? reg[name] : undefined
 }
 
 /**

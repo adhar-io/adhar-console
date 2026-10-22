@@ -5,20 +5,20 @@ import {
   XR_SECTIONS,
   AdharSymbol,
   Badge,
-  CiliumIcon,
   Input,
   KafkaIcon,
   MinIOIcon,
-  RabbitMQIcon,
   Select,
   Skeleton,
   Spinner,
   StatusBadge,
+  ToolLogo,
+  canResource,
+  useCan,
   useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
-import { client, useActiveCluster } from '../data/client.ts'
-import { useHasK8sPermission } from '../data/access.ts'
+import { client, useActiveCluster, useActiveNamespace } from '../data/client.ts'
 import { age } from '../data/format.ts'
 import { useXrds, type XrdInfo } from '../data/xrds.ts'
 import { isManaged, useManagedKinds } from '../data/managed-kinds.ts'
@@ -29,7 +29,6 @@ import {
   type GlyphId,
 } from './xr-kinds.tsx'
 import { ClaimFormModal, XrList, type XR } from './xr-list.tsx'
-import { K8sRolePill } from '../components/role-gate.tsx'
 
 /**
  * Adhar Resources — the live catalog of everything this platform can hold.
@@ -165,7 +164,9 @@ export function PlatformCatalog() {
   const [withResourcesOnly, setWithResourcesOnly] = useState(false)
   const [createInfo, setCreateInfo] = useState<XrdInfo | null>(null)
   const [browseInfo, setBrowseInfo] = useState<XrdInfo | null>(null)
-  const canProvision = useHasK8sPermission('crds.write')
+  // Create opens the claim form on the topbar namespace, so that is where the
+  // card asks for `create` (cluster-wide when no namespace is selected).
+  const { namespace: activeNs } = useActiveNamespace()
   const qc = useQueryClient()
 
   const query = search.trim().toLowerCase()
@@ -285,7 +286,7 @@ export function PlatformCatalog() {
                     key={t.info.kind}
                     tile={t}
                     familyTone={f.tone}
-                    canProvision={canProvision && !isManaged(t.info)}
+                    namespace={activeNs}
                     onCreate={() => setCreateInfo(t.info)}
                     onBrowse={() => setBrowseInfo(t.info)}
                   />
@@ -300,6 +301,7 @@ export function PlatformCatalog() {
         <ClaimFormModal
           config={configFromXrd(createInfo)}
           mode="create"
+          defaultNamespace={activeNs}
           onClose={() => setCreateInfo(null)}
           onApplied={() => {
             qc.invalidateQueries({ queryKey: ['platform', 'catalog', createInfo.plural, cluster] })
@@ -323,7 +325,7 @@ function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
   useOverlayDismiss(true, onClose)
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4 sm:p-8" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -586,18 +588,24 @@ function Toolbar({
 function KindCard({
   tile,
   familyTone,
-  canProvision,
+  namespace,
   onCreate,
   onBrowse,
 }: {
   tile: Tile
   familyTone: string
-  canProvision: boolean
+  /** Topbar namespace — where Create would provision. */
+  namespace?: string
   onCreate: () => void
   onBrowse: () => void
 }) {
   const { info, items, ready, synced, syncedApplicable, notReady, unreported, loading, error, description } = tile
   const managed = isManaged(info)
+  // Operator-managed kinds have no claim form; never ask for them.
+  const canProvision = useCan(
+    canResource(info.gvr, 'create', { namespace: info.namespaced ? namespace : undefined }),
+    { enabled: !managed },
+  )
   const total = items.length
   const notInstalled = error?.status === 404
   const failed = Boolean(error) && !notInstalled
@@ -744,22 +752,12 @@ function KindCard({
           <button
             type="button"
             onClick={onCreate}
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content shadow-sm outline-none transition-colors hover:border-edge-strong hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-500/40"
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content shadow-sm outline-none transition-colors hover:border-edge-strong hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-brand-500/40"
             aria-label={`Create ${info.humanSingular}`}
           >
             <IconPlus /> Create
           </button>
-        ) : (
-          <span
-            // shrink-0 + nowrap: this is the widest action variant, and inside a
-            // 336px card on a phone the role pill next to a flex-1 "Browse" was
-            // the one thing that could push the row past the card edge.
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-edge-default px-2.5 text-[11px] text-content-muted"
-            title="Requires crds.write"
-          >
-            Create <K8sRolePill perm="crds.write" />
-          </span>
-        )}
+        ) : null}
       </div>
     </article>
   )
@@ -887,7 +885,7 @@ function syncedStats(items: XR[]): { applicable: boolean; synced: number } {
  *   1. Anything in an `adhar.io` group is one of the platform's OWN abstractions
  *      (Cluster, Database, …) — it carries the Adhar symbol.
  *   2. An operator-managed kind carries its upstream project's official mark
- *      where `shell-ui/brand-icons` has one.
+ *      (`ToolLogo`, or `shell-ui/brand-icons` where no official asset is bundled).
  * Everything else falls back to the line glyph, which is still better than a
  * wrong logo.
  */
@@ -896,11 +894,11 @@ function BrandMark({ kind, group, glyph }: { kind: string; group: string; glyph:
 
   // Strimzi covers Kafka, KafkaTopic, KafkaConnect and KafkaNodePool.
   if (kind.startsWith('Kafka')) return <KafkaIcon size={22} />
-  if (kind === 'RabbitmqCluster') return <RabbitMQIcon size={22} />
+  if (kind === 'RabbitmqCluster') return <ToolLogo tool="rabbitmq" size={22} tile={false} />
   // The MinIO operator's CR is simply `Tenant`.
   if (kind === 'Tenant') return <MinIOIcon size={22} />
   // The platform's Gateways are served by Cilium's Gateway API implementation.
-  if (kind === 'Gateway' || kind === 'GatewayClass') return <CiliumIcon size={22} />
+  if (kind === 'Gateway' || kind === 'GatewayClass') return <ToolLogo tool="cilium" size={22} tile={false} />
 
   return <KindGlyph icon={glyph} />
 }

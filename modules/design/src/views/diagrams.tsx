@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, EmptyState, Modal, useOptionalUser, useToast } from '@adhar/shell-ui'
+import { Button, EmptyState, Modal, Select, useOptionalUser, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import {
   KIND,
@@ -28,7 +28,7 @@ import { PanZoom } from '../components/pan-zoom.tsx'
 import { copyText, downloadBlob, downloadText, svgToPng } from '../components/export.ts'
 import { useAutosave } from '../components/use-autosave.ts'
 import { Icon, Menu, SaveDot, SearchBox, Segmented, TagInput, useConfirm } from '../components/ui-bits.tsx'
-import { type DesignScope, notifyOrg, usePlatformCatalog, usePlatformSnapshot, useDesignScope } from '../data/platform.ts'
+import { type DesignScope, useNotifyOrg, usePlatformCatalog, usePlatformSnapshot, useDesignScope } from '../data/platform.ts'
 import { generateDiagram, type GeneratorInfo, type GeneratorKind, type GeneratorParams, GENERATOR_LABEL, lineDiff } from '../data/platform-model.ts'
 import { scopeFilter, type Scoped } from '../data/scope.ts'
 import type { AdrDoc } from '../data/adr.ts'
@@ -234,17 +234,18 @@ export function Diagrams() {
           ))}
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <SearchBox value={search} onChange={setSearch} placeholder="Search diagrams…" className="w-56" />
-          <select
+          <SearchBox value={search} onChange={setSearch} placeholder="Search diagrams…" className="w-full sm:w-56" />
+          <Select
+            aria-label="Sort diagrams"
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
-            aria-label="Sort"
-            className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content"
-          >
-            <option value="updated">Recently updated</option>
-            <option value="created">Recently created</option>
-            <option value="title">Title A–Z</option>
-          </select>
+            className="h-8 py-1 text-xs"
+            options={[
+              { value: 'updated', label: 'Recently updated' },
+              { value: 'created', label: 'Recently created' },
+              { value: 'title', label: 'Title A–Z' },
+            ]}
+          />
           <Button size="sm" onClick={() => setGalleryOpen(true)} leading={<Icon name="template" />}>
             Templates
           </Button>
@@ -270,6 +271,7 @@ export function Diagrams() {
       {list.length === 0
         ? (
           <EmptyState
+            icon={<Icon name="diagram" size={22} />}
             title="Diagrams as code"
             description="Write Mermaid — flowcharts, sequences, C4, ER, state machines — and see it render live. Generate C4, deployment and tenancy views from your live platform, or start from a template."
             action={
@@ -593,6 +595,7 @@ function DiagramEditor({
   const update = useUpdate<DiagramDoc>(KIND.diagram)
   const toast = useToast()
   const user = useOptionalUser()
+  const { notify: notifyOrg } = useNotifyOrg()
   const [draft, setDraft] = useState<Draft>({
     title: diagram.title,
     source: diagram.source,

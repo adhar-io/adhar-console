@@ -9,6 +9,7 @@ import {
   Modal,
   Spinner,
   StatusBadge,
+  useCan,
   useToast,
   type StatusKind,
   DrawerWidenButton,
@@ -43,6 +44,7 @@ import {
   useWarehouses,
 } from '../data/delivery.ts'
 import { stageStatus } from '../data/stage-order.ts'
+import { kargoAbortCheck, kargoApproveCheck, kargoPromoteChecks, kargoRefreshStageCheck, kargoRefreshWarehouseCheck } from '../data/access.ts'
 
 const HEALTH_KIND: Record<string, StatusKind> = {
   Healthy: 'healthy',
@@ -210,6 +212,13 @@ export function KargoStages() {
   // keyed by stage name would merge different projects' chains.
   const kargoProjects = useMemo(() => [...new Set((stages.data ?? []).map((s) => s.project))].sort(), [stages.data])
   const activeProject = prefs.project && kargoProjects.includes(prefs.project) ? prefs.project : kargoProjects[0]
+  // RBAC for the project on screen (docs/rbac.md) — asked once per project,
+  // not per stage: Kargo roles are granted per project namespace.
+  const canPromote = useCan(kargoPromoteChecks(activeProject), { enabled: !!activeProject })
+  const canApprove = useCan(kargoApproveCheck(activeProject), { enabled: !!activeProject })
+  const canAbort = useCan(kargoAbortCheck(activeProject), { enabled: !!activeProject })
+  const canRefreshStage = useCan(kargoRefreshStageCheck(activeProject), { enabled: !!activeProject })
+  const canRefreshWarehouse = useCan(kargoRefreshWarehouseCheck(activeProject), { enabled: !!activeProject })
   const inProject = <T extends { project: string }>(list: T[] | undefined) => (list ?? []).filter((x) => !activeProject || x.project === activeProject)
   const stageList = useMemo(() => inProject(stages.data), [stages.data, activeProject])
   const freightList = useMemo(() => inProject(freight.data), [freight.data, activeProject])
@@ -494,9 +503,10 @@ export function KargoStages() {
                         freightList={freightList}
                         promotions={promotionList}
                         onOpen={() => setSelected(s.name)}
-                        onPromote={() => setPromoteFor(s)}
-                        onRefresh={() => doRefresh(s)}
-                        onAbort={s.currentPromotion ? () => doAbort(s.currentPromotion!, s.project) : undefined}
+                        onPromote={canPromote ? () => setPromoteFor(s) : undefined}
+                        onRefresh={canRefreshStage ? () => doRefresh(s) : undefined}
+                        onAbort={s.currentPromotion && canAbort ? () => doAbort(s.currentPromotion!, s.project) : undefined}
+                        promoting={!!s.currentPromotion}
                       />
                     ))}
                   </div>
@@ -531,9 +541,11 @@ export function KargoStages() {
                         {w.lastDiscovered ? ` · discovered ${formatRelative(w.lastDiscovered)}` : ''}
                       </div>
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => act(`Discovery requested for ${w.name}.`, () => refreshWarehouse.mutateAsync({ warehouse: w.name, project: w.project }))} loading={refreshWarehouse.isPending && refreshWarehouse.variables?.warehouse === w.name}>
-                      Discover now
-                    </Button>
+                    {canRefreshWarehouse ? (
+                      <Button size="sm" variant="secondary" className="shrink-0" onClick={() => act(`Discovery requested for ${w.name}.`, () => refreshWarehouse.mutateAsync({ warehouse: w.name, project: w.project }))} loading={refreshWarehouse.isPending && refreshWarehouse.variables?.warehouse === w.name}>
+                        Discover now
+                      </Button>
+                    ) : null}
                   </div>
                 </CardHeader>
                 <CardBody className="space-y-2 text-[12px]">
@@ -588,7 +600,7 @@ export function KargoStages() {
             <CardBody className="p-0!">
               <ul className="divide-y divide-edge-subtle">
                 {filteredFreight.map((f) => (
-                  <FreightRow key={f.id} freight={f} stages={stageList} onApprove={() => setApproveFor(f)} />
+                  <FreightRow key={f.id} freight={f} stages={stageList} onApprove={canApprove ? () => setApproveFor(f) : undefined} />
                 ))}
               </ul>
             </CardBody>
@@ -635,7 +647,7 @@ export function KargoStages() {
                       <td className="px-3 py-2 text-content-muted" title={p.finished ? formatAbsolute(p.finished) : ''}>{p.finished ? formatRelative(p.finished) : running ? <span className="inline-flex items-center gap-1"><Spinner size={10} /> in progress</span> : '—'}</td>
                       <td className="max-w-md px-3 py-2"><div className="line-clamp-2 text-[11px] text-content-muted" title={p.message}>{p.message ?? '—'}</div></td>
                       <td className="px-3 py-2 text-right">
-                        {running ? (
+                        {running && canAbort ? (
                           <Button size="sm" variant="secondary" onClick={() => doAbort(p.name, p.project)} loading={abort.isPending && abort.variables?.promotion === p.name}>
                             Abort
                           </Button>
@@ -658,13 +670,15 @@ export function KargoStages() {
           downstream={graph.downstream.get(detail.name) ?? []}
           onSelectStage={setSelected}
           onClose={() => setSelected(null)}
-          onPromote={() => setPromoteFor(detail)}
-          onApprove={() => {
-            const current = freightList.find((f) => f.id === detail.currentFreight)
-            if (current) setApproveFor(current)
-          }}
-          onRefresh={() => doRefresh(detail)}
-          onAbort={detail.currentPromotion ? () => doAbort(detail.currentPromotion!, detail.project) : undefined}
+          onPromote={canPromote ? () => setPromoteFor(detail) : undefined}
+          onApprove={canApprove
+            ? () => {
+              const current = freightList.find((f) => f.id === detail.currentFreight)
+              if (current) setApproveFor(current)
+            }
+            : undefined}
+          onRefresh={canRefreshStage ? () => doRefresh(detail) : undefined}
+          onAbort={detail.currentPromotion && canAbort ? () => doAbort(detail.currentPromotion!, detail.project) : undefined}
           refreshing={refreshStage.isPending && refreshStage.variables?.stage === detail.name}
           aborting={abort.isPending && abort.variables?.promotion === detail.currentPromotion}
         />
@@ -849,9 +863,10 @@ function StageDetailPanel({
   downstream: string[]
   onSelectStage(name: string): void
   onClose(): void
-  onPromote(): void
-  onApprove(): void
-  onRefresh(): void
+  /** Each action is absent when RBAC does not allow it — the button is hidden. */
+  onPromote?(): void
+  onApprove?(): void
+  onRefresh?(): void
   onAbort?(): void
   refreshing: boolean
   aborting: boolean
@@ -1022,16 +1037,20 @@ function StageDetailPanel({
           ) : null}
         </div>
 
-        <footer className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-edge-default px-5 py-3">
-          <Button size="sm" onClick={onPromote} disabled={freightList.length === 0}>Promote…</Button>
-          <Button size="sm" variant="secondary" onClick={onApprove} disabled={!current} title={current ? undefined : 'No current freight to approve'}>
-            Approve freight…
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onRefresh} loading={refreshing}>Refresh stage</Button>
-          {onAbort ? (
-            <Button size="sm" variant="secondary" onClick={onAbort} loading={aborting} className="ml-auto">Abort</Button>
-          ) : null}
-        </footer>
+        {onPromote || onApprove || onRefresh || onAbort ? (
+          <footer className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 border-t border-edge-default px-5 py-3">
+            {onAbort ? (
+              <Button size="sm" variant="secondary" onClick={onAbort} loading={aborting} className="mr-auto">Abort</Button>
+            ) : null}
+            {onRefresh ? <Button size="sm" variant="ghost" onClick={onRefresh} loading={refreshing}>Refresh stage</Button> : null}
+            {onApprove ? (
+              <Button size="sm" variant="secondary" onClick={onApprove} disabled={!current} title={current ? undefined : 'No current freight to approve'}>
+                Approve freight…
+              </Button>
+            ) : null}
+            {onPromote ? <Button size="sm" variant="primary" onClick={onPromote} disabled={freightList.length === 0}>Promote…</Button> : null}
+          </footer>
+        ) : null}
       </aside>
     </div>,
     document.body,
@@ -1069,15 +1088,19 @@ function StageCard({
   onPromote,
   onRefresh,
   onAbort,
+  promoting,
 }: {
   stage: kargo.Stage
   dimmed: boolean
   freightList: kargo.Freight[]
   promotions: kargo.Promotion[]
   onOpen(): void
-  onPromote(): void
-  onRefresh(): void
+  /** Absent when RBAC does not allow the action — the button is hidden. */
+  onPromote?(): void
+  onRefresh?(): void
   onAbort?(): void
+  /** A promotion is in flight — Promote gives way to Abort (or to nothing). */
+  promoting: boolean
 }) {
   const tone = stageStatus(s).kind
   const current = freightList.find((f) => f.id === s.currentFreight)
@@ -1153,11 +1176,11 @@ function StageCard({
         <div className="flex items-center gap-1.5">
           {onAbort ? (
             <Button size="sm" variant="secondary" onClick={onAbort}>Abort</Button>
-          ) : (
-            <Button size="sm" onClick={onPromote} disabled={freightList.length === 0}>Promote…</Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={onRefresh}>Refresh</Button>
-          <Button size="sm" variant="ghost" onClick={onOpen}>Details</Button>
+          ) : onPromote && !promoting ? (
+            <Button size="sm" variant="primary" onClick={onPromote} disabled={freightList.length === 0}>Promote…</Button>
+          ) : null}
+          {onRefresh ? <Button size="sm" variant="ghost" onClick={onRefresh}>Refresh</Button> : null}
+          <Button size="sm" variant="ghost" onClick={onOpen} className="ml-auto">Details</Button>
         </div>
       </CardBody>
     </Card>
@@ -1194,7 +1217,7 @@ function ChaosReportsLink({ freight }: { freight: kargo.Freight }) {
   )
 }
 
-function FreightRow({ freight: f, stages, onApprove }: { freight: kargo.Freight; stages: kargo.Stage[]; onApprove(): void }) {
+function FreightRow({ freight: f, stages, onApprove }: { freight: kargo.Freight; stages: kargo.Stage[]; onApprove?(): void }) {
   const liveIn = stages.filter((s) => heldFreight(s).includes(f.id)).map((s) => s.name)
   const verified = f.verifiedIn ?? []
   const approved = f.approvedFor ?? []
@@ -1231,7 +1254,7 @@ function FreightRow({ freight: f, stages, onApprove }: { freight: kargo.Freight;
           {approved.filter((n) => !verified.includes(n) && !liveIn.includes(n)).map((n) => <StatusBadge key={`a-${n}`} kind="paused">approved · {n}</StatusBadge>)}
         </div>
         <ChaosReportsLink freight={f} />
-        <button type="button" onClick={onApprove} className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">Approve for stage…</button>
+        {onApprove ? <button type="button" onClick={onApprove} className="rounded text-[11px] font-medium text-brand-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 dark:text-brand-300">Approve for stage…</button> : null}
       </div>
     </li>
   )
@@ -1273,7 +1296,7 @@ function PromoteModal({
       footer={
         <>
           <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => { onPromote(picked); onClose() }} loading={loading} disabled={!picked}>Promote</Button>
+          <Button size="sm" variant="primary" onClick={() => { onPromote(picked); onClose() }} loading={loading} disabled={!picked}>Promote</Button>
         </>
       }
     >
@@ -1342,7 +1365,7 @@ function ApproveModal({
       footer={
         <>
           <Button size="sm" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => { onApprove(picked); onClose() }} loading={loading} disabled={!picked}>Approve</Button>
+          <Button size="sm" variant="primary" onClick={() => { onApprove(picked); onClose() }} loading={loading} disabled={!picked}>Approve</Button>
         </>
       }
     >

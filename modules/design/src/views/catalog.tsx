@@ -309,7 +309,7 @@ function CopyChip({ onClick, subtle }: { onClick(): void; subtle?: boolean }) {
       title="Copy code"
       className={cn(
         'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium',
-        subtle ? 'text-content-muted hover:bg-surface-sunken hover:text-content' : 'bg-white/10 text-slate-200 hover:bg-white/20',
+        subtle ? 'text-content-muted hover:bg-surface-sunken hover:text-content' : 'bg-white/10 text-code-fg hover:bg-white/20',
       )}
     >
       <IconCopy size={12} /> Copy

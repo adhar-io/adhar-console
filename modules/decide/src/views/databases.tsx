@@ -110,7 +110,7 @@ function DatabaseList() {
   if (!list.length) {
     return (
       <EmptyState
-        icon={<Icon name="database" size={34} className="text-content-subtle" />}
+        icon={<Icon name="database" size={22} />}
         title="No databases connected to Metabase"
         description="Add one in Metabase → Admin → Databases. It shows up here once Metabase has synced it."
         action={mbUrl && me.data?.is_superuser ? <a className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-300" href={`${mbUrl}/admin/databases/create`} target="_blank" rel="noopener noreferrer">Add a database in Metabase ↗</a> : undefined}
@@ -120,7 +120,7 @@ function DatabaseList() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between text-[12px] text-content-muted">
-        <span>{list.length} database{list.length === 1 ? '' : 's'}{dbs.isFetching ? ' · refreshing…' : ''}</span>
+        <span>{list.length} database{list.length === 1 ? '' : 's'}</span>
         {mbUrl && me.data?.is_superuser ? (
           <a className="inline-flex items-center gap-1 font-medium text-content hover:underline" href={`${mbUrl}/admin/databases`} target="_blank" rel="noopener noreferrer">
             Manage in Metabase <Icon name="external" size={12} />

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Icon } from '../components/ui-bits.tsx'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -191,7 +192,7 @@ export function Personas() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <SearchInput value={q} onChange={setQ} placeholder="Search personas, goals, pains…" className="w-full sm:w-72" />
+        <SearchInput value={q} onChange={setQ} placeholder="Search personas, goals, pains…" className="h-8 w-full sm:w-72" />
         <Select
           aria-label="Sort personas"
           value={sort}
@@ -256,6 +257,7 @@ export function Personas() {
 
       {items.length === 0 ? (
         <EmptyState
+          icon={<Icon name="persona" size={22} />}
           title={all.items.length ? `No personas in ${scope.label}` : 'No personas yet'}
           description="Personas keep the whole team designing for real people. Create one blank, from a template, or drafted by Adhar AI from your research."
           action={
@@ -539,7 +541,7 @@ function PersonaDrawer({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={p.name}>
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={p.name}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={close} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
         <header className="flex items-start gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">

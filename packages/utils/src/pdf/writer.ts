@@ -100,7 +100,9 @@ export function wrapText(s: string, font: FontName, size: number, maxWidth: numb
     }
     if (line) push()
     let rest = word
-    while (textWidth(rest, font, size) > limit()) {
+    // `rest &&`: with a first-line indent wider than the line the limit goes
+    // negative, an empty remainder still "overflows", and this never ended.
+    while (rest && textWidth(rest, font, size) > limit()) {
       let n = 1
       while (n < rest.length && textWidth(rest.slice(0, n + 1), font, size) <= limit()) n++
       line = rest.slice(0, n)
@@ -135,10 +137,15 @@ export function fitText(s: string, font: FontName, size: number, maxWidth: numbe
 export function hex(c: string): Rgb {
   const h = c.replace('#', '')
   const n = parseInt(h.length === 3 ? h.split('').map((x) => x + x).join('') : h.slice(0, 6), 16)
+  // An unparseable colour would emit `NaN NaN NaN rg` — an invalid operator
+  // that makes strict readers drop the rest of the page. Fall back to black.
+  if (!Number.isFinite(n)) return [0, 0, 0]
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
 }
 
-const f = (n: number) => (Math.round(n * 100) / 100).toString()
+// Non-finite numbers (a NaN from an empty data set's scale, say) would write
+// `NaN` into the content stream, which is not a PDF number; draw at 0 instead.
+const f = (n: number) => (Number.isFinite(n) ? Math.round(n * 100) / 100 : 0).toString()
 const rgb = (c: Rgb) => c.map((x) => f(x)).join(' ')
 const pdfString = (s: string) => `(${toWinAnsi(s).replace(/[\\()]/g, (m) => `\\${m}`)})`
 

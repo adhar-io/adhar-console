@@ -19,17 +19,11 @@
 
 import { copy, ensureDir, exists } from 'jsr:@std/fs@^1.0.0'
 import { join, resolve } from 'jsr:@std/path@^1.0.0'
+import { REMOTES as REGISTRY } from '../packages/build-config/src/registry.ts'
 
-const REMOTES = [
-  { name: 'define', dir: 'modules/define' },
-  { name: 'design', dir: 'modules/design' },
-  { name: 'develop', dir: 'modules/develop' },
-  { name: 'deliver', dir: 'modules/deliver' },
-  { name: 'discover', dir: 'modules/discover' },
-  { name: 'decide', dir: 'modules/decide' },
-  { name: 'platform', dir: 'modules/platform' },
-  { name: 'workspace', dir: 'modules/workspace' },
-] as const
+// The registry is the single source of truth (host remotes map + dev.ts use
+// it too); a second hand-kept list here could silently skip a new module.
+const REMOTES = REGISTRY.map((r) => ({ name: r.name, dir: `modules/${r.dir}` }))
 
 const HOST = { name: 'console', dir: 'apps/console' }
 

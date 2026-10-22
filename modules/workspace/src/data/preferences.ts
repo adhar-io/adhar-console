@@ -569,3 +569,106 @@ export function useSaveFeatureFlag() {
     onSettled: () => qc.invalidateQueries({ queryKey: KEY.flags }),
   })
 }
+
+/* ═══════════════════ Support tickets (Plane) ═══════════════════ */
+
+/**
+ * `workspace.support-tickets` — when a platform failure becomes a Plane work
+ * item with its logs, metrics, traces and delivery context. The server reads
+ * this document (app/server/support/config.ts) and clamps every value, so the
+ * defaults below mirror the server's and are what an unsaved tenant runs with.
+ */
+const SUPPORT_KIND = 'workspace.support-tickets'
+const SUPPORT_KEY = ['ws-prefs', 'support-tickets'] as const
+
+export type TicketSeverity = 'low' | 'medium' | 'high' | 'critical'
+
+export const SUPPORT_SOURCES: { id: string; label: string }[] = [
+  { id: 'argocd', label: 'Argo CD degraded / sync failed' },
+  { id: 'rollout', label: 'Rollout degraded / aborted' },
+  { id: 'kargo-promotion', label: 'Promotion failed' },
+  { id: 'kargo-verification', label: 'Verification failed' },
+  { id: 'tekton', label: 'Pipeline run failed' },
+  { id: 'xr', label: 'Control-plane resource failed' },
+  { id: 'autoscaler', label: 'Node autoscaler failures' },
+  { id: 'resilience-gate', label: 'Resilience gate failed' },
+  { id: 'event', label: 'OOMKilled / Evicted / stuck pods' },
+  { id: 'alertmanager', label: 'Alertmanager alerts' },
+]
+
+export interface SupportTicketSettings {
+  enabled: boolean
+  minSeverity: TicketSeverity
+  includeWarnings: boolean
+  alertSeverities: string[]
+  sources: string[]
+  defaultProject: { id?: string; name: string; identifier: string }
+  projectMap: Record<string, string>
+  evidence: { logLines: number; windowMinutes: number; traceLimit: number; eventLimit: number; queryTimeoutMs: number; maxSectionBytes: number }
+  commentCooldownMinutes: number
+  autoResolve: boolean
+  attachRawEvidence: boolean
+}
+
+export const DEFAULT_SUPPORT_SETTINGS: SupportTicketSettings = {
+  enabled: true,
+  minSeverity: 'high',
+  includeWarnings: true,
+  alertSeverities: ['critical'],
+  sources: SUPPORT_SOURCES.map((s) => s.id),
+  defaultProject: { name: 'Platform Support', identifier: 'SUP' },
+  projectMap: {},
+  evidence: { logLines: 200, windowMinutes: 60, traceLimit: 5, eventLimit: 20, queryTimeoutMs: 8000, maxSectionBytes: 24000 },
+  commentCooldownMinutes: 30,
+  autoResolve: true,
+  attachRawEvidence: true,
+}
+
+function mergeSupport(data: Partial<SupportTicketSettings> | undefined): SupportTicketSettings {
+  const d = DEFAULT_SUPPORT_SETTINGS
+  return {
+    ...d,
+    ...data,
+    defaultProject: { ...d.defaultProject, ...data?.defaultProject },
+    evidence: { ...d.evidence, ...data?.evidence },
+    projectMap: { ...d.projectMap, ...data?.projectMap },
+  }
+}
+
+export function useSupportTicketSettings() {
+  return useQuery<SingletonState<SupportTicketSettings>>({
+    queryKey: SUPPORT_KEY,
+    queryFn: async () => {
+      const doc = await docStore.get<Partial<SupportTicketSettings>>(SUPPORT_KIND, SINGLETON_ID)
+      return { doc: mergeSupport(doc?.data), saved: Boolean(doc), updatedAt: doc?.updatedAt, updatedBy: doc?.updatedBy }
+    },
+  })
+}
+
+export function useSaveSupportTicketSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (next: SupportTicketSettings) => docStore.put<SupportTicketSettings>(SUPPORT_KIND, SINGLETON_ID, next),
+    onSettled: () => qc.invalidateQueries({ queryKey: SUPPORT_KEY }),
+  })
+}
+
+export interface SupportStatus {
+  planeConfigured: boolean
+  disabled: boolean
+  queue: { depth: number; processed: number; failed: number; dropped: number }
+  lastError?: { at: string; message: string }
+}
+
+/** Whether the server can reach Plane at all, and how the ticket queue is doing. */
+export function useSupportStatus() {
+  return useQuery<SupportStatus | null>({
+    queryKey: ['support', 'status'],
+    queryFn: async () => {
+      const res = await fetch('/api/support/status', { credentials: 'include', headers: { accept: 'application/json' } })
+      return res.ok ? ((await res.json()) as SupportStatus) : null
+    },
+    staleTime: 30_000,
+    retry: false,
+  })
+}

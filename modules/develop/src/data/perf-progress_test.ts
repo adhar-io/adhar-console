@@ -1,4 +1,4 @@
-import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert'
+import { assertAlmostEquals, assertEquals } from 'jsr:@std/assert@^1'
 import { parseProgress, stageTimings } from './perf-progress.ts'
 
 const RUN = [

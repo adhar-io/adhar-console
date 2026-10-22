@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, DataTable, EmptyState, StatusBadge, type StatusKind, useCan, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
   CLOUD_BY_ID,
@@ -53,11 +53,17 @@ const ENV_TONE: Record<EnvKind, 'rose' | 'amber' | 'sky' | 'emerald'> = {
 }
 
 export function CloudProviders() {
+  const toast = useToast()
   const conns = useCloudConnections()
   const maps = useCloudMappings()
   const update = useUpdateMapping()
   const remove = useRemoveConnection()
   const [adding, setAdding] = useState(false)
+  // Connections and mappings are saved to the generic document store
+  // (`workspace.cloud-connection` / `workspace.cloud-mapping`), which has no
+  // CONSOLE_PERMISSIONS entry of its own — they are organisation settings, so
+  // every write here is gated on orgUpdate.
+  const canEdit = useCan(CONSOLE_PERMISSIONS.orgUpdate)
 
   const allConns = conns.data ?? []
   const allMaps = maps.data ?? []
@@ -70,13 +76,13 @@ export function CloudProviders() {
     <ViewShell
       title="Cloud providers"
       description="Connect any combination of clouds and decide per-environment which one runs the workload. Run a fully-on-AWS estate, or split production on GCP and non-prod on Civo — Adhar handles the abstraction."
-      required={['admin', 'security', 'owner']}
+      writeCheck={CONSOLE_PERMISSIONS.orgUpdate}
       actions={
-        <RequirePermission perm="integrations.write" required={['admin', 'security', 'owner']} readOnly>
+        canEdit ? (
           <PrimaryButton onClick={() => setAdding(true)}>
             <IconPlus /> Connect cloud
           </PrimaryButton>
-        </RequirePermission>
+        ) : null
       }
     >
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -111,7 +117,7 @@ export function CloudProviders() {
         />
       ) : null}
 
-      {adding ? <AddConnectionForm onClose={() => setAdding(false)} /> : null}
+      {adding && canEdit ? <AddConnectionForm onClose={() => setAdding(false)} /> : null}
 
       <SettingsCard
         title="Catalog"
@@ -123,7 +129,7 @@ export function CloudProviders() {
               key={c.id}
               cloud={c}
               connectionCount={allConns.filter((x) => x.providerId === c.id).length}
-              onConnect={() => setAdding(true)}
+              onConnect={canEdit ? () => setAdding(true) : undefined}
             />
           ))}
         </div>
@@ -144,6 +150,8 @@ export function CloudProviders() {
             description="Environments can be mapped once at least one cloud connection is recorded above."
           />
         ) : (
+          // Mapping rows double as the read-only view: inert without orgUpdate.
+          <RequirePermission check={CONSOLE_PERMISSIONS.orgUpdate} readOnly>
           <div className="space-y-3">
             {ENV_ORDER.map((env) => {
               const mapping = allMaps.find((m) => m.env === env)
@@ -153,11 +161,12 @@ export function CloudProviders() {
                   env={env}
                   mapping={mapping}
                   connections={allConns}
-                  onChange={(next) => update.mutate(next)}
+                  onChange={(next) => update.mutate(next, { onError: (e) => toast.error('Could not update the environment mapping', { description: (e as Error)?.message }) })}
                 />
               )
             })}
           </div>
+          </RequirePermission>
         )}
       </SettingsCard>
 
@@ -166,15 +175,17 @@ export function CloudProviders() {
         description="Recorded configuration — a connection stays pending until the platform verifies its credentials; the console never marks one connected on its own."
       >
         <DataTable
-              tableId="workspace.cloud-providers"
-              features
+          tableId="workspace.cloud-providers"
+          features
           loading={conns.isLoading}
           rows={allConns}
           rowKey={(c) => c.id}
           empty={
             <EmptyState
               title="No clouds connected"
-              description="Pick a provider above to get started — nothing is pre-connected."
+              description={canEdit
+                ? 'Pick a provider above to get started — nothing is pre-connected.'
+                : 'Nothing is connected yet. Ask a workspace admin to connect a cloud.'}
             />
           }
           columns={[
@@ -184,10 +195,10 @@ export function CloudProviders() {
               cell: (c) => {
                 const cloud = CLOUD_BY_ID[c.providerId]
                 return (
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex min-w-0 items-center gap-2.5">
                     <CloudIcon cloud={cloud} size="sm" />
-                    <div>
-                      <div className="font-medium text-content">{c.label}</div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-content" title={c.label}>{c.label}</div>
                       <code className="font-mono text-[11px] text-content-muted">
                         {cloud.shortName} · {c.region}
                       </code>
@@ -226,23 +237,18 @@ export function CloudProviders() {
             {
               key: 'actions',
               header: '',
-              cell: (c) => (
-                <RequirePermission
-                  perm="integrations.write"
-                  required={['admin', 'security', 'owner']}
-                  readOnly
-                >
+              cell: (c) =>
+                canEdit ? (
                   <div className="flex justify-end gap-1.5">
                     <SecondaryButton
                       tone="rose"
                       disabled={remove.isPending && remove.variables === c.id}
-                      onClick={() => remove.mutate(c.id)}
+                      onClick={() => remove.mutate(c.id, { onError: (e) => toast.error('Could not remove the connection', { description: (e as Error)?.message }) })}
                     >
                       Remove
                     </SecondaryButton>
                   </div>
-                </RequirePermission>
-              ),
+                ) : null,
             },
           ]}
         />
@@ -262,12 +268,13 @@ function CloudTile({
 }: {
   cloud: CloudProvider
   connectionCount: number
-  onConnect(): void
+  /** Absent when the viewer may not add connections — the button is hidden. */
+  onConnect?(): void
 }) {
   return (
     <div
       className={cn(
-        'group flex h-full flex-col gap-3 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm transition-colors hover:border-brand-300',
+        'group flex h-full flex-col gap-3 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm transition-colors hover:border-brand-300 dark:hover:border-brand-500/40',
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -303,15 +310,17 @@ function CloudTile({
           </span>
         ))}
       </div>
-      <div className="mt-auto flex items-center justify-end pt-1">
-        {connectionCount > 0 ? (
-          <SecondaryButton onClick={onConnect}>
-            <IconPlus /> Add region
-          </SecondaryButton>
-        ) : (
-          <SecondaryButton onClick={onConnect}>Connect</SecondaryButton>
-        )}
-      </div>
+      {onConnect ? (
+        <div className="mt-auto flex items-center justify-end pt-1">
+          {connectionCount > 0 ? (
+            <SecondaryButton onClick={onConnect}>
+              <IconPlus /> Add region
+            </SecondaryButton>
+          ) : (
+            <SecondaryButton onClick={onConnect}>Connect</SecondaryButton>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }

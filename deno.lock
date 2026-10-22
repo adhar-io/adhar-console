@@ -3,16 +3,26 @@
   "specifiers": {
     "jsr:@std/assert@*": "1.0.13",
     "jsr:@std/assert@1": "1.0.13",
+    "jsr:@std/cli@^1.0.32": "1.0.32",
+    "jsr:@std/encoding@^1.0.11": "1.0.11",
+    "jsr:@std/fmt@^1.0.10": "1.0.10",
     "jsr:@std/fs@1": "1.0.24",
+    "jsr:@std/fs@^1.0.24": "1.0.24",
+    "jsr:@std/html@^1.0.7": "1.0.7",
+    "jsr:@std/http@1": "1.1.4",
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/internal@^1.0.6": "1.0.14",
+    "jsr:@std/media-types@^1.1.0": "1.1.0",
+    "jsr:@std/net@^1.0.7": "1.0.7",
     "jsr:@std/path@1": "1.1.6",
     "jsr:@std/path@^1.1.5": "1.1.6",
+    "jsr:@std/path@^1.1.6": "1.1.6",
+    "jsr:@std/streams@^1.2.0": "1.2.0",
     "npm:@ag-ui/core@^0.0.59": "0.0.59",
     "npm:@angular/compiler@^20.3.0": "20.3.34",
     "npm:@babel/parser@^7.29.0": "7.29.9",
     "npm:@module-federation/runtime@^2.3.0": "2.3.3",
-    "npm:@module-federation/vite@^1.3.0": "1.14.5_vite@7.3.2__picomatch@4.0.4_typescript@5.7.3",
+    "npm:@module-federation/vite@1.14.5": "1.14.5_vite@7.3.2__picomatch@4.0.4_typescript@5.7.3",
     "npm:@react-three/drei@^10.7.0": "10.7.9_@react-three+fiber@9.8.1__react@19.2.5__react-dom@19.2.5___react@19.2.5__three@0.186.1__@types+react@19.3.0_react@19.2.5_react-dom@19.2.5__react@19.2.5_three@0.186.1_@types+three@0.186.0",
     "npm:@react-three/fiber@9": "9.8.1_react@19.2.5_react-dom@19.2.5__react@19.2.5_three@0.186.1_@types+react@19.3.0",
     "npm:@react-three/fiber@^9.8.0": "9.8.1_react@19.2.5_react-dom@19.2.5__react@19.2.5_three@0.186.1_@types+react@19.3.0",
@@ -59,6 +69,15 @@
         "jsr:@std/internal@^1.0.6"
       ]
     },
+    "@std/cli@1.0.32": {
+      "integrity": "188b3a100d6202d64e3f5bd3d799c7fa4f6d77f92cc65eb7f641c1fa0aa92a66"
+    },
+    "@std/encoding@1.0.11": {
+      "integrity": "e7cef2f0b3153bccc17431e7c864a1de03a4b6d9647389c43e08aaa775d37385"
+    },
+    "@std/fmt@1.0.10": {
+      "integrity": "90dfba288802ac6de82fb31d0917eb9e4450b9925b954d5e51fc29ac07419db5"
+    },
     "@std/fs@1.0.24": {
       "integrity": "f3061b45b81673a2bece689da041df32d174be064c89eb6397fb5718d3fb7877",
       "dependencies": [
@@ -66,14 +85,40 @@
         "jsr:@std/path@^1.1.5"
       ]
     },
+    "@std/html@1.0.7": {
+      "integrity": "175c818905a6e75743c69c251395e273d82698e58cfe7dd76268d70e28b8d8fe"
+    },
+    "@std/http@1.1.4": {
+      "integrity": "4f1575226ca7c0df1df38b26d50265fed30869b2a63ab867edc5b92492150c8c",
+      "dependencies": [
+        "jsr:@std/cli",
+        "jsr:@std/encoding",
+        "jsr:@std/fmt",
+        "jsr:@std/fs@^1.0.24",
+        "jsr:@std/html",
+        "jsr:@std/media-types",
+        "jsr:@std/net",
+        "jsr:@std/path@^1.1.6",
+        "jsr:@std/streams"
+      ]
+    },
     "@std/internal@1.0.14": {
       "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    },
+    "@std/media-types@1.1.0": {
+      "integrity": "c9d093f0c05c3512932b330e3cc1fe1d627b301db33a4c2c2185c02471d6eaa4"
+    },
+    "@std/net@1.0.7": {
+      "integrity": "e0b995738cfe2ed56f64591d400e55f143cff164efd690343f2deb4cf4d06d86"
     },
     "@std/path@1.1.6": {
       "integrity": "c68485c2a4dfbb5ae3cc74fae4e8c4e5d874cf8a8ed12927917235c758b46cbe",
       "dependencies": [
         "jsr:@std/internal@^1.0.14"
       ]
+    },
+    "@std/streams@1.2.0": {
+      "integrity": "256b934254778f2bf45f5713b934209ff29e9b4b7fd4ec095219966813758c5f"
     }
   },
   "npm": {
@@ -845,8 +890,8 @@
     "@rolldown/pluginutils@1.0.0-beta.40": {
       "integrity": "sha512-s3GeJKSQOwBlzdUrj4ISjJj5SfSh+aqn0wjOar4Bx95iV1ETI7F6S/5hLcfAxZ9kXDcyrAkxPlqmd1ZITttf+w=="
     },
-    "@rollup/pluginutils@5.3.0": {
-      "integrity": "sha512-5EdhGZtnu3V88ces7s53hhfK5KSASnJZv8Lulpc04cWO3REESroJXg73DFsOmgbU2BhwV0E20bu2IDZb3VKW4Q==",
+    "@rollup/pluginutils@5.4.0": {
+      "integrity": "sha512-MfPp06CjRLfXQ3wY0R8vJDYBy/MvVcc9OulEfR0B8Iv9ko+GCNaRZ+EpJYFl27LhKsZK0o420sYCRHCjfCgeUg==",
       "dependencies": [
         "@types/estree@1.0.9",
         "estree-walker@2.0.2",
@@ -2229,8 +2274,8 @@
     "entities@7.0.1": {
       "integrity": "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA=="
     },
-    "es-module-lexer@2.0.0": {
-      "integrity": "sha512-5POEcUuZybH7IdmGsD8wlf0AI55wMecM9rVBTI/qEAy2c1kTOm3DjFYjrBdI2K3BaJjJYfYFeRtM0t9ssnRuxw=="
+    "es-module-lexer@2.3.0": {
+      "integrity": "sha512-KLdwQm2NvGLDkQDCGvmiQrhkd0JbMzXthwQAUgWjQuQdBLFa3eiBP5arXZyA+f8x+x7OXgud6bq2rxjGtHV2tw=="
     },
     "es-toolkit@1.52.0": {
       "integrity": "sha512-XTNEJQh1tY1ZJVcf6ayP/2n4ZPyaHlW2FWs7xvw5ddPuhUVjLD3olQVQS7kf58JbAB48iL0uL/jerTrjtV3lDA=="
@@ -2461,8 +2506,8 @@
     "hachure-fill@0.5.2": {
       "integrity": "sha512-3GKBOn+m2LX9iq+JC1064cSFprJY4jL1jCXTcpnfER5HYE2l/4EfWSGzkPa/ZDBmYI0ZOEj5VHV/eKnPGkHuOg=="
     },
-    "hasown@2.0.3": {
-      "integrity": "sha512-ej4AhfhfL2Q2zpMmLo7U1Uv9+PyhIZpgQLGT1F9miIGmiCJIoCgSmczFdrc97mWT4kVY72KA+WnnhJ5pghSvSg==",
+    "hasown@2.0.4": {
+      "integrity": "sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==",
       "dependencies": [
         "function-bind"
       ]
@@ -2512,8 +2557,8 @@
         "binary-extensions"
       ]
     },
-    "is-core-module@2.16.1": {
-      "integrity": "sha512-UfoeMA6fIJ8wTYFEUjelnaGI67v6+N7qXJEvQuIGa99l4xsCruSYOVSQ0uPANn4dAzm8lkYPaKLrrijLq7x23w==",
+    "is-core-module@2.17.0": {
+      "integrity": "sha512-J/vG0zBCbIKOQFfufSwyXdMrsohyJIUNkrnmo6WZGzoM7tr/lsbfW5b2BvisL6zsyMzK9UxV9L6c7AoFbyXHOA==",
       "dependencies": [
         "hasown"
       ]
@@ -3315,7 +3360,7 @@
       "apps/console": {
         "dependencies": [
           "npm:@ag-ui/core@^0.0.59",
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@tanstack/react-router@^1.167.0",
@@ -3354,7 +3399,7 @@
       },
       "modules/decide": {
         "dependencies": [
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@vitejs/plugin-react@^4.3.0",
@@ -3368,7 +3413,7 @@
       },
       "modules/define": {
         "dependencies": [
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@tanstack/react-router@^1.167.0",
@@ -3381,7 +3426,7 @@
       },
       "modules/deliver": {
         "dependencies": [
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@vitejs/plugin-react@^4.3.0",
@@ -3398,7 +3443,7 @@
           "npm:@angular/compiler@^20.3.0",
           "npm:@babel/parser@^7.29.0",
           "npm:@module-federation/runtime@^2.3.0",
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@tanstack/react-router@^1.167.0",
@@ -3418,7 +3463,7 @@
       "modules/develop": {
         "dependencies": [
           "npm:@module-federation/runtime@^2.3.0",
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@vitejs/plugin-react@^4.3.0",
@@ -3434,7 +3479,7 @@
       },
       "modules/discover": {
         "dependencies": [
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@tanstack/react-virtual@^3.14.10",
@@ -3449,7 +3494,7 @@
       },
       "modules/platform": {
         "dependencies": [
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@vitejs/plugin-react@^4.3.0",
@@ -3473,7 +3518,7 @@
       },
       "modules/workspace": {
         "dependencies": [
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-query@^5.59.0",
           "npm:@vitejs/plugin-react@^4.3.0",
@@ -3503,7 +3548,7 @@
       },
       "packages/build-config": {
         "dependencies": [
-          "npm:@module-federation/vite@^1.3.0",
+          "npm:@module-federation/vite@1.14.5",
           "npm:@tailwindcss/vite@4",
           "npm:@tanstack/react-start@^1.167.0",
           "npm:@vitejs/plugin-react@^4.3.0",
@@ -3533,6 +3578,25 @@
             "npm:postgres@^3.4.5"
           ]
         }
+      },
+      "packages/mf-utils": {
+        "dependencies": [
+          "npm:react@^19.2.0"
+        ]
+      },
+      "packages/shell-ui": {
+        "dependencies": [
+          "npm:@ag-ui/core@^0.0.59",
+          "npm:@tanstack/react-query@^5.59.0",
+          "npm:@tanstack/react-router@^1.167.0",
+          "npm:react-dom@^19.2.0",
+          "npm:react@^19.2.0"
+        ]
+      },
+      "packages/tenancy": {
+        "dependencies": [
+          "npm:react@^19.2.0"
+        ]
       }
     }
   }

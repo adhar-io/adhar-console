@@ -2,7 +2,7 @@ import { decodeJwt, jwtVerify } from 'jose'
 import { ClaimsSchema, type Claims } from './types.ts'
 import { claimsToUser } from './claims.ts'
 import type { ServerAuthConfig } from './config.ts'
-import { getDiscovery, getJwks } from './discovery.ts'
+import { getDiscovery, getJwks, OIDC_FETCH_TIMEOUT_MS } from './discovery.ts'
 import type { ServerSession } from './session-store.ts'
 
 export { claimsToUser } from './claims.ts'
@@ -111,6 +111,7 @@ async function postToken(
       accept: 'application/json',
     },
     body,
+    signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS),
   })
   const text = await res.text()
   if (!res.ok) {
@@ -223,6 +224,12 @@ export async function sessionFromTokens(
   opts: { nonce?: string; previous?: ServerSession } = {},
 ): Promise<ServerSession> {
   let claims: Claims
+  // A code exchange that asked for a nonce MUST come back with an ID token to
+  // check it against; falling through to the unverified access-token branch
+  // below would silently skip the replay check.
+  if (opts.nonce && !tokens.id_token) {
+    throw new Error('Token response has no id_token — cannot verify the OIDC nonce.')
+  }
   if (tokens.id_token) {
     claims = await verifyIdToken(cfg, tokens.id_token, opts.nonce)
   } else {
@@ -283,6 +290,8 @@ export async function revokeToken(
         client_id: cfg.clientId,
         client_secret: cfg.clientSecret,
       }),
+      // Logout awaits this; a slow Keycloak must not hold the redirect.
+      signal: AbortSignal.timeout(OIDC_FETCH_TIMEOUT_MS),
     })
   } catch (e) {
     console.error('[auth] token revocation failed (non-fatal):', e instanceof Error ? e.message : e)

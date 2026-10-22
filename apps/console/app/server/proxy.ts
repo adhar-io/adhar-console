@@ -65,6 +65,63 @@ const HOP_BY_HOP = new Set([
   'content-length',
 ])
 
+/**
+ * Request headers a browser must never be able to set on a proxied call, on
+ * top of HOP_BY_HOP. Every one of them is something an upstream TRUSTS from
+ * whoever sits in front of it — which is the console, so a client-supplied
+ * value would be believed as if the console had vouched for it:
+ *   - `impersonate-*`: kube-apiserver impersonation (the console SA may hold
+ *     the impersonate verb);
+ *   - `x-scope-orgid`: the Loki/Mimir/Tempo tenant — the registry sets it where
+ *     a tenant is configured, and leaving it client-settable elsewhere let a
+ *     caller read another tenant's telemetry;
+ *   - auth-proxy identity headers (Grafana `X-WEBAUTH-*`, oauth2-proxy
+ *     `X-Auth-Request-*`, `X-Forwarded-User`/`-Email`, `X-Remote-*`);
+ *   - `forwarded` / `x-forwarded-*` / `x-real-ip`: client IP and scheme claims
+ *     upstreams use for allow-lists and redirects.
+ */
+const CLIENT_UNTRUSTED = /^(impersonate-|x-scope-orgid$|x-webauth-|x-auth-request-|x-forwarded-|x-real-ip$|forwarded$|x-remote-)/
+
+/** True for a request header the proxy forwards from the client. */
+export function forwardableRequestHeader(name: string): boolean {
+  const key = name.toLowerCase()
+  return !HOP_BY_HOP.has(key) && !CLIENT_UNTRUSTED.test(key)
+}
+
+/**
+ * Reject an upstream path that climbs out of where the proxy points it.
+ *
+ * The router hands us an already-normalised pathname, so a literal `..` is
+ * gone by the time it gets here — but a percent-encoded separator survives
+ * (`a%2F..%2F..%2Fadmin`), and many upstreams decode before routing. Decoding
+ * and splitting on both slash kinds catches that while still allowing an
+ * encoded slash INSIDE a name (`feat%2Fx`, Harbor's `a%252Fb`).
+ */
+export function unsafeUpstreamPath(path: string): boolean {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(path)
+  } catch {
+    return true
+  }
+  // Control characters (CR/LF/NUL) have no business in a path.
+  // deno-lint-ignore no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(decoded)) return true
+  return decoded.split(/[/\\]/).some((seg) => seg === '.' || seg === '..')
+}
+
+/** Largest request body the proxy buffers (it must, to replay a login-mode retry). */
+const MAX_PROXY_BODY_BYTES = 64 * 1024 * 1024
+
+/**
+ * How long the proxy waits for an upstream to START answering. Bodies are not
+ * timed (SSE / large lists stream for as long as the client stays), but a tool
+ * that accepts the connection and never responds no longer pins it forever.
+ */
+const UPSTREAM_HEADERS_TIMEOUT_MS = 60_000
+/** Session-mint and identity-lookup calls are small; a stuck one fails fast. */
+const AUX_FETCH_TIMEOUT_MS = 15_000
+
 function json(status: number, body: unknown, extra?: HeadersInit): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -134,6 +191,7 @@ async function mintLoginToken(def: ToolDef): Promise<string> {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(login.body(def.username ?? '', def.password ?? '')),
       redirect: 'manual',
+      signal: AbortSignal.timeout(AUX_FETCH_TIMEOUT_MS),
     })
   } catch (e) {
     throw new Error(`session request failed: ${e instanceof Error ? e.message : 'network error'}`)
@@ -336,7 +394,11 @@ function adminGetter(def: ToolDef): (path: string) => Promise<Response> {
     } else if (def.serviceToken) {
       headers.authorization = `Bearer ${def.serviceToken}`
     }
-    return await fetch(`${def.baseUrl}${p}`, { headers, redirect: 'manual' })
+    return await fetch(`${def.baseUrl}${p}`, {
+      headers,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(AUX_FETCH_TIMEOUT_MS),
+    })
   }
 }
 
@@ -349,6 +411,13 @@ export async function proxyToolRequest(
   tool: string,
   splat: string,
 ): Promise<Response> {
+  // The kube-apiserver is reached through the k8s gateway (`/api/k8s/…`), which
+  // forwards the USER's identity. Here it would go out with the console's own
+  // ServiceAccount token (`K8S_SA_TOKEN`) to every signed-in user — the
+  // console's cluster privilege, handed to anyone. No client uses this route.
+  if (tool === 'k8s') {
+    return json(404, { error: 'unknown_tool', tool, detail: 'Use /api/k8s/… — the Kubernetes gateway.' })
+  }
   const def = getTool(tool)
   if (!def) return json(404, { error: 'unknown_tool', tool })
   if (!def.baseUrl) return json(503, { error: 'tool_not_configured', tool })
@@ -386,17 +455,25 @@ export async function proxyToolRequest(
   // that, and the leading-slash normalisation stops `//api/v2/...` too.
   const bare = splat.split('?')[0].split('#')[0].replace(/^\/+/, '')
   const path = bare ? `/${bare}` : ''
+  if (unsafeUpstreamPath(path)) return json(400, { error: 'invalid_path' })
   const method = request.method.toUpperCase()
   const hasBody = method !== 'GET' && method !== 'HEAD'
   // Buffer the body once so a login-mode retry can resend it (a stream can't be
-  // replayed; an ArrayBuffer can).
+  // replayed; an ArrayBuffer can) — under a cap, since it is held in memory.
+  if (hasBody && Number(request.headers.get('content-length') ?? '0') > MAX_PROXY_BODY_BYTES) {
+    return json(413, { error: 'request_entity_too_large', maxBytes: MAX_PROXY_BODY_BYTES })
+  }
   const body = hasBody ? await request.arrayBuffer() : undefined
+  if (body && body.byteLength > MAX_PROXY_BODY_BYTES) {
+    return json(413, { error: 'request_entity_too_large', maxBytes: MAX_PROXY_BODY_BYTES })
+  }
 
-  // Client headers minus hop-by-hop/identity, plus the tool's static headers.
-  // The per-attempt `authorization` is layered on top of a copy of this.
+  // Client headers minus hop-by-hop/identity/trusted-proxy headers, plus the
+  // tool's static headers. The per-attempt `authorization` is layered on top
+  // of a copy of this.
   const baseHeaders = new Headers()
   for (const [k, v] of request.headers) {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) baseHeaders.set(k, v)
+    if (forwardableRequestHeader(k)) baseHeaders.set(k, v)
   }
   for (const [k, v] of Object.entries(def.headers ?? {})) baseHeaders.set(k, v)
 
@@ -425,8 +502,21 @@ export async function proxyToolRequest(
     if (auth.authHeader && !def.headers?.['x-api-key']) {
       headers.set(auth.authHeaderName ?? 'authorization', auth.authHeader)
     }
+    // Abort when the browser goes away, or when the upstream has not started
+    // answering in time; once headers arrive the body streams untimed.
+    const headersTimer = new AbortController()
+    const timer = setTimeout(
+      () => headersTimer.abort(new DOMException('upstream did not answer in time', 'TimeoutError')),
+      UPSTREAM_HEADERS_TIMEOUT_MS,
+    )
     try {
-      const init: RequestInit = { method, headers, body, redirect: 'manual' }
+      const init: RequestInit = {
+        method,
+        headers,
+        body,
+        redirect: 'manual',
+        signal: AbortSignal.any([request.signal, headersTimer.signal]),
+      }
       // The kube-apiserver goes through the dedicated HTTP/1.1 client (+ one
       // retry on a dead pooled connection) — see k8s/gateway.ts for why an h2
       // GOAWAY otherwise takes the whole cluster view down until restart. The
@@ -436,9 +526,14 @@ export async function proxyToolRequest(
         : await fetch(upstreamUrl, init)
       return { upstream, refreshedCookie: auth.refreshedCookie }
     } catch (e) {
+      const timedOut = e instanceof DOMException && e.name === 'TimeoutError'
       return {
-        error: json(502, { error: 'upstream_unreachable', detail: e instanceof Error ? e.message : '' }),
+        error: timedOut
+          ? json(504, { error: 'upstream_timeout', tool })
+          : json(502, { error: 'upstream_unreachable', detail: e instanceof Error ? e.message : '' }),
       }
+    } finally {
+      clearTimeout(timer)
     }
   }
 

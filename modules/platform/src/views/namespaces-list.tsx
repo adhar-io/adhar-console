@@ -16,6 +16,9 @@ import {
   useOverlayDismiss,
   DrawerWidenButton,
   useDrawerWidth,
+  canResource,
+  useCan,
+  useToast,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
@@ -31,8 +34,6 @@ import {
   type NamespaceObject,
   type ResourceQuota,
 } from '../data/namespaces.ts'
-import { useHasK8sPermission } from '../data/access.ts'
-import { K8sRolePill } from '../components/role-gate.tsx'
 import { age, formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 import { ListShell, matchesSearch, StatusFilterPills } from './list-shell.tsx'
 
@@ -40,9 +41,8 @@ import { ListShell, matchesSearch, StatusFilterPills } from './list-shell.tsx'
  * Enterprise namespace inventory — live (watch-backed) namespace list with
  * per-namespace ResourceQuota usage, pod counts, a governance drawer
  * (quotas, LimitRanges, workload counts) and RBAC-gated create/delete.
- * Namespace lifecycle is deliberately gated on the platform-admin-only
- * `rbac.write` permission — creating or cascading-deleting a namespace is a
- * cluster-governance operation.
+ * Create / delete are asked as the user's own `create` / `delete namespaces`
+ * (cluster-scoped) — hidden when Kubernetes RBAC says no.
  */
 
 type PhaseFilter = 'Active' | 'Terminating'
@@ -53,7 +53,7 @@ export function NamespacesView() {
   const live = useNamespacesLive()
   const pods = usePods()
   const quotas = useResourceQuotas()
-  const canManage = useHasK8sPermission('rbac.write')
+  const canCreate = useCan(canResource(GVRS.namespaces, 'create'))
 
   const [search, setSearch] = useState('')
   const [phase, setPhase] = useState<PhaseFilter | 'all'>('all')
@@ -116,15 +116,11 @@ export function NamespacesView() {
           />
         }
         actions={
-          canManage ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+          canCreate ? (
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
               Create namespace
             </Button>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-              Create <K8sRolePill perm="rbac.write" />
-            </span>
-          )
+          ) : null
         }
       >
         <DataTable
@@ -174,7 +170,13 @@ export function NamespacesView() {
           empty={
             <EmptyState
               title="No namespaces"
-              description={search || phase !== 'all' ? 'No namespace matches the current filters.' : undefined}
+              description={
+                search || phase !== 'all'
+                  ? 'No namespace matches the current filters.'
+                  : canCreate
+                    ? 'Create one to give a team its own space on the cluster.'
+                    : 'Ask a platform admin to create a namespace for your team.'
+              }
             />
           }
         />
@@ -184,7 +186,7 @@ export function NamespacesView() {
         <NamespaceDrawer namespace={selectedNs} onClose={() => setSelected(null)} />
       ) : null}
 
-      <CreateNamespaceModal open={creating} onClose={() => setCreating(false)} onCreated={() => live.refetch()} />
+      <CreateNamespaceModal open={creating && canCreate} onClose={() => setCreating(false)} onCreated={() => live.refetch()} />
     </>
   )
 }
@@ -303,7 +305,7 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
   const deployments = useDeployments(name)
   const statefulsets = useStatefulSets(name)
   const daemonsets = useDaemonSets(name)
-  const canManage = useHasK8sPermission('rbac.write')
+  const canDelete = useCan(canResource(GVRS.namespaces, 'delete', { name }))
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const labels = Object.entries(namespace.metadata.labels ?? {})
@@ -315,7 +317,7 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
 
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
       <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
@@ -323,9 +325,9 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">Namespace</div>
             <h2 className="mt-0.5 truncate text-lg font-semibold text-content">{name}</h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <NamespacePhaseBadge phase={namespace.status?.phase} />
-            {canManage ? (
+            {canDelete ? (
               <Button
                 size="sm"
                 variant="danger"
@@ -339,16 +341,12 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
               >
                 Delete
               </Button>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-edge-default px-2 py-1 text-[11px] text-content-muted">
-                Delete <K8sRolePill perm="rbac.write" />
-              </span>
-            )}
+            ) : null}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1 text-content-muted hover:bg-surface-sunken hover:text-content"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-content-muted hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
               aria-label="Close"
             >
               ✕
@@ -471,7 +469,7 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
           </Card>
         </div>
 
-        {confirmingDelete ? (
+        {confirmingDelete && canDelete ? (
           <DeleteNamespaceBar
             name={name}
             onCancel={() => setConfirmingDelete(false)}
@@ -549,13 +547,16 @@ function DeleteNamespaceBar({
   onDeleted(): void
 }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const [typed, setTyped] = useState('')
   const mut = useMutation({
     mutationFn: () => kube.delete(GVRS.namespaces, undefined, name, { propagationPolicy: 'Background' }),
     onSuccess: () => {
+      toast.success(`Namespace ${name} is being deleted`)
       qc.invalidateQueries({ queryKey: ['k8s'] })
       onDeleted()
     },
+    onError: (e) => toast.error(`Couldn't delete ${name}`, { description: (e as Error).message }),
   })
   const isSystem = SYSTEM_NAMESPACES.has(name)
   return (
@@ -595,9 +596,6 @@ function DeleteNamespaceBar({
           {mut.isPending ? 'Deleting…' : 'Delete namespace'}
         </Button>
       </div>
-      {mut.isError ? (
-        <div className="mt-2 text-xs text-rose-700 dark:text-rose-300">{(mut.error as Error).message}</div>
-      ) : null}
     </div>
   )
 }
@@ -628,6 +626,10 @@ function CreateNamespaceModal({
   onCreated(): void
 }) {
   const qc = useQueryClient()
+  const toast = useToast()
+  // The optional quota lands inside a namespace that doesn't exist yet, so only
+  // a cluster-wide grant can cover it — ask without a namespace.
+  const canSeedQuota = useCan(canResource(GVRS.resourcequotas, 'create'), { enabled: open })
   const [name, setName] = useState('')
   const [labelText, setLabelText] = useState('')
   const [quotaCpu, setQuotaCpu] = useState('')
@@ -645,6 +647,7 @@ function CreateNamespaceModal({
         metadata: { name, ...(Object.keys(labels).length ? { labels } : {}) },
       })
       const hard: Record<string, string> = {}
+      if (!canSeedQuota) return
       if (quotaCpu.trim()) hard['requests.cpu'] = quotaCpu.trim()
       if (quotaMemory.trim()) hard['requests.memory'] = quotaMemory.trim()
       if (quotaPods.trim()) hard.pods = quotaPods.trim()
@@ -658,6 +661,7 @@ function CreateNamespaceModal({
       }
     },
     onSuccess: () => {
+      toast.success(`Namespace ${name} created`)
       qc.invalidateQueries({ queryKey: ['k8s'] })
       onCreated()
       setName('')
@@ -667,6 +671,7 @@ function CreateNamespaceModal({
       setQuotaPods('')
       onClose()
     },
+    onError: (e) => toast.error(`Couldn't create ${name}`, { description: (e as Error).message }),
   })
 
   const canSubmit = Boolean(name) && !nameError && !labelError && !mut.isPending
@@ -676,14 +681,18 @@ function CreateNamespaceModal({
       open={open}
       onClose={onClose}
       title="Create namespace"
-      description="Creates the namespace on the cluster; optionally seeds a ResourceQuota alongside it."
+      description={
+        canSeedQuota
+          ? 'Creates the namespace on the cluster; optionally seeds a ResourceQuota alongside it.'
+          : 'Creates the namespace on the cluster.'
+      }
       branded
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={mut.isPending}>
             Cancel
           </Button>
-          <Button size="sm" disabled={!canSubmit} onClick={() => mut.mutate()}>
+          <Button size="sm" variant="primary" disabled={!canSubmit} onClick={() => mut.mutate()}>
             {mut.isPending ? 'Creating…' : 'Create'}
           </Button>
         </>
@@ -709,25 +718,22 @@ function CreateNamespaceModal({
             invalid={Boolean(labelError)}
           />
         </Field>
-        <div>
-          <div className="mb-2 text-sm font-medium text-content">
-            Resource quota <span className="text-xs font-normal text-content-subtle">(optional)</span>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Field label="CPU requests" hint="e.g. 4">
-              <Input value={quotaCpu} onChange={(e) => setQuotaCpu(e.target.value)} placeholder="4" />
-            </Field>
-            <Field label="Memory requests" hint="e.g. 8Gi">
-              <Input value={quotaMemory} onChange={(e) => setQuotaMemory(e.target.value)} placeholder="8Gi" />
-            </Field>
-            <Field label="Max pods" hint="e.g. 50">
-              <Input value={quotaPods} onChange={(e) => setQuotaPods(e.target.value)} placeholder="50" />
-            </Field>
-          </div>
-        </div>
-        {mut.isError ? (
-          <div className="rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-300">
-            {(mut.error as Error).message}
+        {canSeedQuota ? (
+          <div>
+            <div className="mb-2 text-sm font-medium text-content">
+              Resource quota <span className="text-xs font-normal text-content-subtle">(optional)</span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Field label="CPU requests" hint="e.g. 4">
+                <Input value={quotaCpu} onChange={(e) => setQuotaCpu(e.target.value)} placeholder="4" />
+              </Field>
+              <Field label="Memory requests" hint="e.g. 8Gi">
+                <Input value={quotaMemory} onChange={(e) => setQuotaMemory(e.target.value)} placeholder="8Gi" />
+              </Field>
+              <Field label="Max pods" hint="e.g. 50">
+                <Input value={quotaPods} onChange={(e) => setQuotaPods(e.target.value)} placeholder="50" />
+              </Field>
+            </div>
           </div>
         ) : null}
       </div>

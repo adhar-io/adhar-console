@@ -145,6 +145,19 @@ export function patchItemCaches(qc: QueryClient, slug: string, projectId: string
   qc.setQueriesData({ queryKey: ['plane', 'issue', slug, projectId, id] }, (old: unknown) => (old && typeof old === 'object' ? fn(old as Patchable) : old))
 }
 
+/**
+ * Stop in-flight reads of the caches `patchItemCaches` writes — the lists poll
+ * every 90 s, and a poll that started before the edit would otherwise land
+ * after it and flip a just-dragged card back until the next poll.
+ */
+function cancelItemQueries(qc: QueryClient, slug: string, projectId: string, id: string) {
+  return Promise.all([
+    qc.cancelQueries({ queryKey: ['plane', 'issues', slug, projectId] }),
+    qc.cancelQueries({ queryKey: ['plane', 'issues-lite', slug, projectId] }),
+    qc.cancelQueries({ queryKey: ['plane', 'issue', slug, projectId, id] }),
+  ])
+}
+
 /** Coalesce follow-up refreshes after a burst of edits into one request per key. */
 function useDebouncedInvalidate(delay = 4_000) {
   const qc = useQueryClient()
@@ -170,7 +183,8 @@ export function usePatchWork() {
   const later = useDebouncedInvalidate()
   return useMutation({
     mutationFn: (v: { projectId: string; id: string; patch: Record<string, unknown> }) => workClient.patchIssue(slug, v.projectId, v.id, v.patch),
-    onMutate: (v) => {
+    onMutate: async (v) => {
+      await cancelItemQueries(qc, slug, v.projectId, v.id)
       const snapshot = qc.getQueriesData({ queryKey: ['plane'] })
       patchItemCaches(qc, slug, v.projectId, v.id, (i) => ({ ...i, ...v.patch, updated_at: new Date().toISOString() }))
       return { snapshot }
@@ -211,7 +225,8 @@ export function useMoveWork() {
         if (v.module) await workClient.addIssuesToModule(slug, p, v.module, [item.id])
       }
     },
-    onMutate: (v) => {
+    onMutate: async (v) => {
+      await cancelItemQueries(qc, slug, v.projectId, v.item.id)
       const snapshot = qc.getQueriesData({ queryKey: ['plane'] })
       patchItemCaches(qc, slug, v.projectId, v.item.id, (i) => ({
         ...i,

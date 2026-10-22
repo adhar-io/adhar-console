@@ -452,7 +452,19 @@ function ListView({ graph, visible, onSelect, selected, now }: { graph: Composit
         </thead>
         <tbody className="divide-y divide-edge-default bg-surface-raised">
           {rows.map((n) => (
-            <tr key={n.id} onClick={() => onSelect(n.id)} className={cn('cursor-pointer hover:bg-surface-sunken/60', selected === n.id && 'bg-brand-50/60 dark:bg-brand-500/10')}>
+            <tr
+              key={n.id}
+              onClick={() => onSelect(n.id)}
+              // Keyboard parity with the click: focusable, Enter/Space opens.
+              tabIndex={0}
+              aria-selected={selected === n.id}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return
+                e.preventDefault()
+                onSelect(n.id)
+              }}
+              className={cn('cursor-pointer hover:bg-surface-sunken/60 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500', selected === n.id && 'bg-brand-50/60 dark:bg-brand-500/10')}
+            >
               <td className="px-3 py-1.5">
                 <div className="flex min-w-0 items-center gap-2">
                   <KindIcon node={n} className="h-6 w-6 shrink-0 text-[9px]" />

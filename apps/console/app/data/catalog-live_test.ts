@@ -1,5 +1,5 @@
-import { assertEquals } from 'jsr:@std/assert'
-import { isSystemNamespace } from './catalog-live.ts'
+import { assertEquals } from 'jsr:@std/assert@1'
+import { isSystemNamespace } from './catalog-system-namespaces.ts'
 import { isPlatformRepo, PLATFORM_REPOS } from './catalog-platform-repos.ts'
 
 /**
@@ -36,7 +36,9 @@ Deno.test('matching tolerates case and a missing name', () => {
 Deno.test('the set matches the supply-chain pipeline exclusions', () => {
   assertEquals(
     [...PLATFORM_REPOS].sort(),
-    ['adhar-kit', 'adhar-templates', 'adhar-ui', 'environments', 'packages', 'templates'],
+    // `adhar` (the platform's own source mirror) joined on 2026-10-15; see
+    // catalog-platform-repos.ts.
+    ['adhar', 'adhar-kit', 'adhar-templates', 'adhar-ui', 'environments', 'packages', 'templates'],
   )
 })
 

@@ -2,15 +2,12 @@ import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert@^1'
 import {
   affectedScopes,
   appIgnoreKey,
-  canApproveWaivers,
-  canEditScanPolicy,
   DEFAULT_POLICY,
   gateDecisionPatch,
   gateOf,
   ignoreEntry,
   isActive,
   isExpiringSoon,
-  isPlatformAdmin,
   mergeConfigMapData,
   newWaiver,
   parsePolicy,
@@ -59,21 +56,6 @@ function waiver(over: Partial<WaiverRecord> = {}): WaiverRecord {
 function ctx(over: Partial<TransitionCtx> = {}): TransitionCtx {
   return { actor: bob, canApprove: true, platformAdmin: false, now: NOW, maxDays: 90, ...over }
 }
-
-/* ── roles ── */
-
-Deno.test('roles: reviewers, platform admins and policy editors', () => {
-  assert(canApproveWaivers({ roles: ['security-reviewer'] }))
-  assert(canApproveWaivers({ groups: ['/org/Platform-Engineers'] }))
-  assert(canApproveWaivers({ roles: ['platform-admin'] }))
-  assert(!canApproveWaivers({ roles: ['developer'], groups: ['/shop/members'] }))
-  assert(!canApproveWaivers({ groups: ['not-security-reviewer'] }))
-  assert(!canApproveWaivers(null))
-  assert(isPlatformAdmin({ roles: ['super-admin'] }))
-  assert(!isPlatformAdmin({ roles: ['security-reviewer'] }))
-  assert(canEditScanPolicy({ roles: ['platform-engineer'] }))
-  assert(!canEditScanPolicy({ roles: ['security-reviewer'] }))
-})
 
 /* ── validation ── */
 

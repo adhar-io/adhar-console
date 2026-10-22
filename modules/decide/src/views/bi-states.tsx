@@ -106,7 +106,7 @@ export function MetabaseUnavailable({
   const info = classifyMbError(error)
   return (
     <EmptyState
-      icon={<MetabaseIcon size={44} />}
+      icon={<MetabaseIcon size={26} />}
       title={info.title}
       description={
         <>

@@ -19,7 +19,7 @@ import { derivedUrl, env } from '@adhar/utils'
  *   - AUTH_PUBLIC_URL           external origin of the console, used to build
  *                               the OIDC redirect_uri. Falls back to the
  *                               request origin when unset.
- *   - AUTH_SCOPES               (default "openid profile email offline_access")
+ *   - AUTH_SCOPES               (default "openid profile email")
  *   - AUTH_SESSION_TTL_SECONDS  (default 28800 = 8h) — session cookie lifetime.
  *   - AUTH_COOKIE_NAME          (default "adhar_session")
  *   - AUTH_COOKIE_SECURE        "true"/"false" (default: true unless DEV)
@@ -50,10 +50,30 @@ export interface ServerAuthConfig {
 
 const DEFAULT_REALM = 'adhar'
 const DEFAULT_CLIENT = 'adhar-console'
-const DEFAULT_SCOPES = 'openid profile email offline_access'
+// No `offline_access`: an offline refresh token outlives Keycloak's browser SSO
+// session, so the console stayed signed in after that session had idled out or
+// hit its max lifespan — and every tool opened from it then asked for the
+// Keycloak password again. An online refresh token is bound to the SSO session:
+// each console refresh keeps that session alive for the other tools, and when it
+// does end the console signs out with it instead of pretending otherwise.
+const DEFAULT_SCOPES = 'openid profile email'
 const DEFAULT_SESSION_TTL = 8 * 60 * 60
 const DEFAULT_SESSION_ABSOLUTE_TTL = 24 * 60 * 60
 const DEFAULT_COOKIE_NAME = 'adhar_session'
+
+/**
+ * Positive integer env var, else the default. `Number('8h')` is NaN, which
+ * used to flow into `Max-Age=NaN` and the session's absolute-lifetime check
+ * (`age > NaN` is always false — i.e. no cap at all).
+ */
+function positiveInt(name: string, fallback: number): number {
+  const raw = env(name)
+  if (raw === undefined || raw.trim() === '') return fallback
+  const n = Number(raw)
+  if (Number.isFinite(n) && n > 0) return Math.floor(n)
+  console.warn(`[auth] ${name}=${JSON.stringify(raw)} is not a positive number — using ${fallback}.`)
+  return fallback
+}
 
 function isDev(): boolean {
   return (env('NODE_ENV') ?? env('DENO_ENV')) !== 'production'
@@ -117,9 +137,10 @@ export function getServerAuthConfig(): ServerAuthConfig | null {
     // `https://console.<ADHAR_DOMAIN>`.
     publicUrl: derivedUrl('console', 'AUTH_PUBLIC_URL') || undefined,
     scopes: env('AUTH_SCOPES') ?? DEFAULT_SCOPES,
-    sessionTtlSeconds: Number(env('AUTH_SESSION_TTL_SECONDS') ?? DEFAULT_SESSION_TTL),
-    sessionAbsoluteTtlSeconds: Number(
-      env('AUTH_SESSION_ABSOLUTE_TTL_SECONDS') ?? DEFAULT_SESSION_ABSOLUTE_TTL,
+    sessionTtlSeconds: positiveInt('AUTH_SESSION_TTL_SECONDS', DEFAULT_SESSION_TTL),
+    sessionAbsoluteTtlSeconds: positiveInt(
+      'AUTH_SESSION_ABSOLUTE_TTL_SECONDS',
+      DEFAULT_SESSION_ABSOLUTE_TTL,
     ),
     internalUrl: env('KEYCLOAK_INTERNAL_URL')?.replace(/\/$/, ''),
   }

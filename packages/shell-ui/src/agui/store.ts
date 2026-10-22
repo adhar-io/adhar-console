@@ -826,8 +826,11 @@ export const assistStore = {
           reduce(event)
         }
 
-        if (!awaitingTool) break
-        const pending = awaitingTool
+        // Re-read through a cast: `awaitingTool` is set by `reduce` inside the
+        // loop above, which TypeScript's narrowing can't see (it keeps the
+        // `= null` from before the loop and types `pending` as never).
+        const pending = awaitingTool as { toolCallId: string; toolName: string } | null
+        if (!pending) break
         const call = state.thread.messages.flatMap((m) => m.toolCalls).find((c) => c.id === pending.toolCallId)
         const result = await executeFrontendTool(pending.toolName, call?.args ?? '{}', pending.toolCallId)
         patchThread((t) => ({

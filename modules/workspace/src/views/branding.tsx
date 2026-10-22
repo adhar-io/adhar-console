@@ -1,4 +1,4 @@
-import { useToast } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, useToast } from '@adhar/shell-ui'
 import { useEffect, useMemo, useState } from 'react'
 import { formatRelative } from '@adhar/utils'
 import {
@@ -23,6 +23,13 @@ import {
 } from '../components/section-shell.tsx'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
+
+/**
+ * Branding & locale is a docStore singleton (`/api/store/workspace.general`)
+ * with no dedicated catalogue entry — an organisation setting, so it needs
+ * `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 /**
  * Branding & locale — extends the Organization → General basics (name, slug,
@@ -60,11 +67,15 @@ export function BrandingLocale() {
                 style={{ backgroundColor: doc.branding.brandColor }}
                 aria-hidden
               />
-              <span className="font-mono text-sm">{doc.branding.brandColor}</span>
+              <span className="truncate font-mono text-sm">{doc.branding.brandColor}</span>
             </span>
           }
         />
-        <StatTile label="Timezone" value={doc.locale.timezone} hint="org default" />
+        <StatTile
+          label="Timezone"
+          value={<span className="block truncate" title={doc.locale.timezone}>{doc.locale.timezone}</span>}
+          hint="org default"
+        />
         <StatTile label="Locale" value={doc.locale.locale} hint="dates & numbers" />
         <StatTile
           label="Settings"
@@ -80,7 +91,7 @@ export function BrandingLocale() {
         </p>
       ) : null}
 
-      <RequirePermission perm="org.write" required={['admin', 'owner']} readOnly>
+      <RequirePermission check={WRITE} readOnly>
         <Editor doc={doc} />
       </RequirePermission>
     </Shell>
@@ -92,7 +103,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <ViewShell
       title="Branding & locale"
       description="How the organization presents itself — logo, brand color, contact links — plus the timezone and locale used for org-level schedules, reports, and emails. Console colors live under Appearance → Theming."
-      required={['admin', 'owner']}
+      writeCheck={WRITE}
     >
       {children}
     </ViewShell>
@@ -168,8 +179,13 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
     </div>
   )
 
-  // Page-level actions belong in the ViewShell header (right side).
-  const headerActions = <ViewActions>{saveBar}</ViewActions>
+  // Page-level actions belong in the ViewShell header (right side). They are
+  // portalled out of the read-only fieldset, so they are gated (hidden) here.
+  const headerActions = (
+    <RequirePermission check={WRITE}>
+      <ViewActions>{saveBar}</ViewActions>
+    </RequirePermission>
+  )
 
   return (
     <>
@@ -219,7 +235,7 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
               value={colorInvalid ? '#7c3aed' : branding.brandColor}
               onChange={(e) => setBranding((b) => ({ ...b, brandColor: e.target.value }))}
               aria-label="Brand color"
-              className="h-9 w-10 cursor-pointer rounded-lg border border-edge-default bg-surface-raised p-1"
+              className="h-9 w-10 shrink-0 cursor-pointer rounded-lg border border-edge-default bg-surface-raised p-1 disabled:cursor-not-allowed disabled:opacity-60"
             />
             <TextField
               mono

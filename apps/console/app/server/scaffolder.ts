@@ -3,6 +3,8 @@ import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
+import { requirePermission } from './k8s/access.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 import { defaultImage, generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
 import type { GoldenPathFamily } from './golden-paths.ts'
 import { parseYaml } from './yaml-lite.ts'
@@ -193,6 +195,11 @@ async function scaffold(
   }
   const auth = preAuth ?? (await getRequestUser(req))
   if (!auth) return unauthorized()
+  // The repository is created and committed with the console's Gitea
+  // credentials, so creating an application is RBAC
+  // `create applications.console.adhar.io` (every signed-in user by default).
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.applicationsCreate)
+  if (denied) return denied
 
   let body: ScaffoldRequest
   try {

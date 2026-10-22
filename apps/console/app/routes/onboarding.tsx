@@ -5,6 +5,7 @@ import {
   ArgoCDIcon,
   ArgoRolloutsIcon,
   Button,
+  CONSOLE_PERMISSIONS,
   CrossplaneIcon,
   GiteaIcon,
   GrafanaIcon,
@@ -18,6 +19,7 @@ import {
   PrometheusIcon,
   StatusBadge,
   TempoIcon,
+  useAccessReview,
   useAppConfig,
   usePlatformApps,
 } from '@adhar/shell-ui'
@@ -1206,7 +1208,7 @@ function StepConnect({
                   {required
                     ? REQUIRED_REASON[t.id]
                     : live?.url
-                      ? new URL(live.url).host
+                      ? hostOf(live.url)
                       : t.version
                         ? `v${t.version} · ${t.license}`
                         : 'discovered on this cluster'}
@@ -1303,6 +1305,15 @@ function StepReview({
  * finished. It is styled as information rather than a warning, because nothing
  * here is a problem.
  */
+/** Host of a discovered tool URL; a relative or malformed one must not crash the step. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url, globalThis.location?.href).host || url
+  } catch {
+    return url
+  }
+}
+
 function WhatHappensNext({ contactEmail, toolCount }: { contactEmail: string; toolCount: number }) {
   const email = contactEmail.trim()
   return (
@@ -1469,9 +1480,28 @@ function StepProvision({
   useEffect(() => {
     if (!jobId) return
     let alive = true
+    let inFlight = false
+    // `getProvisioningJob` answers null for a 404 or a network error. A job
+    // the server no longer knows would otherwise be polled every 2 s forever;
+    // give up after ~2 minutes of consecutive misses (the notification still
+    // lands when the job finishes).
+    let misses = 0
     const tick = async () => {
-      const next = await getProvisioningJob(jobId)
-      if (!alive || !next) return
+      // Hidden tab: nobody is watching the progress, skip the request.
+      if (inFlight || globalThis.document?.hidden) return
+      inFlight = true
+      const next = await getProvisioningJob(jobId).finally(() => {
+        inFlight = false
+      })
+      if (!alive) return
+      if (!next) {
+        if (++misses >= 60) {
+          alive = false
+          globalThis.clearInterval(timer)
+        }
+        return
+      }
+      misses = 0
       setJob(next)
       if (next.steps?.length) setProv(next.steps)
       if (next.status !== 'running') {
@@ -1489,6 +1519,19 @@ function StepProvision({
 
   function patch(key: string, next: Partial<ProvStep>) {
     setSteps((prev) => prev.map((s) => (s.key === key ? { ...s, ...next } : s)))
+  }
+
+  // Enabling a capability commits to the platform's ApplicationSet, which needs
+  // `update packages.console.adhar.io` (docs/rbac.md). The answer is read when a
+  // tool step runs — after the org exists, so it is asked as the new tenant —
+  // and someone without it gets the step skipped with who can do it, rather
+  // than a 403 dressed up as a failure.
+  const toggleAccess = useAccessReview(CONSOLE_PERMISSIONS.packagesToggle)
+  const toggleAccessRef = useRef(toggleAccess)
+  toggleAccessRef.current = toggleAccess
+  async function mayToggle(): Promise<boolean> {
+    for (let i = 0; i < 40 && toggleAccessRef.current.loading; i++) await new Promise((r) => setTimeout(r, 250))
+    return toggleAccessRef.current.allowed
   }
 
   /** Run the org-creation step. Returns true when the org exists (created now or already). */
@@ -1536,6 +1579,10 @@ function StepProvision({
   async function runTool(step: ProvStep): Promise<void> {
     const id = step.key.replace(/^tool:/, '')
     patch(step.key, { status: 'running', detail: undefined })
+    if (!(await mayToggle())) {
+      patch(step.key, { status: 'skipped', detail: 'Enabling platform capabilities needs a platform admin — ask one to turn it on from the Marketplace.' })
+      return
+    }
     const res = await toggleTool(id, true)
     patch(step.key, {
       status: outcomeToRunState(res.outcome),
@@ -1651,7 +1698,7 @@ function StepProvision({
             Creating your workspace needs you to be signed in. Sign in and we'll bring you straight
             back to this screen — your organization name and capability choices are kept.
           </span>
-          <Button size="sm" onClick={onSignIn}>
+          <Button size="sm" variant="primary" onClick={onSignIn}>
             Sign in
           </Button>
         </div>
@@ -1817,11 +1864,13 @@ function StepProvision({
                     : anyFailed
                       ? " Some capabilities didn't install. You can retry them above, or add them later from Platform → Marketplace — nothing else is affected."
                       : ' Every capability you chose is installed and available.'}
-                  {state.contactEmail.trim() ? (
+                  {/* Only when the server says it went out: delivery can be
+                      unconfigured or fail, and the job reports which. */}
+                  {job?.emailStatus === 'sent' ? (
                     <>
                       {' '}
                       A confirmation has been sent to{' '}
-                      <span className="font-semibold">{state.contactEmail.trim()}</span>.
+                      <span className="font-semibold">{job.notifiedEmail ?? state.contactEmail.trim()}</span>.
                     </>
                   ) : null}
                 </span>

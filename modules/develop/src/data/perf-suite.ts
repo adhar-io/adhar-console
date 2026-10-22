@@ -74,6 +74,12 @@ export interface AppRepo {
   name: string
   branch: string
   repoUrl?: string
+  /**
+   * Gitea's own answer to "may this user push here" (`permissions.push` on the
+   * repository). Tests are commits, so Gitea — not Kubernetes RBAC — decides
+   * who may author them; undefined when Gitea did not say.
+   */
+  canPush?: boolean
 }
 
 export interface PerfSuite {
@@ -86,6 +92,14 @@ export interface PerfSuite {
 
 function notFound(e: unknown): boolean {
   return (e as { status?: number } | null)?.status === 404
+}
+
+/** May the user commit to the repository holding `name` (or, with no name, to any app repo)? */
+export function canAuthorPerf(suite: PerfSuite | undefined, name?: string | null): boolean {
+  if (!suite) return false
+  if (!name) return suite.apps.some((a) => a.canPush !== false)
+  const loc = findTest(suite, name)
+  return suite.apps.find((a) => a.name === loc?.repo)?.canPush !== false
 }
 
 /** The test called `name`, if some application repo has it. */
@@ -125,7 +139,7 @@ export function usePerfSuite() {
       return {
         org,
         apps: apps
-          .map((r) => ({ name: r.name, branch: r.default_branch || 'main', repoUrl: r.html_url }))
+          .map((r) => ({ name: r.name, branch: r.default_branch || 'main', repoUrl: r.html_url, canPush: r.permissions?.push }))
           .sort((a, b) => a.name.localeCompare(b.name)),
         tests,
         unreadable,

@@ -1,12 +1,12 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { cn } from '@adhar/utils'
-import { RequiredRolePill } from './role-gate.tsx'
-import type { Role } from '../data/access.ts'
+import type { AccessCheck } from '@adhar/shell-ui'
+import { ReadOnlyPill } from './role-gate.tsx'
 
 /**
  * Consistent page-level shell every Settings view renders into. Owns the
- * H1, description, action slot, and optional required-role pill so the
+ * H1, description, action slot, and optional "Read only" pill so the
  * subviews stay focused on their forms / tables.
  */
 /**
@@ -22,14 +22,18 @@ export function ViewShell({
   title,
   description,
   actions,
-  required,
+  writeCheck,
   children,
 }: {
   title: string
   description?: ReactNode
   actions?: ReactNode
-  /** Roles allowed to *write* in this view — surfaced as a pill in the header. */
-  required?: Role[]
+  /**
+   * The permission(s) writes on this page need (CONSOLE_PERMISSIONS entries).
+   * When the user does not hold them a "Read only" pill explains why the page
+   * offers no actions.
+   */
+  writeCheck?: AccessCheck | readonly AccessCheck[]
   children: ReactNode
 }) {
   const [slot, setSlot] = useState<HTMLDivElement | null>(null)
@@ -46,7 +50,7 @@ export function ViewShell({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold tracking-tight text-content">{title}</h2>
-              {required ? <RequiredRolePill required={required} /> : null}
+              {writeCheck ? <ReadOnlyPill check={writeCheck} /> : null}
             </div>
             {description ? (
               <p className="mt-1 max-w-3xl text-sm leading-relaxed text-content-muted">
@@ -245,7 +249,7 @@ export function ToggleField({
         disabled={disabled}
         onClick={() => onChange?.(!checked)}
         className={cn(
-          'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
+          'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 disabled:cursor-not-allowed',
           checked ? 'bg-brand-600' : 'bg-edge-strong',
         )}
       >
@@ -306,10 +310,10 @@ export function SecondaryButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'inline-flex h-9 items-center gap-1.5 rounded-lg border bg-surface-raised px-3 text-sm font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex h-9 items-center gap-1.5 rounded-lg border bg-surface-raised px-3 text-sm font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50',
         tone === 'rose'
-          ? 'border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-50'
-          : 'border-edge-default text-content hover:border-edge-strong hover:bg-surface-sunken',
+          ? 'border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-50 focus-visible:ring-rose-400/40 dark:border-rose-500/30 dark:text-rose-300 dark:hover:border-rose-500/50 dark:hover:bg-rose-500/10'
+          : 'border-edge-default text-content hover:border-edge-strong hover:bg-surface-sunken focus-visible:ring-brand-400/40',
       )}
     >
       {children}
@@ -330,11 +334,11 @@ export function StatTile({
 }) {
   const valueClass =
     tone === 'good'
-      ? 'text-emerald-700'
+      ? 'text-emerald-700 dark:text-emerald-400'
       : tone === 'warn'
-        ? 'text-amber-700'
+        ? 'text-amber-700 dark:text-amber-400'
         : tone === 'bad'
-          ? 'text-rose-700'
+          ? 'text-rose-700 dark:text-rose-400'
           : 'text-content'
   return (
     <div className="rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">

@@ -1,6 +1,6 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { lgtm, posthog } from '@adhar/api-clients'
-import { useLiveInvalidate, useLivePoll, usePollingInterval, useToolPublicUrl } from '@adhar/shell-ui'
+import { useLiveInvalidate, useLivePoll, usePollingInterval } from '@adhar/shell-ui'
 import { listSloSummaries } from './slo-api.ts'
 
 /**
@@ -160,7 +160,6 @@ export interface HistogramBucket {
 }
 
 export type HistogramLevel = 'info' | 'warn' | 'error'
-export const HISTOGRAM_LEVELS: HistogramLevel[] = ['error', 'warn', 'info']
 
 /** Collapse a log entry's level onto one of the three histogram buckets. */
 function histogramLevelOf(level: lgtm.LogEntry['level']): HistogramLevel {
@@ -200,55 +199,6 @@ export function bucketLogsByLevel(
 }
 
 /**
- * Golden-signal PromQL that works on a real cluster. Each expression unions
- * (`or`) the metric families the platform may expose — Gateway API / Envoy
- * (Cilium, Envoy Gateway), NGINX ingress, Hubble L7, plain `http_*` app
- * metrics — so whichever exists answers, grouped by `service` (falling back
- * to the label the family provides). Saturation uses cAdvisor, which every
- * kubelet exposes.
- */
-/**
- * Golden-signal queries, one variant per telemetry source.
- *
- * Each variant groups by a label the metric family **actually carries**. The
- * previous version forced every source into a synthetic `service` label with
- * `label_replace(..., "<src>", "(.+)")`, which fails silently and badly: when
- * the source label does not exist, `label_replace` copies nothing and the
- * `sum by (service)` collapses every series into one anonymous `{}` bucket. On
- * a cluster whose only HTTP source is Hubble — whose `http_requests_total`
- * carries `namespace`/`pod`/`method`/`status` and no `destination` — the chart
- * showed a single unlabelled line instead of either real per-service traffic
- * or an honest empty panel.
- *
- * `seriesLabel()` picks the best label present on whatever comes back, so each
- * variant can group naturally instead of being coerced.
- */
-export const PROMQL = {
-  rps: [
-    'sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total[5m]))',
-    'sum by (service) (rate(nginx_ingress_controller_requests[5m]))',
-    'sum by (namespace, pod) (rate(hubble_http_requests_total[5m]))',
-    'sum by (service) (rate(http_requests_total[5m]))',
-    'sum by (job) (rate(http_server_requests_seconds_count[5m]))',
-  ].join(' or '),
-  errorRate: [
-    '100 * sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="5"}[5m])) / sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total[5m]))',
-    '100 * sum by (service) (rate(nginx_ingress_controller_requests{status=~"5.."}[5m])) / sum by (service) (rate(nginx_ingress_controller_requests[5m]))',
-    '100 * sum by (namespace) (rate(hubble_http_requests_total{status=~"5.."}[5m])) / sum by (namespace) (rate(hubble_http_requests_total[5m]))',
-    '100 * sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / sum by (service) (rate(http_requests_total[5m]))',
-  ].join(' or '),
-  latencyP95: [
-    '1000 * histogram_quantile(0.95, sum by (le, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_bucket[5m])))',
-    '1000 * histogram_quantile(0.95, sum by (le, service) (rate(nginx_ingress_controller_request_duration_seconds_bucket[5m])))',
-    '1000 * histogram_quantile(0.95, sum by (le, namespace) (rate(hubble_http_request_duration_seconds_bucket[5m])))',
-    '1000 * histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m])))',
-  ].join(' or '),
-  cpu: 'sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m]))',
-  memory: 'sum by (namespace) (container_memory_working_set_bytes{container!="", container!="POD"})',
-  podRestarts: 'sum by (namespace) (increase(kube_pod_container_status_restarts_total[1h]))',
-} as const
-
-/**
  * Metric families the golden-signal panels depend on, in preference order.
  * `useTelemetrySources()` probes which of these Prometheus actually has, so a
  * panel with no data can say *why* — "no ingress or mesh exporter is scraped"
@@ -261,11 +211,6 @@ export const HTTP_SOURCES: Array<{ metric: string; label: string; hint: string }
   { metric: 'http_requests_total', label: 'Application', hint: 'Prometheus client library' },
   { metric: 'http_server_requests_seconds_count', label: 'Spring / Micrometer', hint: 'JVM actuator metrics' },
 ]
-
-/** Best display label for a series: service → namespace → job/pod/instance → __name__. */
-export function seriesLabel(metric: Record<string, string | undefined>): string {
-  return metric.service || metric.namespace || metric.job || metric.pod || metric.instance || metric.__name__ || 'series'
-}
 
 /**
  * Which HTTP telemetry sources Prometheus is actually scraping.
@@ -294,72 +239,6 @@ export function useTelemetrySources() {
   })
 }
 
-export function useMetrics(query: string, range: TimeRangeId, step = '1m') {
-  const queryKey = ['lgtm', 'metrics', query, range, step]
-  const windowMs = TIME_RANGES.find((r) => r.id === range)?.ms ?? 60 * 60_000
-  // Prometheus is pull-only: the BFF runs the sliding range query and pushes
-  // the series only when they change, so the tab itself never polls.
-  useLivePoll<lgtm.MetricSeries[]>(
-    'prometheus',
-    `/api/v1/query_range?query=${encodeURIComponent(query)}&start={start}&end={end}&step=${step}`,
-    REFRESH_MS,
-    queryKey,
-    { windowMs, enabled: !!query, map: (b) => ((b as { data?: { result?: lgtm.MetricSeries[] } })?.data?.result ?? []) },
-  )
-  const pollMs = usePollingInterval(REFRESH_MS)
-  return useQuery({
-    queryKey,
-    queryFn: () => {
-      const { start, end } = rangeToWindow(range)
-      return lgtmClient.queryMetrics(query, start, end, step)
-    },
-    refetchInterval: pollMs,
-    placeholderData: keepPreviousData,
-  })
-}
-
-export function useTraces(filter: { service?: string; minDurationMs?: number; status?: 'error' | 'ok' }) {
-  return useQuery({
-    queryKey: ['lgtm', 'traces', filter],
-    queryFn: () => lgtmClient.searchTraces(filter),
-    refetchInterval: REFRESH_MS,
-  })
-}
-
-/* ─────────── span detail ─────────── */
-
-/**
- * A timestamped event recorded during a span (OTel span event) and a span
- * carrying its real attributes, status message, and events — both sourced
- * straight from the Tempo trace response the LGTM client parses.
- */
-export type SpanEvent = lgtm.SpanEvent
-export type SpanDetail = lgtm.Span
-
-export function useTrace(traceID?: string) {
-  return useQuery({
-    queryKey: ['lgtm', 'trace', traceID],
-    queryFn: (): Promise<SpanDetail[]> => lgtmClient.getTrace(traceID!),
-    enabled: !!traceID,
-  })
-}
-
-export function useServiceMap() {
-  return useQuery({
-    queryKey: ['lgtm', 'service-map'],
-    queryFn: () => lgtmClient.serviceMap(),
-    staleTime: 30_000,
-  })
-}
-
-export function useServices() {
-  return useQuery({
-    queryKey: ['lgtm', 'services'],
-    queryFn: () => lgtmClient.listServices(),
-    staleTime: 30_000,
-  })
-}
-
 export function useAlerts() {
   const pollMs = usePollingInterval(REFRESH_MS)
   // Alertmanager/Prometheus are pull-only: the BFF watches `/api/v1/alerts`
@@ -369,15 +248,6 @@ export function useAlerts() {
     queryKey: ['lgtm', 'alerts'],
     queryFn: () => lgtmClient.listAlerts(),
     refetchInterval: pollMs,
-  })
-}
-
-export function useSilenceAlert() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ fingerprint, durationMin }: { fingerprint: string; durationMin: number }) =>
-      lgtmClient.silenceAlert(fingerprint, durationMin),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['lgtm', 'alerts'] }),
   })
 }
 
@@ -394,37 +264,6 @@ export function useSlos() {
   })
 }
 
-export function useGrafanaDashboards() {
-  return useQuery({
-    queryKey: ['lgtm', 'dashboards'],
-    queryFn: () => lgtmClient.listDashboards(),
-    staleTime: 60_000,
-  })
-}
-
-/**
- * Build Grafana deep-links against the URL this install actually serves.
- *
- * `lgtmClient.grafanaEmbedUrl` cannot do this on its own: the client is
- * constructed at module load, before `/api/config` has been fetched, so it
- * fell back to the compiled-in `https://grafana.adhar.local` — a host that
- * exists on no install. Every board embedded an iframe pointing at a domain
- * that does not resolve, which is why the panel stayed blank.
- *
- * `useToolPublicUrl` resolves the real public URL the server reports for the
- * tool (or derives `grafana.<base domain>`), so the link works both in the
- * iframe and in the "Open in Grafana" anchor.
- */
-export function useGrafanaEmbedUrl(): (uid: string, params?: Record<string, string>) => string {
-  const base = useToolPublicUrl('grafana')
-  return (uid, params = {}) => {
-    if (!base) return ''
-    // `kiosk=tv` hides Grafana's chrome; callers may override or extend.
-    const qs = new URLSearchParams({ kiosk: 'tv', ...params })
-    return `${base.replace(/\/$/, '')}/d/${encodeURIComponent(uid)}?${qs}`
-  }
-}
-
 /* ─────────── PostHog ─────────── */
 
 export function useAnalyticsEvents(filter?: { event?: string; sinceMs?: number }) {
@@ -435,67 +274,10 @@ export function useAnalyticsEvents(filter?: { event?: string; sinceMs?: number }
   })
 }
 
-export function usePersons(search?: string) {
-  return useQuery({
-    queryKey: ['posthog', 'persons', search ?? ''],
-    queryFn: () => phClient.listPersons({ search }),
-    staleTime: 30_000,
-  })
-}
-
-export function useInsights(type?: posthog.InsightType) {
-  return useQuery({
-    queryKey: ['posthog', 'insights', type ?? 'all'],
-    queryFn: () => phClient.listInsights(type ? { type } : undefined),
-    staleTime: 30_000,
-  })
-}
-
-export function useInsight(id?: string) {
-  return useQuery({
-    queryKey: ['posthog', 'insight', id],
-    queryFn: () => phClient.getInsight(id!),
-    enabled: !!id,
-    staleTime: 30_000,
-  })
-}
-
-export function useCohorts() {
-  return useQuery({
-    queryKey: ['posthog', 'cohorts'],
-    queryFn: () => phClient.listCohorts(),
-    staleTime: 60_000,
-  })
-}
-
-export function useFeatureFlags() {
-  return useQuery({
-    queryKey: ['posthog', 'flags'],
-    queryFn: () => phClient.listFeatureFlags(),
-    staleTime: 60_000,
-  })
-}
-
-export function useToggleFlag() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
-      phClient.toggleFeatureFlag(id, active),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['posthog', 'flags'] }),
-  })
-}
-
 export function useSessions(filter?: { hasErrors?: boolean }) {
   return useQuery({
     queryKey: ['posthog', 'sessions', filter?.hasErrors ?? false],
     queryFn: () => phClient.listSessions(filter),
     refetchInterval: 30_000,
   })
-}
-
-/* ─────────── series helpers ─────────── */
-
-/** MetricSeries values → AreaChart points. */
-export function seriesToPoints(s: lgtm.MetricSeries): number[] {
-  return s.values.map(([, v]) => Number(v))
 }

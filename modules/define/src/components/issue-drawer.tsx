@@ -126,7 +126,7 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
 
   return createPortal(
     <WorkRulesProvider value={rules}>
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={item ? `${key} ${item.name}` : 'Work item'}>
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={item ? `${key} ${item.name}` : 'Work item'}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} />
       <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
         <header className="flex items-center gap-2 border-b border-edge-default bg-surface-raised px-4 py-2.5 sm:px-6">

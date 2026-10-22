@@ -1497,7 +1497,7 @@ export const GiteaClient = defineClient<GiteaClient>(build, () => ({
   },
   listLanguages: async (_, repo) => {
     const r = STUB_REPOS.find((x) => x.name === repo)
-    return r?.language ? { [r.language]: 100_000, Shell: 4_000 } : {}
+    return r?.language ? { [r.language]: 100_000, Shell: 4_000 } : ({} as Record<string, number>)
   },
   listTopics: async (_, repo) => STUB_TOPICS[repo] ?? [],
   setTopics: async (_, repo, topics) => {

@@ -204,7 +204,7 @@ export function IssueQueryBar({
           )
         })}
         {quick.length ? <button type="button" onClick={() => onQuick([])} className="px-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">Clear</button> : null}
-        <span className="ml-auto text-[11px] tabular-nums text-content-subtle">{busy ? 'Refreshing… ' : ''}{count} of {total}</span>
+        <span className="ml-auto text-[11px] tabular-nums text-content-subtle" aria-busy={busy}>{count} of {total}</span>
       </div>
 
       <Popover anchor={helpRef} open={helpOpen} onClose={() => setHelpOpen(false)} width={460} align="end">

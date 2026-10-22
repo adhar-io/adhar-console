@@ -1,6 +1,8 @@
 import { env } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
+import { requirePermission } from './k8s/access.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 
 /**
  * `GET /api/scorecards` — the platform's **authoritative** production-readiness
@@ -699,6 +701,10 @@ export async function handleScorecardRerun(req: Request): Promise<Response> {
   const cronName = env('ADHAR_SCORECARDS_CRONJOB') || DEFAULT_CRONJOB
   const id = await resolveIdentity(req)
   if (!id) return withCookie(unauthorized('session_expired'), auth.refreshedCookie)
+  // Re-evaluating is a console action (`update scorecards.console.adhar.io`)
+  // on top of the Job create below, which the apiserver checks as the user.
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.scorecardsRun, { id })
+  if (denied) return withCookie(denied, auth.refreshedCookie)
 
   const fail = (status: number, error: string, detail?: string) =>
     withCookie(Response.json({ started: false, error, ...(detail ? { detail: detail.slice(0, 500) } : {}) }, { status }), auth.refreshedCookie)

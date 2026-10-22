@@ -1,4 +1,6 @@
+import { CONSOLE_PERMISSIONS, type ConsolePermission } from '@adhar/auth/server'
 import { getRequestUser, unauthorized } from '../request-user.ts'
+import { requirePermission } from '../k8s/access.ts'
 import { getKeycloakAdmin, groupForRole, groupForTeam } from './keycloak-admin.ts'
 import { applyXr, backfillXrs, teamManifest } from '../control-plane.ts'
 import { organizationForTenant } from '../organizations.ts'
@@ -48,8 +50,6 @@ interface Ctx {
   /** The caller's own membership document. */
   self: MemberDoc
 }
-
-const MANAGE_ROLES: OrgRole[] = ['owner', 'admin']
 
 const json = (body: unknown, status = 200) => Response.json(body, { status })
 const badRequest = (error: string) => json({ error }, 400)
@@ -141,8 +141,8 @@ function route(ctx: Ctx, method: string, seg: string[]): Promise<Response> | Res
       if (id && method === 'DELETE') return revokeToken(ctx, id)
       break
     case 'audit':
-      if (!id && method === 'GET') return listAudit(ctx)
-      if (id === 'facets' && method === 'GET') return auditFacets(ctx)
+      if (!id && method === 'GET') return gated(ctx, CONSOLE_PERMISSIONS.auditView, () => listAudit(ctx))
+      if (id === 'facets' && method === 'GET') return gated(ctx, CONSOLE_PERMISSIONS.auditView, () => auditFacets(ctx))
       break
     case 'approvals':
       if (!id && method === 'GET') return listApprovals(ctx)
@@ -152,6 +152,10 @@ function route(ctx: Ctx, method: string, seg: string[]): Promise<Response> | Res
       break
   }
   return notFound()
+}
+
+async function gated(ctx: Ctx, perm: ConsolePermission, run: () => Promise<Response>): Promise<Response> {
+  return (await requirePerm(ctx, perm)) ?? run()
 }
 
 /* ─────────────────── membership bootstrap ─────────────────── */
@@ -198,11 +202,20 @@ async function ensureCallerMembership(
   return doc
 }
 
-function requireManage(ctx: Ctx): Response | null {
-  if (!MANAGE_ROLES.includes(ctx.self.role)) return forbidden('requires_admin_or_owner')
-  return null
+/**
+ * Workspace administration is Kubernetes RBAC on the `workspace-*` /
+ * `organizations` / `audit` virtual resources in `console.adhar.io` — the same
+ * checks Workspace settings hides its actions on. Organisation roles still
+ * matter: they are mirrored into Keycloak groups (`ws-role-<role>`, see
+ * keycloak-admin.ts) and the platform binds `oidc:ws-role-owner` /
+ * `oidc:ws-role-admin` to the console's workspace-admin ClusterRole, so an
+ * owner or admin keeps exactly the rights the old role check gave them.
+ */
+function requirePerm(ctx: Ctx, perm: ConsolePermission): Promise<Response | null> {
+  return requirePermission(ctx.req, perm)
 }
 
+/** Invariants about the OWNER role itself (handing ownership over), not authorization. */
 function requireOwner(ctx: Ctx): Response | null {
   if (ctx.self.role !== 'owner') return forbidden('requires_owner')
   return null
@@ -249,7 +262,7 @@ async function getOrg(ctx: Ctx): Promise<Response> {
 }
 
 async function updateOrg(ctx: Ctx): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.orgUpdate)
   if (denied) return denied
   const body = await readBody(ctx.req)
   if (!body) return badRequest('invalid_json')
@@ -276,7 +289,7 @@ async function updateOrg(ctx: Ctx): Promise<Response> {
 }
 
 async function transferOwnership(ctx: Ctx): Promise<Response> {
-  const denied = requireOwner(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.orgUpdate) ?? requireOwner(ctx)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const targetId = typeof body?.userId === 'string' ? body.userId : ''
@@ -322,7 +335,7 @@ async function transferOwnership(ctx: Ctx): Promise<Response> {
 }
 
 async function deleteOrg(ctx: Ctx): Promise<Response> {
-  const denied = requireOwner(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.orgDelete)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const confirm = typeof body?.confirm === 'string' ? body.confirm.trim() : ''
@@ -384,7 +397,7 @@ async function countOwners(store: Store): Promise<number> {
 }
 
 async function patchMember(ctx: Ctx, userId: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.membersUpdate)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const role = body?.role as OrgRole | undefined
@@ -423,7 +436,7 @@ async function patchMember(ctx: Ctx, userId: string): Promise<Response> {
 }
 
 async function removeMember(ctx: Ctx, userId: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.membersRemove)
   if (denied) return denied
   const target = await ctx.store.get<MemberDoc>(KIND.member, userId)
   if (!target) return notFound()
@@ -479,7 +492,7 @@ async function listInvitations(ctx: Ctx): Promise<Response> {
 }
 
 async function createInvitation(ctx: Ctx): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.membersInvite)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
@@ -517,7 +530,7 @@ async function createInvitation(ctx: Ctx): Promise<Response> {
 }
 
 async function revokeInvitation(ctx: Ctx, id: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.membersRemove)
   if (denied) return denied
   const doc = await ctx.store.get<InvitationDoc>(KIND.invitation, id)
   if (!doc) return notFound()
@@ -684,7 +697,7 @@ async function listTeams(ctx: Ctx): Promise<Response> {
 }
 
 async function createTeam(ctx: Ctx): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.teamsCreate)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
@@ -734,7 +747,7 @@ async function createTeam(ctx: Ctx): Promise<Response> {
 }
 
 async function patchTeam(ctx: Ctx, id: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.teamsUpdate)
   if (denied) return denied
   const doc = await ctx.store.get<TeamDoc>(KIND.team, id)
   if (!doc) return notFound()
@@ -760,7 +773,7 @@ async function patchTeam(ctx: Ctx, id: string): Promise<Response> {
 }
 
 async function deleteTeam(ctx: Ctx, id: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.teamsDelete)
   if (denied) return denied
   const doc = await ctx.store.get<TeamDoc>(KIND.team, id)
   if (!doc) return notFound()
@@ -795,7 +808,7 @@ async function deleteTeam(ctx: Ctx, id: string): Promise<Response> {
 }
 
 async function addTeamMember(ctx: Ctx, teamId: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.teamsUpdate)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const userId = typeof body?.userId === 'string' ? body.userId : ''
@@ -836,7 +849,7 @@ async function addTeamMember(ctx: Ctx, teamId: string): Promise<Response> {
 }
 
 async function removeTeamMember(ctx: Ctx, teamId: string, userId: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.teamsUpdate)
   if (denied) return denied
   const [team, member] = await Promise.all([
     ctx.store.get<TeamDoc>(KIND.team, teamId),
@@ -881,7 +894,7 @@ async function listProjects(ctx: Ctx): Promise<Response> {
 }
 
 async function createProject(ctx: Ctx): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.projectsCreate)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
@@ -919,7 +932,7 @@ async function createProject(ctx: Ctx): Promise<Response> {
 }
 
 async function patchProject(ctx: Ctx, id: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.projectsUpdate)
   if (denied) return denied
   const doc = await ctx.store.get<ProjectDoc>(KIND.project, id)
   if (!doc) return notFound()
@@ -953,7 +966,7 @@ async function patchProject(ctx: Ctx, id: string): Promise<Response> {
 }
 
 async function deleteProject(ctx: Ctx, id: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.projectsDelete)
   if (denied) return denied
   const doc = await ctx.store.get<ProjectDoc>(KIND.project, id)
   if (!doc) return notFound()
@@ -993,7 +1006,7 @@ async function listTokens(ctx: Ctx): Promise<Response> {
 }
 
 async function createToken(ctx: Ctx): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.tokensCreate)
   if (denied) return denied
   const body = await readBody(ctx.req)
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
@@ -1037,7 +1050,7 @@ async function createToken(ctx: Ctx): Promise<Response> {
 }
 
 async function revokeToken(ctx: Ctx, id: string): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.tokensRevoke)
   if (denied) return denied
   const doc = await ctx.store.get<TokenDoc>(KIND.token, id)
   if (!doc) return notFound()
@@ -1169,7 +1182,7 @@ async function decideApproval(
   id: string,
   status: 'approved' | 'rejected',
 ): Promise<Response> {
-  const denied = requireManage(ctx)
+  const denied = await requirePerm(ctx, CONSOLE_PERMISSIONS.approvalsDecide)
   if (denied) return denied
   const doc = await ctx.store.get<ApprovalDoc>(KIND.approval, id)
   if (!doc) return notFound()

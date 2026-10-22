@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, StatusBadge, type StatusKind, useCan, useToast } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { formatRelative } from '@adhar/utils'
 import {
@@ -21,8 +21,16 @@ import {
   TextField,
   ViewShell,
 } from '../components/section-shell.tsx'
+import { safeExternalHref } from '../data/safe-url.ts'
 import { LoadingBlock, StoreErrorBlock } from '../components/async-states.tsx'
 import { RequirePermission } from '../components/role-gate.tsx'
+
+/**
+ * The compliance record is a docStore singleton
+ * (`/api/store/workspace.compliance`) with no dedicated catalogue entry — an
+ * organisation setting, so every edit needs `update organizations`.
+ */
+const WRITE = CONSOLE_PERMISSIONS.orgUpdate
 
 const POSTURE_KIND: Record<CompliancePosture, StatusKind> = {
   certified: 'healthy',
@@ -93,6 +101,8 @@ export function Compliance() {
   const q = useComplianceDoc()
   const save = useSaveCompliance()
   const signal = usePolicySignal()
+  const toast = useToast()
+  const canWrite = useCan(WRITE)
   const [addId, setAddId] = useState('')
 
   if (q.isError) {
@@ -116,7 +126,10 @@ export function Compliance() {
   const evidenceTotal = frameworks.reduce((s, f) => s + f.evidence.length, 0)
   const evidenceDone = frameworks.reduce((s, f) => s + f.evidence.filter((e) => e.done).length, 0)
 
-  const persist = (next: ComplianceDoc) => save.mutate(next)
+  const persist = (next: ComplianceDoc) =>
+    save.mutate(next, {
+      onError: (e) => toast.error('Could not save the compliance record', { description: (e as Error)?.message }),
+    })
   const updateFramework = (fw: ComplianceFrameworkConfig) =>
     persist({ frameworks: frameworks.map((f) => (f.id === fw.id ? fw : f)) })
   const removeFramework = (id: string) =>
@@ -169,7 +182,7 @@ export function Compliance() {
             The cluster policy engine is unreachable from this console — no compliance signal is
             available (nothing is assumed passing).
           </div>
-        ) : (
+        ) : signal.data ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile label="ClusterPolicies" value={signal.data.policies} />
             <StatTile label="Enforce mode" value={signal.data.enforce} hint={`${signal.data.audit} audit`} />
@@ -180,16 +193,16 @@ export function Compliance() {
               tone={signal.data.reportFail ? 'warn' : 'good'}
             />
           </div>
-        )}
+        ) : null}
       </SettingsCard>
 
-      <RequirePermission perm="compliance.write" required={['security', 'owner']} readOnly>
+      <RequirePermission check={WRITE}>
         <SettingsCard
           title="Track a framework"
           description="Adds a posture record with a starter evidence checklist — nothing is pre-checked or pre-certified."
         >
           <div className="flex flex-wrap items-center gap-2">
-            <div className="w-64">
+            <div className="w-full min-w-0 sm:w-64">
               <SelectField<string>
                 value={addId}
                 onChange={setAddId}
@@ -209,8 +222,10 @@ export function Compliance() {
       {frameworks.length === 0 ? (
         <SettingsCard title="Frameworks">
           <div className="text-sm text-content-muted">
-            No frameworks tracked yet. Posture on this page is recorded by your team — the console
-            never fabricates a compliance status.
+            No frameworks tracked yet.{' '}
+            {canWrite ? '' : 'Ask a workspace admin to start tracking one. '}
+            Posture on this page is recorded by your team — the console never fabricates a
+            compliance status.
           </div>
         </SettingsCard>
       ) : (
@@ -226,11 +241,6 @@ export function Compliance() {
         </div>
       )}
 
-      {save.isError ? (
-        <p className="text-[12px] text-rose-700 dark:text-rose-400">
-          {(save.error as Error)?.message ?? 'Could not save the compliance record.'}
-        </p>
-      ) : null}
       {q.data.saved && q.data.updatedAt ? (
         <p className="text-[11px] text-content-subtle">
           Last updated {formatRelative(q.data.updatedAt)} — stored in the tenant document store.
@@ -245,7 +255,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <ViewShell
       title="Compliance"
       description="Recorded compliance posture and evidence checklists, persisted per tenant. Live signals come only from systems the console can actually read (Kyverno); everything self-reported is labeled as such."
-      required={['security', 'owner']}
+      writeCheck={WRITE}
     >
       {children}
     </ViewShell>
@@ -265,24 +275,27 @@ function FrameworkCard({
 }) {
   const done = fw.evidence.filter((e) => e.done).length
   const pct = fw.evidence.length ? Math.round((done / fw.evidence.length) * 100) : 0
+  // Typed by one member, clicked by others — only ever link out over http(s).
+  const reportHref = safeExternalHref(fw.reportUrl)
 
   return (
     <SettingsCard
       title={fw.name}
       actions={<StatusBadge kind={POSTURE_KIND[fw.posture]}>{POSTURE_LABEL[fw.posture]}</StatusBadge>}
     >
+      {/* Posture, checklist and report URL all write the record: inert when
+          the user may not update organisation settings. */}
+      <RequirePermission check={WRITE} readOnly>
       <div className="space-y-3">
-        <RequirePermission perm="compliance.write" required={['security', 'owner']} readOnly>
-          <SelectField<CompliancePosture>
-            value={fw.posture}
-            onChange={(v) => onChange({ ...fw, posture: v })}
-            options={[
-              { value: 'not-started', label: 'Not started' },
-              { value: 'in-progress', label: 'In progress' },
-              { value: 'certified', label: 'Certified (self-attested)' },
-            ]}
-          />
-        </RequirePermission>
+        <SelectField<CompliancePosture>
+          value={fw.posture}
+          onChange={(v) => onChange({ ...fw, posture: v })}
+          options={[
+            { value: 'not-started', label: 'Not started' },
+            { value: 'in-progress', label: 'In progress' },
+            { value: 'certified', label: 'Certified (self-attested)' },
+          ]}
+        />
 
         <div>
           <div className="flex items-baseline justify-between text-[12px]">
@@ -301,7 +314,7 @@ function FrameworkCard({
             {fw.evidence.map((item) => (
               <label
                 key={item.id}
-                className="flex cursor-pointer items-start gap-2 rounded-lg px-1.5 py-1 text-[12px] text-content-muted transition-colors hover:bg-surface-sunken/60"
+                className="flex cursor-pointer items-start gap-2 rounded-lg px-1.5 py-1 text-[12px] text-content-muted transition-colors hover:bg-surface-sunken/60 has-[:disabled]:cursor-default has-[:disabled]:hover:bg-transparent"
               >
                 <input
                   type="checkbox"
@@ -340,9 +353,9 @@ function FrameworkCard({
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          {fw.reportUrl ? (
+          {reportHref ? (
             <a
-              href={fw.reportUrl}
+              href={reportHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-2.5 text-[12px] font-medium text-content shadow-sm transition-colors hover:border-edge-strong hover:bg-surface-sunken"
@@ -352,13 +365,14 @@ function FrameworkCard({
           ) : (
             <span className="text-[11px] text-content-subtle">No report linked</span>
           )}
-          <RequirePermission perm="compliance.write" required={['security', 'owner']} readOnly>
+          <RequirePermission check={WRITE}>
             <SecondaryButton tone="rose" onClick={onRemove}>
               Untrack
             </SecondaryButton>
           </RequirePermission>
         </div>
       </div>
+      </RequirePermission>
     </SettingsCard>
   )
 }

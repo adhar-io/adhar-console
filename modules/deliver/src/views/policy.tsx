@@ -7,9 +7,12 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
+  Modal,
   Spinner,
   StatusBadge,
   useLiveRefetch,
+  useCan,
+  useToast,
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
@@ -17,6 +20,7 @@ import {
 import { cn, formatRelative } from '@adhar/utils'
 import type { kyverno } from '@adhar/api-clients'
 import { kyvernoClient as client } from '../data/kyverno-api.ts'
+import { kyvernoModeCheck } from '../data/access.ts'
 import {
   packCoverage,
   POLICY_PACKS,
@@ -45,10 +49,10 @@ const SEVERITY_TONE: Record<kyverno.PolicySeverity, StatusKind> = {
 }
 
 const ACTION_COLOR: Record<kyverno.PolicyAction, string> = {
-  validate: 'bg-brand-50 text-brand-700',
-  mutate: 'bg-amber-50 text-amber-700',
-  generate: 'bg-emerald-50 text-emerald-700',
-  verifyImages: 'bg-violet-50 text-violet-700',
+  validate: 'bg-brand-50 text-brand-700 dark:text-brand-300 dark:bg-brand-500/10',
+  mutate: 'bg-amber-50 text-amber-700 dark:text-amber-300 dark:bg-amber-500/10',
+  generate: 'bg-emerald-50 text-emerald-700 dark:text-emerald-300 dark:bg-emerald-500/10',
+  verifyImages: 'bg-violet-50 text-violet-700 dark:text-violet-300 dark:bg-violet-500/10',
 }
 
 /**
@@ -177,12 +181,12 @@ export function Policy() {
         </div>
       ) : null}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-        <Tile label="Policies" value={policies.isError ? '—' : policies.data?.length ?? 0} hint={policies.isError ? 'unavailable' : `${enforced} enforce`} />
-        <Tile label="Pass" value={reports.isError ? '—' : totals.pass} accent="emerald" />
-        <Tile label="Fail" value={reports.isError ? '—' : totals.fail} accent={totals.fail > 0 ? 'rose' : 'slate'} />
-        <Tile label="Warn" value={reports.isError ? '—' : totals.warn} accent={totals.warn > 0 ? 'amber' : 'slate'} />
-        <Tile label="Skip" value={reports.isError ? '—' : totals.skip} accent="slate" />
-        <Tile label="Exceptions" value={exceptions.isError ? '—' : exceptions.data?.length ?? 0} accent="violet" />
+        <Tile label="Policies" value={policies.isError || policies.isLoading ? '—' : policies.data?.length ?? 0} hint={policies.isLoading ? undefined : policies.isError ? 'unavailable' : `${enforced} enforce`} />
+        <Tile label="Pass" value={reports.isError || reports.isLoading ? '—' : totals.pass} accent="emerald" />
+        <Tile label="Fail" value={reports.isError || reports.isLoading ? '—' : totals.fail} accent={totals.fail > 0 ? 'rose' : 'slate'} />
+        <Tile label="Warn" value={reports.isError || reports.isLoading ? '—' : totals.warn} accent={totals.warn > 0 ? 'amber' : 'slate'} />
+        <Tile label="Skip" value={reports.isError || reports.isLoading ? '—' : totals.skip} accent="slate" />
+        <Tile label="Exceptions" value={exceptions.isError || exceptions.isLoading ? '—' : exceptions.data?.length ?? 0} accent="violet" />
       </div>
 
       <Tabs
@@ -239,7 +243,7 @@ function Tabs({
             onClick={() => setTab(i.id)}
             className={
               on
-                ? 'rounded-md bg-brand-50 px-2.5 py-1 text-[12px] font-semibold text-brand-700'
+                ? 'rounded-md bg-brand-50 px-2.5 py-1 text-[12px] font-semibold text-brand-700 dark:text-brand-300 dark:bg-brand-500/10'
                 : 'rounded-md px-2.5 py-1 text-[12px] text-content-muted hover:bg-surface-sunken'
             }
           >
@@ -258,11 +262,19 @@ function Tabs({
 
 function Library({ policies, loading }: { policies: kyverno.Policy[]; loading: boolean }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const setMode = useMutation({
     mutationFn: ({ name, mode, namespace }: { name: string; mode: 'Audit' | 'Enforce'; namespace?: string }) =>
       client.setEnforcementMode(name, mode, namespace),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['kyverno', 'policies'] }),
+    onSuccess: (_r, v) => {
+      toast.success(`${v.name} is now in ${v.mode} mode`)
+      return qc.invalidateQueries({ queryKey: ['kyverno', 'policies'] })
+    },
+    onError: (e, v) => toast.error(`Could not switch ${v.name} to ${v.mode}`, { description: e instanceof Error ? e.message : String(e) }),
   })
+  // Audit → Enforce makes the admission webhook start rejecting workloads
+  // cluster-wide, so it is confirmed; Enforce → Audit only relaxes and is not.
+  const [confirmEnforce, setConfirmEnforce] = useState<kyverno.Policy | null>(null)
   const [openName, setOpenName] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [actionFilter, setActionFilter] = useState<'all' | kyverno.PolicyAction>('all')
@@ -296,11 +308,9 @@ function Library({ policies, loading }: { policies: kyverno.Policy[]; loading: b
               policy={p}
               onOpen={() => setOpenName(p.name)}
               onToggleMode={() =>
-                setMode.mutate({
-                  name: p.name,
-                  namespace: p.namespace,
-                  mode: p.validationFailureAction === 'Enforce' ? 'Audit' : 'Enforce',
-                })
+                p.validationFailureAction === 'Enforce'
+                  ? setMode.mutate({ name: p.name, namespace: p.namespace, mode: 'Audit' })
+                  : setConfirmEnforce(p)
               }
               busy={setMode.isPending && setMode.variables?.name === p.name}
             />
@@ -309,9 +319,45 @@ function Library({ policies, loading }: { policies: kyverno.Policy[]; loading: b
       )}
 
       {open ? <PolicyDetail policy={open} onClose={() => setOpenName(null)} /> : null}
+
+      {confirmEnforce ? (
+        <Modal
+          open
+          onClose={() => setConfirmEnforce(null)}
+          title={`Enforce ${confirmEnforce.name}?`}
+          description="Kyverno will start rejecting new and updated resources that fail this policy. Existing workloads keep running, but their next rollout is blocked until they comply."
+          footer={
+            <>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmEnforce(null)}>Cancel</Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  const p = confirmEnforce
+                  setConfirmEnforce(null)
+                  setMode.mutate({ name: p.name, namespace: p.namespace, mode: 'Enforce' })
+                }}
+              >
+                Enforce
+              </Button>
+            </>
+          }
+        >
+          <p className="text-[12px] text-content-muted">
+            {(confirmEnforce.fail ?? 0) > 0
+              ? `${confirmEnforce.fail} resource${confirmEnforce.fail === 1 ? '' : 's'} currently fail this policy.`
+              : 'No resource currently fails this policy.'}
+          </p>
+        </Modal>
+      ) : null}
     </div>
   )
 }
+
+const MODE_TONE = {
+  Enforce: 'border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:border-rose-500/30',
+  Audit: 'border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300 dark:hover:border-amber-500/30',
+} as const
 
 function PolicyCard({
   policy: p,
@@ -328,6 +374,7 @@ function PolicyCard({
   const total = (p.pass ?? 0) + (p.fail ?? 0) + (p.warn ?? 0)
   const pct = total > 0 ? ((p.pass ?? 0) / total) * 100 : 100
   const tone = (p.fail ?? 0) > 0 ? 'failed' : (p.warn ?? 0) > 0 ? 'progressing' : 'healthy'
+  const canToggle = useCan(kyvernoModeCheck(p.name, p.kind === 'ClusterPolicy' ? undefined : p.namespace))
   return (
     <Card interactive>
       <button type="button" onClick={onOpen} className="block w-full p-4 text-left">
@@ -380,22 +427,30 @@ function PolicyCard({
       <div className="border-t border-edge-subtle bg-surface-raised/80 px-4 py-2">
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-content-muted">enforcement</span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleMode()
-            }}
-            disabled={busy}
-            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
-              enforce
-                ? 'border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300'
-                : 'border-amber-200 bg-amber-50 text-amber-700 hover:border-amber-300'
-            }`}
-          >
-            <span className={`h-1.5 w-1.5 rounded-full ${enforce ? 'bg-rose-500' : 'bg-amber-500'}`} />
-            {p.validationFailureAction}
-          </button>
+          {canToggle ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onToggleMode()
+              }}
+              disabled={busy}
+              title={enforce ? 'Switch to Audit' : 'Switch to Enforce'}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 disabled:opacity-60',
+                enforce ? MODE_TONE.Enforce : MODE_TONE.Audit,
+              )}
+            >
+              <span className={cn('h-1.5 w-1.5 rounded-full', enforce ? 'bg-rose-500' : 'bg-amber-500')} />
+              {p.validationFailureAction}
+            </button>
+          ) : (
+            // Read-only: no RBAC to patch this policy — show the mode, not a control.
+            <span className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold', enforce ? MODE_TONE.Enforce : MODE_TONE.Audit)}>
+              <span className={cn('h-1.5 w-1.5 rounded-full', enforce ? 'bg-rose-500' : 'bg-amber-500')} />
+              {p.validationFailureAction}
+            </span>
+          )}
           <span className="ml-auto text-[10px] font-mono text-content-subtle">
             {p.created_at ? `created ${formatRelative(p.created_at)}` : ''}
           </span>
@@ -426,7 +481,7 @@ function ActionFilter({
             onClick={() => onChange(i)}
             className={
               on
-                ? 'rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700'
+                ? 'rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700 dark:text-brand-300 dark:bg-brand-500/10'
                 : 'rounded-md px-2.5 py-1 text-[11px] text-content-muted hover:bg-surface-sunken'
             }
           >
@@ -505,7 +560,7 @@ function ResultFilter({
             onClick={() => onChange(i)}
             className={
               on
-                ? 'rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700'
+                ? 'rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700 dark:text-brand-300 dark:bg-brand-500/10'
                 : 'rounded-md px-2.5 py-1 text-[11px] text-content-muted hover:bg-surface-sunken'
             }
           >
@@ -536,7 +591,7 @@ function SeverityFilter({
             onClick={() => onChange(i)}
             className={
               on
-                ? 'rounded-md bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700'
+                ? 'rounded-md bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 dark:text-rose-300 dark:bg-rose-500/10'
                 : 'rounded-md px-2.5 py-1 text-[11px] text-content-muted hover:bg-surface-sunken'
             }
           >
@@ -556,7 +611,7 @@ function FindingRow({
   finding: NonNullable<kyverno.PolicyReport['results']>[number]
 }) {
   return (
-    <li className="px-5 py-3 transition-colors hover:bg-brand-50/40">
+    <li className="px-5 py-3 transition-colors hover:bg-brand-50/40 dark:hover:bg-brand-500/10">
       <div className="flex items-center gap-2">
         <StatusBadge kind={RESULT_TONE[finding.result]}>{finding.result}</StatusBadge>
         {finding.severity ? (
@@ -905,8 +960,8 @@ function PackDetail({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [onClose])
   if (typeof document === 'undefined') return null
 
@@ -921,7 +976,7 @@ function PackDetail({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -1135,13 +1190,13 @@ function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    globalThis.addEventListener('keydown', onKey)
+    return () => globalThis.removeEventListener('keydown', onKey)
   }, [onClose])
   if (typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close"
@@ -1187,7 +1242,7 @@ function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(
           {((p.pass ?? 0) + (p.fail ?? 0) + (p.warn ?? 0)) > 0 ? (
             <Card>
               <CardHeader>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">Result distribution</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">Result distribution</div>
               </CardHeader>
               <CardBody className="space-y-2">
                 <ResultBar pass={p.pass ?? 0} fail={p.fail ?? 0} warn={p.warn ?? 0} />
@@ -1211,7 +1266,7 @@ function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(
 
           <Card>
             <CardHeader>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700">Rules</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-brand-700 dark:text-brand-300">Rules</div>
             </CardHeader>
             <CardBody className="p-0!">
               <ul className="divide-y divide-edge-subtle">

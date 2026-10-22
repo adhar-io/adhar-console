@@ -2,6 +2,20 @@ import { env } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
 import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
+import { requirePermission } from './k8s/access.ts'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
+
+/*
+ * Who may switch platform packages on and off is Kubernetes RBAC:
+ * `update packages.console.adhar.io` (CONSOLE_PERMISSIONS.packagesToggle). A
+ * toggle commits to the platform's own ApplicationSet with the console's Gitea
+ * token, and Argo CD then installs or REMOVES that package for the whole
+ * cluster (Kyverno, Keycloak, …) — a platform operation, not something any
+ * signed-in user does. The Marketplace hides the switch on the same check.
+ */
+
+/** An ApplicationSet name: a DNS-1123-ish name, never a path. */
+const APPSET_NAME = /^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$/
 
 /**
  * Map a console-facing component name onto the ApplicationSet element that
@@ -295,6 +309,8 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
   }
   const auth = await getRequestUser(req)
   if (!auth) return unauthorized()
+  const denied = await requirePermission(req, CONSOLE_PERMISSIONS.packagesToggle)
+  if (denied) return withCookie(denied, auth.refreshedCookie)
 
   let body: ToggleRequest
   try {
@@ -333,6 +349,11 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
   }
   const enabled = body.enabled
   const appset = String(body.appset ?? '').trim() || undefined
+  // It becomes a file name in a Gitea contents path; `../../other/repo/…`
+  // would otherwise address a different repository with the admin token.
+  if (appset && (!APPSET_NAME.test(appset) || appset.includes('..'))) {
+    return withCookie(Response.json({ error: 'invalid_appset' }, { status: 400 }), auth.refreshedCookie)
+  }
 
   const gitea = getTool('gitea')
   if (!gitea?.baseUrl) {

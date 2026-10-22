@@ -23,7 +23,8 @@ const AVATAR_TONE: Record<AvatarColor, string> = {
   rose: 'bg-rose-100 text-rose-800 dark:bg-rose-500/25 dark:text-rose-100',
   sky: 'bg-sky-100 text-sky-800 dark:bg-sky-500/25 dark:text-sky-100',
   teal: 'bg-teal-100 text-teal-800 dark:bg-teal-500/25 dark:text-teal-100',
-  slate: 'bg-slate-200 text-slate-800 dark:bg-slate-500/30 dark:text-slate-100',
+  // The slate ramp inverts in dark mode on its own (styles.css) — no dark: pair.
+  slate: 'bg-slate-200 text-slate-800',
 }
 
 /** Solid swatch per colour key (colour pickers, chart dots). */
@@ -481,10 +482,10 @@ export function CodeBlock({
   actions?: ReactNode
 }) {
   return (
-    <div className={cn('relative overflow-hidden rounded-lg border border-edge-default bg-slate-950', className)}>
+    <div className={cn('relative overflow-hidden rounded-lg border border-code-edge bg-code', className)}>
       {actions ? <div className="absolute right-2 top-2 z-10 flex gap-1">{actions}</div> : null}
       <pre
-        className="overflow-auto p-4 font-mono text-[12px] leading-relaxed text-slate-100"
+        className="overflow-auto p-4 font-mono text-[12px] leading-relaxed text-code-fg"
         style={{ maxHeight }}
       >
         <code>{code}</code>

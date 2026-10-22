@@ -535,26 +535,10 @@ export function cellText(v: unknown): string {
   return String(v)
 }
 
-/* ─── commands + permissions ────────────────────────────────────────────── */
+/* ─── commands ────────────────────────────────────────────── */
 
 /** `kubectl get deployments.apps web -n shop -o yaml` for the copy button. */
 export function kubectlGet(k: { group: string; name: string; namespaced: boolean }, obj: { name: string; namespace?: string }): string {
   const ns = k.namespaced && obj.namespace ? ` -n ${obj.namespace}` : ''
   return `kubectl get ${kindParam(k)} ${obj.name}${ns} -o yaml`
-}
-
-/** Console permission the YAML panel gates Apply on (apiserver RBAC still decides). */
-export function writePermFor(k: { group: string; name: string }):
-  | 'pods.write'
-  | 'workloads.write'
-  | 'configmaps.write'
-  | 'secrets.write'
-  | 'rbac.write'
-  | 'crds.write' {
-  if (k.group === '' && k.name === 'pods') return 'pods.write'
-  if (k.group === '' && k.name === 'configmaps') return 'configmaps.write'
-  if (k.group === '' && k.name === 'secrets') return 'secrets.write'
-  if (k.group === 'rbac.authorization.k8s.io') return 'rbac.write'
-  if (isBuiltinGroup(k.group)) return 'workloads.write'
-  return 'crds.write'
 }

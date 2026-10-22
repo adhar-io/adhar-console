@@ -1051,9 +1051,12 @@ export function chartByIdMap(): Map<string, MarketplaceChart> {
 let enrichmentIndex: Map<string, MarketplaceChart> | null = null
 function chartEnrichmentIndex(): Map<string, MarketplaceChart> {
   if (enrichmentIndex) return enrichmentIndex
+  // Identity keys only (id, name, title). Tags are deliberately left out: they
+  // are shared words ("argo", "llm"), and matching on them labelled
+  // argo-rollout/argo-events as "Argo CD" and llm-d as "Ollama" (2026-10-23).
   const idx = new Map<string, MarketplaceChart>()
   for (const c of CATALOG) {
-    for (const key of [c.id, c.name, c.title ?? '', ...c.tags]) {
+    for (const key of [c.id, c.name, c.title ?? '']) {
       const k = normalizeKey(key)
       if (k && !idx.has(k)) idx.set(k, c)
     }
@@ -1062,14 +1065,27 @@ function chartEnrichmentIndex(): Map<string, MarketplaceChart> {
   return idx
 }
 
+/** Lower-case, dash-separated name segments ("Kube Prometheus_Stack" → kube-prometheus-stack). */
+function nameSegments(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+}
+
+/** `a` is `b` plus whole trailing segments, or the reverse (kube-prometheus ~ kube-prometheus-stack). */
+function segmentPrefix(a: string[], b: string[]): boolean {
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a]
+  return short.length > 0 && short.length < long.length && short.every((seg, i) => long[i] === seg)
+}
+
 /** Best-effort enrichment for an app name — never fabricates, returns undefined. */
 export function enrichApp(name: string): MarketplaceChart | undefined {
   const idx = chartEnrichmentIndex()
-  const k = normalizeKey(name)
-  if (idx.has(k)) return idx.get(k)
-  // Try dropping common suffixes (e.g. "kube-prometheus" ~ "kube-prometheus-stack").
-  for (const [key, chart] of idx) {
-    if (key.startsWith(k) || k.startsWith(key)) return chart
+  const exact = idx.get(normalizeKey(name))
+  if (exact) return exact
+  // Only a whole-segment suffix difference counts ("kube-prometheus" vs
+  // "kube-prometheus-stack"); "argo-rollout" never matches "argo-cd".
+  const segs = nameSegments(name)
+  for (const c of CATALOG) {
+    if ([c.id, c.name].some((k) => k && segmentPrefix(segs, nameSegments(k)))) return c
   }
   return undefined
 }

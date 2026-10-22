@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, StatusBadge, useToast, type StatusKind } from '@adhar/shell-ui'
+import { Button, canResource, StatusBadge, useCan, useToast, type StatusKind } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import type { k8s } from '@adhar/api-clients'
 import { cn } from '@adhar/utils'
@@ -129,7 +129,6 @@ export function BulkBar({
   singular,
   plural,
   selected,
-  canMutate,
   cluster,
   onClear,
   onDone,
@@ -138,7 +137,6 @@ export function BulkBar({
   singular: string
   plural: string
   selected: XrLike[]
-  canMutate: boolean
   cluster?: string
   onClear(): void
   onDone(): void
@@ -150,6 +148,18 @@ export function BulkBar({
   const [owner, setOwner] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [typed, setTyped] = useState('')
+  // Every bulk write is a merge PATCH (reconcile, pause, protect, ownership) or
+  // a DELETE, sent per object — so ask for that verb in every namespace the
+  // selection spans; an action shows only when it would succeed for all of it.
+  const selectedNs = [...new Set(selected.map((r) => r.metadata.namespace ?? ''))]
+  const canPatch = useCan(
+    selectedNs.map((ns) => canResource(gvr, 'patch', { namespace: ns || undefined })),
+    { cluster },
+  )
+  const canDelete = useCan(
+    selectedNs.map((ns) => canResource(gvr, 'delete', { namespace: ns || undefined })),
+    { cluster },
+  )
   if (!selected.length) return null
 
   const noun = selected.length === 1 ? singular.toLowerCase() : plural.toLowerCase()
@@ -178,7 +188,7 @@ export function BulkBar({
     <div className="sticky top-0 z-10 mb-3 rounded-xl border border-brand-200 bg-brand-50/80 px-3 py-2 shadow-sm backdrop-blur dark:border-brand-500/30 dark:bg-brand-500/10">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[12px] font-semibold text-brand-800 dark:text-brand-200">{selected.length} {noun} selected</span>
-        <button type="button" onClick={onClear} className="text-[11px] text-brand-700 hover:underline dark:text-brand-300">Clear</button>
+        <button type="button" onClick={onClear} className="rounded text-[11px] text-brand-700 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand-400/40 dark:text-brand-300">Clear</button>
         <span className="mx-1 h-4 w-px bg-brand-200 dark:bg-brand-500/30" aria-hidden />
         <Button size="xs" variant="secondary" onClick={() => { downloadText(`${plural.toLowerCase()}-${stamp}.yaml`, toYamlBundle(selected), 'application/yaml'); toast.success(`Exported ${selected.length} as YAML`) }}>
           Export YAML
@@ -186,7 +196,7 @@ export function BulkBar({
         <Button size="xs" variant="secondary" onClick={() => { downloadText(`${plural.toLowerCase()}-${stamp}.csv`, toCsv(selected), 'text/csv'); toast.success(`Exported ${selected.length} as CSV`) }}>
           Export CSV
         </Button>
-        {canMutate ? (
+        {canPatch ? (
           <>
             <Button size="xs" variant="secondary" loading={busy === 'reconcile'} onClick={() => run('reconcile', selected, patch(reconcilePatch()), `Reconcile requested for ${selected.length} ${noun}`)}>
               Reconcile now
@@ -206,14 +216,16 @@ export function BulkBar({
             <Button size="xs" variant="secondary" onClick={() => setLabeling((v) => !v)} aria-expanded={labeling}>
               Set owner…
             </Button>
-            <Button size="xs" variant="danger" disabled={!deletable.length} onClick={() => setDeleting(true)}>
-              Delete…
-            </Button>
           </>
+        ) : null}
+        {canDelete ? (
+          <Button size="xs" variant="danger" disabled={!deletable.length} onClick={() => setDeleting(true)}>
+            Delete…
+          </Button>
         ) : null}
       </div>
 
-      {labeling ? (
+      {labeling && canPatch ? (
         <form
           className="mt-2 flex flex-wrap items-center gap-2 border-t border-brand-200/70 pt-2 dark:border-brand-500/20"
           onSubmit={(e) => {
@@ -234,7 +246,7 @@ export function BulkBar({
         </form>
       ) : null}
 
-      {deleting ? (
+      {deleting && canDelete ? (
         <div className="mt-2 space-y-2 border-t border-rose-200 pt-2 dark:border-rose-500/30">
           <p className="text-[12px] text-rose-800 dark:text-rose-200">
             Deleting {deletable.length} {deletable.length === 1 ? singular.toLowerCase() : plural.toLowerCase()} makes Crossplane tear down everything they composed — data included.
@@ -270,19 +282,23 @@ export function BulkBar({
 export function OperationsPanel({
   gvr,
   xr,
-  canMutate,
   cluster,
   onMutated,
   onClone,
 }: {
   gvr: k8s.GVR
   xr: XrLike
-  canMutate: boolean
   cluster?: string
   onMutated(): void
   onClone?(): void
 }) {
   const toast = useToast()
+  // Pause/resume, reconcile, protection and ownership are all a merge PATCH on
+  // this object (see `act`). Clone is gated by the caller (create).
+  const canMutate = useCan(
+    canResource(gvr, 'patch', { namespace: xr.metadata.namespace, name: xr.metadata.name }),
+    { cluster },
+  )
   const [busy, setBusy] = useState<string | null>(null)
   const own = ownership(xr)
   const [draft, setDraft] = useState<Record<OwnershipKey, string>>({ team: '', owner: '', environment: '', costCenter: '' })
@@ -341,7 +357,7 @@ export function OperationsPanel({
           title="Deletion protection"
           state={prot ? 'On' : 'Off'}
           tone={prot ? 'healthy' : 'unknown'}
-          help={prot ? 'The console refuses to delete this resource.' : 'Anyone with write access can delete it here.'}
+          help={prot ? 'The console refuses to delete this resource.' : 'Anyone allowed to delete it can do so here.'}
         >
           {canMutate ? (
             <Button size="xs" variant="secondary" loading={busy === 'protect'} onClick={() => act('protect', protectPatch(!prot), prot ? 'Deletion protection removed' : 'Deletion protection on')}>

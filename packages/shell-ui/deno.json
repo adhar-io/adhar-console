@@ -13,5 +13,13 @@
   },
   "tasks": {
     "check": "deno check src/index.ts"
+  },
+  "imports": {
+    "react": "npm:react@^19.2.0",
+    "react/jsx-runtime": "npm:react@^19.2.0/jsx-runtime",
+    "react-dom": "npm:react-dom@^19.2.0",
+    "@tanstack/react-router": "npm:@tanstack/react-router@^1.167.0",
+    "@tanstack/react-query": "npm:@tanstack/react-query@^5.59.0",
+    "@ag-ui/core": "npm:@ag-ui/core@^0.0.59"
   }
 }

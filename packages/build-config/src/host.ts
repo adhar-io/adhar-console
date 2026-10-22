@@ -5,6 +5,8 @@ import tailwind from '@tailwindcss/vite'
 import { resolve } from 'node:path'
 import { REMOTES } from './registry.ts'
 import { consoleAliases, findWorkspaceRoot, resolveAdharUiPath } from './paths.ts'
+import { FEDERATION_SHARE_STRATEGY, FEDERATION_SHARED } from './shared.ts'
+import { mfCjsProxyDollarFix } from './mf-fixes.ts'
 
 interface HostOpts {
   /** The host app's own folder — callers pass `import.meta.dirname`. */
@@ -115,13 +117,12 @@ export function defineHostConfig(opts: HostOpts) {
           target: 'web',
           remotes,
           dts: false,
-          shared: {
-            react: { singleton: true, eager: true, requiredVersion: '^19.2.0' },
-            'react-dom': { singleton: true, eager: true, requiredVersion: '^19.2.0' },
-            '@tanstack/react-router': { singleton: true, eager: true },
-            '@tanstack/react-query': { singleton: true, eager: true },
-          },
+          shared: FEDERATION_SHARED,
+          // See shared.ts — keeps the host's React/router/query the one provider.
+          shareStrategy: FEDERATION_SHARE_STRATEGY,
         }),
+        // See mf-fixes.ts — `$ is not defined` in minified commonjs-proxy importers.
+        mfCjsProxyDollarFix(),
         // Pure SPA build (index.html → app/main.tsx). The console ships as a
         // client-rendered SPA served by a small standalone Deno server
         // (apps/console/server.ts) that also hosts the BFF API routes. We do

@@ -182,6 +182,11 @@ function runAgenticTool(
   }
 }
 
+/** Per-run input ceilings (generous for a long chat; refuse anything beyond). */
+const MAX_RUN_MESSAGES = 400
+const MAX_CLIENT_TOOLS = 64
+const MAX_CONTEXT_ITEMS = 32
+
 export interface RunOptions {
   identity: K8sIdentity | string
   signal?: AbortSignal
@@ -211,6 +216,16 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
     forwardedProps?: Record<string, unknown>
   }
 
+  // Bounds on what one run may carry. The schema validates shape, not size,
+  // and every byte here is re-sent to the model on each tool round.
+  if (
+    input.messages.length > MAX_RUN_MESSAGES ||
+    (input.tools?.length ?? 0) > MAX_CLIENT_TOOLS ||
+    (input.context?.length ?? 0) > MAX_CONTEXT_ITEMS
+  ) {
+    return Response.json({ error: 'run_input_too_large' }, { status: 413 })
+  }
+
   // Forward the caller's bearer to the LLM endpoint. On an Adhar platform that
   // endpoint is agentgateway, whose jwtAuthentication is Strict: without a token the
   // browser gets
@@ -229,7 +244,10 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
   // when a delegated run fails and the console's own agent takes the turn.
   let active: AgentDef = agent
   // Frontend tools the browser declared it can run this turn.
-  const clientTools = (input.tools ?? []).map((t) => ({
+  // A browser tool may not borrow a server tool's name: the loop below decides
+  // where a call runs BY NAME, so declaring `git_file` would get it executed
+  // server-side for an agent that was never given it.
+  const clientTools = (input.tools ?? []).filter((t) => !isServerTool(t.name)).map((t) => ({
     type: 'function' as const,
     function: { name: t.name, description: t.description ?? '', parameters: t.parameters ?? { type: 'object', properties: {} } },
   }))
@@ -381,6 +399,16 @@ export function runAgent(rawInput: unknown, opts: RunOptions): Response {
             if (!isServerTool(toolName)) {
               awaitingClient = { toolCallId: tc.id, toolName }
               break
+            }
+
+            // Only the tools THIS agent was offered. The model can name any
+            // tool it has heard of; an agent without source access must not
+            // reach the git tools (admin Gitea credentials) by asking for them.
+            if (!tools.some((t) => t.function.name === toolName)) {
+              const refused = JSON.stringify({ error: `tool ${toolName} is not available to this agent` })
+              stream.toolResult(tc.id, refused)
+              convo.push({ role: 'tool', tool_call_id: tc.id, name: toolName, content: refused })
+              continue
             }
 
             state.tools = { called: state.tools.called + 1, last: toolName }

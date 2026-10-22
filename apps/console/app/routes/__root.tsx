@@ -9,6 +9,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { AdharSymbol, Spinner, subscribeUnauthorized } from '@adhar/shell-ui'
 import { useAuth, type Session } from '@adhar/auth'
 import type { Tenant } from '@adhar/tenancy'
+import { splitReturnTo } from '~/data/return-to.ts'
 
 export interface RouterContext {
   queryClient: QueryClient
@@ -55,11 +56,12 @@ function RootComponent() {
   const search = useRouterState({ select: (s) => s.location.search as { returnTo?: string } })
   useEffect(() => {
     if (status !== 'authenticated' || pathname !== '/login') return
-    const raw = search?.returnTo && search.returnTo.startsWith('/') ? search.returnTo : '/'
-    // Never send an authenticated user back to /login — that would re-trigger
-    // this effect and loop (the page appears to just reload).
-    const to = raw === '/login' || raw.startsWith('/login?') ? '/' : raw
-    nav({ to, replace: true })
+    // `safeReturnTo` refuses off-origin targets (`//host`) and /login itself —
+    // sending an authenticated user back to /login would re-trigger this
+    // effect and loop (the page appears to just reload). Path and query go to
+    // the router separately so a `?section=` deep link survives.
+    const { to, search: query } = splitReturnTo(search?.returnTo)
+    nav({ to, search: query as never, replace: true })
   }, [status, pathname, search, nav])
 
   // The full location the user wanted, query string included. Phase pages

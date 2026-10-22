@@ -20,6 +20,7 @@ import {
   verdictFor,
 } from '../data/perf-automation.ts'
 import type { PerfTestConfig } from '../data/perf-format.ts'
+import { installRunnerChecks } from '../data/access.ts'
 import { DEFAULT_GATE, DEFAULT_TOLERANCE, hasBudget, type PerfGate, trendPoints } from '../data/perf-gate.ts'
 import { fmtMetric, fmtMs, type MetricKey, type RunRecord } from '../data/perf-results.ts'
 import {
@@ -29,7 +30,7 @@ import {
   tektonPipelineSnippet,
   tektonTask,
 } from '../data/perf-runner.ts'
-import type { PerfTest } from '../data/perf-suite.ts'
+import { canAuthorPerf, type PerfTest } from '../data/perf-suite.ts'
 import { fmtDay, RegressionBadge, Snippet, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
 
 /**
@@ -74,7 +75,8 @@ export function TrendsPanel({
   }, [insights.records, name, days])
   const pin = usePinBaseline()
   const toast = useToast()
-  const canManage = useCan('develop')
+  // Pinning is a commit to test.json — Gitea's push permission decides.
+  const canManage = canAuthorPerf(insights.suite, name)
 
   const gate = config.gate
   const base = config.baseline
@@ -457,7 +459,8 @@ export function CiPanel({ test, dirty }: { test: PerfTest; dirty: boolean }) {
   const status = useRunnerStatus(test)
   const install = useInstallRunner()
   const toast = useToast()
-  const canManage = useCan('develop')
+  // RBAC: installing writes the runner's ServiceAccount/Role/RoleBinding and artefact in `ns`.
+  const canManage = useCan(installRunnerChecks(ns))
   const [ciSa, setCiSa] = useState('pipeline')
   const [ciNs, setCiNs] = useState('tekton-pipelines')
   const [project, setProject] = useState('')
@@ -488,14 +491,16 @@ export function CiPanel({ test, dirty }: { test: PerfTest; dirty: boolean }) {
           ? (
             <Button
               size="sm"
-              disabled={install.isPending || dirty}
+              variant={ready ? 'secondary' : 'primary'}
+              disabled={dirty}
+              loading={install.isPending}
               onClick={() =>
                 install.mutate(test, {
                   onSuccess: () => toast.success(`Runner ${ready ? 'refreshed' : 'installed'} in ${ns}`),
                   onError: (e: Error) => toast.error('Could not install the runner', { description: e.message }),
                 })}
             >
-              {install.isPending ? 'Installing…' : ready ? 'Refresh' : 'Install runner'}
+              {ready ? 'Refresh' : 'Install runner'}
             </Button>
           )
           : null}

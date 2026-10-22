@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
-import { PdfDocument, textWidth, toWinAnsi, wrapText } from './pdf-writer.ts'
+import { PdfDocument, textWidth, toWinAnsi, wrapText } from './writer.ts'
 
 const decode = (b: Uint8Array) => Array.from(b, (c) => String.fromCharCode(c)).join('')
 

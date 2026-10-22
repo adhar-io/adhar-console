@@ -1,6 +1,6 @@
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Card, CardBody, CardHeader, EmptyState, Spinner } from '@adhar/shell-ui'
+import { Button, Card, CardBody, CardHeader, EmptyState, Spinner, useToast } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import {
   type ChaosRow,
@@ -24,9 +24,9 @@ import { reportHtml } from '../data/perf-report.ts'
  * the team's own Performance Center gates and game days. The page adds no
  * judgement of its own, and a measurement that was never taken says so.
  *
- * The report prints cleanly (browser "Save as PDF") and downloads as a
- * standalone Performance Report (perf-report.ts) — observations, what they
- * mean and ranked recommendations — for a change record or release review.
+ * The report downloads as a PDF (perf-report-pdf.ts) or a standalone HTML
+ * page (perf-report.ts) — observations, what they mean and ranked
+ * recommendations — for a change record or release review.
  */
 export function PerfReadiness() {
   const q = useQuery({
@@ -129,16 +129,30 @@ export function PerfReadiness() {
 /* ─────────────────────────── the report ─────────────────────────── */
 
 function Report({ report: r }: { report: ReadinessReport }) {
-  const download = () => {
-    const html = reportHtml(r, { generatedAt: new Date().toISOString(), consoleUrl: globalThis.location?.href })
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
+  const toast = useToast()
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const save = (data: BlobPart, type: string, ext: string) => {
+    const url = URL.createObjectURL(new Blob([data], { type }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `${r.app}-performance-report-${new Date().toISOString().slice(0, 10)}.html`
+    a.download = `${r.app}-performance-report-${new Date().toISOString().slice(0, 10)}.${ext}`
     a.click()
     // Revoke after the click has been handled, or some browsers cancel it.
     setTimeout(() => URL.revokeObjectURL(url), 1_000)
+  }
+  const meta = () => ({ generatedAt: new Date().toISOString(), consoleUrl: globalThis.location?.href })
+  const downloadHtml = () => save(reportHtml(r, meta()), 'text/html;charset=utf-8', 'html')
+  const downloadPdf = async () => {
+    setPdfBusy(true)
+    try {
+      // Its own chunk: the PDF writer loads only when someone asks for a PDF.
+      const { perfReportPdf } = await import('../data/perf-report-pdf.ts')
+      save(perfReportPdf(r, meta()), 'application/pdf', 'pdf')
+    } catch (err) {
+      toast.error('Could not build the PDF', { description: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setPdfBusy(false)
+    }
   }
   return (
     <article className="space-y-4" aria-label={`Readiness report for ${r.app}`}>
@@ -160,8 +174,8 @@ function Report({ report: r }: { report: ReadinessReport }) {
             <ScoreRing label="Resilience" value={r.resilienceScore} />
           </div>
           <div className="flex gap-2 print:hidden">
-            <Button size="sm" variant="secondary" onClick={() => globalThis.print()}>Print / PDF</Button>
-            <Button size="sm" variant="primary" onClick={download}>Download Report</Button>
+            <Button size="sm" variant="secondary" onClick={downloadHtml}>Download HTML</Button>
+            <Button size="sm" variant="primary" onClick={() => void downloadPdf()} loading={pdfBusy}>Download PDF</Button>
           </div>
         </CardBody>
         <div

@@ -395,8 +395,11 @@ export interface ReportMeta {
   consoleUrl?: string
 }
 
-/** The full report as a standalone HTML document. */
-export function reportHtml(r: ReadinessReport, meta: ReportMeta): string {
+/** The report's areas, in reading order. */
+export const REPORT_AREAS: Finding['area'][] = ['Load test', 'Live service levels', 'Resilience', 'Workload design', 'Team evidence']
+
+/** Findings, recommendations and the counts the summary shows — shared by the HTML and PDF reports. */
+export function reportSummary(r: ReadinessReport) {
   const findings = reportFindings(r)
   const recs = recommendations(findings)
   const counts = {
@@ -407,14 +410,25 @@ export function reportHtml(r: ReadinessReport, meta: ReportMeta): string {
   }
   const applicable = r.signals.filter((s) => s.applicable)
   const passed = applicable.filter((s) => s.passed).length
+  const high = recs.filter((f) => f.priority === 'high').length
+  return { findings, recs, counts, applicable, passed, high }
+}
+
+/** The one-sentence verdict at the top of the report (plain text). */
+export function reportHeadline(r: ReadinessReport): string {
+  const { counts, high } = reportSummary(r)
+  return r.grade === 'A' || r.grade === 'B'
+    ? `${r.app} is production-ready on performance and resilience${counts.bad ? `, with ${counts.bad} issue${counts.bad === 1 ? '' : 's'} to address` : ''}.`
+    : `${r.app} is not yet production-ready: ${counts.bad} issue${counts.bad === 1 ? '' : 's'} need${counts.bad === 1 ? 's' : ''} attention${high ? `, ${high} of them high priority` : ''}.`
+}
+
+/** The full report as a standalone HTML document. */
+export function reportHtml(r: ReadinessReport, meta: ReportMeta): string {
+  const { findings, recs, counts, applicable, passed, high } = reportSummary(r)
   const generated = new Date(meta.generatedAt)
   const genText = Number.isNaN(generated.getTime()) ? meta.generatedAt : generated.toUTCString().replace(' GMT', ' UTC')
-  const areas: Finding['area'][] = ['Load test', 'Live service levels', 'Resilience', 'Workload design', 'Team evidence']
-  const high = recs.filter((f) => f.priority === 'high').length
-
-  const headline = r.grade === 'A' || r.grade === 'B'
-    ? `${esc(r.app)} is production-ready on performance and resilience${counts.bad ? `, with ${counts.bad} issue${counts.bad === 1 ? '' : 's'} to address` : ''}.`
-    : `${esc(r.app)} is not yet production-ready: ${counts.bad} issue${counts.bad === 1 ? '' : 's'} need${counts.bad === 1 ? 's' : ''} attention${high ? `, ${high} of them high priority` : ''}.`
+  const areas = REPORT_AREAS
+  const headline = esc(reportHeadline(r))
 
   const findingCard = (f: Finding) => `<div class="finding" style="border-left-color:${TONE_COLOR[f.tone]}">
 <div class="fhead"><h4>${esc(f.title)}</h4>${pill(f.tone)}</div>

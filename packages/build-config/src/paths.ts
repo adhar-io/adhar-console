@@ -73,6 +73,8 @@ export function consoleAliases(workspaceRoot: string): Record<string, string> {
     '@adhar/api-clients/base': p('packages/api-clients/src/base/index.ts'),
     // Roots last.
     '@adhar/api-clients': p('packages/api-clients/src/index.ts'),
+    // Lazy-loaded PDF writer: its own subpath so it never lands in the shared chunk.
+    '@adhar/utils/pdf': p('packages/utils/src/pdf/index.ts'),
     '@adhar/utils': p('packages/utils/src/index.ts'),
     // Auth subpath before the root.
     '@adhar/auth/server': p('packages/auth/src/server-index.ts'),

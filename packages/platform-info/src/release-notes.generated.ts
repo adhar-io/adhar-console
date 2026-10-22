@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.149",
+    "date": "2026-10-22",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Pdf report for perf and chaos"
+      }
+    ]
+  },
+  {
     "version": "0.1.148",
     "date": "2026-10-22",
     "changes": [
@@ -733,36 +743,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "workspace",
         "text": "Settings pages that work in dark mode"
-      }
-    ]
-  },
-  {
-    "version": "0.1.109",
-    "date": "2026-10-04",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Coder fix"
-      },
-      {
-        "type": "fix",
-        "scope": "develop",
-        "text": "Cloud dev environments that are actually ready"
-      },
-      {
-        "type": "fix",
-        "scope": "develop",
-        "text": "Render a README the way a README is meant to look"
-      },
-      {
-        "type": "feature",
-        "scope": "deliver",
-        "text": "Follow every commit through the pipeline, for custom apps"
-      },
-      {
-        "type": "fix",
-        "scope": "deliver",
-        "text": "Show every Argo CD application, filtered by what it is"
       }
     ]
   }

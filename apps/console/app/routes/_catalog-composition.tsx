@@ -1,34 +1,17 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { Button, EmptyState, Input, Select, Spinner, StatusBadge, type StatusKind, useToast } from '@adhar/shell-ui'
+import { useEffect, useMemo, useState } from 'react'
+import { Button, EmptyState, Input, Select, Spinner, type StatusKind, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
-import { CodeViewer, IconBtn, Segmented, ToggleChip } from '~/components/code-viewer.tsx'
-import {
-  ConditionsTable,
-  FieldList,
-  GraphView,
-  LEVEL_KIND,
-  NodeSidePanel,
-  RelatedList,
-  StatusCallout,
-  StatusPill,
-  SyncMark,
-  TreeTable,
-} from '~/components/resource-graph.tsx'
-import {
-  COMPOSITION_REFRESH_MS,
-  type CompositionRoots,
-  useCompositionGraph,
-  useLiveObject,
-  useObjectEvents,
-} from '~/data/catalog-composition.ts'
+import { IconBtn, Segmented, ToggleChip } from '~/components/code-viewer.tsx'
+import { GraphView, LEVEL_KIND, StatusPill, SyncMark, TreeTable } from '~/components/resource-graph.tsx'
+import { cardExtra, ResourceDetail } from '~/components/resource-detail.tsx'
+import { COMPOSITION_REFRESH_MS, type CompositionRoots, useCompositionGraph } from '~/data/catalog-composition.ts'
 import {
   age,
-  apiVersionOf,
-  type CompNode,
-  type CompositionGraph,
   deriveStatus,
   type HealthLevel,
+  intersectVisible,
   kindsOf,
+  subtreeScope,
   summarize,
   visibleNodes,
   worse,
@@ -37,8 +20,8 @@ import {
 export { LEVEL_KIND }
 
 /**
- * The Composition tab: everything the entity is made of, live — the way Argo
- * CD's application view shows an app's resources.
+ * The Composition view of the drawer's Resources tab: everything the entity
+ * is made of, live.
  *
  * Roots are the entity's platform composite and its Argo CD apps (resolved in
  * `catalog-composition.ts`); under them, each composed resource, nested
@@ -57,7 +40,11 @@ export function compositionBadge(roots: CompositionRoots): { kind: StatusKind; v
   return { kind: LEVEL_KIND[worst], value: roots.roots.length }
 }
 
-export function CompositionTab({ roots }: { roots: CompositionRoots }) {
+export function CompositionView({ roots, scope }: {
+  roots: CompositionRoots
+  /** Show only this node's branch (an environment's Argo CD app), when it is in the graph. */
+  scope?: string | null
+}) {
   const [view, setView] = useState<View>(() =>
     typeof globalThis.matchMedia === 'function' && !globalThis.matchMedia('(min-width: 640px)').matches ? 'list' : 'tree'
   )
@@ -71,10 +58,16 @@ export function CompositionTab({ roots }: { roots: CompositionRoots }) {
   const toast = useToast()
 
   const g = graph.data
-  const summary = useMemo(() => (g ? summarize(g) : undefined), [g])
   const kinds = useMemo(() => (g ? kindsOf(g) : []), [g])
-  const visible = useMemo(() => (g ? visibleNodes(g, { search, kind, unhealthyOnly }) : undefined), [g, search, kind, unhealthyOnly])
-  const filtering = Boolean(visible)
+  const scoped = useMemo(() => (g && scope && g.nodes[scope] ? subtreeScope(g, scope) : undefined), [g, scope])
+  const filtered = useMemo(() => (g ? visibleNodes(g, { search, kind, unhealthyOnly }) : undefined), [g, search, kind, unhealthyOnly])
+  // Counts follow the environment scope, so they describe what is shown.
+  const summary = useMemo(
+    () => (g ? summarize(scoped ? { ...g, nodes: Object.fromEntries(Object.entries(g.nodes).filter(([id]) => scoped.has(id))) } : g) : undefined),
+    [g, scoped],
+  )
+  const visible = useMemo(() => intersectVisible(scoped, filtered), [scoped, filtered])
+  const filtering = Boolean(filtered)
 
   // A tick so "updated 5s ago" and ages move between refreshes.
   const [now, setNow] = useState(() => Date.now())
@@ -122,7 +115,7 @@ export function CompositionTab({ roots }: { roots: CompositionRoots }) {
   const collapseAll = () => g && setCollapsed(new Set(Object.values(g.nodes).filter((n) => n.children.length && !g.roots.includes(n.id)).map((n) => n.id)))
   const updatedAt = graph.dataUpdatedAt
 
-  const fitKey = `${search}|${kind}|${unhealthyOnly}|${view}`
+  const fitKey = `${search}|${kind}|${unhealthyOnly}|${view}|${scope ?? ''}`
   const shownCollapsed = filtering ? NO_COLLAPSE : collapsed
 
   return (
@@ -155,8 +148,8 @@ export function CompositionTab({ roots }: { roots: CompositionRoots }) {
               onChange={setView}
               ariaLabel="View"
               options={[
-                { value: 'tree', label: 'Tree' },
-                { value: 'list', label: 'List' },
+                { value: 'tree', label: 'Graph' },
+                { value: 'list', label: 'Table' },
               ]}
             />
             <Button
@@ -221,7 +214,7 @@ export function CompositionTab({ roots }: { roots: CompositionRoots }) {
       ) : filtering && visible!.size === 0 ? (
         <EmptyState compact title="No resources match" description="Clear the search or filters to see every resource." action={<Button size="sm" variant="secondary" onClick={() => { setSearch(''); setKind(''); setUnhealthyOnly(false) }}>Clear filters</Button>} />
       ) : view === 'tree' ? (
-        <GraphView ariaLabel="Resource tree" graph={g} visible={visible} collapsed={shownCollapsed} onToggle={toggle} selected={selected} onSelect={setSelected} now={now} fitKey={fitKey} onExpandAll={filtering ? undefined : () => setCollapsed(new Set())} onCollapseAll={filtering ? undefined : collapseAll} />
+        <GraphView ariaLabel="Composition graph" graph={g} visible={visible} collapsed={shownCollapsed} onToggle={toggle} selected={selected} onSelect={setSelected} now={now} fitKey={fitKey} cardExtra={cardExtra} onExpandAll={filtering ? undefined : () => setCollapsed(new Set())} onCollapseAll={filtering ? undefined : collapseAll} />
       ) : (
         <TreeTable ariaLabel="Resources" graph={g} visible={visible} collapsed={shownCollapsed} onToggle={toggle} selected={selected} onSelect={setSelected} now={now} onExpandAll={filtering ? undefined : () => setCollapsed(new Set())} onCollapseAll={filtering ? undefined : collapseAll} />
       )}
@@ -235,7 +228,7 @@ export function CompositionTab({ roots }: { roots: CompositionRoots }) {
       </div>
 
       {selected && g?.nodes[selected] ? (
-        <NodeDetail graph={g} node={g.nodes[selected]} roots={roots} onClose={() => setSelected(null)} onSelect={setSelected} now={now} />
+        <ResourceDetail graph={g} node={g.nodes[selected]} onClose={() => setSelected(null)} onSelect={setSelected} now={now} />
       ) : null}
     </div>
   )
@@ -243,116 +236,3 @@ export function CompositionTab({ roots }: { roots: CompositionRoots }) {
 
 const NO_COLLAPSE: ReadonlySet<string> = new Set()
 
-type DetailTab = 'summary' | 'events' | 'yaml'
-
-function NodeDetail({ graph, node, roots, onClose, onSelect, now }: {
-  graph: CompositionGraph
-  node: CompNode
-  roots: CompositionRoots
-  onClose(): void
-  onSelect(id: string): void
-  now: number
-}) {
-  const [tab, setTab] = useState<DetailTab>('summary')
-  const ref = { group: node.group, version: node.version, kind: node.kind, name: node.name, namespace: node.namespace }
-  // Argo-tree nodes were never read from the apiserver; read on demand.
-  const live = useLiveObject(roots.discovery, ref, tab === 'yaml' && !node.object && !node.error)
-  const events = useObjectEvents(ref, tab === 'events')
-  const object = node.object ?? live.data
-
-  const fields: Array<[string, ReactNode]> = [
-    ['API version', apiVersionOf(node) ?? (node.group || 'v1')],
-    ['Namespace', node.namespace ?? '— (cluster-scoped)'],
-    ['Created', node.createdAt ? `${new Date(node.createdAt).toLocaleString()} (${age(node.createdAt, now)} ago)` : '—'],
-    ['UID', node.uid ?? '—'],
-  ]
-  if (node.composition) fields.push(['Composition', node.composition])
-  if (node.compositionRevision) fields.push(['Composition revision', node.compositionRevision])
-  if (node.argoApp) fields.push(['Argo CD app', node.argoApp.name])
-  if (node.status.sync) fields.push(['Sync', node.status.sync])
-  if (node.status.health) fields.push(['Health', node.status.health])
-
-  return (
-    <NodeSidePanel<DetailTab>
-      node={node}
-      tab={tab}
-      onTab={setTab}
-      onClose={onClose}
-      tabs={[
-        { value: 'summary', label: 'Summary' },
-        { value: 'events', label: 'Events' },
-        { value: 'yaml', label: 'YAML' },
-      ]}
-    >
-      {tab === 'summary' ? (
-        <>
-          <StatusCallout node={node} />
-          {node.error ? (
-            <p className="text-xs text-content-muted">
-              {node.error.status === 403
-                ? 'Your Kubernetes role cannot read this object, so its status is unknown.'
-                : node.error.status === 404
-                  ? 'This resource is referenced but does not exist (or its CRD is not installed).'
-                  : `Could not read it: ${node.error.message}`}
-            </p>
-          ) : null}
-          <FieldList fields={fields} />
-          <ConditionsTable conditions={node.conditions} now={now} />
-          {node.info?.length ? (
-            <section>
-              <h4 className="mb-1.5 text-xs font-semibold text-content">Info</h4>
-              <FieldList fields={node.info.map((i) => [i.name, i.value])} />
-            </section>
-          ) : null}
-          <RelatedList title="Parents" ids={node.parents} graph={graph} onSelect={onSelect} />
-          <RelatedList title="Children" ids={node.children} graph={graph} onSelect={onSelect} />
-        </>
-      ) : null}
-      {tab === 'events' ? <EventsList events={events} now={now} /> : null}
-      {tab === 'yaml' ? (
-        object ? (
-          <CodeViewer value={object} filename={`${node.kind.toLowerCase()}-${node.name}`} ariaLabel={`${node.kind} ${node.name} YAML`} height="calc(100vh - 220px)" />
-        ) : live.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner size={14} /> Reading the live object…</div>
-        ) : (
-          <p className="text-xs text-content-muted">
-            {node.error
-              ? node.error.status === 403 ? 'Your role cannot read this object.' : node.error.message
-              : live.error
-                ? `Could not read it: ${live.error instanceof Error ? live.error.message : String(live.error)}`
-                : 'No live object.'}
-          </p>
-        )
-      ) : null}
-    </NodeSidePanel>
-  )
-}
-
-/** Events for one object (see `useObjectEvents`), with honest empty/RBAC states. */
-export function EventsList({ events, now }: { events: ReturnType<typeof useObjectEvents>; now: number }) {
-  if (events.isLoading) return <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner size={14} /> Loading events…</div>
-  if (events.error) {
-    return (
-      <p className="text-xs text-content-muted">
-        {(events.error as { status?: number }).status === 403 ? 'Your role cannot list events in this namespace.' : `Could not load events: ${events.error instanceof Error ? events.error.message : String(events.error)}`}
-      </p>
-    )
-  }
-  if (!events.data?.length) return <p className="text-xs text-content-muted">No recent events for this object. Kubernetes keeps events for about an hour.</p>
-  return (
-    <ul className="space-y-2">
-      {events.data.map((e, i) => (
-        <li key={i} className="rounded-md border border-edge-default bg-surface-raised px-3 py-2 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge kind={e.type === 'Warning' ? 'degraded' : 'info'} pulse={false}>{e.type}</StatusBadge>
-            <span className="font-medium text-content">{e.reason}</span>
-            {e.count > 1 ? <span className="text-content-subtle">×{e.count}</span> : null}
-            <span className="ml-auto text-content-subtle">{age(e.at, now)} ago</span>
-          </div>
-          <div className="wrap-break-word mt-1 whitespace-pre-wrap text-content-muted">{e.message}</div>
-          {e.source ? <div className="mt-0.5 text-[11px] text-content-subtle">{e.source}</div> : null}
-        </li>
-      ))}
-    </ul>
-  )
-}

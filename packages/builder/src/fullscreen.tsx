@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 /**
  * Full screen for the Visual Designer.
@@ -97,5 +98,34 @@ export function BuilderFullscreenProvider({ children }: { children(full: boolean
     return () => globalThis.removeEventListener('keydown', onKey)
   }, [full, enter])
 
-  return <Ctx.Provider value={{ full, toggle, exit }}>{children(full)}</Ctx.Provider>
+  // The designer renders into one host element that MOVES: inside the page
+  // normally, onto <body> in full screen. In the page it sits in the console's
+  // content column, an isolated stacking context, so no z-index there can rise
+  // above the sidebar and top bar — they covered the "full screen" designer.
+  // On <body> its fixed layer is above them. Moving the host does not remount
+  // anything (the portal target never changes), so editor state, undo history
+  // and scroll survive the switch.
+  const placeholder = useRef<HTMLDivElement>(null)
+  const [host] = useState(() => {
+    if (typeof document === 'undefined') return null
+    const el = document.createElement('div')
+    el.style.display = 'contents'
+    el.dataset.builderHost = ''
+    return el
+  })
+  useLayoutEffect(() => {
+    if (!host) return
+    const target = full ? document.body : placeholder.current
+    if (target && host.parentNode !== target) target.appendChild(host)
+  }, [full, host])
+  useEffect(() => () => host?.remove(), [host])
+
+  const content = <Ctx.Provider value={{ full, toggle, exit }}>{children(full)}</Ctx.Provider>
+  if (!host) return content
+  return (
+    <>
+      <div ref={placeholder} style={{ display: 'contents' }} />
+      {createPortal(content, host)}
+    </>
+  )
 }

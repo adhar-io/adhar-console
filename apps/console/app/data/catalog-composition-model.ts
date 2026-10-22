@@ -1216,3 +1216,29 @@ export function treeRows(
   roots.forEach((r, i) => walk(r, 0, [], i === roots.length - 1))
   return rows
 }
+
+/**
+ * A node's whole branch: its ancestors (so the path to the root stays) and
+ * every descendant. Scopes the composition graph to one environment's Argo CD
+ * app subtree.
+ */
+export function subtreeScope(graph: CompositionGraph, id: string): Set<string> {
+  const out = pathToRoot(graph, id)
+  const stack = [...(graph.nodes[id]?.children ?? [])]
+  while (stack.length) {
+    const cur = stack.pop()!
+    if (out.has(cur) || !graph.nodes[cur]) continue
+    out.add(cur)
+    stack.push(...graph.nodes[cur].children)
+  }
+  return out
+}
+
+/** Intersection of optional visibility sets (`undefined` = everything). */
+export function intersectVisible(a: Set<string> | undefined, b: Set<string> | undefined): Set<string> | undefined {
+  if (!a) return b
+  if (!b) return a
+  const out = new Set<string>()
+  for (const x of a) if (b.has(x)) out.add(x)
+  return out
+}

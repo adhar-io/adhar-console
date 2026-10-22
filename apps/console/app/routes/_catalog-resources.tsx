@@ -1,47 +1,29 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
-import { Button, EmptyState, Input, LogConsole, Select, Spinner, StatusBadge, type StatusKind, useLogStream, usePublicUrl, useToast, useToolPublicUrl } from '@adhar/shell-ui'
+import { Button, EmptyState, Input, Select, Spinner, StatusBadge, type StatusKind, usePublicUrl, useToast, useToolPublicUrl } from '@adhar/shell-ui'
 import type { argocd } from '@adhar/api-clients'
 import { cn } from '@adhar/utils'
-import { CodeViewer, IconBtn, Segmented, ToggleChip } from '~/components/code-viewer.tsx'
-import {
-  ConditionsTable,
-  FieldList,
-  GraphView,
-  HealthMark,
-  KindIcon,
-  LEVEL_DOT,
-  LEVEL_KIND,
-  NodeSidePanel,
-  RelatedList,
-  StatusCallout,
-  SyncMark,
-} from '~/components/resource-graph.tsx'
+import { IconBtn, Segmented, ToggleChip } from '~/components/code-viewer.tsx'
+import { GraphView, HealthMark, KindIcon, LEVEL_DOT, LEVEL_KIND, SyncMark } from '~/components/resource-graph.tsx'
+import { cardExtra, networkExtra, ResourceDetail } from '~/components/resource-detail.tsx'
 import type { Entity } from '~/data/catalog.ts'
 import { type EntityDeployment, kargoEnvironments, useKargoStages } from '~/data/catalog-deployment.ts'
-import { useDiscovery, useLiveObject, useObjectEvents } from '~/data/catalog-composition.ts'
-import { age, apiVersionOf, argoHealthLevel, type CompNode, type CompositionGraph, kindsOf } from '~/data/catalog-composition-model.ts'
-import { RESOURCES_REFRESH_MS, useAppResources, useManagedResources } from '~/data/catalog-resources.ts'
+import type { CompositionRoots } from '~/data/catalog-composition.ts'
+import { age, argoHealthLevel, type CompositionGraph, kindsOf, nodeId } from '~/data/catalog-composition-model.ts'
+import { RESOURCES_REFRESH_MS, useAppResources } from '~/data/catalog-resources.ts'
 import {
-  comparable,
-  diffChunks,
   envTabs,
+  resourceViews,
+  type ResourcesView,
   fmtCpu,
   fmtMem,
   groupPods,
-  hostnamesOf,
-  imagesOf,
-  imageTag,
-  lineDiff,
   networkGraph,
-  podInfo,
   type PodRow,
   podRows,
   type ResourceFilter,
   resourceVisible,
-  workloadReplicas,
 } from '~/data/catalog-resources-model.ts'
-import { toYaml } from '~/data/k8s-yaml.ts'
-import { EventsList } from './_catalog-composition.tsx'
+import { CompositionView } from './_catalog-composition.tsx'
 
 /**
  * The Resources tab: an entity's Argo CD applications, the way Argo CD's
@@ -79,15 +61,26 @@ function commitUrl(repoUrl: string | undefined, rev: string | undefined): string
   return `${repoUrl.replace(/\.git$/, '').replace(/\/$/, '')}/commit/${rev}`
 }
 
-export function ResourcesTab({ entity, deployment, overview = true }: {
+const VIEW_LABEL: Record<ResourcesView, string> = { composition: 'Composition', tree: 'Tree', network: 'Network', pods: 'Pods', list: 'List' }
+
+/**
+ * The drawer's Resources tab — one tool for everything the entity runs:
+ *
+ *   • Composition: the platform composite and all it composed, down to the
+ *     Argo CD apps and their live resources (`CompositionView`).
+ *   • Tree / Network / Pods / List: one Argo CD application at a time, the way
+ *     Argo CD's app view shows it (`AppView`).
+ *
+ * The environment chips scope both: an environment picks the app the Argo
+ * views show and narrows the composition graph to that app's branch; "All
+ * environments" shows the whole composition and, for the Argo views, a health
+ * and sync summary of every environment. Every view opens the same side
+ * panel (Summary / Events / YAML / Diff / Logs).
+ */
+export function ResourcesTab({ entity, deployment, roots }: {
   entity: Entity
   deployment: EntityDeployment
-  /**
-   * Show the "All environments" summary cards. Off where the page already
-   * summarises the environments (the Deployment tab's Environments section) —
-   * the view then opens on the first environment's resources.
-   */
-  overview?: boolean
+  roots: CompositionRoots
 }) {
   const stages = useKargoStages(deployment.apps.length > 0)
   const kargoOrder = useMemo(
@@ -95,36 +88,56 @@ export function ResourcesTab({ entity, deployment, overview = true }: {
     [stages.data, deployment, entity.metadata.name],
   )
   const tabs = useMemo(() => envTabs(deployment.environments, deployment.unscoped, kargoOrder), [deployment.environments, deployment.unscoped, kargoOrder])
+  const hasComposition = roots.roots.length > 0 || Boolean(roots.error) || roots.isLoading
+  const { views, initial } = resourceViews({ composition: hasComposition, apps: tabs.length })
+  const [picked, setView] = useState<ResourcesView | null>(null)
+  const view = picked && views.includes(picked) ? picked : initial
   const [envId, setEnvId] = useState<string>(ALL)
-  const current = tabs.find((t) => t.id === envId)
-  const active = tabs.length === 1 ? tabs[0] : current ?? (overview ? undefined : tabs[0])
+  const current = tabs.length === 1 ? tabs[0] : tabs.find((t) => t.id === envId)
+  const scope = current ? nodeId({ group: 'argoproj.io', kind: 'Application', namespace: current.app.metadata.namespace, name: current.app.metadata.name }) : null
 
-  if (deployment.isLoading) {
-    return <div className="flex items-center gap-2 py-10 text-sm text-content-muted"><Spinner /> Finding the Argo CD applications for this entity…</div>
+  if (deployment.isLoading && !hasComposition) {
+    return <div className="flex items-center gap-2 py-10 text-sm text-content-muted"><Spinner /> Finding what this entity runs…</div>
   }
-  if (!tabs.length) {
+  if (!views.length || (!tabs.length && !hasComposition)) {
     return (
       <EmptyState
         compact
-        title={deployment.isError ? 'Argo CD could not be reached' : 'No Argo CD application deploys this entity'}
+        title={deployment.isError ? 'Argo CD could not be reached' : 'Nothing deployed or composed for this entity'}
         description={deployment.isError
-          ? 'The application list did not load, so there are no resources to show.'
-          : 'Applications are matched by name (<name>, <name>-<env>), the adhar.io/application label, or the adhar.io/argocd-app annotation.'}
+          ? 'The application list did not load, and no platform composite was found.'
+          : 'Argo CD apps are matched by name (<name>, <name>-<env>), the adhar.io/application label or the adhar.io/argocd-app annotation; a composite by adhar.io/xr or its name.'}
       />
     )
   }
 
+  const argoView = view !== 'composition'
+
   return (
-    <div className="space-y-4">
-      {tabs.length > 1 ? (
-        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" aria-label="Environment">
-          {overview ? <EnvChip selected={!active} onClick={() => setEnvId(ALL)} label="All environments" /> : null}
-          {tabs.map((t) => (
-            <EnvChip key={t.id} selected={active?.id === t.id} onClick={() => setEnvId(t.id)} label={t.label} health={t.app.status.health.status} sync={t.app.status.sync.status} />
-          ))}
-        </div>
-      ) : null}
-      {active ? <AppView key={active.id} app={active.app} label={active.label} /> : <AllEnvironments tabs={tabs} onPick={setEnvId} />}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {views.length > 1 ? (
+          <Segmented<ResourcesView> value={view} onChange={setView} ariaLabel="Resources view" options={views.map((v) => ({ value: v, label: VIEW_LABEL[v] }))} />
+        ) : null}
+        {tabs.length > 1 ? (
+          <div className="-mx-1 flex min-w-0 basis-full gap-1.5 overflow-x-auto px-1 py-0.5 sm:basis-auto sm:flex-1 sm:justify-end" role="tablist" aria-label="Environment">
+            <EnvChip selected={!current} onClick={() => setEnvId(ALL)} label="All environments" />
+            {tabs.map((t) => (
+              <EnvChip key={t.id} selected={current?.id === t.id} onClick={() => setEnvId(t.id)} label={t.label} health={t.app.status.health.status} sync={t.app.status.sync.status} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {current ? <AppHeader app={current.app} label={current.label} /> : null}
+
+      {!argoView ? (
+        <CompositionView roots={roots} scope={scope} />
+      ) : current ? (
+        <AppView key={current.id} app={current.app} view={view as AppViewKind} />
+      ) : (
+        <AllEnvironments tabs={tabs} onPick={setEnvId} />
+      )}
     </div>
   )
 }
@@ -195,17 +208,14 @@ function AllEnvironments({ tabs, onPick }: { tabs: Array<{ id: string; label: st
 
 /* ───────────────────────── one application ───────────────────────── */
 
-type View = 'tree' | 'network' | 'pods' | 'list'
+type AppViewKind = 'tree' | 'network' | 'pods' | 'list'
 
 const NO_COLLAPSE: ReadonlySet<string> = new Set()
 
-function AppView({ app, label }: { app: ArgoApp; label: string }) {
+function AppView({ app, view }: { app: ArgoApp; view: AppViewKind }) {
   const ref = useMemo(() => ({ name: app.metadata.name, namespace: app.metadata.namespace }), [app.metadata.name, app.metadata.namespace])
   const [paused, setPaused] = useState(false)
   const data = useAppResources(ref, { paused })
-  const [view, setView] = useState<View>(() =>
-    typeof globalThis.matchMedia === 'function' && !globalThis.matchMedia('(min-width: 640px)').matches ? 'list' : 'tree'
-  )
   const [filter, setFilter] = useState<ResourceFilter>({ search: '', kind: '', health: '', sync: '', showOld: false })
   const [groupBy, setGroupBy] = useState<'node' | 'owner'>('owner')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
@@ -233,23 +243,14 @@ function AppView({ app, label }: { app: ArgoApp; label: string }) {
 
   return (
     <div className="space-y-3">
-      <AppHeader app={app} label={label} />
-
       <div className="flex flex-wrap items-center gap-2">
-        <Segmented<View>
-          value={view}
-          onChange={setView}
-          ariaLabel="View"
-          options={[
-            { value: 'tree', label: 'Tree' },
-            { value: 'network', label: 'Network' },
-            { value: 'pods', label: 'Pods' },
-            { value: 'list', label: 'List' },
-          ]}
-        />
+        <span className="text-xs text-content-subtle">
+          Argo CD app <span className="font-mono text-content-muted">{app.metadata.name}</span>
+          {data.data ? ` · ${Object.keys(data.data.graph.nodes).length - 1} resources` : ''}
+        </span>
         <div className="ml-auto flex items-center gap-1.5">
           <Button size="xs" variant="ghost" onClick={() => setPaused((p) => !p)} aria-pressed={!paused} title={paused ? 'Resume auto-refresh' : `Auto-refreshing every ${RESOURCES_REFRESH_MS / 1000}s — pause`}>
-            <span className={cn('mr-1.5 inline-block h-2 w-2 rounded-full', paused ? 'bg-slate-400' : 'bg-emerald-500')} aria-hidden />
+            <span className={cn('mr-1.5 inline-block h-2 w-2 rounded-full', paused ? 'bg-content-subtle' : 'bg-emerald-500')} aria-hidden />
             {paused ? 'Paused' : 'Live'}
           </Button>
           <IconBtn
@@ -338,31 +339,10 @@ function AppView({ app, label }: { app: ArgoApp; label: string }) {
       )}
 
       {selected && graph?.nodes[selected] ? (
-        <ResourceDetail graph={graph} node={graph.nodes[selected]} app={app} onClose={() => setSelected(null)} onSelect={setSelected} now={now} />
+        <ResourceDetail graph={graph} node={graph.nodes[selected]} appRef={ref} onClose={() => setSelected(null)} onSelect={setSelected} now={now} />
       ) : null}
     </div>
   )
-}
-
-function cardExtra(n: CompNode): ReactNode {
-  const r = workloadReplicas(n)
-  const imgs = imagesOf(n)
-  const pod = n.kind === 'Pod' ? podInfo(n) : undefined
-  const parts: string[] = []
-  if (r) parts.push(`${r.ready}/${r.desired} ready`)
-  if (pod) parts.push(`${pod.ready} ready${pod.restarts ? ` · ${pod.restarts} restarts` : ''}`)
-  if (imgs.length && n.kind !== 'Pod') parts.push(imgs.map(imageTag).join(', '))
-  return parts.length ? parts.join(' · ') : null
-}
-
-function networkExtra(n: CompNode): ReactNode {
-  if (n.kind === 'Service') {
-    const spec = (n.object?.spec ?? {}) as { type?: string; clusterIP?: string; ports?: Array<{ port?: number }> }
-    return [spec.type, spec.ports?.map((p) => p.port).join(',')].filter(Boolean).join(' · ') || null
-  }
-  if (n.kind === 'Pod') return podInfo(n)?.reason ?? (n.object?.status as { podIP?: string } | undefined)?.podIP ?? null
-  const hosts = hostnamesOf(n)
-  return hosts.length ? hosts.join(', ') : null
 }
 
 /* ───────────────────────── header ───────────────────────── */
@@ -546,217 +526,6 @@ function Mini({ label, value, tone }: { label: string; value: string; tone?: 'ba
       <div className="text-[10px] uppercase tracking-wide text-content-subtle">{label}</div>
       <div className={cn('truncate font-mono text-content', tone === 'bad' && 'text-rose-700 dark:text-rose-300')} title={value}>{value}</div>
     </div>
-  )
-}
-
-/* ───────────────────────── detail panel ───────────────────────── */
-
-type DetailTab = 'summary' | 'events' | 'manifest' | 'diff' | 'logs'
-
-function ResourceDetail({ graph, node, app, onClose, onSelect, now }: { graph: CompositionGraph; node: CompNode; app: ArgoApp; onClose(): void; onSelect(id: string): void; now: number }) {
-  const isPod = node.kind === 'Pod'
-  const isApp = node.id === graph.roots[0]
-  const outOfSync = node.status.sync === 'OutOfSync' || Boolean(node.status.prune)
-  const [tab, setTab] = useState<DetailTab>('summary')
-  const ref = { group: node.group, version: node.version, kind: node.kind, name: node.name, namespace: node.namespace }
-  const discovery = useDiscovery(tab === 'manifest' && !node.object)
-  const live = useLiveObject(discovery.data, ref, tab === 'manifest' && !node.object)
-  const events = useObjectEvents(isApp ? { kind: 'Application', name: app.metadata.name, namespace: app.metadata.namespace } : ref, tab === 'events')
-  const managed = useManagedResources({ name: app.metadata.name, namespace: app.metadata.namespace }, tab === 'diff')
-  const argoBase = useToolPublicUrl('argocd')
-  const argoUrl = argoBase
-    ? `${argoBase.replace(/\/$/, '')}/applications/${app.metadata.namespace}/${app.metadata.name}${isApp ? '' : `?resource=&node=${encodeURIComponent(`${node.group}/${node.kind}/${node.namespace ?? ''}/${node.name}/0`)}`}`
-    : undefined
-  const pod = isPod ? podInfo(node) : undefined
-  const r = workloadReplicas(node)
-  const imgs = imagesOf(node)
-
-  const fields: Array<[string, ReactNode]> = [
-    ['API version', apiVersionOf(node) ?? (node.group || 'v1')],
-    ['Namespace', node.namespace ?? '— (cluster-scoped)'],
-    ['Created', node.createdAt ? `${new Date(node.createdAt).toLocaleString()} (${age(node.createdAt, now)} ago)` : '—'],
-    ['Health', node.status.health ?? node.status.label],
-    ['Sync', node.status.prune ? 'OutOfSync (requires pruning)' : node.status.sync ?? '—'],
-  ]
-  if (r) fields.push(['Replicas', `${r.ready} ready / ${r.desired} desired (${r.current} current)`])
-  if (imgs.length && !isPod) fields.push(['Images', imgs.join('\n')])
-  if (pod) {
-    fields.push(['Node', pod.nodeName ?? '—'], ['Pod IP', pod.podIP ?? '—'], ['Ready', pod.ready], ['Restarts', String(pod.restarts)])
-  }
-  const hosts = hostnamesOf(node)
-  if (hosts.length) fields.push(['Hostnames', hosts.join(', ')])
-
-  const tabs: Array<{ value: DetailTab; label: string }> = [
-    { value: 'summary', label: 'Summary' },
-    { value: 'events', label: 'Events' },
-    { value: 'manifest', label: 'Live' },
-  ]
-  if (outOfSync && !isApp) tabs.push({ value: 'diff', label: 'Diff' })
-  if (isPod) tabs.push({ value: 'logs', label: 'Logs' })
-
-  return (
-    <NodeSidePanel<DetailTab>
-      node={node}
-      tabs={tabs}
-      tab={tab}
-      onTab={setTab}
-      onClose={onClose}
-      wide={tab === 'logs' || tab === 'diff'}
-      actions={argoUrl ? <a href={argoUrl} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300">Argo CD ↗</a> : null}
-    >
-      {tab === 'summary' ? (
-        <>
-          <StatusCallout node={node} />
-          <FieldList fields={fields} />
-          {pod?.containers.length ? <ContainersTable containers={pod.containers} /> : null}
-          <ConditionsTable conditions={node.conditions} now={now} />
-          {node.info?.length ? (
-            <section>
-              <h4 className="mb-1.5 text-xs font-semibold text-content">Argo CD info</h4>
-              <FieldList fields={node.info.map((i) => [i.name, i.value])} />
-            </section>
-          ) : null}
-          <RelatedList title="Parents" ids={node.parents} graph={graph} onSelect={onSelect} />
-          <RelatedList title="Children" ids={node.children} graph={graph} onSelect={onSelect} />
-        </>
-      ) : null}
-      {tab === 'events' ? <EventsList events={events} now={now} /> : null}
-      {tab === 'manifest' ? (
-        node.object ?? live.data ? (
-          <CodeViewer value={node.object ?? live.data} filename={`${node.kind.toLowerCase()}-${node.name}`} ariaLabel={`${node.kind} ${node.name} live manifest`} height="calc(100vh - 230px)" />
-        ) : live.isLoading || discovery.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner size={14} /> Reading the live object…</div>
-        ) : (
-          <p className="text-xs text-content-muted">
-            {(live.error as { status?: number } | null)?.status === 403 ? 'Your Kubernetes role cannot read this object.' : (live.error as { status?: number } | null)?.status === 404 ? 'It does not exist in the cluster (Missing).' : `Could not read it${live.error instanceof Error ? `: ${live.error.message}` : '.'}`}
-          </p>
-        )
-      ) : null}
-      {tab === 'diff' ? <DiffPane managed={managed} id={node.id} /> : null}
-      {tab === 'logs' && pod ? <PodLogs namespace={node.namespace ?? ''} pod={node.name} containers={pod.containers.filter((c) => !c.init).map((c) => c.name)} /> : null}
-    </NodeSidePanel>
-  )
-}
-
-function ContainersTable({ containers }: { containers: NonNullable<ReturnType<typeof podInfo>>['containers'] }) {
-  return (
-    <section>
-      <h4 className="mb-1.5 text-xs font-semibold text-content">Containers</h4>
-      <div className="overflow-x-auto rounded-md border border-edge-default">
-        <table className="w-full text-left text-xs">
-          <thead className="bg-surface-sunken text-[11px] text-content-subtle">
-            <tr>
-              <th className="px-2 py-1.5 font-medium">Name</th>
-              <th className="px-2 py-1.5 font-medium">Image</th>
-              <th className="px-2 py-1.5 font-medium">State</th>
-              <th className="px-2 py-1.5 text-right font-medium">Restarts</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-edge-default">
-            {containers.map((c) => (
-              <tr key={`${c.init ? 'i' : 'c'}-${c.name}`} className="align-top">
-                <td className="px-2 py-1.5 font-mono text-content">
-                  <span className={cn('mr-1.5 inline-block h-1.5 w-1.5 rounded-full', c.ready ? 'bg-emerald-500' : 'bg-amber-500')} aria-hidden />
-                  {c.name}
-                  {c.init ? <span className="ml-1 text-[10px] text-content-subtle">init</span> : null}
-                </td>
-                <td className="max-w-60 truncate px-2 py-1.5 font-mono text-content-muted" title={c.image}>{c.image ?? '—'}</td>
-                <td className="px-2 py-1.5 text-content-muted">{c.state}</td>
-                <td className="px-2 py-1.5 text-right text-content">{c.restarts}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
-
-function DiffPane({ managed, id }: { managed: ReturnType<typeof useManagedResources>; id: string }) {
-  const entry = managed.data?.get(id)
-  const lines = useMemo(() => {
-    if (!entry) return undefined
-    const desired = entry.desired === undefined ? '' : toYaml(comparable(entry.desired))
-    const liveText = entry.live === undefined ? '' : toYaml(comparable(entry.live))
-    return lineDiff(desired, liveText)
-  }, [entry])
-  const chunks = useMemo(() => (lines ? diffChunks(lines, 3) : []), [lines])
-  if (managed.isLoading) return <div className="flex items-center gap-2 text-xs text-content-muted"><Spinner size={14} /> Asking Argo CD for the desired and live manifests…</div>
-  if (managed.error) {
-    const status = (managed.error as { status?: number }).status
-    return <p className="text-xs text-content-muted">{status === 403 || status === 401 ? 'Argo CD did not allow reading this application’s managed resources.' : `Argo CD did not return managed resources: ${managed.error instanceof Error ? managed.error.message : String(managed.error)}`}</p>
-  }
-  if (!entry || !lines) return <p className="text-xs text-content-muted">Argo CD has no desired/live pair for this resource (it is not one it manages directly).</p>
-  const changed = lines.filter((l) => l.type !== 'same').length
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-content-muted">
-        {entry.desired === undefined ? 'Not in Git — Argo CD would prune it on the next sync.' : entry.live === undefined ? 'In Git but missing from the cluster.' : `${changed} changed line${changed === 1 ? '' : 's'}.`}{' '}
-        <span className="text-rose-700 dark:text-rose-300">− desired (Git)</span> · <span className="text-emerald-700 dark:text-emerald-300">+ live (cluster)</span>
-      </p>
-      <div className="overflow-x-auto rounded-lg border border-edge-default bg-surface-sunken font-mono text-[12px] leading-5">
-        {chunks.map((c, i) =>
-          c.type === 'skip' ? (
-            <div key={i} className="border-y border-edge-default bg-surface-raised px-3 py-0.5 text-[11px] text-content-subtle">⋯ {c.count} unchanged lines</div>
-          ) : (
-            c.lines.map((l, j) => (
-              <div
-                key={`${i}-${j}`}
-                className={cn(
-                  'flex whitespace-pre',
-                  l.type === 'add' && 'bg-emerald-50 text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200',
-                  l.type === 'del' && 'bg-rose-50 text-rose-900 dark:bg-rose-500/10 dark:text-rose-200',
-                  l.type === 'same' && 'text-content-muted',
-                )}
-              >
-                <span className="w-10 shrink-0 select-none pr-2 text-right text-content-subtle">{l.a ?? ''}</span>
-                <span className="w-10 shrink-0 select-none pr-2 text-right text-content-subtle">{l.b ?? ''}</span>
-                <span className="w-4 shrink-0 select-none">{l.type === 'add' ? '+' : l.type === 'del' ? '−' : ' '}</span>
-                <span className="pr-3">{l.text}</span>
-              </div>
-            ))
-          )
-        )}
-      </div>
-    </div>
-  )
-}
-
-function PodLogs({ namespace, pod, containers }: { namespace: string; pod: string; containers: string[] }) {
-  const main = containers.filter(Boolean)
-  const [container, setContainer] = useState(main[0] ?? '')
-  const [previous, setPrevious] = useState(false)
-  const stream = useLogStream({
-    namespace,
-    sources: [{ pod, container: container || undefined, label: container || pod }],
-    follow: !previous,
-    previous,
-    tailLines: 500,
-  })
-  return (
-    <LogConsole
-      lines={stream.lines}
-      status={stream.status}
-      error={stream.error}
-      reconnect={stream.reconnect}
-      live={!previous}
-      filename={`${pod}${container ? `-${container}` : ''}`}
-      height="h-[calc(100vh-240px)]"
-      label={<span className="font-mono">{pod}</span>}
-      toolbar={
-        <>
-          {main.length > 1 ? (
-            <select value={container} onChange={(e) => setContainer(e.target.value)} aria-label="Container" className="rounded border border-white/10 bg-transparent px-1 py-0.5 text-[11px] text-slate-200">
-              {main.map((c) => <option key={c} value={c} className="text-slate-900">{c}</option>)}
-            </select>
-          ) : null}
-          <button type="button" onClick={() => setPrevious((p) => !p)} className={cn('rounded px-1.5 py-0.5 text-[11px]', previous ? 'bg-white/15 text-white' : 'text-slate-300 hover:text-white')} title="Logs of the previous (crashed) container">
-            Previous
-          </button>
-        </>
-      }
-      emptyMessage={previous ? 'No previous container — it has not restarted.' : 'No log lines yet.'}
-    />
   )
 }
 

@@ -104,7 +104,7 @@ function joinRoute(parent: string, child: string | null, index: boolean): string
 }
 
 /** Pages declared in a React Router config file. */
-export function reactRouterPages(parse: ParseFn, code: string, file: string, paths: string[], alias: Record<string, string> = {}): PageRef[] {
+export function reactRouterPages(parse: ParseFn, code: string, file: string, paths: string[], alias: Record<string, string> = {}, opts: { lazy?: boolean } = {}): PageRef[] {
   let ast: Node;
   try {
     ast = parseModule(parse, code, file);
@@ -120,6 +120,21 @@ export function reactRouterPages(parse: ParseFn, code: string, file: string, pat
     if (imp) {
       const p = resolveImport(file, imp.source, set, alias);
       return p ? { route: '', path: p, exportName: imp.isDefault ? undefined : name } : null;
+    }
+    // Solid: `const Home = lazy(() => import('./pages/Home'))`.
+    if (opts.lazy) {
+      for (const st of ast.program.body) {
+        const d = st.type === 'ExportNamedDeclaration' && st.declaration ? st.declaration : st;
+        if (d.type !== 'VariableDeclaration') continue;
+        for (const v of d.declarations) {
+          if (v.id?.name !== name || v.init?.type !== 'CallExpression' || v.init.callee?.name !== 'lazy') continue;
+          const fn = v.init.arguments[0];
+          const call = fn?.body?.type === 'CallExpression' ? fn.body : null;
+          const spec = call?.callee?.type === 'Import' && call.arguments[0]?.type === 'StringLiteral' ? call.arguments[0].value : null;
+          const p = spec ? resolveImport(file, spec, set, alias) : null;
+          if (p) return { route: '', path: p };
+        }
+      }
     }
     // Declared in the router file itself.
     const local = ast.program.body.some((st: Node) => {
@@ -229,6 +244,7 @@ export function newPagePath(fw: Framework, route: string, name: string, existing
     const pagesDir = existing.find((p) => /\/?pages\//.test(p.path))?.path.match(/^(.*?pages)\//)?.[1] ?? at(fw.root, fw.srcDir ? `${fw.srcDir}/pages` : 'pages');
     return `${pagesDir}/${slug || 'index'}.${ext}`;
   }
+  if (fw.router === 'solid-start') return at(fw.root, `src/routes/${slug || 'index'}.${ext}`);
   if (fw.router === 'remix') return at(fw.root, `app/routes/${slug.replace(/\//g, '.') || '_index'}.${ext}`);
   // React Router / plain React: next to the existing pages, else src/pages.
   const dir = existing.find((p) => /\/(pages|views|screens|routes)\//.test(p.path))?.path.replace(/\/[^/]+$/, '') ?? at(fw.root, `${fw.srcDir || 'src'}/pages`);
@@ -240,7 +256,7 @@ export function newPagePath(fw: Framework, route: string, name: string, existing
  * or an object after the last route object — plus the import. Returns null
  * when the config isn't one we recognise (the caller then says so).
  */
-export function addReactRoute(parse: ParseFn, code: string, file: string, route: string, component: string, importPath: string): string | null {
+export function addReactRoute(parse: ParseFn, code: string, file: string, route: string, component: string, importPath: string, solid = false): string | null {
   let ast: Node;
   try {
     ast = parseModule(parse, code, file);
@@ -265,12 +281,12 @@ export function addReactRoute(parse: ParseFn, code: string, file: string, route:
   const ind = indentAt((target as Node).start);
   if (lastRoute && (!lastObject || (lastRoute as Node).end > (lastObject as Node).end)) {
     const at = (lastRoute as Node).end;
-    out = code.slice(0, at) + `\n${ind}<Route path=${JSON.stringify(route)} element={<${component} />} />` + code.slice(at);
+    out = code.slice(0, at) + `\n${ind}<Route path=${JSON.stringify(route)} ${solid ? `component={${component}}` : `element={<${component} />}`} />` + code.slice(at);
   } else {
     const end = (lastObject as Node).end;
     const rest = code.slice(end);
     const comma = rest.match(/^\s*,/);
-    const entry = `{ path: ${JSON.stringify(route)}, element: <${component} /> }`;
+    const entry = `{ path: ${JSON.stringify(route)}, ${solid ? `component: ${component}` : `element: <${component} />`} }`;
     out = comma
       ? code.slice(0, end + comma[0].length) + `\n${ind}${entry},` + code.slice(end + comma[0].length)
       : code.slice(0, end) + `,\n${ind}${entry}` + rest;

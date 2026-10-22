@@ -64,3 +64,32 @@ export function appRepo(app: CatalogApp, org: string): string | undefined {
   const r = repoFromUrl(app.repoUrl)
   return r ? `${r.owner ?? org}/${r.name}` : undefined
 }
+
+/** Gitea "top language" values that a front-end repository can have. */
+const UI_LANGUAGES = new Set(['typescript', 'javascript', 'html', 'css', 'scss', 'vue', 'svelte', 'mdx', 'astro'])
+
+/**
+ * Is this repository a UI application the Visual Designer can open?
+ *
+ * Decided as cheaply as possible, most authoritative first:
+ *  - mirrors and archived repositories can't take a change → not a UI target;
+ *  - a platform Application says its type: `web` is UI, `service` / `worker` /
+ *    `data` / `ai` are not;
+ *  - Gitea's top language rules out back-end repos (Go, Java, Python, …);
+ *  - anything left is `check`: its package.json (or, without one, an
+ *    `angular.json` / `index.html`) decides — React (Vite, Next.js, Remix),
+ *    Angular, Vue / Nuxt, Svelte / SvelteKit, Solid and static HTML are editable.
+ */
+export type UiVerdict = 'ui' | 'not-ui' | 'check'
+export function uiVerdict(
+  repo: { language?: string | null; mirror?: boolean; archived?: boolean; empty?: boolean },
+  apps: Pick<CatalogApp, 'type'>[],
+): UiVerdict {
+  if (repo.mirror || repo.archived || repo.empty) return 'not-ui'
+  const types = apps.map((a) => (a.type ?? '').toLowerCase()).filter(Boolean)
+  if (types.includes('web')) return 'ui'
+  if (types.length) return 'not-ui'
+  const lang = (repo.language ?? '').trim().toLowerCase()
+  if (lang && !UI_LANGUAGES.has(lang)) return 'not-ui'
+  return 'check'
+}

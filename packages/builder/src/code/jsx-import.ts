@@ -49,6 +49,8 @@ export interface ImportContext {
   symbols?: Record<string, string>;
   /** Import a specific export instead of the default one (e.g. a router's named page component). */
   exportName?: string;
+  /** Solid: `class` is the class attribute and `<A href>` (@solidjs/router) is the router link. */
+  solid?: boolean;
 }
 
 /* ───────────────────────────── fingerprints ───────────────────────────── */
@@ -181,7 +183,7 @@ class Converter {
       return stat ? node : withFingerprint(node, n.start, n.end);
     }
 
-    const isLink = LINK_COMPONENTS.has(tag);
+    const isLink = LINK_COMPONENTS.has(tag) || (!!this.ctx.solid && tag === 'A');
     const isHtml = /^[a-z][a-z0-9-]*$/.test(tag) && !OPAQUE_TAGS.has(tag);
     if (!isHtml && !isLink) return stat ? this.staticCustom(n) : this.code_(n);
 
@@ -191,7 +193,7 @@ class Converter {
     for (const a of attrs) {
       const name = attrName(a);
       const str = a.type === 'JSXAttribute' ? staticString(a.value) : null;
-      if (name === 'className') {
+      if (name === 'className' || (this.ctx.solid && name === 'class')) {
         if (str !== null) props.className = str;
         else if (a.value?.type === 'JSXExpressionContainer') {
           props.classExpr = this.slice(a.value.expression);

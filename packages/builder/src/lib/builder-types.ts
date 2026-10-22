@@ -32,8 +32,14 @@ export interface CanvasNode {
   /**
    * Imported from a repository: the node's source range and a fingerprint of
    * how it looked when imported. Untouched nodes print as their original text.
+   * Template pages (Angular / Vue / Svelte / HTML) also record the element's
+   * own fingerprint, tag, start-tag end, content range and child ranges, so
+   * only the part that changed is rewritten (see code/markup.ts).
    */
-  src?: { start: number; end: number; fp: string };
+  src?: {
+    start: number; end: number; fp: string;
+    attrs?: string; tag?: string; openEnd?: number; inner?: [number, number]; kids?: Array<[number, number]>; textMode?: boolean;
+  };
   /** Layers panel: locked nodes cannot be selected or dragged on the canvas. */
   locked?: boolean;
   /**

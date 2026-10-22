@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, EmptyState, PageHeader, SearchInput, Select, Skeleton, useGiteaOrg, useToast } from '@adhar/shell-ui'
+import { Button, EmptyState, PageHeader, SearchInput, Select, Skeleton, Spinner, useGiteaOrg, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { BuilderApp, defaultProjectFor, normalizeProject, type BuilderController, type BuilderSaveEvent, type ThemePreset } from '@adhar/builder'
 import type { BuilderProject } from '@adhar/builder/project'
-import { isEditable, loadCanvasCss, loadParser, openRepo, previewFile, type ParseFn } from '@adhar/builder/code'
+import { familyOf, isEditable, loadCanvasCss, loadParser, openRepo, plainCanvasCss, previewFile, SUPPORTED_FRAMEWORKS, type ParseFn } from '@adhar/builder/code'
 import { KIND, useCollection, useUpdate } from '../data/store.ts'
 import type { Wireframe } from '../data/types.ts'
 import { addWireframePage, projectToBlocks, wireframeToProject } from '../data/wireframe-builder.ts'
@@ -13,8 +13,8 @@ import { useDesignScope } from '../data/design-scope.ts'
 import { appProjectSlug } from '../data/designer-catalog.ts'
 import { themeFromTokenSet, WORKSPACE_THEME_ID } from '../data/builder-theme.ts'
 import { useUrlParams } from '../data/builder-nav.ts'
-import { matchApps, repoApi, useCatalogApps, useDesignerRepos, useLastCommit, useRepoBranches, useRepoFramework } from '../data/designer-repos.ts'
-import type { CatalogApp } from '../data/designer-catalog.ts'
+import { matchApps, repoApi, useCatalogApps, useDesignerRepos, useLastCommit, useRepoBranches, useRepoFramework, useRepoFrameworks } from '../data/designer-repos.ts'
+import { uiVerdict, type CatalogApp } from '../data/designer-catalog.ts'
 import { ErrorBlock } from '../components/async-states.tsx'
 import { ReviewChanges } from '../components/review-changes.tsx'
 
@@ -91,15 +91,36 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
   const apps = useCatalogApps()
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<'apps' | 'all'>('all')
+  // Only UI applications by default: the designer edits pages, so services,
+  // workers, data/AI apps, mirrors and archived repos are noise here.
+  const [showAll, setShowAll] = useState(false)
+  // Opening reads the repo tree and parses pages — give the click instant feedback.
+  const [opening, setOpening] = useState<string | null>(null)
+
+  const judged = useMemo(
+    () => (repos.data ?? []).map((r) => {
+      const matched = matchApps(apps.data ?? [], { name: r.name, owner: r.owner?.login })
+      return { repo: r, apps: matched, verdict: uiVerdict(r as { language?: string; mirror?: boolean; archived?: boolean; empty?: boolean }, matched) }
+    }),
+    [repos.data, apps.data],
+  )
+  const frameworks = useRepoFrameworks(judged.filter((x) => x.verdict === 'check').map((x) => x.repo))
+  const isUi = (x: (typeof judged)[number]) => {
+    if (x.verdict !== 'check') return x.verdict === 'ui'
+    const fw = frameworks.get(x.repo.name)
+    // Still reading package.json: keep it listed (its badge shows a skeleton).
+    return fw === undefined ? true : !!fw && isEditable(fw)
+  }
+  const hiddenCount = judged.filter((x) => !isUi(x)).length
 
   const rows = useMemo(() => {
-    const list = (repos.data ?? []).map((r) => ({ repo: r, apps: matchApps(apps.data ?? [], { name: r.name, owner: r.owner?.login }) }))
     const q = query.trim().toLowerCase()
-    return list
+    return judged
+      .filter((x) => showAll || isUi(x))
       .filter((x) => scope === 'all' || x.apps.length > 0)
       .filter((x) => !q || [x.repo.name, x.repo.description ?? '', ...x.apps.flatMap((a) => [a.name, a.team ?? '', a.project ?? ''])].join(' ').toLowerCase().includes(q))
       .sort((a, b) => (b.apps.length - a.apps.length) || b.repo.updated_at.localeCompare(a.repo.updated_at))
-  }, [repos.data, apps.data, query, scope])
+  }, [judged, frameworks, query, scope, showAll])
   const anyApps = (apps.data ?? []).length > 0
 
   return (
@@ -110,7 +131,7 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
       ) : repos.isLoading ? (
         <div className='space-y-2'>{Array.from({ length: 5 }, (_, i) => <Skeleton key={i} height={64} className='block w-full' rounded='lg' />)}</div>
       ) : (repos.data ?? []).length === 0 ? (
-        <EmptyState title='No repositories yet' description='The Visual Designer edits the React apps in your Gitea repositories. Create or import a repository in Develop → Repositories, then open it here.' />
+        <EmptyState title='No repositories yet' description={`The Visual Designer edits the web apps in your Gitea repositories — ${SUPPORTED_FRAMEWORKS}. Create or import a repository in Develop → Repositories, then open it here.`} />
       ) : (
         <>
           <div className='flex flex-wrap items-center gap-3'>
@@ -125,14 +146,38 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
                 ))}
               </div>
             )}
-            <span className='text-xs text-content-muted'>{rows.length} of {(repos.data ?? []).length}</span>
+            <span className='text-xs text-content-muted'>
+              {rows.length} {showAll ? 'repositories' : rows.length === 1 ? 'UI app' : 'UI apps'}
+            </span>
+            {hiddenCount > 0 ? (
+              <button type='button' onClick={() => setShowAll((v) => !v)} className='text-xs font-medium text-brand-700 hover:underline dark:text-brand-300'>
+                {showAll ? 'Show UI apps only' : `Show all repositories (${hiddenCount} hidden)`}
+              </button>
+            ) : null}
           </div>
           {rows.length === 0 ? (
-            <EmptyState compact title='Nothing matches' description='Try another name, team or project.' />
+            <EmptyState
+              compact
+              title={query || scope === 'apps' ? 'Nothing matches' : 'No UI applications yet'}
+              description={query || scope === 'apps'
+                ? 'Try another name, team or project.'
+                : `The Visual Designer edits ${SUPPORTED_FRAMEWORKS} apps. Create one from a golden path in Service Catalog → Create New, or show all repositories.`}
+            />
           ) : (
             <ul className='divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
               {rows.map(({ repo, apps }) => (
-                <RepoRow key={repo.full_name} repo={repo} apps={apps} onOpen={() => onOpen(repo.full_name, repo.default_branch)} />
+                <RepoRow
+                  key={repo.full_name}
+                  repo={repo}
+                  apps={apps}
+                  opening={opening === repo.full_name}
+                  onOpen={() => {
+                    if (opening) return
+                    setOpening(repo.full_name)
+                    // Paint the pending state before the editor takes over.
+                    requestAnimationFrame(() => onOpen(repo.full_name, repo.default_branch))
+                  }}
+                />
               ))}
             </ul>
           )}
@@ -142,10 +187,11 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
   )
 }
 
-function RepoRow({ repo, apps, onOpen }: {
+function RepoRow({ repo, apps, onOpen, opening = false }: {
   repo: { name: string; full_name: string; description?: string; default_branch: string; archived?: boolean; mirror?: boolean; updated_at: string }
   apps: CatalogApp[]
   onOpen(): void
+  opening?: boolean
 }) {
   // Details are read lazily, per visible row.
   const ref = useRef<HTMLLIElement>(null)
@@ -180,11 +226,28 @@ function RepoRow({ repo, apps, onOpen }: {
       <div className='flex shrink-0 items-center gap-2'>
         {fw.isLoading || !visible ? <Skeleton width={84} height={20} rounded='full' /> : fw.data ? (
           <Chip tone={editable ? 'brand' : 'slate'}>{fw.data.label}{fw.data.tailwind ? ' · Tailwind' : ''}</Chip>
-        ) : <Chip tone='slate'>No package.json</Chip>}
+        ) : <Chip tone='slate'>No web app found</Chip>}
         <span className='hidden font-mono text-xs text-content-muted sm:inline'>{repo.default_branch}</span>
-        <Button size='sm' onClick={onOpen}>Open</Button>
+        <Button size='sm' variant='primary' onClick={onOpen} loading={opening} disabled={opening}>{opening ? 'Opening…' : 'Open'}</Button>
       </div>
     </li>
+  )
+}
+
+/** The editor while a repository opens: what is happening, not a blank box. */
+function OpeningState({ name, step }: { name: string; step: string }) {
+  return (
+    <div className='relative overflow-hidden rounded-xl border border-edge-default bg-surface-raised' style={{ height: 'calc(100vh - 210px)', minHeight: 420 }} role='status' aria-live='polite'>
+      <div className='absolute inset-x-0 top-0 h-0.5 overflow-hidden bg-brand-500/10'>
+        <div className='h-full w-1/3 animate-[opening_1.2s_ease-in-out_infinite] bg-brand-500' />
+      </div>
+      <style>{'@keyframes opening{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}'}</style>
+      <div className='flex h-full flex-col items-center justify-center gap-3 px-6 text-center'>
+        <Spinner size={20} />
+        <div className='text-sm font-semibold text-content'>Opening {name}…</div>
+        <div className='text-xs text-content-muted'>{step}</div>
+      </div>
+    </div>
   )
 }
 
@@ -233,7 +296,14 @@ function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWire
       const { session, project } = await openRepo(api, parse, name, branch!)
       project.source = { repo: `${owner}/${name}`, branch: branch!, commit: head }
       if (!session.meta.theme && workspaceTheme && !session.framework.tailwind) project.settings = { ...project.settings, theme: WORKSPACE_THEME_ID }
-      const canvasCss = session.framework.tailwind ? await loadCanvasCss(session.appCss?.content ?? null).catch(() => null) : null
+      // Tailwind repos: their Tailwind compiled in the browser (+ component styles). Other non-React
+      // repos (Angular / Vue / Svelte / Solid / static HTML): their plain CSS, scoped to the canvas.
+      const otherCss = familyOf(session.framework) === 'react' ? '' : (session.componentCss ?? '')
+      const canvasCss = session.framework.tailwind
+        ? await loadCanvasCss(session.appCss?.content ?? null, otherCss).catch(() => null)
+        : familyOf(session.framework) !== 'react' && (session.appCss || otherCss)
+        ? plainCanvasCss(`${session.appCss?.content ?? ''}\n${otherCss}`)
+        : null
       // "Implement in repo": the wireframe starts a NEW page; existing pages are untouched.
       if (wf && session.editable) {
         const added = addWireframePage(project, wf)
@@ -288,7 +358,10 @@ function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWire
     return (
       <div className='space-y-4'>
         <PageHeader compact title={<span className='flex items-center gap-2'><BackButton onClick={onBack} />{name}</span>} />
-        <Skeleton height={560} className='block w-full' rounded='lg' />
+        <OpeningState
+          name={name}
+          step={repos.isLoading ? 'Finding the repository' : branches.isLoading ? 'Reading branches' : waitingForWf ? 'Loading the wireframe' : `Reading pages and components on ${branch}`}
+        />
       </div>
     )
   }
@@ -309,7 +382,7 @@ function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWire
       <div className='space-y-6'>
         <PageHeader title={<span className='flex items-center gap-2'><BackButton onClick={onBack} />{name}{branchPicker}</span>} />
         <EmptyState title={data.session.editable ? 'No pages found' : `${data.session.framework.label} isn't supported yet`}
-          description={data.session.warnings[0] ?? 'The designer edits React apps (Vite, Next.js, Remix).'}
+          description={data.session.warnings[0] ?? `The designer edits ${SUPPORTED_FRAMEWORKS} apps.`}
           action={<Button onClick={onBack}>Back to apps</Button>} />
       </div>
     )

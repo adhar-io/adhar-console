@@ -20,6 +20,9 @@ import { nodeToTag } from '../lib/builder-codegen.ts';
 import { unchanged, type ComponentRegion } from './jsx-import.ts';
 import type { Framework } from './framework.ts';
 
+const isSolid = (f: Framework) => f.id === 'solid' || f.id === 'solid-start';
+const isSolidRouter = (f: Framework) => f.router === 'solid-router' || f.router === 'solid-start';
+
 export interface PrintContext {
   /** Original file text (for `unchanged` nodes). Empty for brand-new files. */
   source: string;
@@ -105,9 +108,9 @@ function navigateAttr(n: CanvasNode, ctx: PrintContext, tag: string): string {
     if (!route) return '';
     // Links get a real router link instead (see printElement).
     if (n.type === 'link' && tag !== 'a') return '';
-    if (ctx.framework.router === 'react-router' || ctx.framework.router === 'remix') {
+    if (ctx.framework.router === 'react-router' || ctx.framework.router === 'remix' || isSolidRouter(ctx.framework)) {
       ctx.needs.navigateHook = true;
-      need(ctx, ctx.framework.router === 'remix' ? '@remix-run/react' : 'react-router-dom', { named: 'useNavigate' });
+      need(ctx, isSolidRouter(ctx.framework) ? '@solidjs/router' : ctx.framework.router === 'remix' ? '@remix-run/react' : 'react-router-dom', { named: 'useNavigate' });
       return ` onClick={() => navigate(${JSON.stringify(route)})}`;
     }
     return ` onClick={() => window.location.assign(${JSON.stringify(route)})}`;
@@ -150,12 +153,14 @@ function printElement(n: CanvasNode, ctx: PrintContext, indent: string, itemVar:
     if (ctx.framework.router === 'react-router') { tag = String(p.linkTag ?? 'Link'); need(ctx, 'react-router-dom', { named: tag }); }
     else if (ctx.framework.router === 'remix') { tag = String(p.linkTag ?? 'Link'); need(ctx, '@remix-run/react', { named: tag }); }
     else if (ctx.framework.id === 'next') { tag = 'Link'; need(ctx, 'next/link', { default: 'Link' }); }
+    else if (isSolidRouter(ctx.framework)) { tag = String(p.linkTag ?? 'A'); need(ctx, '@solidjs/router', { named: tag }); }
   }
+  const classAttr = isSolid(ctx.framework) ? 'class' : 'className';
   let attrs = '';
-  if (p.classExpr) attrs += ` className={${p.classExpr}}`;
-  else if (typeof p.className === 'string' && p.className.trim()) attrs += ` className=${attrValue(p.className.trim())}`;
+  if (p.classExpr) attrs += ` ${classAttr}={${p.classExpr}}`;
+  else if (typeof p.className === 'string' && p.className.trim()) attrs += ` ${classAttr}=${attrValue(p.className.trim())}`;
   if (tag !== 'a' && n.type === 'link') {
-    const attr = ctx.framework.id === 'next' ? 'href' : String(p.linkAttr ?? 'to');
+    const attr = ctx.framework.id === 'next' ? 'href' : String(p.linkAttr ?? (isSolid(ctx.framework) ? 'href' : 'to'));
     attrs += ` ${attr}=${attrValue(linkRoute ?? String(p.to ?? '/'))}`;
   } else if (tag === 'a') {
     attrs += ` href=${attrValue(String(p.href ?? (linkRoute ?? '#')))}`;
@@ -179,7 +184,7 @@ function printElement(n: CanvasNode, ctx: PrintContext, indent: string, itemVar:
       return wrapChildren(`<select${attrs}>`, '</select>', opts.map((o) => `<option>${jsxText(o)}</option>`), indent);
     }
     case 'progress-bar':
-      return `<div${attrs}>\n${indent}  <div className="h-full rounded-full bg-primary" style={{ width: '${Number(p['data-value'] ?? 66)}%' }} />\n${indent}</div>`;
+      return `<div${attrs}>\n${indent}  <div ${classAttr}="h-full rounded-full bg-primary" style={{ width: '${Number(p['data-value'] ?? 66)}%' }} />\n${indent}</div>`;
   }
 
   if (VOID.has(tag)) return `<${tag}${attrs} />`;
@@ -190,12 +195,17 @@ function printElement(n: CanvasNode, ctx: PrintContext, indent: string, itemVar:
     const ds = ctx.data[n.bind.source];
     if (ds) {
       need(ctx, relativeImport(ctx.filePath, ds.path, true), { default: ds.name });
-      need(ctx, 'react', { named: 'Fragment' });
+      if (!isSolid(ctx.framework)) need(ctx, 'react', { named: 'Fragment' });
       const path = (n.bind.path ?? '').split('.').filter(Boolean).map((k) => `?.${k}`).join('');
       const list = path ? `((${ds.name} as any)${path} ?? [])` : ctx.framework.typescript ? `(${ds.name} as any[])` : ds.name;
       const item = ctx.framework.typescript ? '(item: any, i: number)' : '(item, i)';
       const inner = n.children.map((c) => printNode(c, ctx, indent + '      ', 'item'));
-      kids.push(`{${list}.map(${item} => (\n${indent}    <Fragment key={i}>\n${inner.map((k) => `${indent}      ${k}`).join('\n')}\n${indent}    </Fragment>\n${indent}  ))}`);
+      if (isSolid(ctx.framework)) {
+        // Solid: <For> instead of .map + keyed fragments.
+        need(ctx, 'solid-js', { named: 'For' });
+        const one = ctx.framework.typescript ? '(item: any)' : '(item)';
+        kids.push(`<For each={${list}}>{${one} => (\n${indent}    <>\n${inner.map((k) => `${indent}      ${k}`).join('\n')}\n${indent}    </>\n${indent}  )}</For>`);
+      } else kids.push(`{${list}.map(${item} => (\n${indent}    <Fragment key={i}>\n${inner.map((k) => `${indent}      ${k}`).join('\n')}\n${indent}    </Fragment>\n${indent}  ))}`);
     }
   } else {
     for (const c of n.children) kids.push(printNode(c, ctx, indent + '  ', itemVar));

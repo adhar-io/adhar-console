@@ -5,6 +5,8 @@ import {
   buildAppGraph,
   comparable,
   diffChunks,
+  drawerTabAlias,
+  resourceViews,
   envTabs,
   groupPods,
   hostnamesOf,
@@ -167,4 +169,17 @@ Deno.test('environment tabs follow Kargo order, then unscoped apps', () => {
     ['Development', 'Test', 'Production'],
   )
   assertEquals(envTabs([{ key: 'b', label: 'B', app: app('b') }, { key: 'a', label: 'A', app: app('a') }], []).map((t) => t.label), ['B', 'A'])
+})
+
+Deno.test('drawer tab alias: resources → composition, others unchanged', () => {
+  assertEquals(drawerTabAlias('resources'), 'composition')
+  assertEquals(drawerTabAlias('deploy'), 'deploy')
+  assertEquals(drawerTabAlias(undefined), undefined)
+})
+
+Deno.test('resources tab views: composition and/or the Argo CD views', () => {
+  assertEquals(resourceViews({ composition: true, apps: 2 }), { views: ['composition', 'tree', 'network', 'pods', 'list'], initial: 'composition' })
+  assertEquals(resourceViews({ composition: false, apps: 1 }), { views: ['tree', 'network', 'pods', 'list'], initial: 'tree' })
+  assertEquals(resourceViews({ composition: true, apps: 0 }), { views: ['composition'], initial: 'composition' })
+  assertEquals(resourceViews({ composition: false, apps: 0 }).views, [])
 })

@@ -68,9 +68,10 @@ import {
 import { TechStackTab } from '~/components/catalog-tech-stack.tsx'
 import { CatalogEmpty } from '~/components/catalog-empty.tsx'
 import { useCompositionRoots } from '~/data/catalog-composition.ts'
-import { CompositionTab, compositionBadge } from './_catalog-composition.tsx'
+import { compositionBadge } from './_catalog-composition.tsx'
 import { RawTab } from './_catalog-raw.tsx'
 import { ResourcesTab } from './_catalog-resources.tsx'
+import { drawerTabAlias } from '~/data/catalog-resources-model.ts'
 import { CatalogDeleteDialog, useEntityDeleteMode } from '~/components/catalog-delete-app.tsx'
 import { loadGiteaTemplates } from '~/data/catalog-templates.ts'
 import {
@@ -3623,9 +3624,9 @@ function EntityDrawer({
   const docsUrl = techDocsUrl(entity)
   // Controlled so a link inside one panel can move the reader to another —
   // "Read here →" on the tech-stack panel opens the docs tab in place.
-  // `resources` was its own tab until its view moved into Deployment; a link
-  // or bookmark that still names it lands on Deployment.
-  const [tab, setTab] = useState<DrawerTab>(((initialTab as string) === 'resources' ? 'deploy' : initialTab) ?? 'overview')
+  // The Resources tab's id is `composition` (its first name); `?tab=resources`
+  // — the Argo CD view's old id — is an alias for it.
+  const [tab, setTab] = useState<DrawerTab>(drawerTabAlias(initialTab) ?? 'overview')
   // Wide mode: the header toggle (shared by every side drawer) and the
   // TechDocs "Wide view" button drive the same remembered preference. The
   // older TechDocs-only key seeds it the first time.
@@ -3635,7 +3636,7 @@ function EntityDrawer({
   // A menu action on another card while this drawer is open asks for a tab;
   // plain navigation between entities keeps the tab you were on.
   useEffect(() => {
-    if (initialTab) setTab(initialTab)
+    if (initialTab) setTab(drawerTabAlias(initialTab) ?? 'overview')
   }, [initialTab, ref])
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 })
@@ -3727,10 +3728,11 @@ function EntityDrawer({
     {
       id: 'composition',
       label: 'Resources',
-      // Hidden when nothing is composed — but a discovery failure (RBAC) is
-      // shown, so the reason is visible rather than the tab just missing.
-      hidden: composition.roots.length === 0 && !composition.error,
-      badge: compositionBadge(composition),
+      // Composition graph + Argo CD app views. Hidden only when there is
+      // neither a composite nor an Argo CD app — but a discovery failure
+      // (RBAC) is shown, so the reason is visible rather than the tab missing.
+      hidden: composition.roots.length === 0 && !composition.error && deployment.apps.length === 0,
+      badge: compositionBadge(composition) ?? (deployment.apps.length ? deployBadge : undefined),
     },
     {
       id: 'scorecard',
@@ -4074,18 +4076,6 @@ function EntityDrawer({
                     onComposition={composition.roots.length || composition.error ? () => setTab('composition') : undefined}
                   />
                 ) : null}
-                {/* Argo CD's per-environment resource view lives IN the Deployment
-                    tab (it was a separate Resources tab): where it is deployed and
-                    what is running there are one question. */}
-                {active === 'deploy' && deployment.apps.length > 0 ? (
-                  <section aria-label="Resources" className="space-y-2">
-                    <h3 className="text-sm font-semibold text-content">Resources</h3>
-                    {/* The Environments section above already summarises each
-                        environment, so this opens straight on one environment's
-                        resource tree instead of repeating those cards. */}
-                    <ResourcesTab entity={entity} deployment={deployment} overview={false} />
-                  </section>
-                ) : null}
 
                 {active === 'tech' ? (
                   <TechStackTab
@@ -4159,7 +4149,7 @@ function EntityDrawer({
 
                 {active === 'scorecard' ? <ScorecardTab score={score} onAsk={() => askAboutEntity(ai, entity)} /> : null}
 
-                {active === 'composition' ? <CompositionTab roots={composition} /> : null}
+                {active === 'composition' ? <ResourcesTab entity={entity} deployment={deployment} roots={composition} /> : null}
 
                 {active === 'raw' ? <RawTab entity={entity} roots={composition} relationCount={relationCount} /> : null}
               </div>
@@ -5012,7 +5002,7 @@ function HealthChecks({
           label: 'Resources',
           state: r.unhealthy > 0 ? 'bad' : r.outOfSync > 0 ? 'warn' : 'ok',
           detail: `${r.total - r.unhealthy}/${r.total} healthy${r.outOfSync ? ` · ${r.outOfSync} out of sync` : ''}`,
-          tab: 'deploy',
+          tab: 'composition',
         })
       }
       const fin = p.status.operationState?.finishedAt

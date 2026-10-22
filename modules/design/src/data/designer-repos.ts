@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { gitea, k8s } from '@adhar/api-clients'
 import { useGiteaOrg } from '@adhar/shell-ui'
-import { detectFramework, type RepoApi } from '@adhar/builder/code'
+import { detectFramework, type Framework, type RepoApi } from '@adhar/builder/code'
 import { appProjectSlug, appRepo, matchApps, scopedApps, type CatalogApp } from './designer-catalog.ts'
 
 /**
@@ -57,23 +57,60 @@ export function useCatalogApps() {
 
 export { appProjectSlug, appRepo, matchApps, scopedApps }
 
-/** The framework a repo's root package.json declares (card badge; a full detection runs on open). */
+/**
+ * The framework a repo declares at its root — package.json, else an Angular
+ * workspace (`angular.json`) or a static site (`index.html`). Null when it's
+ * none of those. (Card badge + library filter; a full detection runs on open.)
+ */
+async function rootFramework(org: string, repo: string, ref: string): Promise<Framework | null> {
+  let pkg: string | null = null
+  try {
+    const f = await giteaClient.getFile(org, repo, ref, 'package.json')
+    pkg = decode(f.content, f.encoding)
+  } catch {
+    pkg = null
+  }
+  const fw = pkg !== null ? detectFramework(pkg, []) : null
+  if (fw && fw.id !== 'unknown') return fw
+  for (const file of ['angular.json', 'index.html']) {
+    try {
+      await giteaClient.getFile(org, repo, ref, file)
+      return detectFramework(pkg, [file])
+    } catch {
+      // not there — try the next marker
+    }
+  }
+  return fw
+}
+
+/** The framework a repo's root declares (card badge; a full detection runs on open). */
 export function useRepoFramework(repo: string, ref?: string) {
   const org = useGiteaOrg()
   return useQuery({
     queryKey: ['designer', 'framework', org, repo, ref],
-    queryFn: async () => {
-      try {
-        const f = await giteaClient.getFile(org, repo, ref!, 'package.json')
-        return detectFramework(decode(f.content, f.encoding), [])
-      } catch {
-        return null
-      }
-    },
+    queryFn: () => rootFramework(org, repo, ref!),
     enabled: !!ref,
     staleTime: 5 * 60_000,
     retry: false,
   })
+}
+
+/**
+ * Framework detection for several repositories at once — the library's UI
+ * filter. Same query key as `useRepoFramework`, so a row and the filter share
+ * one read. `undefined` while a repo is still being read.
+ */
+export function useRepoFrameworks(repos: Array<{ name: string; default_branch: string }>) {
+  const org = useGiteaOrg()
+  const results = useQueries({
+    queries: repos.map((r) => ({
+      queryKey: ['designer', 'framework', org, r.name, r.default_branch],
+      queryFn: () => rootFramework(org, r.name, r.default_branch),
+      staleTime: 5 * 60_000,
+      retry: false,
+    })),
+  })
+  return new Map(repos.map((r, i) => [r.name, results[i]?.isLoading ? undefined : (results[i]?.data ?? null)]))
 }
 
 export function useLastCommit(repo: string, ref?: string) {

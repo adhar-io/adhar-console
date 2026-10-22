@@ -870,7 +870,7 @@ function ScorecardDrawer({
               disabled={reEval.phase !== 'idle'}
               leading={<IconRefresh spinning={reEval.phase !== 'idle'} />}
               title={card.platform
-                ? 'Recompute the catalog checks now and run the platform scorer (it grades every service; this one is reported when its result lands)'
+                ? 'Recompute the catalog checks now and run the platform scorer (it grades every application; this one is reported when its result lands)'
                 : 'Re-read this service’s catalog source and recompute its checks'}
             >
               {reEval.phase === 'idle' ? 'Re-evaluate' : 'Evaluating…'}
@@ -1240,7 +1240,7 @@ function RerunButton({ onDone }: { onDone(): void }) {
           'hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300',
           'disabled:cursor-not-allowed disabled:opacity-60',
         )}
-        title="Create a Job from the scorer CronJob and grade every service now"
+        title="Create a Job from the scorer CronJob and grade every application now"
       >
         <IconRefresh spinning={busy} />
         {busy ? 'Starting…' : 'Re-evaluate'}

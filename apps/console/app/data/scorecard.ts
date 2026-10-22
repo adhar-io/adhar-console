@@ -20,6 +20,7 @@ import type {
   PlatformService,
   PlatformSignal,
 } from '../server/scorecards.ts'
+import { mergeScorecards } from './scorecard-merge.ts'
 
 export type {
   PlatformCategory,
@@ -619,7 +620,7 @@ export function platformSignalLabel(name: string): string {
 }
 
 /** The entity annotation the `scorecards` package defines as its join key. */
-export const SCORECARD_ANNOTATION = 'adhar.io/scorecard'
+export { SCORECARD_ANNOTATION } from './scorecard-merge.ts'
 
 /** Endpoint state, as the UI needs to talk about it. */
 export interface PlatformScorecardsState {
@@ -697,63 +698,19 @@ export function usePlatformScorecards() {
   })
 }
 
-/**
- * Build the synthetic entity for a service only the platform scorer knows
- * about. It carries EXACTLY what the scorer reported (name, namespace) and
- * nothing else — no owner, no description, no links — because nothing else is
- * known. Its scorecard has zero derived checks, so the catalog checks can
- * never read as "failing" for a service the catalog has never seen.
- */
-function platformOnlyCard(rec: PlatformService): Scorecard {
-  const namespace = rec.namespace || 'default'
-  const entity: Entity = {
-    apiVersion: 'backstage.io/v1alpha1',
-    kind: 'Component',
-    metadata: {
-      name: rec.name,
-      namespace,
-      annotations: { [SCORECARD_ANNOTATION]: rec.name },
-    },
-    spec: { type: 'service' },
-    origin: 'live',
-  }
-  const byCategory = {} as Record<CheckCategory, CategoryScore>
-  for (const cat of CHECK_CATEGORIES) byCategory[cat] = { score: 0, pass: 0, total: 0 }
-  return {
-    entityRef: entityRef(entity),
-    score: rec.score,
-    grade: rec.grade,
-    checks: [],
-    byCategory,
-    entity,
-    source: 'platform',
-    platform: rec,
-    // No catalog entity → no derivation at all (the UI shows "—").
-    platformOnly: true,
-  }
-}
 
-/** The key a catalog entity joins the platform scorer on. */
-function scorecardKey(e: Entity): string {
-  return ann(e, SCORECARD_ANNOTATION) ?? e.metadata.name
-}
 
 export interface LiveScorecardsResult extends ScorecardsResult {
   platform: PlatformScorecardsState
 }
 
 /**
- * Scorecards for the whole fleet, platform scorer first.
- *
- *   • catalog entity + platform record → the platform score/grade wins, the
- *     catalog checks stay available in the drawer (they answer a different
- *     question: is this service *documented and owned*).
- *   • catalog entity only             → the console's own derivation, labelled.
- *   • platform record only            → a platform-only card (no derived checks).
- *
- * Nothing is merged numerically: one card shows one scorer's number, and says
- * which scorer it was.
+ * Scorecards for exactly the Service Catalog's applications, platform scorer
+ * first — see mergeScorecards (scorecard-merge.ts).
  */
+
+export { mergeScorecards }
+
 export function useLiveScorecards(): LiveScorecardsResult {
   const catalog = useScorecards()
   const q = usePlatformScorecards()
@@ -761,26 +718,7 @@ export function useLiveScorecards(): LiveScorecardsResult {
 
   return useMemo(() => {
     const records = platform?.configured ? platform.services : []
-    const byName = new Map(records.map((r) => [r.name, r]))
-    const used = new Set<string>()
-
-    const merged = catalog.scorecards.map((card) => {
-      const rec = byName.get(scorecardKey(card.entity))
-      if (!rec) return card
-      used.add(rec.name)
-      return {
-        ...card,
-        score: rec.score,
-        grade: rec.grade,
-        source: 'platform' as const,
-        platform: rec,
-      }
-    })
-
-    const orphans = records.filter((r) => !used.has(r.name)).map(platformOnlyCard)
-    const scorecards = [...merged, ...orphans].sort(
-      (a, b) => a.score - b.score || a.entityRef.localeCompare(b.entityRef),
-    )
+    const { scorecards, matched, graded } = mergeScorecards(catalog.scorecards, records)
 
     return {
       scorecards,
@@ -793,9 +731,9 @@ export function useLiveScorecards(): LiveScorecardsResult {
         lastRun: platform?.lastRun,
         weights: platform?.weights,
         gradeThresholds: platform?.gradeThresholds,
-        serviceCount: records.length,
+        serviceCount: graded,
         averageScore: platform?.averageScore,
-        matched: used.size,
+        matched,
         namespace: platform?.namespace ?? UNCONFIGURED.namespace,
         configMap: platform?.configMap ?? UNCONFIGURED.configMap,
         error: platform?.error,

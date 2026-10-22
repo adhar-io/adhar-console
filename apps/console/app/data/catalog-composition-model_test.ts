@@ -13,6 +13,8 @@ import {
   parseXrAnnotation,
   rollup,
   compareNodes,
+  intersectVisible,
+  subtreeScope,
   pathToRoot,
   pluralKind,
   rootCandidates,
@@ -328,4 +330,15 @@ Deno.test('collapse state, path to root and sortable tree rows', () => {
   assertEquals(rows.find((r) => r.node.id === 'root.1')!.last, false)
   assertEquals(pluralKind('Ingress', 2), 'Ingresses')
   assertEquals(pluralKind('Policy', 3), 'Policies')
+})
+
+Deno.test('environment scope: an app subtree with its path to the root', () => {
+  const g = synthetic({ fan: [3, 2] })
+  const s = subtreeScope(g, 'root.1')
+  assertEquals([...s].sort(), ['root', 'root.1', 'root.1.0', 'root.1.1'])
+  assertEquals(subtreeScope(g, 'missing').size, 1)
+  const f = visibleNodes(g, { search: 'root.1.1' })
+  assertEquals([...intersectVisible(s, f)!].sort(), ['root', 'root.1', 'root.1.1'])
+  assertEquals(intersectVisible(undefined, s), s)
+  assertEquals(intersectVisible(undefined, undefined), undefined)
 })

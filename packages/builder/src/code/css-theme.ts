@@ -13,10 +13,31 @@ export const CSS_CANDIDATES = [
   'src/styles/globals.css', 'src/styles.css', 'src/main.css', 'src/App.css', 'app/tailwind.css', 'app/app.css', 'app/root.css',
 ];
 
+/** Where the other frameworks keep their global stylesheet (tried first for them). */
+const FAMILY_CSS: Record<string, string[]> = {
+  angular: ['src/styles.css', 'src/global.css', 'src/app/app.css'],
+  vue: ['src/assets/main.css', 'src/assets/base.css', 'src/style.css', 'src/assets/css/main.css', 'assets/css/main.css', 'app/assets/css/main.css', 'assets/main.css'],
+  svelte: ['src/app.css', 'src/style.css', 'src/lib/styles.css', 'src/global.css'],
+  solid: ['src/index.css', 'src/app.css', 'src/root.css'],
+  html: ['styles.css', 'style.css', 'css/style.css', 'css/styles.css', 'css/main.css', 'assets/css/style.css', 'assets/css/main.css', 'main.css'],
+};
+
 /** Candidate stylesheet paths that exist, most likely first. */
-export function cssCandidates(paths: string[], root = ''): string[] {
+export function cssCandidates(paths: string[], root = '', family?: string): string[] {
   const set = new Set(paths);
-  return CSS_CANDIDATES.map((p) => (root ? `${root}/${p}` : p)).filter((p) => set.has(p));
+  const list = family && FAMILY_CSS[family] ? [...new Set([...FAMILY_CSS[family], ...CSS_CANDIDATES])] : CSS_CANDIDATES;
+  return list.map((p) => (root ? `${root}/${p}` : p)).filter((p) => set.has(p));
+}
+
+/**
+ * Plain (non-Tailwind) CSS for the canvas: `html` / `body` rules apply to the
+ * canvas root, everything is scoped to it. Best effort — component-scoped
+ * styles (Vue `scoped`, Svelte, Angular emulated encapsulation) apply to the
+ * whole page here.
+ */
+export function scopePlainCss(css: string, scope = '.adhar-repo-canvas'): string {
+  const rooted = css.replace(/^\s*@import\s+[^;]+;?/gm, '').replace(/(^|[}\s,])(html|body)(?=\s*[{,])/g, '$1:root');
+  return scopeCss(rooted, scope);
 }
 
 /** Pick the stylesheet that actually pulls in Tailwind (or the first one). */

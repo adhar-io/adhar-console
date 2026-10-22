@@ -6,7 +6,7 @@
 import { compile } from 'tailwindcss';
 import themeCss from 'tailwindcss/theme.css?raw';
 import utilitiesCss from 'tailwindcss/utilities.css?raw';
-import { scopeCss, toTailwindInput } from './css-theme.ts';
+import { scopeCss, scopePlainCss, toTailwindInput } from './css-theme.ts';
 
 const ENTRY = `@layer theme, base, components, utilities;\n@import 'tailwindcss/theme.css' layer(theme);\n@import 'tailwindcss/utilities.css' layer(utilities);\n`;
 
@@ -14,7 +14,8 @@ export interface RepoCssCompiler {
   build(candidates: string[]): string;
 }
 
-export async function createRepoCssCompiler(appCss: string | null): Promise<RepoCssCompiler> {
+/** `extraCss`: component styles (Vue / Svelte `<style>`, Angular `styles`), appended as plain scoped CSS. */
+export async function createRepoCssCompiler(appCss: string | null, extraCss = ''): Promise<RepoCssCompiler> {
   const input = toTailwindInput(appCss ?? '@import "tailwindcss";');
   const compiler = await compile(input, {
     base: '/',
@@ -27,5 +28,6 @@ export async function createRepoCssCompiler(appCss: string | null): Promise<Repo
     },
     loadModule: () => Promise.reject(new Error('Tailwind plugins are not loaded in the designer')),
   } as never);
-  return { build: (candidates) => scopeCss(compiler.build(candidates)) };
+  const extra = extraCss.trim() ? scopePlainCss(extraCss) : '';
+  return { build: (candidates) => scopeCss(compiler.build(candidates)) + extra };
 }

@@ -631,3 +631,32 @@ export function envTabs<A extends { metadata: { name: string; namespace?: string
   }
   return envs
 }
+
+/* ───────────────────────── drawer tab ids ───────────────────────── */
+
+/**
+ * The drawer's Resources tab keeps the id `composition` (its first name);
+ * `resources` — the id the separate Argo CD view had — is an alias, so old
+ * links and bookmarks land on it. Other ids pass through.
+ */
+export function drawerTabAlias<T extends string>(tab: T | undefined): T | 'composition' | undefined {
+  if (!tab) return undefined
+  return (tab as string) === 'resources' ? 'composition' : tab
+}
+
+/* ───────────────────────── unified tab views ───────────────────────── */
+
+export type ResourcesView = 'composition' | 'tree' | 'network' | 'pods' | 'list'
+
+/**
+ * The Resources tab's views: Composition when there is a composite (or the
+ * lookup is pending / failed, to say why), the four Argo CD views when an app
+ * deploys the entity. It opens on the first.
+ */
+export function resourceViews(opts: { composition: boolean; apps: number }): { views: ResourcesView[]; initial: ResourcesView } {
+  const views: ResourcesView[] = []
+  if (opts.composition) views.push('composition')
+  if (opts.apps > 0) views.push('tree', 'network', 'pods', 'list')
+  return { views, initial: views[0] ?? 'composition' }
+}
+

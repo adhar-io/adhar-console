@@ -42,7 +42,22 @@ const ALIAS: Record<string, string> = {
 /** Hosts that are the console itself or otherwise not user-facing apps. */
 const SKIP = new Set(['console', 'localhost', 'www'])
 
-interface HttpRoute {
+/**
+ * The launcher is for PLATFORM apps, and every platform package routes from the
+ * platform namespace (ADR-0011). Teams' applications route from their
+ * environment namespaces (`dev`, `test`, `prod`, …), and when an environment
+ * repeats the host's first label their hostname is one label deep
+ * (`my-service-dev.dev.adhar.io`), so the hostname rule alone let them in as
+ * tiles (2026-10-24). They have their own home in the service catalog.
+ */
+export const PLATFORM_ROUTE_NAMESPACE = 'adhar-system'
+
+/** True for an HTTPRoute that belongs to a platform package. */
+export function isPlatformRoute(route: HttpRoute): boolean {
+  return route.metadata?.namespace === PLATFORM_ROUTE_NAMESPACE
+}
+
+export interface HttpRoute {
   metadata?: { name?: string; namespace?: string }
   spec?: { hostnames?: string[] }
 }
@@ -69,6 +84,7 @@ export async function discoverRoutedApps(base: string, proto = 'https:'): Promis
       const suffix = `.${domain}`
       const seen = new Map<string, DiscoveredApp>()
       for (const it of body.items ?? []) {
+        if (!isPlatformRoute(it)) continue
         for (const raw of it.spec?.hostnames ?? []) {
           const host = raw.toLowerCase()
           if (!host.endsWith(suffix)) continue

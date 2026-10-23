@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.152",
+    "date": "2026-10-23",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Minor fixes"
+      }
+    ]
+  },
+  {
     "version": "0.1.151",
-    "date": "2026-10-22",
+    "date": "2026-10-23",
     "changes": [
       {
         "type": "change",
@@ -716,22 +726,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "assist",
         "text": "Drop the blueprint grid behind the AI landing"
-      }
-    ]
-  },
-  {
-    "version": "0.1.112",
-    "date": "2026-10-08",
-    "changes": [
-      {
-        "type": "feature",
-        "scope": "shell",
-        "text": "Lift the sidebar and the top bar off the page"
-      },
-      {
-        "type": "feature",
-        "scope": "shell",
-        "text": "A sidebar that reads as one column, not fourteen cards"
       }
     ]
   }

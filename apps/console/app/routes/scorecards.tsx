@@ -1120,9 +1120,6 @@ function PlatformStrip({
         <div>
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-subtle">Catalog checks</h3>
-            <span className="text-[11px] text-content-subtle">
-              Average across services where the category applies · click one to see the services with gaps
-            </span>
           </div>
           {fleet}
         </div>

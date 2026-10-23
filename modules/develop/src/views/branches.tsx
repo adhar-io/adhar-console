@@ -83,11 +83,6 @@ export function Branches() {
           </>
         }
       />
-      {prBlocked ? (
-        <div className='rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'>
-          {prBlocked}
-        </div>
-      ) : null}
       {/* Not keyed by repo: switching keeps the previous list on screen (dimmed)
           until the new repository's branches arrive, instead of blanking. */}
       <BranchBrowser repo={repo} onNewBranch={(from) => setCreating(from)} onNewPr={prBlocked ? undefined : (head) => setNewPr(head)} />

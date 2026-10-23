@@ -131,11 +131,15 @@ export function useCommits(repo?: string, ref?: string, limit = 50) {
 export function usePullRequests(repo?: string, state: 'open' | 'closed' | 'all' = 'open') {
   const org = useGiteaOrg();
   const pub = usePublicGiteaUrl();
+  const repos = useRepos();
+  // A repository that takes no pull requests (mirror, archived, PR unit off)
+  // has none to list — Gitea answers 404 rather than an empty list.
+  const blocked = pullRequestsBlocked((repos.data ?? []).find((r) => r.name === repo)) !== null;
   return useQuery({
-    queryKey: ['gitea', 'prs', org, repo, state],
-    queryFn: () => giteaClient.listPullRequests(org, repo!, state),
+    queryKey: ['gitea', 'prs', org, repo, state, blocked],
+    queryFn: () => (blocked ? Promise.resolve([] as gitea.PullRequest[]) : giteaClient.listPullRequests(org, repo!, state)),
     select: useCallback((list: gitea.PullRequest[]) => list.map((p) => ({ ...p, html_url: pub(p.html_url)! })), [pub]),
-    enabled: !!repo,
+    enabled: !!repo && !!repos.data,
     staleTime: REFRESH_MS,
     placeholderData: keepPreviousData,
   });
@@ -237,14 +241,20 @@ function useRepoNames(only?: string, prs = false) {
     () => (repos.data ?? []).filter((r) => !r.archived && (!prs || !pullRequestsBlocked(r))),
     [repos.data, prs],
   );
-  const names = useMemo(() => (only ? [only] : list.map((r) => r.name)), [only, list]);
+  // A single repo picked in the filter is asked only if it takes pull
+  // requests: a pull mirror (the platform's `adhar/adhar`), an archived or a
+  // PR-disabled repository answers every /pulls call with 404, which the view
+  // showed as "Couldn't load pull requests". For PR lists the repo list must
+  // have arrived first, so a blocked pick is never asked.
+  const onlyBlocked = !!only && prs && pullRequestsBlocked((repos.data ?? []).find((r) => r.name === only)) !== null;
+  const names = useMemo(() => (only ? (onlyBlocked ? [] : [only]) : list.map((r) => r.name)), [only, onlyBlocked, list]);
   // Repos that have open PRs right now — read off the repo list itself, so the
   // org-wide open-PR view asks only the repositories that have any.
   const withOpenPrs = useMemo(
     () => (only || !hasPrCounter(list) ? null : list.filter((r) => (r.open_pr_counter ?? 0) > 0).map((r) => r.name)),
     [only, list],
   );
-  return { names, withOpenPrs, ready: !!only || !!repos.data, error: repos.error };
+  return { names, withOpenPrs, ready: (!!only && !prs) || !!repos.data, error: repos.error };
 }
 
 /** Pull requests across the org (or one repo when `repo` is set), tagged with their repo. */

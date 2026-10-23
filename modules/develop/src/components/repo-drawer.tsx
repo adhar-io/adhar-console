@@ -660,7 +660,6 @@ function PullsTab({ repo: r }: { repo: gitea.Repo }) {
         defaults={{ repo: r.name }}
         onCreated={(pr) => go('prs', { repo: r.name, pr: itemRef(r.name, pr.number) })}
       />
-      {pullRequestsBlocked(r) ? <p className='mb-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-900 dark:bg-amber-500/10 dark:text-amber-200'>{pullRequestsBlocked(r)}</p> : null}
       <ListBody q={prs} what='pull requests'>
       {prs.data?.length
         ? (

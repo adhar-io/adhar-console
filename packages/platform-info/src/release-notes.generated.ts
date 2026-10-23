@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    "version": "0.1.153",
+    "version": "0.1.154",
     "date": "2026-10-23",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix app discovery"
+      }
+    ]
+  },
+  {
+    "version": "0.1.153",
+    "date": "2026-10-24",
     "changes": [
       {
         "type": "improvement",
@@ -696,16 +706,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "improvement",
         "text": "Adhar resources enhancement"
-      }
-    ]
-  },
-  {
-    "version": "0.1.114",
-    "date": "2026-10-09",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Nv fix"
       }
     ]
   }

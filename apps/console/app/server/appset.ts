@@ -95,9 +95,10 @@ export function resolvePackageName(
  *   - `ADHAR_APPSET_NAMESPACE` — namespace of the ApplicationSet(s). Default
  *     `adhar-system`.
  *   - `ADHAR_APPSET_REPO` — Gitea `<owner>/<repo>` holding the ApplicationSet
- *     YAML when it can't be discovered from ArgoCD. Default `adhar/registry`.
- *     In the reference stack the source of truth is `adhar/packages`, so set
- *     this to `adhar/packages` (or wherever your appset YAML is versioned).
+ *     YAML when it can't be discovered from ArgoCD. Default `adhar/packages`:
+ *     seeding commits the profile's ApplicationSet there as
+ *     `applicationset.yaml`, and the `adhar-platform-applicationset` Argo CD
+ *     Application keeps the live object equal to it.
  *   - `ADHAR_APPSET_FILE` — path to the ApplicationSet YAML inside that repo
  *     (e.g. `adhar-appset-local.yaml`). When unset a small set of conventional
  *     names is probed and the first file that actually contains the element is
@@ -115,7 +116,7 @@ interface ToggleRequest {
 }
 
 const DEFAULT_NAMESPACE = 'adhar-system'
-const DEFAULT_REPO = 'adhar/registry'
+const DEFAULT_REPO = 'adhar/packages'
 const DEFAULT_BRANCH = 'main'
 
 /** UTF-8 safe base64 encode (Gitea contents API expects base64 bodies). */
@@ -561,9 +562,10 @@ function appsetFileGuesses(appset?: string): string[] {
     if (suffix && suffix !== appset) out.push(`adhar-appset-${suffix}.yaml`)
   }
   out.push(
+    // Where seeding commits the profile's ApplicationSet — try it first.
+    'applicationset.yaml',
     'adhar-appset-local.yaml',
     'adhar-appset-production.yaml',
-    'applicationset.yaml',
     'appset.yaml',
   )
   return out

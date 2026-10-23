@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.153",
+    "date": "2026-10-23",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Enhance Discover graphs"
+      }
+    ]
+  },
+  {
     "version": "0.1.152",
     "date": "2026-10-23",
     "changes": [
@@ -696,36 +706,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "fix",
         "text": "Nv fix"
-      }
-    ]
-  },
-  {
-    "version": "0.1.113",
-    "date": "2026-10-09",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix app launcher"
-      },
-      {
-        "type": "feature",
-        "scope": "platform",
-        "text": "Show the YAML a claim will apply, and check it first"
-      },
-      {
-        "type": "feature",
-        "scope": "shell",
-        "text": "A sharper active state for sidebar sub-items"
-      },
-      {
-        "type": "fix",
-        "scope": "assist",
-        "text": "Drop the RBAC line from under the composer"
-      },
-      {
-        "type": "fix",
-        "scope": "assist",
-        "text": "Drop the blueprint grid behind the AI landing"
       }
     ]
   }

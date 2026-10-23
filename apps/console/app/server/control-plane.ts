@@ -109,7 +109,26 @@ export const DEFAULT_PROJECT = 'adhar'
  * Argo CD Applications, Kargo Warehouse and Stages from this one object; the
  * console never writes those itself.
  */
-export function applicationManifest(app: { name: string; project: string; repoUrl: string; path?: string }): XrManifest {
+/** Dashboard templates the Application composition knows (apps.xrd.yaml enum). */
+export const DASHBOARD_TYPES = ['backend-jvm', 'backend-generic', 'frontend', 'fullstack'] as const
+export type DashboardType = (typeof DASHBOARD_TYPES)[number]
+
+/**
+ * The dashboard template a Software Template declares in
+ * `metadata.labels["adhar.io/dashboard-type"]`. Without it on the XR the
+ * composition falls back to `backend-generic`, so every Spring Boot service
+ * scaffolded from the console lost its JVM, Hikari and Kafka panels
+ * (2026-10-23). Unknown values are ignored rather than passed on.
+ */
+export function dashboardTypeOf(templateDoc: unknown): DashboardType | undefined {
+  const labels = (templateDoc as { metadata?: { labels?: Record<string, unknown> } } | null)?.metadata?.labels
+  const v = labels?.['adhar.io/dashboard-type']
+  return typeof v === 'string' && (DASHBOARD_TYPES as readonly string[]).includes(v) ? (v as DashboardType) : undefined
+}
+
+export function applicationManifest(
+  app: { name: string; project: string; repoUrl: string; path?: string; dashboardType?: DashboardType },
+): XrManifest {
   return {
     apiVersion: PLATFORM_API_VERSION,
     kind: 'Application',
@@ -121,6 +140,9 @@ export function applicationManifest(app: { name: string; project: string; repoUr
         'adhar.io/project': app.project,
         'adhar.io/application': app.name,
         'adhar.io/scaffolded': 'true',
+        // A label rather than spec.parameters.dashboard: it is accepted by an
+        // older, strict XRD too, and the composition reads it second.
+        ...(app.dashboardType ? { 'adhar.io/dashboard-type': app.dashboardType } : {}),
       },
     },
     spec: {

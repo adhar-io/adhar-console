@@ -39,9 +39,35 @@ export interface ThresholdStep {
   value: number | null
 }
 
+export interface MappingResult {
+  text?: string
+  color?: string
+  index?: number
+}
+
+/**
+ * A Grafana value mapping. Modern boards use `{type, options}` with
+ * `value` / `range` / `regex` / `special` kinds; pre-v8 boards carry legacy
+ * `{type: 1|2, value|from|to, text}` objects.
+ */
 export interface ValueMapping {
-  type?: string
-  options?: Record<string, { text?: string; color?: string }> | { from?: number; to?: number; result?: { text?: string; color?: string } }
+  type?: string | number
+  options?:
+    | Record<string, MappingResult>
+    | { from?: number | null; to?: number | null; result?: MappingResult }
+    | { pattern?: string; result?: MappingResult }
+    | { match?: string; result?: MappingResult }
+  /** Legacy (type 1 = value, type 2 = range). */
+  value?: string
+  from?: string | number
+  to?: string | number
+  text?: string
+}
+
+export interface DataLink {
+  title?: string
+  url?: string
+  targetBlank?: boolean
 }
 
 export interface FieldDefaults {
@@ -52,8 +78,19 @@ export interface FieldDefaults {
   thresholds?: { mode?: 'absolute' | 'percentage'; steps?: ThresholdStep[] }
   mappings?: ValueMapping[]
   displayName?: string
-  color?: { mode?: string; fixedColor?: string }
+  /** Legend name the datasource gave the series (Prometheus `legendFormat`). */
+  displayNameFromDS?: string
+  color?: { mode?: string; fixedColor?: string; seriesBy?: string }
+  noValue?: string
+  links?: DataLink[]
+  /** Datasource-reported sample spacing (the query step) in ms. */
+  interval?: number
   custom?: Record<string, unknown>
+}
+
+export interface FieldOverride {
+  matcher?: { id?: string; options?: unknown }
+  properties?: Array<{ id: string; value?: unknown }>
 }
 
 export interface GridPos {
@@ -71,12 +108,26 @@ export interface GrafanaPanel {
   gridPos?: GridPos
   datasource?: DsRef | string | null
   targets?: GrafanaTarget[]
-  fieldConfig?: { defaults?: FieldDefaults; overrides?: unknown[] }
+  fieldConfig?: { defaults?: FieldDefaults; overrides?: FieldOverride[] }
+  transformations?: Array<{ id: string; options?: Record<string, unknown>; disabled?: boolean }>
+  links?: DataLink[]
+  timeFrom?: string
+  timeShift?: string
+  hideTimeOverride?: boolean
   options?: Record<string, unknown> & {
-    reduceOptions?: { calcs?: string[]; values?: boolean }
+    reduceOptions?: { calcs?: string[]; values?: boolean; fields?: string; limit?: number }
     content?: string
     mode?: string
-    legend?: { showLegend?: boolean; displayMode?: string }
+    legend?: {
+      showLegend?: boolean
+      displayMode?: string
+      placement?: string
+      calcs?: string[]
+      sortBy?: string
+      sortDesc?: boolean
+      width?: number
+    }
+    tooltip?: { mode?: string; sort?: string }
   }
   /** Legacy (Grafana 6/7) graph & singlestat fields. */
   yaxes?: Array<{ format?: string; min?: number | string | null; max?: number | string | null }>
@@ -271,19 +322,57 @@ export function rangeLabel(from: string, to: string): string {
   return `${fmt(from)} → ${fmt(to)}`
 }
 
-const NICE_STEPS_MS = [
-  1_000, 2_000, 5_000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 900_000, 1_800_000,
-  3_600_000, 7_200_000, 10_800_000, 21_600_000, 43_200_000, 86_400_000,
+/** Grafana's `rangeutil.roundInterval` table: [upper bound, rounded] in ms. */
+const ROUND_INTERVALS: Array<[number, number]> = [
+  [15, 10], [35, 20], [75, 50], [150, 100], [350, 200], [750, 500], [1_500, 1_000], [3_500, 2_000],
+  [7_500, 5_000], [12_500, 10_000], [17_500, 15_000], [25_000, 20_000], [45_000, 30_000], [90_000, 60_000],
+  [210_000, 120_000], [450_000, 300_000], [750_000, 600_000], [1_050_000, 900_000], [1_500_000, 1_200_000],
+  [2_700_000, 1_800_000], [5_400_000, 3_600_000], [9_000_000, 7_200_000], [16_200_000, 10_800_000],
+  [32_400_000, 21_600_000], [86_400_000, 43_200_000], [604_800_000, 86_400_000], [1_814_400_000, 604_800_000],
+  [3_628_800_000, 2_592_000_000],
 ]
 
+/** Round a raw interval to the nearest tidy value, exactly like Grafana. */
+export function roundInterval(ms: number): number {
+  for (const [bound, v] of ROUND_INTERVALS) if (ms < bound) return v
+  return 31_536_000_000
+}
+
 /**
- * Query step like Grafana's `$__interval`: range / maxDataPoints, rounded up
- * to a tidy value, never below `minMs` (panel `interval`, else 15s — the
- * kube-prometheus scrape interval).
+ * Query step like Grafana's `$__interval`: range / maxDataPoints rounded with
+ * Grafana's table, never below `minMs` (the panel's min interval, else 15s —
+ * the kube-prometheus scrape interval). Grafana's default `maxDataPoints` is
+ * the panel's pixel width.
  */
 export function computeStepMs(rangeMs: number, maxDataPoints = 300, minMs = 15_000): number {
-  const raw = Math.max(minMs, rangeMs / Math.max(1, maxDataPoints))
-  return NICE_STEPS_MS.find((s) => s >= raw) ?? Math.ceil(raw / 86_400_000) * 86_400_000
+  return Math.max(minMs, roundInterval(rangeMs / Math.max(1, maxDataPoints)))
+}
+
+/**
+ * Grafana panel time overrides: `timeFrom` (`2h` → last 2h ending at the
+ * board's `to`) and `timeShift` (`1d` → whole window moved back a day).
+ * Returns the effective window and the info text Grafana shows in the header.
+ */
+export function applyPanelTime(
+  time: { start: number; end: number },
+  timeFrom?: string,
+  timeShift?: string,
+  vars: VarMap = {},
+): { start: number; end: number; info?: string } {
+  let { start, end } = time
+  const info: string[] = []
+  const from = parseDuration(interpolate(timeFrom ?? '', vars, {}, {}, 'raw').replace(/^now-/, ''))
+  if (from) {
+    start = end - from
+    info.push(`Last ${interpolate(timeFrom ?? '', vars, {}, {}, 'raw').replace(/^now-/, '')}`)
+  }
+  const shift = parseDuration(interpolate(timeShift ?? '', vars, {}, {}, 'raw').replace(/^-/, ''))
+  if (shift) {
+    start -= shift
+    end -= shift
+    info.push(`timeshift -${interpolate(timeShift ?? '', vars, {}, {}, 'raw').replace(/^-/, '')}`)
+  }
+  return info.length ? { start, end, info: info.join(' ') } : { start, end }
 }
 
 /* ─────────── variables ─────────── */
@@ -735,34 +824,111 @@ export function formatLegend(fmt: string | undefined, metric: Record<string, str
 
 export type Calc = 'last' | 'lastNotNull' | 'first' | 'firstNotNull' | 'mean' | 'max' | 'min' | 'sum' | 'count' | 'range' | 'delta' | 'diff'
 
-/** Grafana reducer over a numeric series (`reduceOptions.calcs[0]`). */
-export function reduce(values: number[], calc: string = 'lastNotNull'): number | null {
-  const v = values.filter((x) => Number.isFinite(x))
+/** Legend / table header names Grafana gives its reducers. */
+export const CALC_LABEL: Record<string, string> = {
+  lastNotNull: 'Last *',
+  last: 'Last',
+  firstNotNull: 'First *',
+  first: 'First',
+  min: 'Min',
+  max: 'Max',
+  mean: 'Mean',
+  median: 'Median',
+  sum: 'Total',
+  count: 'Count',
+  range: 'Range',
+  delta: 'Delta',
+  diff: 'Difference',
+  diffperc: 'Difference percent',
+  stdDev: 'StdDev',
+  variance: 'Variance',
+  logmin: 'Min (above zero)',
+  changeCount: 'Change count',
+  distinctCount: 'Distinct count',
+  step: 'Step',
+  allIsNull: 'All null',
+  allIsZero: 'All zero',
+}
+
+/**
+ * Grafana reducer over a numeric series (`reduceOptions.calcs[0]`, legend
+ * calcs). `last`/`first` look at the raw ends (null when that sample is
+ * missing); the `*NotNull` variants skip gaps.
+ */
+export function reduce(values: Array<number | null>, calc: string = 'lastNotNull'): number | null {
+  const v = values.filter((x): x is number => x != null && Number.isFinite(x))
+  if (calc === 'last') {
+    const x = values[values.length - 1]
+    return x != null && Number.isFinite(x) ? x : null
+  }
+  if (calc === 'first') {
+    const x = values[0]
+    return x != null && Number.isFinite(x) ? x : null
+  }
+  if (calc === 'count') return values.length
   if (!v.length) return null
   switch (calc) {
-    case 'first':
     case 'firstNotNull':
       return v[0]
     case 'mean':
     case 'avg':
+      return v.reduce((a, b) => a + b, 0) / v.length
     case 'current':
-      return calc === 'current' ? v[v.length - 1] : v.reduce((a, b) => a + b, 0) / v.length
+      return v[v.length - 1]
+    case 'median': {
+      const s = [...v].sort((a, b) => a - b)
+      const m = Math.floor(s.length / 2)
+      return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+    }
     case 'max':
-      return Math.max(...v)
+      return v.reduce((a, b) => (b > a ? b : a), -Infinity)
     case 'min':
-      return Math.min(...v)
+      return v.reduce((a, b) => (b < a ? b : a), Infinity)
+    case 'logmin': {
+      const p = v.filter((x) => x > 0)
+      return p.length ? p.reduce((a, b) => (b < a ? b : a), Infinity) : null
+    }
     case 'sum':
     case 'total':
       return v.reduce((a, b) => a + b, 0)
-    case 'count':
-      return v.length
     case 'range':
-      return Math.max(...v) - Math.min(...v)
-    case 'delta':
+      return v.reduce((a, b) => (b > a ? b : a), -Infinity) - v.reduce((a, b) => (b < a ? b : a), Infinity)
+    case 'delta': {
+      // Counter-aware: sum of increases, a drop counts as a reset.
+      let d = 0
+      for (let i = 1; i < v.length; i++) d += v[i] >= v[i - 1] ? v[i] - v[i - 1] : v[i]
+      return d
+    }
     case 'diff':
       return v[v.length - 1] - v[0]
-    default:
+    case 'diffperc':
+      return v[0] === 0 ? null : (v[v.length - 1] - v[0]) / v[0]
+    case 'stdDev':
+    case 'variance': {
+      const mean = v.reduce((a, b) => a + b, 0) / v.length
+      const vr = v.reduce((a, b) => a + (b - mean) ** 2, 0) / v.length
+      return calc === 'variance' ? vr : Math.sqrt(vr)
+    }
+    case 'changeCount': {
+      let c = 0
+      for (let i = 1; i < v.length; i++) if (v[i] !== v[i - 1]) c++
+      return c
+    }
+    case 'distinctCount':
+      return new Set(v).size
+    case 'step': {
+      let m = Infinity
+      for (let i = 1; i < v.length; i++) m = Math.min(m, Math.abs(v[i] - v[i - 1]))
+      return Number.isFinite(m) ? m : null
+    }
+    default: {
+      const p = /^p(\d{1,2})$/.exec(calc)
+      if (p) {
+        const s = [...v].sort((a, b) => a - b)
+        return s[Math.min(s.length - 1, Math.max(0, Math.ceil((Number(p[1]) / 100) * s.length) - 1))]
+      }
       return v[v.length - 1]
+    }
   }
 }
 
@@ -819,6 +985,23 @@ function duration(ms: number, decimals?: number): string {
   return `${fixed(ms / 86_400_000, decimals)} day`
 }
 
+const CURRENCY: Record<string, string> = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', INR: '₹', CHF: 'CHF ', AUD: 'A$', CAD: 'C$' }
+
+function isoLocal(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+function fromNow(ms: number, now = Date.now()): string {
+  const d = (ms - now) / 1000
+  const a = Math.abs(d)
+  const [n, u] = a < 60 ? [a, 'second'] : a < 3600 ? [a / 60, 'minute'] : a < 86400 ? [a / 3600, 'hour'] : [a / 86400, 'day']
+  const r = Math.round(n)
+  const txt = `${r} ${u}${r === 1 ? '' : 's'}`
+  return d < 0 ? `${txt} ago` : `in ${txt}`
+}
+
 /** Format a value with a Grafana unit id (`bytes`, `percent`, `s`, `reqps` …). */
 export function formatUnit(value: number | null | undefined, unit?: string, decimals?: number): string {
   if (value == null || !Number.isFinite(value)) return '—'
@@ -861,6 +1044,12 @@ export function formatUnit(value: number | null | undefined, unit?: string, deci
       return duration(value / 1000, decimals)
     case 'ns':
       return duration(value / 1e6, decimals)
+    case 'm':
+      return duration(value * 60_000, decimals)
+    case 'h':
+      return duration(value * 3_600_000, decimals)
+    case 'd':
+      return duration(value * 86_400_000, decimals)
     case 'dtdurations':
     case 'dtdurationms':
       return duration(u === 'dtdurations' ? value * 1000 : value, decimals)
@@ -882,10 +1071,22 @@ export function formatUnit(value: number | null | undefined, unit?: string, deci
     case 'celsius':
       return `${fixed(value, decimals)}°C`
     case 'dateTimeAsIso':
+      return isoLocal(value)
     case 'dateTimeAsSystem':
       return new Date(value).toLocaleString()
     case 'dateTimeFromNow':
-      return new Date(value).toLocaleString()
+      return fromNow(value)
+    case 'decmbytes':
+      return scaled(value * 1e6, 1000, DEC, decimals)
+    case 'decgbytes':
+      return scaled(value * 1e9, 1000, DEC, decimals)
+    case 'deckbytes':
+      return scaled(value * 1e3, 1000, DEC, decimals)
+    case 'gbytes':
+      return scaled(value * 1024 ** 3, 1024, BIN, decimals)
+    case 'sishort':
+    case 'short':
+      return scaled(value, 1000, SI, decimals, '')
     case 'locale':
       return value.toLocaleString()
     case 'bool':
@@ -893,8 +1094,15 @@ export function formatUnit(value: number | null | undefined, unit?: string, deci
     default:
       if (u.startsWith('suffix:')) return `${fixed(value, decimals)}${u.slice(7)}`
       if (u.startsWith('prefix:')) return `${u.slice(7)}${fixed(value, decimals)}`
-      if (u.startsWith('currency')) return `${fixed(value, decimals ?? 2)}`
-      return scaled(value, 1000, SI, decimals, '')
+      if (u.startsWith('currency')) {
+        const sym = CURRENCY[u.slice(8)] ?? (u.startsWith('currency:') ? u.slice(9) : '')
+        const neg = value < 0 ? '-' : ''
+        return `${neg}${sym}${scaled(Math.abs(value), 1000, SI, decimals, '')}`
+      }
+      if (u.startsWith('si:')) return `${scaled(value, 1000, ['', 'k', 'M', 'G', 'T'], decimals, ' ')}${u.slice(3)}`.replace(/\s+$/, '')
+      if (u.startsWith('count:')) return `${scaled(value, 1000, SI, decimals, '')} ${u.slice(6)}`
+      // Grafana shows an unknown unit id as a custom suffix (`cores`).
+      return `${scaled(value, 1000, SI, decimals, '')} ${u}`
   }
 }
 
@@ -938,6 +1146,12 @@ const NAMED: Record<string, string> = {
   'dark-purple': 'var(--color-violet-700)',
   'semi-dark-purple': 'var(--color-violet-600)',
   'light-purple': 'var(--color-violet-400)',
+  'super-light-green': 'var(--color-emerald-300)',
+  'super-light-red': 'var(--color-rose-300)',
+  'super-light-orange': 'var(--color-orange-300)',
+  'super-light-yellow': 'var(--color-amber-200)',
+  'super-light-blue': 'var(--color-sky-300)',
+  'super-light-purple': 'var(--color-violet-300)',
   text: 'var(--color-content)',
   transparent: 'transparent',
 }
@@ -975,17 +1189,80 @@ export function thresholdFor(
   return hit
 }
 
-/** Apply value mappings (value → text) — the `value` and `range` kinds. */
-export function mapValue(value: number | null, mappings?: ValueMapping[]): { text?: string; color?: string } | null {
-  if (value == null || !mappings?.length) return null
-  for (const m of mappings) {
-    if (m.type === 'value' && m.options && !('from' in m.options) && !('result' in m.options)) {
-      const hit = (m.options as Record<string, { text?: string; color?: string }>)[String(value)]
-      if (hit) return hit
+/** Grafana's `stringToJsRegex`: `/re/flags`, else an anchored pattern. */
+export function toJsRegex(s: string): RegExp | null {
+  try {
+    if (s.startsWith('/')) {
+      const m = /^\/(.*)\/([gimsuy]*)$/.exec(s)
+      return m ? new RegExp(m[1], m[2].replace('g', '')) : new RegExp(s)
     }
-    if (m.type === 'range' && m.options && 'result' in m.options) {
-      const o = m.options as { from?: number; to?: number; result?: { text?: string; color?: string } }
-      if ((o.from == null || value >= o.from) && (o.to == null || value <= o.to)) return o.result ?? null
+    return new RegExp(`^${s}$`)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Apply value mappings the way Grafana does: the first matching mapping wins.
+ * Kinds: `value` (exact string match), `range` (inclusive, open-ended when
+ * null), `regex` (text may use capture groups), `special` (null, nan,
+ * null+nan, true, false, empty), plus legacy type 1 (value) / 2 (range).
+ */
+export function mapValue(value: number | string | null | undefined, mappings?: ValueMapping[]): MappingResult | null {
+  if (!mappings?.length) return null
+  const isNull = value == null
+  const num = typeof value === 'number' ? value : value != null && value !== '' ? Number(value) : NaN
+  const str = isNull ? '' : String(value)
+  for (const m of mappings) {
+    const t = m.type
+    if (t === 1 || t === '1') {
+      if (!isNull && m.value != null && String(m.value) === str) return { text: m.text }
+      if (isNull && m.value === 'null') return { text: m.text }
+      continue
+    }
+    if (t === 2 || t === '2') {
+      const from = m.from === '' || m.from == null ? -Infinity : Number(m.from)
+      const to = m.to === '' || m.to == null ? Infinity : Number(m.to)
+      if (Number.isFinite(num) && num >= from && num <= to) return { text: m.text }
+      continue
+    }
+    const o = m.options as Record<string, unknown> | undefined
+    if (!o) continue
+    if (t === 'value') {
+      if (isNull) continue
+      const hit = (o as Record<string, MappingResult>)[str]
+      if (hit && typeof hit === 'object') return hit
+      continue
+    }
+    if (t === 'range') {
+      if (!Number.isFinite(num)) continue
+      const r = o as { from?: number | null; to?: number | null; result?: MappingResult }
+      const from = r.from ?? -Infinity
+      const to = r.to ?? Infinity
+      if (num >= from && num <= to) return r.result ?? null
+      continue
+    }
+    if (t === 'regex') {
+      const r = o as { pattern?: string; result?: MappingResult }
+      if (isNull || !r.pattern) continue
+      const re = toJsRegex(r.pattern)
+      if (re && re.test(str)) {
+        const res = { ...(r.result ?? {}) }
+        if (res.text) res.text = str.replace(re, res.text)
+        return res
+      }
+      continue
+    }
+    if (t === 'special') {
+      const r = o as { match?: string; result?: MappingResult }
+      const nan = typeof value === 'number' && Number.isNaN(value)
+      const hit = (r.match === 'null' && isNull) ||
+        (r.match === 'nan' && nan) ||
+        (r.match === 'null+nan' && (isNull || nan)) ||
+        (r.match === 'true' && (value === 1 || str === 'true')) ||
+        (r.match === 'false' && (value === 0 || str === 'false')) ||
+        (r.match === 'empty' && str === '')
+      if (hit) return r.result ?? null
     }
   }
   return null
@@ -1020,7 +1297,17 @@ export const SUPPORTED_PANELS = new Set([
   'piechart',
   'barchart',
   'logs',
+  'state-timeline',
+  'status-history',
+  'heatmap',
+  'histogram',
+  'dashlist',
+  'alertlist',
+  'annolist',
 ])
+
+/** Panels that render without running the panel's own queries. */
+export const NO_QUERY_PANELS = new Set(['text', 'dashlist', 'alertlist', 'annolist'])
 
 /** Deep link to one panel in Grafana. */
 export function panelLink(base: string, uid: string, panelId: number, from: string, to: string, vars: VarMap): string {

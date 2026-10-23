@@ -31,10 +31,16 @@ export function Dashboards() {
     typeof location !== 'undefined' ? readBoardUrl(location.search).board ?? null : null,
   )
   const lib = useGrafanaLibrary()
+  // Bumped on every history navigation so a board link to the same board
+  // with other variables (a table drill-down) re-reads the URL.
+  const [navKey, setNavKey] = useState(0)
 
   // Back/forward and links that change `?board=` while mounted.
   useEffect(() => {
-    const sync = () => setBoard(readBoardUrl(location.search).board ?? null)
+    const sync = () => {
+      setBoard(readBoardUrl(location.search).board ?? null)
+      setNavKey((k) => k + 1)
+    }
     globalThis.addEventListener('popstate', sync)
     return () => globalThis.removeEventListener('popstate', sync)
   }, [])
@@ -50,7 +56,7 @@ export function Dashboards() {
 
   if (board) {
     const hit = lib.data?.find((h) => h.uid === board)
-    return <GrafanaBoard key={board} uid={board} grafanaBase={grafanaBase} starred={hit?.isStarred} onBack={() => open(null)} />
+    return <GrafanaBoard key={`${board}:${navKey}`} uid={board} grafanaBase={grafanaBase} starred={hit?.isStarred} onBack={() => open(null)} />
   }
   return <Library lib={lib} grafanaBase={grafanaBase} onOpen={open} />
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ALL_VALUE,
+  applyPanelTime,
   applyVarRegex,
   builtinVars,
   computeStepMs,
@@ -26,6 +27,7 @@ import {
   type VarState,
   variableQuery,
 } from './grafana-board.ts'
+import { normalizeRuleGroups } from './grafana-lists.ts'
 
 /**
  * Grafana data layer for the "Grafana boards" page.
@@ -405,6 +407,12 @@ export interface PanelFrame {
   series: PromSeries[]
   /** Log lines for Loki stream queries. */
   logs?: Array<{ ts: number; line: string; labels: Record<string, string> }>
+  /** `format: table` — one table frame per query. */
+  table?: boolean
+  /** `format: heatmap` — classic histogram buckets. */
+  heatmap?: boolean
+  /** Query step (ms) — Grafana's field `interval`. */
+  stepMs?: number
 }
 
 export interface PanelData {
@@ -412,6 +420,9 @@ export interface PanelData {
   /** The panel cannot be rendered natively (datasource kind / panel type). */
   unsupported?: string
   queries: string[]
+  /** Effective window after the panel's timeFrom / timeShift. */
+  range?: { start: number; end: number }
+  stepMs?: number
 }
 
 export interface PanelContext {
@@ -430,13 +441,23 @@ function targetQuery(t: GrafanaTarget): string {
   return (t.expr ?? (typeof t.query === 'string' ? t.query : '') ?? '').trim()
 }
 
-/** Run every visible target of a panel through its datasource. */
-export function usePanelData(panel: GrafanaPanel, ctx: PanelContext, enabled = true) {
-  const rangeMs = ctx.time.end - ctx.time.start
-  const minStep = parseDuration(interpolate(panel.interval ?? '', ctx.vars, {}, panel.scopedVars)) ?? 15_000
-  const stepMs = computeStepMs(rangeMs, Math.min(panel.maxDataPoints ?? 300, 600), minStep)
-  const builtins = builtinVars(rangeMs, stepMs)
+/** The panel's effective time window (timeFrom / timeShift) + header info. */
+export function panelTime(panel: GrafanaPanel, ctx: PanelContext) {
+  return applyPanelTime(ctx.time, panel.timeFrom, panel.timeShift, ctx.vars)
+}
+
+/**
+ * Run every visible target of a panel through its datasource. `widthPx` is
+ * the panel's width — Grafana's default `maxDataPoints`.
+ */
+export function usePanelData(panel: GrafanaPanel, ctx: PanelContext, enabled = true, widthPx = 0) {
+  const time = panelTime(panel, ctx)
+  const rangeMs = time.end - time.start
+  const panelMin = parseDuration(interpolate(panel.interval ?? '', ctx.vars, {}, panel.scopedVars))
+  // Grafana: maxDataPoints defaults to the panel width; Prometheus caps a range query at 11k points.
+  const maxPoints = Math.min(panel.maxDataPoints ?? (widthPx > 0 ? Math.round(widthPx / 50) * 50 : 300), 11_000)
   const targets = (panel.targets ?? []).filter((t) => !t.hide && targetQuery(t))
+  const tableish = panel.type === 'table' || panel.type === 'table-old'
 
   const plan = targets.map((t, i) => {
     const dsRef = t.datasource && !(typeof t.datasource === 'object' && t.datasource.uid === '-- Mixed --')
@@ -445,22 +466,30 @@ export function usePanelData(panel: GrafanaPanel, ctx: PanelContext, enabled = t
     const ds = ctx.dsKnown ? resolveDatasource(dsRef ?? null, ctx.datasources, ctx.vars) : null
     const kindFromRef = typeof dsRef === 'object' && dsRef?.type ? dsRef.type : undefined
     const kind = ds ? dsKind(ds) : kindFromRef === 'loki' ? 'loki' : kindFromRef && kindFromRef !== 'prometheus' ? 'other' : 'prometheus'
+    // Min step: the target's own interval, else the panel's min interval, else the 15s scrape.
+    const minStep = parseDuration(interpolate(t.interval ?? '', ctx.vars, {}, panel.scopedVars)) ?? panelMin ?? 15_000
+    const stepMs = computeStepMs(rangeMs, maxPoints, minStep)
+    // $__rate_interval uses the min step as the scrape interval when one is set (Grafana docs).
+    const builtins = builtinVars(rangeMs, stepMs, Math.max(15_000, minStep))
     const q = interpolate(targetQuery(t), ctx.vars, builtins, panel.scopedVars)
     const instant = t.instant === true && t.range !== true
       ? true
       : t.format === 'table' || (INSTANT_TYPES.has(panel.type) && t.range !== true && t.instant !== false)
-    return { t, ds, kind, q, instant, refId: t.refId ?? String.fromCharCode(65 + i) }
+    // A table panel without transformations shows each query as label columns + value.
+    const table = t.format === 'table' || (tableish && !(panel.transformations ?? []).length)
+    return { t, ds, kind, q, instant, stepMs, table, heatmap: t.format === 'heatmap', refId: t.refId ?? String.fromCharCode(65 + i) }
   })
+  const stepMs = plan[0]?.stepMs ?? computeStepMs(rangeMs, maxPoints, panelMin ?? 15_000)
 
   const unsupported = plan.find((p) => p.kind === 'other')
   return useQuery({
-    queryKey: ['grafana', 'panel', panel.id, plan.map((p) => [p.ds?.uid, p.q, p.instant]), Math.floor(ctx.time.start / 1000), Math.floor(ctx.time.end / 1000), stepMs, ctx.tick],
+    queryKey: ['grafana', 'panel', panel.id, plan.map((p) => [p.ds?.uid, p.q, p.instant, p.stepMs, p.table]), Math.floor(time.start / 1000), Math.floor(time.end / 1000), ctx.tick],
     queryFn: async (): Promise<PanelData> => {
       if (unsupported && plan.every((p) => p.kind === 'other')) {
         return { frames: [], unsupported: `${unsupported.ds?.type ?? 'this'} datasource`, queries: plan.map((p) => p.q) }
       }
-      const start = ctx.time.start / 1000
-      const end = ctx.time.end / 1000
+      const start = time.start / 1000
+      const end = time.end / 1000
       const frames = await Promise.all(
         plan.filter((p) => p.kind !== 'other').map(async (p): Promise<PanelFrame> => {
           if (p.kind === 'loki') {
@@ -469,7 +498,7 @@ export function usePanelData(panel: GrafanaPanel, ctx: PanelContext, enabled = t
               start: `${Math.floor(start)}000000000`,
               end: `${Math.floor(end)}000000000`,
               limit: '200',
-              step: `${Math.round(stepMs / 1000)}s`,
+              step: `${Math.round(p.stepMs / 1000)}s`,
             }
             const data = await promGet<{ resultType: string; result: Array<{ stream?: Record<string, string>; metric?: Record<string, string>; values: Array<[string, string]> }> }>(
               lokiBase(p.ds),
@@ -485,6 +514,7 @@ export function usePanelData(panel: GrafanaPanel, ctx: PanelContext, enabled = t
             return {
               refId: p.refId,
               legendFormat: p.t.legendFormat,
+              stepMs: p.stepMs,
               series: (data?.result ?? []).map((s) => ({ metric: s.metric ?? {}, values: s.values.map(([t, v]) => [Number(t), v] as [number, string]) })),
             }
           }
@@ -494,22 +524,98 @@ export function usePanelData(panel: GrafanaPanel, ctx: PanelContext, enabled = t
             const result = data?.resultType === 'scalar'
               ? [{ metric: {}, value: data.result as [number, string] }]
               : (data?.result as PromSeries[]) ?? []
-            return { refId: p.refId, legendFormat: p.t.legendFormat, series: result }
+            return { refId: p.refId, legendFormat: p.t.legendFormat, series: result, table: p.table, heatmap: p.heatmap, stepMs: p.stepMs }
           }
           const data = await promGet<{ result: PromSeries[] }>(base, '/api/v1/query_range', {
             query: p.q,
             start: String(start),
             end: String(end),
-            step: `${Math.round(stepMs / 1000)}s`,
+            step: `${Math.round(p.stepMs / 1000)}s`,
           })
-          return { refId: p.refId, legendFormat: p.t.legendFormat, series: data?.result ?? [] }
+          return { refId: p.refId, legendFormat: p.t.legendFormat, series: data?.result ?? [], table: p.table, heatmap: p.heatmap, stepMs: p.stepMs }
         }),
       )
-      return { frames, queries: plan.map((p) => p.q) }
+      return { frames, queries: plan.map((p) => p.q), range: { start: time.start, end: time.end }, stepMs }
     },
     enabled: enabled && plan.length > 0,
     placeholderData: keepPreviousData,
     staleTime: 10_000,
+    retry: false,
+  })
+}
+
+/* ─────────── list panels ─────────── */
+
+/**
+ * Alert rules for the alert list panel: Grafana-managed rules plus the
+ * Prometheus datasource's rules (both Prometheus rules format). A source
+ * that fails is reported, not fatal, so one missing API still lists the other.
+ */
+export function useAlertRules(enabled: boolean, tick: number) {
+  return useQuery({
+    queryKey: ['grafana', 'alertlist', tick],
+    queryFn: async () => {
+      type Groups = { data?: { groups?: Parameters<typeof normalizeRuleGroups>[0] } }
+      const [g, p] = await Promise.allSettled([
+        getJson<Groups>(`${GRAFANA}/api/prometheus/grafana/api/v1/rules`),
+        getJson<Groups>('/api/svc/prometheus/api/v1/rules?type=alert'),
+      ])
+      if (g.status === 'rejected' && p.status === 'rejected') throw g.reason
+      return {
+        items: [
+          ...(g.status === 'fulfilled' ? normalizeRuleGroups(g.value?.data?.groups, 'Grafana') : []),
+          ...(p.status === 'fulfilled' ? normalizeRuleGroups(p.value?.data?.groups, 'Prometheus') : []),
+        ],
+        failed: [g.status === 'rejected' ? 'Grafana-managed rules' : '', p.status === 'rejected' ? 'Prometheus rules' : ''].filter(Boolean),
+      }
+    },
+    enabled,
+    staleTime: 15_000,
+    refetchInterval: enabled ? 30_000 : false,
+    retry: false,
+  })
+}
+
+/** Dashboard search for the dash list panel (`starred` or a search path). */
+export function useDashSearch(path: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['grafana', 'dashlist', path],
+    queryFn: async () => {
+      const raw = await getJson<Array<Record<string, unknown>>>(`${GRAFANA}${path}`)
+      return (Array.isArray(raw) ? raw : []).map((d) => ({
+        uid: String(d.uid ?? ''),
+        title: String(d.title ?? 'Untitled'),
+        folderTitle: (d.folderTitle as string | undefined) || 'General',
+        tags: Array.isArray(d.tags) ? (d.tags as string[]) : [],
+        isStarred: Boolean(d.isStarred),
+      })).filter((d) => d.uid)
+    },
+    enabled: enabled && !!path,
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
+export interface GrafanaAnnotation {
+  id: number
+  time: number
+  timeEnd?: number
+  text?: string
+  tags?: string[]
+  login?: string
+  email?: string
+  dashboardUID?: string
+  panelId?: number
+  alertId?: number
+  newState?: string
+}
+
+export function useAnnotations(path: string, enabled: boolean, tick: number) {
+  return useQuery({
+    queryKey: ['grafana', 'annolist', path, tick],
+    queryFn: () => getJson<GrafanaAnnotation[]>(`${GRAFANA}${path}`),
+    enabled,
+    staleTime: 15_000,
     retry: false,
   })
 }

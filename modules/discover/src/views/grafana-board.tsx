@@ -1,14 +1,10 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
-  DonutGauge,
   EmptyState,
   GrafanaIcon,
   Markdown,
   Spinner,
-  type Threshold,
-  TimeSeriesChart,
-  type TimeSeries,
   useElementWidth,
   useToast,
 } from '@adhar/shell-ui'
@@ -16,46 +12,48 @@ import { cn, formatRelative } from '@adhar/utils'
 import {
   ALL_VALUE,
   boardLink,
-  colorTone,
   expandRepeats,
-  formatLegend,
-  formatUnit,
   GRID_CELL_MARGIN,
   type GrafanaPanel,
-  grafanaColor,
   interpolate,
   layoutSections,
-  legacyCalc,
-  mapValue,
+  NO_QUERY_PANELS,
   normalizePanels,
   panelLink,
   panelPixelHeight,
-  panelUnit,
+  parseDuration,
   QUICK_RANGES,
   rangeLabel,
   readBoardUrl,
-  reduce,
   REFRESH_INTERVALS,
   resolveRange,
   SUPPORTED_PANELS,
-  type ThresholdTone,
-  thresholdFor,
   type VarMap,
   writeBoardUrl,
-  parseDuration,
 } from '../data/grafana-board.ts'
 import {
   type BoardVariable,
   type PanelContext,
   type PanelData,
+  panelTime,
   useBoardVariables,
   useGrafanaDashboard,
   useGrafanaDatasources,
   usePanelData,
   useStarDashboard,
 } from '../data/grafana.ts'
+import { framesFromQueries, interpolateLink, resolveFields } from '../data/grafana-fields.ts'
+import { applyTransformations } from '../data/grafana-transforms.ts'
+import { consoleBoardHref, panelLinks } from '../data/grafana-links.ts'
 import { SourceError } from './states.tsx'
-import { seriesColor, SERIES_MAX, VizStyle } from './viz.tsx'
+import { DLink, VizStyle } from './viz.tsx'
+import { anchorOf, HoverTip } from './grafana-viz.tsx'
+import { TimeseriesViz } from './grafana-timeseries.tsx'
+import { TimelineViz } from './grafana-timeline.tsx'
+import { HeatmapViz, HistogramViz } from './grafana-heatmap.tsx'
+import { TableViz } from './grafana-table.tsx'
+import { BarGaugeViz, GaugeViz, PieViz, StatViz } from './grafana-single.tsx'
+import { AlertListViz, AnnoListViz, DashListViz } from './grafana-lists.tsx'
 
 /**
  * Native Grafana board renderer.
@@ -556,19 +554,34 @@ function useInView<T extends HTMLElement>(): [React.RefObject<T | null>, boolean
 
 function Panel({ panel, ctx, uid, base, from, to }: { panel: GrafanaPanel; ctx: PanelContext; uid: string; base: string; from: string; to: string }) {
   const [ref, inView] = useInView<HTMLDivElement>()
+  const width = useElementWidth(ref)
+  // Grafana's maxDataPoints defaults to the panel width — freeze the first
+  // measurement so a resize does not refetch every panel.
+  const widthRef = useRef(0)
+  if (!widthRef.current && width > 0) widthRef.current = width
   const [showQuery, setShowQuery] = useState(false)
+  const [tip, setTip] = useState<{ x: number; y: number } | null>(null)
   const supported = SUPPORTED_PANELS.has(panel.type)
-  const needsData = supported && panel.type !== 'text'
-  const q = usePanelData(panel, ctx, inView && needsData)
+  const needsData = supported && !NO_QUERY_PANELS.has(panel.type)
+  const q = usePanelData(panel, ctx, inView && needsData && widthRef.current > 0, widthRef.current)
   const title = interpolate(panel.title ?? '', ctx.vars, {}, panel.scopedVars, 'text')
   const link = panelLink(base, uid, panel.sourceId ?? panel.id, from, to, ctx.vars)
+  const timeInfo = panel.hideTimeOverride ? undefined : panelTime(panel, ctx).info
+  const description = panel.description ? interpolate(panel.description, ctx.vars, {}, panel.scopedVars, 'text') : ''
+  const links = panelLinks(panel.links, (u) => interpolateLink(u, {}, ctx.vars, { __url_time_range: `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}` }))
 
   let body: ReactNode
   if (!supported) {
     body = <Placeholder link={link} reason={`“${panel.type}” panels are not drawn in the console.`} />
   } else if (panel.type === 'text') {
     body = <TextPanel panel={panel} vars={ctx.vars} />
-  } else if (!inView || q.isLoading) {
+  } else if (panel.type === 'alertlist') {
+    body = <AlertListViz panel={panel} dashboardUid={uid} enabled={inView} tick={ctx.tick} />
+  } else if (panel.type === 'dashlist') {
+    body = <DashListViz panel={panel} enabled={inView} from={from} to={to} />
+  } else if (panel.type === 'annolist') {
+    body = <AnnoListViz panel={panel} dashboardUid={uid} range={panelTime(panel, ctx)} enabled={inView} tick={ctx.tick} />
+  } else if (!inView || q.isLoading || (needsData && !q.data && !q.isError && (panel.targets ?? []).length > 0)) {
     body = <div className="flex h-full items-center justify-center"><Spinner size={12} /></div>
   } else if (q.isError) {
     body = (
@@ -582,17 +595,49 @@ function Panel({ panel, ctx, uid, base, from, to }: { panel: GrafanaPanel; ctx: 
   } else if (!q.data || (panel.targets ?? []).length === 0) {
     body = <div className="flex h-full items-center justify-center text-[11px] text-content-subtle">No queries</div>
   } else {
-    body = <PanelBody panel={panel} data={q.data} />
+    body = <PanelBody panel={panel} data={q.data} ctx={ctx} base={base} from={from} to={to} />
   }
 
   return (
-    <div ref={ref} className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-edge-default bg-surface-raised">
+    <div
+      ref={ref}
+      className={cn(
+        'flex h-full min-h-0 flex-col overflow-hidden rounded-lg',
+        (panel as { transparent?: boolean }).transparent ? '' : 'border border-edge-default bg-surface-raised',
+      )}
+    >
       <div className="flex h-7 shrink-0 items-center gap-1.5 px-2.5">
-        <span className="truncate text-[12px] font-semibold text-content" title={panel.description || title}>{title}</span>
+        <span className="truncate text-[12px] font-semibold text-content" title={title}>{title}</span>
+        {description ? (
+          <button
+            type="button"
+            aria-label={`About this panel: ${description}`}
+            className="shrink-0 rounded text-[11px] leading-none text-content-subtle hover:text-content focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
+            onMouseEnter={(e) => setTip({ x: e.clientX, y: e.clientY })}
+            onMouseLeave={() => setTip(null)}
+            onFocus={(e) => setTip(anchorOf(e.currentTarget))}
+            onBlur={() => setTip(null)}
+          >
+            ⓘ
+          </button>
+        ) : null}
+        {timeInfo ? <span className="shrink-0 truncate font-mono text-[10px] text-sky-700 dark:text-sky-300" title="Panel time override">{timeInfo}</span> : null}
         {q.isFetching && !q.isLoading ? <Spinner size={9} /> : null}
         <span className="ml-auto flex shrink-0 items-center gap-1 opacity-70 hover:opacity-100">
+          {links.map((l) => {
+            const internal = consoleBoardHref(l.url, typeof location !== 'undefined' ? location.search : '', { from, to })
+            return internal ? (
+              <DLink key={l.url} href={internal} title={l.title} className="max-w-[8rem] truncate rounded px-1 text-[10px] text-content-subtle hover:bg-surface-sunken hover:text-content">
+                {l.title} ↗
+              </DLink>
+            ) : (
+              <a key={l.url} href={/^https?:/.test(l.url) ? l.url : `${base.replace(/\/$/, '')}${l.url.startsWith('/') ? '' : '/'}${l.url}`} target="_blank" rel="noopener noreferrer" title={l.title} className="max-w-[8rem] truncate rounded px-1 text-[10px] text-content-subtle hover:bg-surface-sunken hover:text-content">
+                {l.title} ↗
+              </a>
+            )
+          })}
           {q.data?.queries?.length ? (
-            <button type="button" onClick={() => setShowQuery((s) => !s)} className="rounded px-1 text-[10px] text-content-subtle hover:bg-surface-sunken hover:text-content" title="Show query">
+            <button type="button" onClick={() => setShowQuery((s) => !s)} className="rounded px-1 text-[10px] text-content-subtle hover:bg-surface-sunken hover:text-content" title="Show query" aria-pressed={showQuery}>
               {'{ }'}
             </button>
           ) : null}
@@ -609,6 +654,11 @@ function Panel({ panel, ctx, uid, base, from, to }: { panel: GrafanaPanel; ctx: 
         </pre>
       ) : null}
       <div className="min-h-0 flex-1 px-2.5 pb-2">{body}</div>
+      {tip && description ? (
+        <HoverTip x={tip.x} y={tip.y}>
+          <div className="whitespace-pre-line font-sans text-[11px] leading-snug text-content">{description}</div>
+        </HoverTip>
+      ) : null}
     </div>
   )
 }
@@ -641,282 +691,91 @@ function TextPanel({ panel, vars }: { panel: GrafanaPanel; vars: VarMap }) {
 
 /* ─────────── data panels ─────────── */
 
-interface FlatSeries {
-  name: string
-  points: Array<[number, number]>
-  last: number | null
-  labels: Record<string, string>
-}
-
-function flatten(data: PanelData): FlatSeries[] {
-  const out: FlatSeries[] = []
-  for (const f of data.frames) {
-    for (const s of f.series) {
-      const pts: Array<[number, number]> = s.values
-        ? s.values.map(([t, v]) => [t * 1000, Number(v)] as [number, number])
-        : s.value
-          ? [[s.value[0] * 1000, Number(s.value[1])]]
-          : []
-      out.push({
-        name: formatLegend(f.legendFormat, s.metric, f.refId),
-        points: pts,
-        last: pts.length ? pts[pts.length - 1][1] : null,
-        labels: s.metric,
-      })
-    }
+function PanelBody({ panel, data, ctx, base, from, to }: { panel: GrafanaPanel; data: PanelData; ctx: PanelContext; base: string; from: string; to: string }) {
+  const logs = useMemo(() => data.frames.flatMap((f) => f.logs ?? []), [data])
+  const prepared = useMemo(() => {
+    const raw = framesFromQueries(data.frames.filter((f) => !f.logs))
+    const t = applyTransformations(raw, panel.transformations)
+    const resolved = resolveFields(t.frames, panel.fieldConfig?.defaults, panel.fieldConfig?.overrides, ctx.vars, panel.scopedVars)
+    return { resolved, fields: resolved.flatMap((r) => r.fields), skipped: t.skipped }
+    // ctx.vars identity changes per render; displayName templates only need values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, panel, JSON.stringify(Object.fromEntries(Object.entries(ctx.vars).map(([k, v]) => [k, v.values])))])
+  if (panel.type === 'logs' || logs.length) return <LogsPanel panel={panel} lines={logs} />
+  const range = data.range ?? ctx.time
+  const hasValues = prepared.fields.some((f) => f.type !== 'time' && f.values.some((v) => v != null))
+  if (!hasValues) {
+    const nv = panel.fieldConfig?.defaults?.noValue
+    return (
+      <div className="flex h-full items-center justify-center text-center">
+        <span className={nv && ['stat', 'singlestat', 'gauge', 'bargauge'].includes(panel.type) ? 'text-2xl font-semibold text-content-muted' : 'text-[11px] text-content-subtle'}>
+          {nv ?? 'No data in this range'}
+        </span>
+      </div>
+    )
   }
-  return out
-}
-
-const MAX_SERIES = SERIES_MAX
-
-function PanelBody({ panel, data }: { panel: GrafanaPanel; data: PanelData }) {
-  const logs = data.frames.flatMap((f) => f.logs ?? [])
-  if (panel.type === 'logs' || logs.length) return <LogsPanel lines={logs} />
-  const series = flatten(data)
-  if (series.length === 0 || series.every((s) => s.points.length === 0)) {
-    return <div className="flex h-full items-center justify-center text-[11px] text-content-subtle">No data in this range</div>
-  }
+  const note = prepared.skipped.length ? (
+    <div className="pt-0.5 text-[10px] text-content-subtle">Not applied here: {prepared.skipped.join(', ')} transformation{prepared.skipped.length === 1 ? '' : 's'}</div>
+  ) : null
+  let viz: ReactNode
   switch (panel.type) {
-    case 'timeseries':
-    case 'graph':
-      return <TimeseriesPanel panel={panel} series={series} />
     case 'stat':
     case 'singlestat':
-      return <StatPanel panel={panel} series={series} />
+      viz = <StatViz panel={panel} frames={prepared.resolved} />
+      break
     case 'gauge':
-      return <GaugePanel panel={panel} series={series} />
+      viz = <GaugeViz panel={panel} frames={prepared.resolved} />
+      break
     case 'bargauge':
     case 'barchart':
+      viz = <BarGaugeViz panel={panel} frames={prepared.resolved} />
+      break
     case 'piechart':
-      return <BarsPanel panel={panel} series={series} share={panel.type === 'piechart'} />
+      viz = <PieViz panel={panel} frames={prepared.resolved} />
+      break
     case 'table':
     case 'table-old':
-      return <TablePanel panel={panel} series={series} />
+      viz = <TableViz panel={panel} frames={prepared.resolved} vars={ctx.vars} grafanaBase={base} timeRange={{ from, to }} />
+      break
+    case 'state-timeline':
+    case 'status-history':
+      viz = <TimelineViz panel={panel} fields={prepared.fields} range={range} stepMs={data.stepMs} kind={panel.type} />
+      break
+    case 'heatmap':
+      viz = <HeatmapViz panel={panel} series={data.frames.flatMap((f) => f.series)} fields={prepared.fields} range={range} />
+      break
+    case 'histogram':
+      viz = <HistogramViz panel={panel} fields={prepared.fields} />
+      break
     default:
-      return <TimeseriesPanel panel={panel} series={series} />
+      viz = <TimeseriesViz panel={panel} fields={prepared.fields} range={range} stepMs={data.stepMs} />
   }
-}
-
-function useCalc(panel: GrafanaPanel): string {
-  return panel.options?.reduceOptions?.calcs?.[0] ?? legacyCalc(panel.valueName)
-}
-
-function TimeseriesPanel({ panel, series }: { panel: GrafanaPanel; series: FlatSeries[] }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const width = useElementWidth(ref)
-  const [showAll, setShowAll] = useState(false)
-  const u = panelUnit(panel)
-  const shown = showAll ? series : series.slice(0, MAX_SERIES)
-  const ts: TimeSeries[] = shown.map((s, i) => ({ name: s.name, points: s.points, color: seriesColor(i) }))
-  const steps = panel.fieldConfig?.defaults?.thresholds?.steps ?? []
-  const style = (panel.fieldConfig?.defaults?.custom?.thresholdsStyle as { mode?: string } | undefined)?.mode
-  const thresholds: Threshold[] = style && style !== 'off'
-    ? steps.filter((s) => s.value != null).map((s) => ({ value: s.value!, color: grafanaColor(s.color), label: formatUnit(s.value!, u.unit, u.decimals) }))
-    : []
   return (
-    <div ref={ref} className="flex h-full flex-col overflow-hidden">
-      <MeasuredChart width={width} legendRows={ts.length > 1 ? Math.min(3, Math.ceil(ts.length / 4)) : 0}>
-        {(h) => (
-          <TimeSeriesChart
-            series={ts}
-            height={h}
-            formatY={(v) => formatUnit(v, u.unit, u.decimals)}
-            yMax={u.max}
-            thresholds={thresholds}
-            emptyLabel="No samples in this range"
-          />
-        )}
-      </MeasuredChart>
-      {series.length > MAX_SERIES ? (
-        <button type="button" onClick={() => setShowAll((s) => !s)} className="mt-0.5 self-start text-[10px] text-content-subtle hover:text-content">
-          {showAll ? 'Show fewer series' : `Showing ${MAX_SERIES} of ${series.length} series — show all`}
-        </button>
-      ) : null}
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">{viz}</div>
+      {note}
     </div>
   )
 }
 
-/**
- * TimeSeriesChart scales its viewBox (640 wide) to the container width, so a
- * pixel height H needs a viewBox height of H × 640 / width.
- */
-function MeasuredChart({ width, legendRows, children }: { width: number; legendRows: number; children(h: number): ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [hPx, setHPx] = useState(0)
-  useEffect(() => {
-    const el = ref.current
-    if (!el || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver((es) => setHPx(es[0]?.contentRect.height ?? 0))
-    ro.observe(el)
-    setHPx(el.getBoundingClientRect().height)
-    return () => ro.disconnect()
-  }, [])
-  const avail = Math.max(60, hPx - legendRows * 16 - 4)
-  const vbH = width > 0 ? Math.max(60, Math.round((avail * 640) / width)) : 140
-  return (
-    <div ref={ref} className="min-h-0 flex-1 overflow-hidden">
-      {hPx > 0 ? children(vbH) : null}
-    </div>
-  )
-}
-
-const TONE_ICON: Record<ThresholdTone, string> = { ok: '●', warn: '▲', bad: '■', info: '●', neutral: '' }
-const TONE_LABEL: Record<ThresholdTone, string> = { ok: 'OK', warn: 'Warning', bad: 'Critical', info: '', neutral: '' }
-
-function valueDisplay(panel: GrafanaPanel, v: number | null) {
-  const u = panelUnit(panel)
-  const d = panel.fieldConfig?.defaults
-  const mapped = mapValue(v, d?.mappings)
-  const step = thresholdFor(v, d?.thresholds, u.min ?? 0, u.max ?? 100)
-  const color = grafanaColor(mapped?.color ?? step?.color)
-  const tone = colorTone(mapped?.color ?? step?.color)
-  return { text: mapped?.text ?? formatUnit(v, u.unit, u.decimals), color, tone }
-}
-
-function StatPanel({ panel, series }: { panel: GrafanaPanel; series: FlatSeries[] }) {
-  const calc = useCalc(panel)
-  const items = series.slice(0, 24).map((s) => ({ s, v: reduce(s.points.map((p) => p[1]), calc) }))
-  const many = items.length > 1
-  return (
-    <div className={cn('grid h-full gap-2', many ? 'auto-rows-fr grid-cols-[repeat(auto-fit,minmax(110px,1fr))] overflow-auto' : 'grid-cols-1')}>
-      {items.map(({ s, v }) => {
-        const disp = valueDisplay(panel, v)
-        const showTone = disp.tone === 'warn' || disp.tone === 'bad'
-        return (
-          <div key={s.name} className="flex min-w-0 flex-col items-center justify-center text-center">
-            {many ? <div className="max-w-full truncate text-[10px] text-content-subtle">{s.name}</div> : null}
-            <div className={cn('flex items-baseline gap-1 font-semibold tabular-nums text-content', many ? 'text-lg' : 'text-3xl')}>
-              {disp.color && disp.tone !== 'neutral' ? (
-                <span aria-hidden className="text-[0.5em]" style={{ color: disp.color }}>{TONE_ICON[disp.tone] || '●'}</span>
-              ) : null}
-              {disp.text}
-            </div>
-            {showTone ? <div className="text-[10px] font-medium" style={{ color: disp.color }}>{TONE_LABEL[disp.tone]}</div> : null}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function GaugePanel({ panel, series }: { panel: GrafanaPanel; series: FlatSeries[] }) {
-  const calc = useCalc(panel)
-  const u = panelUnit(panel)
-  const items = series.slice(0, 8).map((s) => ({ s, v: reduce(s.points.map((p) => p[1]), calc) }))
-  const max = u.max ?? (u.unit === 'percentunit' ? 1 : 100)
-  const min = u.min ?? 0
-  // Fit the dial to the panel: grid height minus the title bar and padding.
-  const fit = Math.max(56, panelPixelHeight(panel.gridPos?.h ?? 6) - 44)
-  const size = Math.min(items.length > 1 ? 84 : 120, fit - (items.length > 1 ? 18 : 0))
-  return (
-    <div className="flex h-full flex-wrap items-center justify-center gap-3 overflow-auto">
-      {items.map(({ s, v }) => {
-        const disp = valueDisplay(panel, v)
-        return (
-          <div key={s.name} className="flex flex-col items-center">
-            <DonutGauge
-              value={Math.max(0, (v ?? 0) - min)}
-              max={Math.max(1e-9, max - min)}
-              size={size}
-              thickness={9}
-              color={disp.color ?? 'var(--color-brand-500)'}
-              label={<span className="text-sm font-semibold tabular-nums text-content">{disp.text}</span>}
-            />
-            {items.length > 1 ? <span className="mt-1 max-w-[9rem] truncate text-[10px] text-content-subtle">{s.name}</span> : null}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function BarsPanel({ panel, series, share }: { panel: GrafanaPanel; series: FlatSeries[]; share: boolean }) {
-  const calc = useCalc(panel)
-  const u = panelUnit(panel)
-  const items = series.map((s) => ({ s, v: reduce(s.points.map((p) => p[1]), calc) ?? 0 })).sort((a, b) => b.v - a.v).slice(0, 30)
-  const total = items.reduce((a, b) => a + Math.max(0, b.v), 0)
-  const max = share ? total : (u.max ?? Math.max(...items.map((i) => i.v), 1e-9))
-  return (
-    <ul className="h-full space-y-1.5 overflow-auto pr-1">
-      {items.map(({ s, v }, i) => {
-        const disp = valueDisplay(panel, v)
-        const pct = max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)) : 0
-        return (
-          <li key={s.name} className="text-[11px]">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-content-muted">{s.name}</span>
-              <span className="shrink-0 font-mono tabular-nums text-content">
-                {disp.text}
-                {share ? <span className="ml-1 text-content-subtle">{pct.toFixed(1)}%</span> : null}
-              </span>
-            </div>
-            <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-surface-sunken">
-              <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: share ? seriesColor(i) : (disp.color ?? 'var(--color-brand-500)') }} />
-            </div>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-
-function TablePanel({ panel, series }: { panel: GrafanaPanel; series: FlatSeries[] }) {
-  const u = panelUnit(panel)
-  const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null)
-  const cols = useMemo(() => {
-    const set = new Set<string>()
-    for (const s of series) for (const k of Object.keys(s.labels)) if (k !== '__name__') set.add(k)
-    return [...set]
-  }, [series])
-  const rows = useMemo(() => {
-    const r = series.map((s) => ({ labels: s.labels, value: s.last }))
-    if (!sort) return r
-    return [...r].sort((a, b) => {
-      if (sort.col === '__value') return ((a.value ?? -Infinity) - (b.value ?? -Infinity)) * sort.dir
-      return String(a.labels[sort.col] ?? '').localeCompare(String(b.labels[sort.col] ?? '')) * sort.dir
-    })
-  }, [series, sort])
-  const head = (col: string, label: string) => (
-    <th key={col} className="sticky top-0 bg-surface-raised px-2 py-1 text-left font-semibold text-content-subtle">
-      <button type="button" onClick={() => setSort((s) => (s?.col === col ? { col, dir: s.dir === 1 ? -1 : 1 } : { col, dir: -1 }))} className="hover:text-content">
-        {label}
-        {sort?.col === col ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}
-      </button>
-    </th>
-  )
-  return (
-    <div className="h-full overflow-auto">
-      <table className="w-full text-[11px]">
-        <thead>
-          <tr className="border-b border-edge-subtle">
-            {cols.map((c) => head(c, c))}
-            {head('__value', 'Value')}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 500).map((r, i) => (
-            <tr key={i} className="border-b border-edge-subtle/60">
-              {cols.map((c) => (
-                <td key={c} className="max-w-[16rem] truncate px-2 py-1 text-content-muted">{r.labels[c] ?? ''}</td>
-              ))}
-              <td className="px-2 py-1 text-right font-mono tabular-nums text-content">{formatUnit(r.value, u.unit, u.decimals)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function LogsPanel({ lines }: { lines: Array<{ ts: number; line: string }> }) {
+function LogsPanel({ panel, lines }: { panel: GrafanaPanel; lines: Array<{ ts: number; line: string; labels: Record<string, string> }> }) {
+  const o = (panel.options ?? {}) as { showTime?: boolean; wrapLogMessage?: boolean; sortOrder?: string; dedupStrategy?: string; showLabels?: boolean }
+  const shown = useMemo(() => {
+    let l = [...lines].sort((a, b) => (o.sortOrder === 'Ascending' ? a.ts - b.ts : b.ts - a.ts))
+    if (o.dedupStrategy === 'exact' || o.dedupStrategy === 'signature') {
+      const sig = (s: string) => (o.dedupStrategy === 'signature' ? s.replace(/\d+/g, '0') : s)
+      l = l.filter((x, i) => i === 0 || sig(x.line) !== sig(l[i - 1].line))
+    }
+    return l.slice(0, 200)
+  }, [lines, o.sortOrder, o.dedupStrategy])
   if (!lines.length) return <div className="flex h-full items-center justify-center text-[11px] text-content-subtle">No log lines in this range</div>
   return (
     <ul className="h-full overflow-auto font-mono text-[10px] leading-relaxed">
-      {lines.slice(0, 200).map((l, i) => (
+      {shown.map((l, i) => (
         <li key={i} className="flex gap-2 border-b border-edge-subtle/50 py-0.5">
-          <span className="shrink-0 text-content-subtle">{new Date(l.ts).toLocaleTimeString()}</span>
-          <span className="min-w-0 break-all text-content">{l.line}</span>
+          {o.showTime !== false ? <span className="shrink-0 text-content-subtle">{new Date(l.ts).toLocaleTimeString()}</span> : null}
+          {o.showLabels ? <span className="shrink-0 text-content-subtle">{Object.entries(l.labels).map(([k, v]) => `${k}=${v}`).join(' ')}</span> : null}
+          <span className={cn('min-w-0 text-content', o.wrapLogMessage === false ? 'truncate whitespace-nowrap' : 'break-all')}>{l.line}</span>
         </li>
       ))}
     </ul>

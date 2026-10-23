@@ -12,7 +12,7 @@ import { templatesLocation } from './templates.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 import { platformDomain, toolPublicUrl, toPublicToolUrl } from './domain.ts'
 import { platformRouteHost, routeHostnames, SCAFFOLD_ENVIRONMENT } from './scaffold-hosts.ts'
-import { applicationManifest, applyXr, DEFAULT_PROJECT } from './control-plane.ts'
+import { applicationManifest, applyXr, dashboardTypeOf, type DashboardType, DEFAULT_PROJECT } from './control-plane.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -346,6 +346,10 @@ async function scaffold(
   // Track what the skeleton already wrote so later steps don't double-commit.
   const committedPaths = new Set<string>()
 
+  // Which per-type Grafana dashboard the Application gets (read from the
+  // template below, stamped on the XR at registration).
+  let dashboardType: DashboardType | undefined
+
   /* ── 2. render + commit the template skeleton ── */
   if (isBackstage) {
     const [tplOwner, tplRepo] = templatesRepo.split('/')
@@ -357,6 +361,7 @@ async function scaffold(
       const tplRes = await gitea_api(`${rawBase}/${templatePath}/template.yaml`)
       if (!tplRes.ok) throw new Error(`template.yaml ${tplRes.status}`)
       doc = parseYaml(await tplRes.text())
+      dashboardType = dashboardTypeOf(doc)
       const dir = skeletonDir(doc)
       skelPrefix = `${templatePath}/${dir}/`
       const treeRes = await gitea_api(
@@ -584,7 +589,7 @@ async function scaffold(
     // was created, so no scaffolded app ever got its Application (2026-10-18).
     const requested = (body.params ?? {}) as Record<string, unknown>
     const project = typeof requested.project === 'string' && requested.project.trim() ? requested.project.trim() : DEFAULT_PROJECT
-    const outcome = await applyXr(applicationManifest({ name, project, repoUrl: cloneUrl, path: manifestPath }))
+    const outcome = await applyXr(applicationManifest({ name, project, repoUrl: cloneUrl, path: manifestPath, dashboardType }))
     appName = outcome.ok ? name : undefined
     step({
       name: 'gitops-app',

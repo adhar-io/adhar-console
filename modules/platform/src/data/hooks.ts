@@ -1,11 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import type { k8s } from '@adhar/api-clients'
-import { useLiveRefetch } from '@adhar/shell-ui'
+import { POLL_FLOOR_MS, useLiveRefetch } from '@adhar/shell-ui'
 import { client, useActiveCluster, useActiveNamespace, useNamespaceScope } from './client.ts'
-import { useLiveList } from './live.ts'
+import { useLiveList, watchOf } from './live.ts'
 import { GVRS } from './gvr.ts'
 
-export const AUTO_REFRESH_MS = 10_000
+/**
+ * Fallback refresh for watch-backed queries while the live socket is down, and
+ * the cadence of the two `metrics.k8s.io` reads (samples, not watchable
+ * objects). The console-wide poll floor — never faster.
+ */
+export const AUTO_REFRESH_MS = POLL_FLOOR_MS
+
+/** Cluster facts that change on upgrades/installs, not while a page is open. */
+const STATIC_STALE_MS = 10 * 60_000
 
 /**
  * Resolve the namespace a namespaced query should target: an explicit argument
@@ -37,7 +45,7 @@ export function useConnection() {
     queryKey: ['k8s', 'version', cluster],
     queryFn: () => client.getVersion(cluster),
     retry: false,
-    staleTime: 60_000,
+    staleTime: STATIC_STALE_MS,
   })
 }
 
@@ -46,7 +54,7 @@ export function useApiSurface() {
   return useQuery({
     queryKey: ['k8s', 'api-surface', cluster],
     queryFn: () => client.getApiSurface(cluster),
-    staleTime: 60_000,
+    staleTime: STATIC_STALE_MS,
   })
 }
 
@@ -64,7 +72,7 @@ export function useNamespaces() {
     queryFn: () => client.listNamespaces(cluster, scope || undefined),
     staleTime: 30_000,
     refetchInterval: useLiveRefetch(
-      { ...GVRS.namespaces, labelSelector: scope || undefined, cluster },
+      watchOf(GVRS.namespaces, { labelSelector: scope || undefined, cluster }),
       [queryKey],
       AUTO_REFRESH_MS,
     ),
@@ -76,7 +84,7 @@ export function useClusters() {
   return useQuery({
     queryKey: ['k8s', 'clusters'],
     queryFn: () => client.listClusters(),
-    staleTime: 60_000,
+    staleTime: STATIC_STALE_MS,
   })
 }
 
@@ -108,7 +116,7 @@ export function useJobs(namespace?: string) {
     queryKey,
     queryFn: () => client.listJobs(cluster, ns),
     refetchInterval: useLiveRefetch(
-      { ...GVRS.jobs, namespace: ns, cluster },
+      watchOf(GVRS.jobs, { namespace: ns, cluster }),
       [queryKey],
       AUTO_REFRESH_MS,
     ),
@@ -123,7 +131,7 @@ export function useCronJobs(namespace?: string) {
     queryKey,
     queryFn: () => client.listCronJobs(cluster, ns),
     refetchInterval: useLiveRefetch(
-      { ...GVRS.cronjobs, namespace: ns, cluster },
+      watchOf(GVRS.cronjobs, { namespace: ns, cluster }),
       [queryKey],
       AUTO_REFRESH_MS,
     ),
@@ -182,7 +190,7 @@ export function usePersistentVolumeClaims(namespace?: string) {
     queryKey,
     queryFn: () => client.listPersistentVolumeClaims(cluster, ns),
     refetchInterval: useLiveRefetch(
-      { ...GVRS.persistentvolumeclaims, namespace: ns, cluster },
+      watchOf(GVRS.persistentvolumeclaims, { namespace: ns, cluster }),
       [queryKey],
       AUTO_REFRESH_MS,
     ),
@@ -194,6 +202,7 @@ export function useStorageClasses() {
   return useQuery({
     queryKey: ['k8s', 'sc', cluster],
     queryFn: () => client.listStorageClasses(cluster),
+    staleTime: STATIC_STALE_MS,
   })
 }
 
@@ -245,6 +254,22 @@ export function useEvents(namespace?: string) {
 }
 
 /**
+ * The events of ONE object, as a watch-fed live list (deltas, no refetch per
+ * event). The field selector is built exactly as `EventsTimeline` builds it,
+ * so a drawer's summary and its Events tab share one upstream watch — and a
+ * busy namespace's event churn never reaches a drawer about one pod.
+ */
+export function useObjectEvents(namespace: string, name: string, kind: string, enabled = true) {
+  return asLive<k8s.Event>(
+    useLiveList(GVRS.events, {
+      namespace,
+      fieldSelector: `involvedObject.name=${name},involvedObject.kind=${kind}`,
+      enabled: enabled && Boolean(namespace && name),
+    }),
+  )
+}
+
+/**
  * Live CPU + memory usage per node from the metrics-server aggregator. Returns
  * an empty array gracefully when metrics-server isn't installed — the cluster
  * view falls back to "capacity only" tiles in that case.
@@ -283,7 +308,7 @@ export function useGeneric(gvr: k8s.GVR, namespace?: string) {
     // `metrics.k8s.io` serves samples rather than objects and cannot be
     // watched; everything else gets apiserver push.
     refetchInterval: useLiveRefetch(
-      gvr.group === 'metrics.k8s.io' ? null : { ...gvr, namespace: ns, cluster },
+      gvr.group === 'metrics.k8s.io' ? null : watchOf(gvr, { namespace: ns, cluster }),
       [queryKey],
       AUTO_REFRESH_MS,
     ),
@@ -341,6 +366,7 @@ export function useIngressClasses() {
         resource: 'ingressclasses',
         namespaced: false,
       }),
+    staleTime: STATIC_STALE_MS,
   })
 }
 

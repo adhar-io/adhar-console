@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { kube, type KubeObject } from '@adhar/api-clients/k8s'
+import { POLL_FLOOR_MS, useLiveRefetch } from '@adhar/shell-ui'
 import { clusterParam, useActiveCluster } from './client.ts'
+import { watchOf } from './live.ts'
 import {
   CHAOS_FAULTS,
   CHAOS_NAMESPACE,
@@ -12,7 +14,6 @@ import {
   RESULTS_GVR,
   faultById,
   isLive,
-  phaseOf,
   podsAffected,
   type ChaosEngine,
   type ChaosFault,
@@ -58,6 +59,19 @@ export function isNotFound(error: unknown): boolean {
 /** A 404 listing engines means Litmus's CRDs are not installed at all. */
 export const isCrdMissing = isNotFound
 
+/**
+ * Every chaos read below is a Kubernetes object, so none of them polls: each
+ * query is invalidated by an apiserver watch on the live socket the moment the
+ * object changes (an engine moving to `injecting`, a verdict landing), and
+ * falls back to the 60 s floor only while the socket is down. Lists of the
+ * same resource in the same namespace share one watch params set, so the hub
+ * holds a single upstream watch for every panel that shows them.
+ */
+const LIVE_FALLBACK_MS = POLL_FLOOR_MS
+
+/** Fault definitions and target namespaces change on installs, not during a run. */
+const CATALOG_STALE_MS = 10 * 60_000
+
 /* ─────────── reads ─────────── */
 
 const byNewest = (a: { metadata: { creationTimestamp?: string } }, b: { metadata: { creationTimestamp?: string } }) =>
@@ -73,15 +87,16 @@ const byNewest = (a: { metadata: { creationTimestamp?: string } }, b: { metadata
  */
 export function useChaosEngines(namespace?: string) {
   const { cluster, key } = useChaosCluster()
+  const queryKey = ['chaos', 'engines', key] as const
   const query = useQuery({
-    queryKey: ['chaos', 'engines', key] as const,
+    queryKey,
     queryFn: async (): Promise<ChaosEngine[]> => {
       const res = await kube.list<ChaosEngine>(ENGINES_GVR, { limit: 500, cluster })
       return (res.items ?? []).sort(byNewest)
     },
     retry: false,
-    // A fault being applied is watched closely; a quiet cluster is not.
-    refetchInterval: (q) => ((q.state.data ?? []).some((e) => isLive(e) || phaseOf(e) === 'injecting') ? 4_000 : 15_000),
+    // Engines live wherever they were created; the list is cluster-wide, so is the watch.
+    refetchInterval: useLiveRefetch(watchOf(ENGINES_GVR, { cluster }), [queryKey], LIVE_FALLBACK_MS),
   })
   const all = query.data ?? []
   const engines = namespace ? all.filter((e) => e.spec?.appinfo?.appns === namespace) : all
@@ -95,30 +110,33 @@ export function useChaosEngines(namespace?: string) {
   }
 }
 
-/** One engine, polled quickly while it is not finished. A deleted engine reads as `gone`. */
+/** One engine, re-read whenever the engines in its namespace change. A deleted engine reads as `gone`. */
 export function useChaosEngine(namespace: string | undefined, name: string | null) {
   const { cluster, key } = useChaosCluster()
   const enabled = Boolean(namespace && name)
+  const queryKey = ['chaos', 'engine', key, namespace, name] as const
+  const interval = useLiveRefetch(watchOf(ENGINES_GVR, { namespace, cluster }), [queryKey], LIVE_FALLBACK_MS, enabled)
   const query = useQuery({
-    queryKey: ['chaos', 'engine', key, namespace, name] as const,
+    queryKey,
     queryFn: () => kube.get<ChaosEngine>(ENGINES_GVR, namespace!, name!, { cluster }),
     enabled,
     retry: false,
-    refetchInterval: (q) => {
-      const e = q.state.data
-      if (!e || q.state.error) return false
-      const p = phaseOf(e)
-      return p === 'passed' || p === 'failed' || p === 'stopped' ? 15_000 : 3_000
-    },
+    refetchInterval: (q) => (q.state.error ? false : interval),
   })
   return { ...query, gone: isNotFound(query.error) }
 }
 
-/** One ChaosResult (`<engine>-<fault>`), polled with its engine. Absent until the runner writes it. */
+/**
+ * One ChaosResult (`<engine>-<fault>`), re-read whenever the results in its
+ * namespace change while the run is `live`. Absent until the runner writes it.
+ */
 export function useChaosResult(namespace: string | undefined, name: string | undefined, live: boolean) {
   const { cluster, key } = useChaosCluster()
+  const enabled = Boolean(namespace && name)
+  const queryKey = ['chaos', 'result', key, namespace, name] as const
+  const interval = useLiveRefetch(watchOf(RESULTS_GVR, { namespace, cluster }), [queryKey], LIVE_FALLBACK_MS, enabled && live)
   return useQuery({
-    queryKey: ['chaos', 'result', key, namespace, name] as const,
+    queryKey,
     queryFn: async () => {
       try {
         return await kube.get<ChaosResult>(RESULTS_GVR, namespace!, name!, { cluster })
@@ -127,9 +145,9 @@ export function useChaosResult(namespace: string | undefined, name: string | und
         throw e
       }
     },
-    enabled: Boolean(namespace && name),
+    enabled,
     retry: false,
-    refetchInterval: live ? 3_000 : false,
+    refetchInterval: live ? interval : false,
   })
 }
 
@@ -149,18 +167,25 @@ export function useInstalledFaults() {
       return new Set((res.items ?? []).map((i) => i.metadata.name))
     },
     retry: false,
-    refetchInterval: 60_000,
+    // The installed definitions are a catalogue: they change when a package is
+    // (un)installed, not while someone is looking at this page.
+    staleTime: CATALOG_STALE_MS,
   })
   const names = query.data ?? new Set<string>()
   const installed: ChaosFault[] = CHAOS_FAULTS.filter((f) => names.has(f.id))
   return { installed, definitions: names.size, isLoading: query.isLoading }
 }
 
-/** The verdicts of every run, keyed by ChaosResult name (`<engine>-<fault>`). */
-export function useChaosResults(fast = false) {
+/**
+ * The verdicts of every run, keyed by ChaosResult name (`<engine>-<fault>`).
+ * Pushed by the results watch; `_fast` is kept for callers and no longer
+ * changes anything — a verdict lands the moment the runner writes it.
+ */
+export function useChaosResults(_fast = false) {
   const { cluster, key } = useChaosCluster()
+  const queryKey = ['chaos', 'results', key] as const
   const query = useQuery({
-    queryKey: ['chaos', 'results', key] as const,
+    queryKey,
     queryFn: async () => {
       const res = await kube.list<ChaosResult>(RESULTS_GVR, { namespace: CHAOS_NAMESPACE, limit: 500, cluster })
       const out = new Map<string, ChaosResult>()
@@ -168,7 +193,7 @@ export function useChaosResults(fast = false) {
       return out
     },
     retry: false,
-    refetchInterval: fast ? 4_000 : 15_000,
+    refetchInterval: useLiveRefetch(watchOf(RESULTS_GVR, { namespace: CHAOS_NAMESPACE, cluster }), [queryKey], LIVE_FALLBACK_MS),
   })
   return query.data ?? EMPTY_RESULTS
 }
@@ -192,7 +217,7 @@ export function useTargetNamespaces() {
       )
       return (res.items ?? []).map((n) => ({ name: n.metadata.name, labels: n.metadata.labels ?? {} })).sort((a, b) => a.name.localeCompare(b.name))
     },
-    staleTime: 60_000,
+    staleTime: CATALOG_STALE_MS,
     retry: false,
   })
 }
@@ -395,12 +420,11 @@ export interface ChaosWorkflow {
 
 export const LABEL_GAMEDAY = 'adhar.io/chaos-gameday'
 
-const wfRunning = (w: ChaosWorkflow) => !w.status?.finishedAt && w.status?.phase !== 'Succeeded' && w.status?.phase !== 'Failed' && w.status?.phase !== 'Error'
-
 export function useChaosWorkflows(namespace?: string) {
   const { cluster, key } = useChaosCluster()
+  const queryKey = ['chaos', 'workflows', key]
   const query = useQuery({
-    queryKey: ['chaos', 'workflows', key],
+    queryKey,
     queryFn: async () => {
       const res = await kube.list<ChaosWorkflow>(WORKFLOWS_GVR, {
         namespace: CHAOS_NAMESPACE,
@@ -410,7 +434,11 @@ export function useChaosWorkflows(namespace?: string) {
       })
       return (res.items ?? []).sort(byNewest)
     },
-    refetchInterval: (q) => ((q.state.data ?? []).some(wfRunning) ? 5_000 : 20_000),
+    refetchInterval: useLiveRefetch(
+      watchOf(WORKFLOWS_GVR, { namespace: CHAOS_NAMESPACE, labelSelector: LABEL_GAMEDAY, cluster }),
+      [queryKey],
+      LIVE_FALLBACK_MS,
+    ),
     retry: false,
   })
   const all = query.data ?? []
@@ -425,11 +453,19 @@ export function useChaosWorkflows(namespace?: string) {
 export function useChaosWorkflow(namespace: string | undefined, name: string | null) {
   const { cluster, key } = useChaosCluster()
   const enabled = Boolean(namespace && name)
+  const queryKey = ['chaos', 'workflow', key, namespace, name]
+  // Game days carry the game-day label, so this rides the same watch as the
+  // list above when both are on screen; any other namespace gets its own.
+  const watch = watchOf(WORKFLOWS_GVR, {
+    namespace,
+    ...(namespace === CHAOS_NAMESPACE ? { labelSelector: LABEL_GAMEDAY } : {}),
+    cluster,
+  })
+  const interval = useLiveRefetch(watch, [queryKey], LIVE_FALLBACK_MS, enabled)
   const query = useQuery({
-    queryKey: ['chaos', 'workflow', key, namespace, name],
+    queryKey,
     queryFn: () => kube.get<ChaosWorkflow>(WORKFLOWS_GVR, namespace, name!, { cluster }),
-    // A game day is minutes long and people watch it; poll fast while it runs.
-    refetchInterval: (q) => (!enabled || q.state.error ? false : q.state.data && !wfRunning(q.state.data) ? 30_000 : 4_000),
+    refetchInterval: (q) => (!enabled || q.state.error ? false : interval),
     enabled,
     retry: false,
   })
@@ -439,12 +475,14 @@ export function useChaosWorkflow(namespace: string | undefined, name: string | n
 /** The engines a game day created (labelled with its name), for the live target view. */
 export function useGameDayEngines(name: string | null, live: boolean) {
   const { cluster, key } = useChaosCluster()
+  const queryKey = ['chaos', 'gameday-engines', key, name]
+  const interval = useLiveRefetch(watchOf(ENGINES_GVR, { namespace: CHAOS_NAMESPACE, cluster }), [queryKey], LIVE_FALLBACK_MS, !!name && live)
   return useQuery({
-    queryKey: ['chaos', 'gameday-engines', key, name],
+    queryKey,
     queryFn: async () => (await kube.list<ChaosEngine>(ENGINES_GVR, { namespace: CHAOS_NAMESPACE, labelSelector: `${LABEL_GAMEDAY}=${name}`, cluster })).items ?? [],
     enabled: !!name,
     retry: false,
-    refetchInterval: live ? 4_000 : false,
+    refetchInterval: live ? interval : false,
   })
 }
 

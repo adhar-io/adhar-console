@@ -63,7 +63,9 @@ export function useHubbleTrafficStream() {
         3_600_000,
         60,
       ),
-    refetchInterval: 30_000,
+    // 60s steps: one new point per minute.
+    refetchInterval: 60_000,
+    staleTime: 30_000,
     retry: false,
   })
 }
@@ -78,7 +80,7 @@ export const FALCO_QUERIES = {
 } as const
 
 export function useFalcoMetrics() {
-  return usePromInstant('falco', FALCO_QUERIES, 60_000)
+  return usePromInstant('falco', FALCO_QUERIES, 5 * 60_000) // 24h windows
 }
 
 export const TETRAGON_QUERIES = {
@@ -93,7 +95,7 @@ export const TETRAGON_QUERIES = {
 } as const
 
 export function useTetragonMetrics() {
-  return usePromInstant('tetragon', TETRAGON_QUERIES, 60_000)
+  return usePromInstant('tetragon', TETRAGON_QUERIES, 5 * 60_000) // 24h windows
 }
 
 /* ─────────── data services ─────────── */

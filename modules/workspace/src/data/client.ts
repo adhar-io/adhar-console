@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { workspace } from '@adhar/api-clients'
-import { docStore, DocStoreError, type StoredDoc } from '@adhar/shell-ui'
+import { docStore, DocStoreError, type StoredDoc, useLiveInvalidate, usePollingInterval } from '@adhar/shell-ui'
 import type { Permission } from './access.ts'
 
 /**
@@ -494,12 +494,21 @@ export function auditQueryString(params: AuditParams): string {
 /**
  * `liveMs` turns on the live tail. It rides TanStack's own `refetchInterval`
  * (rather than a hand-rolled timer) so polling pauses while the tab is hidden
- * and never overlaps an in-flight request.
+ * and never overlaps an in-flight request. The shared QueryClient floors it at
+ * one minute (`POLL_FLOOR_MS`).
  */
-export function useAuditEvents(params: AuditParams, liveMs: number | false = false) {
+/**
+ * Audit events. With `live`, the hub's `audit` topic pushes on every audit
+ * write and the page refetches then; the 60s timer only runs while the
+ * socket is down.
+ */
+export function useAuditEvents(params: AuditParams, live = false) {
+  const key = K.audit(params)
+  useLiveInvalidate('audit', {}, [key], live)
+  const fallback = usePollingInterval(60_000)
   return useQuery({
-    queryKey: K.audit(params),
-    refetchInterval: liveMs,
+    queryKey: key,
+    refetchInterval: live ? fallback : false,
     queryFn: () => {
       const qs = auditQueryString(params)
       return wsFetch<AuditPage>(`audit${qs ? `?${qs}` : ''}`)

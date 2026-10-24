@@ -21,7 +21,7 @@ import { useGiteaOrg } from '@adhar/shell-ui'
 const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
 const WINDOW_DAYS = 30
-const REFRESH_MS = 60_000
+const REFRESH_MS = 10 * 60_000
 /** Cap repos scanned so the Overview stays snappy on large orgs. */
 const MAX_REPOS = 40
 
@@ -68,7 +68,8 @@ export function useDoraFlow(): DoraFlow {
       }
       return durations
     },
-    refetchInterval: REFRESH_MS,
+    // Up to MAX_REPOS Gitea calls per run, over a 30-day window: a merge
+    // moves the median by minutes at most. Read on mount, kept 10 min.
     staleTime: REFRESH_MS,
     retry: false,
   })

@@ -58,7 +58,7 @@ export interface TeardownStep {
 const NAME_RE = /^[a-z0-9]([-a-z0-9.]{0,61}[a-z0-9])?$/
 const ARGO_FINALIZER = 'resources-finalizer.argocd.argoproj.io'
 const APP_GONE_TIMEOUT_MS = 45_000
-const APP_POLL_MS = 1_500
+const APP_POLL_MS = 3_000 // one GET per app per 3s, only while a teardown waits
 
 /** Namespaces the console never deletes, whatever the caller says. */
 const PROTECTED_NAMESPACES = new Set([

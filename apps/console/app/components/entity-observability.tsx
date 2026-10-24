@@ -11,7 +11,6 @@ import {
   TimeSeriesChart,
   type Threshold,
   type TimeSeries,
-  usePollingInterval,
   usePublicUrl,
   useToolPublicUrl,
 } from '@adhar/shell-ui'
@@ -38,7 +37,6 @@ import { cn } from '@adhar/utils'
  */
 
 const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
-const REFRESH_MS = 15_000
 
 export interface EntityTarget {
   /** Workload name (Deployment/StatefulSet/DaemonSet). */
@@ -308,9 +306,9 @@ const PANELS: PanelDef[] = [
 const KPI_IDS = ['cpu', 'memory', 'replicas', 'restarts'] as const
 
 const RANGES = [
-  { id: '1h', label: '1h', ms: 60 * 60_000, step: '1m' },
-  { id: '6h', label: '6h', ms: 6 * 60 * 60_000, step: '5m' },
-  { id: '24h', label: '24h', ms: 24 * 60 * 60_000, step: '15m' },
+  { id: '1h', label: '1h', ms: 60 * 60_000, step: '1m', refreshMs: 60_000 },
+  { id: '6h', label: '6h', ms: 6 * 60 * 60_000, step: '5m', refreshMs: 5 * 60_000 },
+  { id: '24h', label: '24h', ms: 24 * 60 * 60_000, step: '15m', refreshMs: 15 * 60_000 },
 ] as const
 export type RangeId = (typeof RANGES)[number]['id']
 
@@ -343,7 +341,11 @@ function useSeries(query: string, range: RangeId, enabled: boolean) {
       const start = new Date(end.getTime() - r.ms)
       return lgtmClient.queryMetrics(query, start, end, r.step)
     },
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    // Metrics have no push source (the live socket being up says nothing
+    // about new samples), so this is a time poll — one per step, since a new
+    // point only exists once per step.
+    refetchInterval: enabled ? r.refreshMs : false,
+    staleTime: r.refreshMs / 2,
     enabled,
     // One fast retry: a proxy reset or a Prometheus pod rolling painted every
     // panel "unavailable" until the next poll otherwise.
@@ -427,7 +429,7 @@ export function EntityMetrics({
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-content" title={`Prometheus · ${scope} · refreshes every ${REFRESH_MS / 1000}s`}>Live metrics</h3>
+          <h3 className="text-sm font-semibold text-content" title={`Prometheus · ${scope} · refreshes once per sample step`}>Live metrics</h3>
           <div className="flex flex-wrap items-center gap-2">
             {environments?.length ? (
               <div className="inline-flex items-center rounded-lg border border-edge-default bg-surface-sunken p-0.5" role="group" aria-label="Environment">

@@ -27,10 +27,23 @@ import { apiServerFetch, type K8sIdentity, resolveIdentity } from './k8s/gateway
 import { getK8sServiceToken, getToolRegistry } from './tool-registry.ts'
 import { foldHealth, imageVersion, matchWorkloads, type Workload } from '../data/backing-match.ts'
 import { withDeadline } from './http-hardening.ts'
+import { UserTtlCache } from './user-cache.ts'
 
-const SNAPSHOT_TTL_MS = 5_000
-const SAMPLE_EVERY_MS = 30_000
-const HISTORY_BUCKETS = 120 // 1h at 30s
+/**
+ * One shared snapshot is recomputed at most this often, however many status
+ * pages are open: each recompute is three cluster-wide workload lists, nodes,
+ * the AdharPlatform and three probes.
+ */
+const SNAPSHOT_TTL_MS = 30_000
+const SAMPLE_EVERY_MS = 60_000
+const HISTORY_BUCKETS = 60 // 1h at 60s
+/**
+ * With nobody looking, the background sampler slows to this — history stays
+ * coarse but continuous, without a constant load on the API server.
+ */
+const IDLE_SAMPLE_EVERY_MS = 5 * 60_000
+/** "Somebody is looking": a status request within this window. */
+const VIEWED_WINDOW_MS = 5 * 60_000
 const MAX_EVENTS = 50
 const PROBE_TIMEOUT_MS = 4_000
 const STARTED_AT = new Date().toISOString()
@@ -178,6 +191,9 @@ let lastById: Record<string, ServiceHealth> = {}
 let cached: { at: number; snap: StatusSnapshot } | undefined
 let inflight: Promise<StatusSnapshot> | undefined
 let samplerStarted = false
+let lastViewedAt = 0
+/** Per-viewer snapshots (no service account): keyed by user, short-lived, single-flight. */
+const viewerCache = new UserTtlCache<StatusSnapshot>(SNAPSHOT_TTL_MS, 200)
 
 function record(snap: StatusSnapshot) {
   const now = Date.now()
@@ -336,7 +352,11 @@ function snapshot(auth: Auth | null, readAs: StatusSnapshot['readAs']): Promise<
   // Only the service-account view is the same for everyone. A snapshot read
   // with one viewer's identity reflects THAT viewer's RBAC and must not be
   // served to the next caller — signed in as someone else, or not at all.
-  if (readAs !== 'service-account') return compute(auth, readAs)
+  if (readAs !== 'service-account') {
+    const user = auth && typeof auth !== 'string' ? auth.user?.id : undefined
+    if (!user) return compute(auth, readAs)
+    return viewerCache.get(user, () => compute(auth, readAs))
+  }
   if (cached && Date.now() - cached.at < SNAPSHOT_TTL_MS) return Promise.resolve(cached.snap)
   inflight ??= compute(auth, readAs)
     .then((snap) => {
@@ -355,13 +375,20 @@ function ensureSampler() {
   const token = getK8sServiceToken()
   if (!token) return
   samplerStarted = true
-  setInterval(() => {
-    snapshot(token, 'service-account').catch(() => {})
-  }, SAMPLE_EVERY_MS)
+  // Self-scheduling rather than a fixed interval: a minute apart while
+  // someone has the page open, IDLE_SAMPLE_EVERY_MS otherwise.
+  const tick = () => {
+    const viewed = Date.now() - lastViewedAt < VIEWED_WINDOW_MS
+    setTimeout(() => {
+      snapshot(token, 'service-account').catch(() => {}).finally(tick)
+    }, viewed ? SAMPLE_EVERY_MS : IDLE_SAMPLE_EVERY_MS)
+  }
+  tick()
 }
 
 export async function handleStatus(req: Request): Promise<Response> {
   if (req.method !== 'GET') return Response.json({ error: 'method_not_allowed' }, { status: 405 })
+  lastViewedAt = Date.now()
   ensureSampler()
   const sa = getK8sServiceToken()
   let auth: Auth | null = sa ?? null

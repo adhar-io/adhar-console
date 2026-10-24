@@ -1,7 +1,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { lokiMatrix, type PromMatrixSeries, sampleNum } from './backends.ts'
 import { stepFor, volumeQueries } from './logql.ts'
-import { type HistogramBucket, selectionToWindow, type TimeSelection } from './observability.ts'
+import { type HistogramBucket, selectionToWindow, TIME_RANGES, type TimeSelection } from './observability.ts'
+import { MIN_REFRESH_MS, windowRefreshMs } from './refresh.ts'
 
 /**
  * Loki metric-side hooks for the Logs workbench:
@@ -13,6 +14,11 @@ import { type HistogramBucket, selectionToWindow, type TimeSelection } from './o
  *   • `useLogMetric`  — runs a LogQL metric query (`rate(...)`, `sum by`)
  *                       and returns its series for charting.
  */
+
+/** A preset's span in ms (0 for absolute windows, which never refresh). */
+function presetWindowMs(sel: TimeSelection): number {
+  return sel.kind === 'preset' ? (TIME_RANGES.find((r) => r.id === sel.id)?.ms ?? 0) : 0
+}
 
 function windowKey(sel: TimeSelection): string {
   return sel.kind === 'absolute' ? `${sel.from}|${sel.to}` : sel.id
@@ -54,7 +60,7 @@ export function useLogVolume(query: string, sel: TimeSelection, enabled: boolean
     },
     enabled: enabled && !!volumeQueries(query, 60),
     placeholderData: keepPreviousData,
-    refetchInterval: live ? 10_000 : sel.kind === 'preset' ? 30_000 : false,
+    refetchInterval: sel.kind === 'preset' ? (live ? MIN_REFRESH_MS : windowRefreshMs(presetWindowMs(sel))) : false,
     retry: false,
   })
 }
@@ -73,7 +79,7 @@ export function useLogMetric(query: string, sel: TimeSelection, enabled: boolean
     },
     enabled,
     placeholderData: keepPreviousData,
-    refetchInterval: sel.kind === 'preset' ? 30_000 : false,
+    refetchInterval: sel.kind === 'preset' ? windowRefreshMs(presetWindowMs(sel)) : false,
     retry: false,
   })
 }

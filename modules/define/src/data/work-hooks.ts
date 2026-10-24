@@ -21,7 +21,12 @@ export const workClient = plane.PlaneWorkClient.auto({ tool: 'plane' })
 export type WorkItem = plane.WorkItem
 
 const STALE = 30_000
-const POLL = 90_000
+/**
+ * Only the page's own project is re-read on a timer — every read spends the
+ * shared Plane key (≈60/min for everyone), and a list costs several calls.
+ * Cross-project lists are read on open and refreshed by our own writes.
+ */
+const POLL = 2 * 60_000
 
 /** The page's own project — full list with sprint/epic membership; same cache as useIssues(). */
 export function useProjectIssues(projectId?: string, enabled = true) {
@@ -57,8 +62,7 @@ export function useScopeIssues(primary: string | undefined, others: string[]): S
     queries: others.filter((p) => p !== primary).map((p) => ({
       queryKey: ['plane', 'issues-lite', slug, p],
       queryFn: () => workClient.listIssuesLite(slug, p),
-      staleTime: STALE,
-      refetchInterval: POLL,
+      staleTime: POLL,
       placeholderData: keepPreviousData,
     })),
   })

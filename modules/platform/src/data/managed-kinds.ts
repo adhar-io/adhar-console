@@ -331,7 +331,8 @@ export function useManagedKinds() {
         return toInfo({ ...m, version: served?.name ?? m.version })
       })
     },
-    staleTime: 60_000,
+    // Every CRD on the cluster is a large read and only changes on installs.
+    staleTime: 10 * 60_000,
     retry: false,
   })
 }

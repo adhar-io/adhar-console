@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { k8s } from '@adhar/api-clients'
 import { notifyUnauthorized, useLiveRefetch } from '@adhar/shell-ui'
 import { client, useActiveCluster } from './client.ts'
+import { watchOf } from './live.ts'
 
 /**
  * Adhar Marketplace — driven by the real Adhar **ApplicationSet**.
@@ -1256,11 +1257,14 @@ export function appsetsQueryKey(cluster: string) {
 export function useMarketplaceApps() {
   const { cluster } = useActiveCluster()
 
+  // Both lists are Argo CD objects: pushed by apiserver watches, never polled.
+  const appsetsKey = appsetsQueryKey(cluster)
   const appsetsQ = useQuery({
-    queryKey: appsetsQueryKey(cluster),
+    queryKey: appsetsKey,
     queryFn: () =>
       client.listGeneric(cluster, APPLICATIONSETS_GVR, APPSET_NAMESPACE) as Promise<RawAppSet[]>,
-    staleTime: 15_000,
+    staleTime: 5 * 60_000,
+    refetchInterval: useLiveRefetch(watchOf(APPLICATIONSETS_GVR, { namespace: APPSET_NAMESPACE, cluster }), [appsetsKey], 60_000),
     retry: false,
   })
 
@@ -1270,9 +1274,9 @@ export function useMarketplaceApps() {
     queryFn: () =>
       client.listGeneric(cluster, APPLICATIONS_GVR, APPSET_NAMESPACE) as Promise<RawApplication[]>,
     refetchInterval: useLiveRefetch(
-      { ...APPLICATIONS_GVR, namespace: APPSET_NAMESPACE, cluster },
+      watchOf(APPLICATIONS_GVR, { namespace: APPSET_NAMESPACE, cluster }),
       [appsKey],
-      10_000,
+      60_000,
     ),
     retry: false,
   })

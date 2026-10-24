@@ -1477,43 +1477,55 @@ function StepProvision({
   // Provisioning runs on the server: poll only to *show* progress. The user can
   // close this page at any time — a notification (and an email) will land when
   // it finishes.
+  //
+  // The job is a console-database document (no Kubernetes object to watch),
+  // so this is a short-lived poll that backs off: every 3s while the steps
+  // usually land (first 30s), then 5s, then 10s — and it stops the moment the
+  // job leaves `running`. It never touches the cluster itself.
   useEffect(() => {
     if (!jobId) return
     let alive = true
     let inFlight = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const startedAt = Date.now()
     // `getProvisioningJob` answers null for a 404 or a network error. A job
-    // the server no longer knows would otherwise be polled every 2 s forever;
-    // give up after ~2 minutes of consecutive misses (the notification still
-    // lands when the job finishes).
-    let misses = 0
+    // the server no longer knows would otherwise be polled forever; give up
+    // after ~2 minutes of consecutive misses (the notification still lands
+    // when the job finishes).
+    let missingSince: number | undefined
+    const delay = () => {
+      const t = Date.now() - startedAt
+      return t < 30_000 ? 3_000 : t < 120_000 ? 5_000 : 10_000
+    }
+    const schedule = () => {
+      if (alive) timer = setTimeout(() => void tick(), delay())
+    }
     const tick = async () => {
       // Hidden tab: nobody is watching the progress, skip the request.
-      if (inFlight || globalThis.document?.hidden) return
+      if (inFlight || globalThis.document?.hidden) return schedule()
       inFlight = true
       const next = await getProvisioningJob(jobId).finally(() => {
         inFlight = false
       })
       if (!alive) return
       if (!next) {
-        if (++misses >= 60) {
-          alive = false
-          globalThis.clearInterval(timer)
-        }
-        return
+        missingSince ??= Date.now()
+        if (Date.now() - missingSince >= 120_000) alive = false
+        return schedule()
       }
-      misses = 0
+      missingSince = undefined
       setJob(next)
       if (next.steps?.length) setProv(next.steps)
       if (next.status !== 'running') {
         alive = false
-        globalThis.clearInterval(timer)
+        return
       }
+      schedule()
     }
-    const timer = globalThis.setInterval(() => void tick(), 2000)
     void tick()
     return () => {
       alive = false
-      globalThis.clearInterval(timer)
+      if (timer) clearTimeout(timer)
     }
   }, [jobId])
 

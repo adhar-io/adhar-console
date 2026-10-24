@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { argocd, k8s } from '@adhar/api-clients'
+import { useWatchInvalidate } from './live-k8s.ts'
 import type { Entity } from './catalog.ts'
 import {
   type ArgoTreeNode,
@@ -31,14 +32,15 @@ import {
  *      convention — see `rootCandidates`), companion XRs labelled
  *      `adhar.io/application=<name>`, and the Argo CD apps the Deployment tab
  *      already matched to the entity.
- *   3. The graph: `buildCompositionGraph` from those roots, refreshed on a
- *      timer the tab can pause.
+ *   3. The graph: `buildCompositionGraph` from those roots, re-read when a
+ *      root's watch reports a change (pausable).
  */
 
 const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
 
 const ARGO_APPS: k8s.GatewayGVR = { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications', namespaced: true }
 
+/** Minimum gap between two watch-driven re-reads of the graph. */
 export const COMPOSITION_REFRESH_MS = 12_000
 
 /* ───────────────────────── discovery ───────────────────────── */
@@ -254,8 +256,33 @@ export function useCompositionRoots(entity: Entity, argoApps: readonly ArgoAppLi
 
 export function useCompositionGraph(roots: CompositionRoots, opts: { paused: boolean }) {
   const key = roots.roots.map((r) => nodeId(r.ref)).join(',')
+  const queryKey = ['catalog', 'composition', 'graph', key]
+  // Crossplane rolls every composed resource's state up into its composite's
+  // status (Synced/Ready conditions), so the roots' watches say when the
+  // graph moved. Re-read at most once per COMPOSITION_REFRESH_MS on a change;
+  // never on a timer while the socket is up.
+  const watches = useMemo(() => {
+    const d = roots.discovery
+    if (!d) return []
+    const gvrFor = makeFetcher(d).gvrFor
+    return roots.roots.flatMap((r) => {
+      try {
+        const g = gvrFor(r.ref)
+        return [{
+          group: g.group,
+          version: g.version,
+          resource: g.resource,
+          ...(g.namespaced && r.ref.namespace ? { namespace: r.ref.namespace } : {}),
+          fieldSelector: `metadata.name=${r.ref.name}`,
+        }]
+      } catch {
+        return []
+      }
+    })
+  }, [roots.discovery, roots.roots])
+  const refetchInterval = useWatchInvalidate(watches, [queryKey], { enabled: !opts.paused, minGapMs: COMPOSITION_REFRESH_MS })
   return useQuery<CompositionGraph>({
-    queryKey: ['catalog', 'composition', 'graph', key],
+    queryKey,
     queryFn: async () => {
       const d = roots.discovery!
       const fetcher = makeFetcher(d)
@@ -265,7 +292,7 @@ export function useCompositionGraph(roots: CompositionRoots, opts: { paused: boo
       return await buildCompositionGraph(inputs, fetcher)
     },
     enabled: Boolean(roots.discovery) && roots.roots.length > 0,
-    refetchInterval: opts.paused ? false : COMPOSITION_REFRESH_MS,
+    refetchInterval: opts.paused ? false : refetchInterval,
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
     retry: false,

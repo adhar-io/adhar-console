@@ -78,10 +78,9 @@ import {
 
 const REFRESH_OPTIONS = [
   { value: '0', label: 'Auto-refresh off' },
-  { value: '15', label: 'Every 15s' },
-  { value: '30', label: 'Every 30s' },
   { value: '60', label: 'Every 1m' },
   { value: '300', label: 'Every 5m' },
+  { value: '900', label: 'Every 15m' },
 ]
 
 function isRange(v: string | undefined): v is TimeRangeId {
@@ -94,11 +93,11 @@ export function Dashboard() {
   const [ns, setNs] = useState(boot.ns ?? '')
   const [svc, setSvc] = useState(boot.svc ?? '')
   const [srcId, setSrcId] = useState(boot.src ?? '')
-  const [refresh, setRefresh] = useState(boot.refresh && REFRESH_OPTIONS.some((o) => o.value === boot.refresh) ? boot.refresh : '30')
+  const [refresh, setRefresh] = useState(boot.refresh && REFRESH_OPTIONS.some((o) => o.value === boot.refresh) ? boot.refresh : '60')
   const qc = useQueryClient()
 
   useEffect(() => {
-    replaceParams({ range: range === DEFAULT_RANGE ? null : range, ns, svc, src: srcId, refresh: refresh === '30' ? null : refresh })
+    replaceParams({ range: range === DEFAULT_RANGE ? null : range, ns, svc, src: srcId, refresh: refresh === '60' ? null : refresh })
   }, [range, ns, svc, srcId, refresh])
 
   const namesQ = useMetricNames()
@@ -115,7 +114,7 @@ export function Dashboard() {
   const refreshMs = refresh === '0' ? false : Number(refresh) * 1000
   const scope: Scope = useMemo(() => ({ namespace: ns || null, service: svc || null }), [ns, svc])
 
-  const apps = useArgoApps(refreshMs || 60_000)
+  const apps = useArgoApps()
   const deploys = useMemo(() => deployEvents(apps.data ?? [], Date.now() - windowMs, ns || null), [apps.data, windowMs, ns])
   const annotations: Annotation[] = useMemo(
     () => deploys.map((d) => ({ t: d.t, label: d.app, detail: [shortRev(d.revision), d.phase !== 'Succeeded' ? d.phase : ''].filter(Boolean).join(' · ') })),

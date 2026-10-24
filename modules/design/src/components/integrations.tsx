@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Button, Checkbox, Modal, Select, Spinner, useGiteaOrg, useToast } from '@adhar/shell-ui'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button, Checkbox, Modal, Select, Spinner, useGiteaOrg, useLiveToolPoll, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { ComponentLink, DesignReview, PlaneLink, RepoPullRef, ReviewState } from '../data/types.ts'
 import { type IssueInfo, useCreateWorkItems, usePlaneIssueIndex, usePlaneItemUrl, usePlaneTarget } from '../data/plane.ts'
@@ -364,8 +364,14 @@ export type PrState = 'open' | 'merged' | 'closed'
 export function usePullState(pr: Pick<RepoPullRef, 'repo' | 'number'> | undefined) {
   const org = useGiteaOrg()
   const [owner, name] = pr?.repo.includes('/') ? pr.repo.split('/', 2) : [org, pr?.repo ?? '']
+  const queryKey = ['gitea', 'pull', owner, name, pr?.number]
+  const qc = useQueryClient()
+  const open = (qc.getQueryData(queryKey) as { state?: PrState } | undefined)?.state === 'open'
+  // An open PR can merge under us: the BFF re-reads it at the poll floor and
+  // pushes only on change. Merged/closed PRs are final — no watch.
+  const refetchInterval = useLiveToolPoll('gitea', `/api/v1/repos/${owner}/${name}/pulls/${pr?.number ?? ''}`, 60_000, [queryKey], { enabled: !!pr && open })
   return useQuery({
-    queryKey: ['gitea', 'pull', owner, name, pr?.number],
+    queryKey,
     queryFn: async () => {
       const p = await giteaClient.getPullRequest(owner, name, pr!.number)
       const state: PrState = p.merged ? 'merged' : p.state === 'closed' ? 'closed' : 'open'
@@ -373,7 +379,7 @@ export function usePullState(pr: Pick<RepoPullRef, 'repo' | 'number'> | undefine
     },
     enabled: !!pr,
     staleTime: 60_000,
-    refetchInterval: (q) => ((q.state.data as { state?: PrState } | undefined)?.state === 'open' ? 60_000 : false),
+    refetchInterval: open ? refetchInterval : false,
     retry: false,
   })
 }

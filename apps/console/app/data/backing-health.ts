@@ -1,8 +1,7 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { k8s } from '@adhar/api-clients'
 import type { ServiceHealth } from '@adhar/platform-info'
 import { foldHealth, MATCHERS, matchWorkloads, type Workload } from './backing-match.ts'
+import { useK8sList } from './live-k8s.ts'
 
 /**
  * Live health for the platform's backing open-source components.
@@ -12,11 +11,8 @@ import { foldHealth, MATCHERS, matchWorkloads, type Workload } from './backing-m
  * platform's Deployments / StatefulSets / DaemonSets and match each component to
  * its workload(s) by name, then fold their readiness into a single status —
  * operational (all replicas ready), degraded (some ready), outage (none ready),
- * or unknown (no workload found). Refetched on an interval so the page is live.
+ * or unknown (no workload found). Kept live by apiserver watches.
  */
-
-const client = k8s.K8sClient.auto()
-const REFRESH_MS = 15_000
 
 const DEPLOY_GVR = { group: 'apps', version: 'v1', resource: 'deployments', namespaced: true } as const
 const STS_GVR = { group: 'apps', version: 'v1', resource: 'statefulsets', namespaced: true } as const
@@ -68,23 +64,29 @@ export interface BackingHealth {
 }
 
 export function useBackingHealth(): BackingHealth {
-  const q = useQuery({
-    queryKey: ['status', 'backing-health'],
-    queryFn: async () => {
-      const [dep, sts, ds] = await Promise.all([
-        client.listGeneric(undefined, DEPLOY_GVR).catch(() => []),
-        client.listGeneric(undefined, STS_GVR).catch(() => []),
-        client.listGeneric(undefined, DS_GVR).catch(() => []),
-      ])
-      return [
-        ...toWorkloads(dep as unknown[], 'Deployment'),
-        ...toWorkloads(sts as unknown[], 'StatefulSet'),
-        ...toWorkloads(ds as unknown[], 'DaemonSet'),
-      ]
-    },
-    refetchInterval: REFRESH_MS,
-    retry: false,
-  })
+  // Same canonical live lists the Overview and catalog read: loaded once, then
+  // kept current by the apiserver watches (no re-list on a timer). A list the
+  // user cannot read contributes nothing, as before.
+  const dep = useK8sList(DEPLOY_GVR)
+  const sts = useK8sList(STS_GVR)
+  const ds = useK8sList(DS_GVR)
+  const q = useMemo(() => {
+    const lists = [dep, sts, ds]
+    const settled = lists.every((l) => !l.isLoading)
+    return {
+      data: settled
+        ? [
+          ...toWorkloads((dep.data ?? []) as unknown[], 'Deployment'),
+          ...toWorkloads((sts.data ?? []) as unknown[], 'StatefulSet'),
+          ...toWorkloads((ds.data ?? []) as unknown[], 'DaemonSet'),
+        ]
+        : undefined,
+      isLoading: !settled,
+      isError: false,
+      dataUpdatedAt: Math.max(dep.dataUpdatedAt, sts.dataUpdatedAt, ds.dataUpdatedAt),
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dep.data, sts.data, ds.data, dep.isLoading, sts.isLoading, ds.isLoading, dep.dataUpdatedAt, sts.dataUpdatedAt, ds.dataUpdatedAt])
 
   const byId = useMemo(() => {
     const all = q.data ?? []

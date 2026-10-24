@@ -117,7 +117,7 @@ export interface ClusterDef {
 }
 
 /** Selectors that always mean "the default cluster" (backward compatible). */
-const DEFAULT_CLUSTER_ALIASES = new Set(['', 'default', 'local'])
+export const DEFAULT_CLUSTER_ALIASES = new Set(['', 'default', 'local'])
 
 let clustersParsed: { raw: string; clusters: ClusterDef[] } | null = null
 

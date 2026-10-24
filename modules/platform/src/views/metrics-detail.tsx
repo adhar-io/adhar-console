@@ -4,6 +4,7 @@ import { lgtm } from '@adhar/api-clients'
 import {
   Card,
   CardBody,
+  POLL_FLOOR_MS,
   CardHeader,
   type Column,
   DataTable,
@@ -35,10 +36,12 @@ import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 
 const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
 
+// `refreshMs`: a chart is re-read once per step — a new point cannot appear
+// sooner — and never faster than the console-wide poll floor.
 const RANGES = [
-  { id: '1h', ms: 3_600_000, step: '1m' },
-  { id: '6h', ms: 21_600_000, step: '5m' },
-  { id: '24h', ms: 86_400_000, step: '15m' },
+  { id: '1h', ms: 3_600_000, step: '1m', refreshMs: POLL_FLOOR_MS },
+  { id: '6h', ms: 21_600_000, step: '5m', refreshMs: 5 * 60_000 },
+  { id: '24h', ms: 86_400_000, step: '15m', refreshMs: 15 * 60_000 },
 ] as const
 type RangeId = (typeof RANGES)[number]['id']
 
@@ -62,7 +65,7 @@ function useRange(query: string, range: RangeId, enabled = true) {
       return lgtmClient.queryMetrics(query, new Date(end.getTime() - r.ms), end, r.step)
     },
     select: fold,
-    refetchInterval: 30_000,
+    refetchInterval: r.refreshMs,
     retry: 1,
     enabled,
   })
@@ -83,7 +86,7 @@ function useLatestBy(query: string, labels: string[]) {
       }
       return out
     },
-    refetchInterval: 60_000,
+    refetchInterval: POLL_FLOOR_MS,
     retry: 1,
   })
 }

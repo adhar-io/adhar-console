@@ -1,20 +1,17 @@
-import { k8s } from '@adhar/api-clients'
-import { useQuery } from '@tanstack/react-query'
-import { useLiveRefetch } from '@adhar/shell-ui'
+import type { k8s } from '@adhar/api-clients'
+import { useK8sList } from './live-k8s.ts'
 
 /**
  * Shared Overview cluster summary. Deliberately host-local — the Decide module
  * has its own copy tailored to its KPI tiles; the Overview only needs the
  * coarse-grained aggregates below.
  *
- * Each query is driven by the apiserver watch on its resource, so the Overview
- * reflects a pod crashing or a sync completing as it happens. The interval is
- * the fallback for a dropped socket, not the primary mechanism.
+ * Each list is loaded once and then kept current by the apiserver watch on its
+ * resource (deltas folded into the cache — no re-list per change), so the
+ * Overview reflects a pod crashing or a sync completing as it happens. The
+ * lists use the canonical `k8sListKey`, so `platform-signals.ts` and the
+ * catalog read the very same cache entries.
  */
-// `auto()` → the console's authenticated `/api/k8s` gateway (per-user token
-// impersonation), in dev and prod alike. No local proxy involved.
-const client = k8s.K8sClient.auto()
-const REFRESH_MS = 15_000
 
 const GVR = {
   nodes: { group: '', version: 'v1', resource: 'nodes', namespaced: false },
@@ -27,59 +24,17 @@ const GVR = {
 } as const
 
 export function useClusterSignals() {
-  const nodesKey = ['overview', 'nodes']
-  const nodes = useQuery({
-    queryKey: nodesKey,
-    queryFn: () => client.listNodes(),
-    refetchInterval: useLiveRefetch(GVR.nodes, [nodesKey], REFRESH_MS),
-    retry: false,
-  })
-  const deploymentsKey = ['overview', 'deployments']
-  const deployments = useQuery({
-    queryKey: deploymentsKey,
-    queryFn: () => client.listDeployments(),
-    refetchInterval: useLiveRefetch(GVR.deployments, [deploymentsKey], REFRESH_MS),
-    retry: false,
-  })
-  const podsKey = ['overview', 'pods']
-  const pods = useQuery({
-    queryKey: podsKey,
-    queryFn: () => client.listPods(),
-    refetchInterval: useLiveRefetch(GVR.pods, [podsKey], REFRESH_MS),
-    retry: false,
-  })
-  const argoAppsKey = ['overview', 'argo-apps']
-  const argoApps = useQuery({
-    queryKey: argoAppsKey,
-    queryFn: () => client.listGeneric(undefined, GVR.argoApps),
-    refetchInterval: useLiveRefetch(GVR.argoApps, [argoAppsKey], REFRESH_MS),
-    retry: false,
-  })
-  const rolloutsKey = ['overview', 'rollouts']
-  const rollouts = useQuery({
-    queryKey: rolloutsKey,
-    queryFn: () => client.listGeneric(undefined, GVR.rollouts),
-    refetchInterval: useLiveRefetch(GVR.rollouts, [rolloutsKey], REFRESH_MS),
-    retry: false,
-  })
+  const nodes = useK8sList<k8s.Node>(GVR.nodes)
+  const deployments = useK8sList<k8s.Deployment>(GVR.deployments)
+  const pods = useK8sList<k8s.Pod>(GVR.pods)
+  const argoApps = useK8sList(GVR.argoApps)
+  const rollouts = useK8sList(GVR.rollouts)
   // Kyverno records most results in *namespaced* PolicyReports (one per workload),
   // not the cluster-scoped ClusterPolicyReports (whose summaries are usually
   // empty). Read both and aggregate so the Security sub-score reflects the whole
   // policy surface, not just the handful of cluster-wide rules.
-  const policyReportsKey = ['overview', 'policy-reports']
-  const policyReports = useQuery({
-    queryKey: policyReportsKey,
-    queryFn: () => client.listGeneric(undefined, GVR.policyReports),
-    refetchInterval: useLiveRefetch(GVR.policyReports, [policyReportsKey], REFRESH_MS),
-    retry: false,
-  })
-  const clusterPolicyReportsKey = ['overview', 'cluster-policy-reports']
-  const clusterPolicyReports = useQuery({
-    queryKey: clusterPolicyReportsKey,
-    queryFn: () => client.listGeneric(undefined, GVR.clusterPolicyReports),
-    refetchInterval: useLiveRefetch(GVR.clusterPolicyReports, [clusterPolicyReportsKey], REFRESH_MS),
-    retry: false,
-  })
+  const policyReports = useK8sList(GVR.policyReports)
+  const clusterPolicyReports = useK8sList(GVR.clusterPolicyReports)
   return { nodes, deployments, pods, argoApps, rollouts, policyReports, clusterPolicyReports }
 }
 

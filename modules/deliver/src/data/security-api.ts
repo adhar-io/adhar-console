@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { usePollingInterval } from '@adhar/shell-ui'
+import { useWatchSignal } from './live.ts'
 
 /**
  * Browser client for the console server's `/api/security/*` — scan waivers,
@@ -55,7 +55,10 @@ export function useWaivers() {
   return useQuery({
     queryKey: securityKeys.waivers,
     queryFn: () => call<WaiversResponse>('waivers'),
-    refetchInterval: usePollingInterval(30_000),
+    // Waivers change only through review actions — this user's own (which
+    // invalidate `['security']`) or another reviewer's. No timer: re-read when
+    // a page mounts after a minute, and after every decision made here.
+    staleTime: 60_000,
     placeholderData: keepPreviousData,
     retry: (n, e) => !(e instanceof SecurityApiError && e.status < 500) && n < 1,
   })
@@ -76,7 +79,19 @@ export function useGates(namespace?: string, name?: string, enabled = true) {
   return useQuery({
     queryKey: securityKeys.gates(namespace, name),
     queryFn: () => call<GatesResponse>(`gates${qs}`),
-    refetchInterval: usePollingInterval(20_000),
+    // Gates are derived from Tekton PipelineRuns — watch the same runs the
+    // server lists (one run, one namespace, or all) and re-read on change.
+    refetchInterval: useWatchSignal(
+      {
+        group: 'tekton.dev',
+        version: 'v1',
+        resource: 'pipelineruns',
+        namespace: namespace || undefined,
+        fieldSelector: namespace && name ? `metadata.name=${name}` : undefined,
+      },
+      [securityKeys.gates(namespace, name)],
+      { enabled, throttleMs: 15_000 },
+    ),
     placeholderData: keepPreviousData,
     enabled,
     retry: false,

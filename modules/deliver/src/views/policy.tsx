@@ -10,7 +10,6 @@ import {
   Modal,
   Spinner,
   StatusBadge,
-  useLiveRefetch,
   useCan,
   useToast,
   type StatusKind,
@@ -21,6 +20,7 @@ import { cn, formatRelative } from '@adhar/utils'
 import type { kyverno } from '@adhar/api-clients'
 import { kyvernoClient as client } from '../data/kyverno-api.ts'
 import { kyvernoModeCheck } from '../data/access.ts'
+import { useWatchSignal } from '../data/live.ts'
 import {
   packCoverage,
   POLICY_PACKS,
@@ -84,10 +84,12 @@ export function Policy() {
     queryFn: () => client.listPolicyReports(),
     // PolicyReports are CRDs written by Kyverno's reports controller, so a new
     // violation lands here as soon as it is recorded.
-    refetchInterval: useLiveRefetch(
+    // Background scans re-stamp every result's `timestamp`; only a real
+    // change to a result refetches, at most every 30s.
+    refetchInterval: useWatchSignal(
       { group: 'wgpolicyk8s.io', version: 'v1alpha2', resource: 'policyreports' },
       [reportsKey],
-      30_000,
+      { throttleMs: 30_000, ignore: ['timestamp'] },
     ),
   })
   const exceptions = useQuery({

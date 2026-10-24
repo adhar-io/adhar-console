@@ -106,8 +106,9 @@ export function AuditLog() {
   }, [filters.q])
 
   const params = useMemo(() => toParams({ ...filters, q: debouncedQ }, pageSize, page * pageSize), [filters, debouncedQ, pageSize, page])
-  // Live tail — poll the current page while enabled (newest-first only).
-  const q = useAuditEvents(params, live ? 5000 : false)
+  // Live tail — the live hub pushes on every audit write; the page re-reads
+  // the newest page then (newest-first only).
+  const q = useAuditEvents(params, live)
   const facets = useAuditFacets()
 
   useEffect(() => {

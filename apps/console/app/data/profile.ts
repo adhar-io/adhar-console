@@ -608,8 +608,10 @@ export function useAuthSessionInfo() {
   return useQuery({
     queryKey: ['profile', 'auth-session'],
     queryFn: fetchAuthSession,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    // The session projection changes on sign-in/refresh, not while viewing;
+    // a slow re-read keeps the shown expiry honest.
+    staleTime: 2 * 60_000,
+    refetchInterval: 5 * 60_000,
     retry: false,
   })
 }

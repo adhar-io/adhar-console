@@ -1,8 +1,10 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { gitea, type k8s } from '@adhar/api-clients';
-import { useGiteaOrg, usePollingInterval } from '@adhar/shell-ui';
+import { useGiteaOrg, useLiveToolPoll } from '@adhar/shell-ui';
 import { useCRD } from './k8s.ts';
-import { harborClient, k8sClient, kargoClient } from './delivery.ts';
+import { harborClient, k8sClient, kargoClient, kargoWatch } from './delivery.ts';
+import { useWatchSignal } from './live.ts';
+import { APPLICATION_XR_WATCH, PROJECT_XR_WATCH } from './project-environments.ts';
 import { type AppXR, CONTROL_PLANE_NS } from './value-stream.ts';
 
 /**
@@ -22,8 +24,8 @@ import { type AppXR, CONTROL_PLANE_NS } from './value-stream.ts';
 
 export const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' });
 
-const REFRESH_MS = 15_000;
-const SLOW_MS = 30_000;
+/** Tool REST data with no watch: the BFF checks it once a minute and pushes only on change. */
+const TOOL_POLL_MS = 60_000;
 
 export type CRDObject = k8s.Generic;
 
@@ -55,8 +57,8 @@ export function useGiteaRepos() {
   return useQuery({
     queryKey: ['flow', 'gitea', 'repos', org],
     queryFn: () => giteaClient.listRepos(org),
-    staleTime: SLOW_MS,
-    refetchInterval: usePollingInterval(SLOW_MS),
+    // The repo list only changes when an app is created; read once per visit.
+    staleTime: 5 * 60_000,
     placeholderData: keepPreviousData,
     retry: false,
   });
@@ -64,11 +66,16 @@ export function useGiteaRepos() {
 
 export function useGiteaCommits(repo?: string, ref?: string, limit = 30) {
   const org = useGiteaOrg();
+  const queryKey = ['flow', 'gitea', 'commits', org, repo, ref, limit];
+  // Change signal = the head commit of the branch (one tiny read, BFF-side).
+  const signal = repo
+    ? `/api/v1/repos/${org}/${repo}/commits?limit=1&stat=false&files=false&verification=false${ref ? `&sha=${encodeURIComponent(ref)}` : ''}`
+    : '';
   return useQuery({
-    queryKey: ['flow', 'gitea', 'commits', org, repo, ref, limit],
+    queryKey,
     queryFn: () => giteaClient.listCommits(org, repo!, ref, limit),
     enabled: !!repo,
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useLiveToolPoll('gitea', signal, TOOL_POLL_MS, [queryKey], { enabled: !!repo }),
     placeholderData: keepPreviousData,
     retry: false,
   });
@@ -76,11 +83,14 @@ export function useGiteaCommits(repo?: string, ref?: string, limit = 30) {
 
 export function useGiteaPulls(repo?: string) {
   const org = useGiteaOrg();
+  const queryKey = ['flow', 'gitea', 'pulls', org, repo];
+  // Most recently updated PRs — any open / merge / new push moves this page.
+  const signal = repo ? `/api/v1/repos/${org}/${repo}/pulls?state=all&sort=recentupdate&limit=5` : '';
   return useQuery({
-    queryKey: ['flow', 'gitea', 'pulls', org, repo],
+    queryKey,
     queryFn: () => giteaClient.listPullRequests(org, repo!, 'all'),
     enabled: !!repo,
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useLiveToolPoll('gitea', signal, TOOL_POLL_MS, [queryKey], { enabled: !!repo }),
     placeholderData: keepPreviousData,
     retry: false,
   });
@@ -105,7 +115,7 @@ export function useApplicationXRs() {
         FLOW_GVRS.applications,
         CONTROL_PLANE_NS,
       )) as unknown as AppXR[],
-    refetchInterval: usePollingInterval(SLOW_MS),
+    refetchInterval: useWatchSignal(APPLICATION_XR_WATCH, [['flow', 'xr', 'applications']]),
     placeholderData: keepPreviousData,
     retry: false,
   });
@@ -126,7 +136,7 @@ export function useProjectXRs() {
           status?: Record<string, unknown>;
         }
       >,
-    refetchInterval: usePollingInterval(SLOW_MS),
+    refetchInterval: useWatchSignal(PROJECT_XR_WATCH, [['flow', 'xr', 'projects']]),
     placeholderData: keepPreviousData,
     retry: false,
   });
@@ -139,7 +149,7 @@ export function useAllWarehouses() {
   return useQuery({
     queryKey: ['kargo', 'warehouses', '*all*'],
     queryFn: () => kargoClient.listWarehouses(''),
-    refetchInterval: usePollingInterval(SLOW_MS),
+    refetchInterval: useWatchSignal(kargoWatch('warehouses'), [['kargo', 'warehouses']]),
     placeholderData: keepPreviousData,
     retry: false,
   });
@@ -150,11 +160,17 @@ export function useImageArtifacts(repo?: string) {
   const slash = repo?.indexOf('/') ?? -1;
   const project = slash > 0 ? repo!.slice(0, slash) : '';
   const path = slash > 0 ? repo!.slice(slash + 1) : '';
+  const queryKey = ['flow', 'harbor', 'artifacts', project, path];
+  // Newest artifact (with its accessories) is the change signal: a push, a
+  // signature or a finished scan all show up on it.
+  const signal = project && path
+    ? `/api/v2.0/projects/${encodeURIComponent(project)}/repositories/${encodeURIComponent(encodeURIComponent(path))}/artifacts?page_size=3&sort=-push_time&with_tag=true&with_scan_overview=true&with_signature=true&with_accessory=true`
+    : '';
   return useQuery({
-    queryKey: ['flow', 'harbor', 'artifacts', project, path],
+    queryKey,
     queryFn: () => harborClient.listArtifacts(project, path),
     enabled: Boolean(project && path),
-    refetchInterval: usePollingInterval(SLOW_MS),
+    refetchInterval: useLiveToolPoll('harbor', signal, TOOL_POLL_MS, [queryKey], { enabled: Boolean(project && path) }),
     placeholderData: keepPreviousData,
     retry: false,
   });

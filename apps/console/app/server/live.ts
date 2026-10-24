@@ -1,8 +1,8 @@
 import { env } from '@adhar/utils'
-import { apiServerFetch, originOk, resolveClusterBase, resolveIdentity, type K8sIdentity } from './k8s/gateway.ts'
+import { apiServerFetch, DEFAULT_CLUSTER_ALIASES, originOk, resolveClusterBase, resolveIdentity, type K8sIdentity } from './k8s/gateway.ts'
 import { getRequestUser } from './request-user.ts'
 import { proxyToolRequest } from './proxy.ts'
-import { openStore } from './workspace/store.ts'
+import { onAuditWrite, openStore } from './workspace/store.ts'
 import { NOTIFICATION_KIND, type NotificationDoc } from './notify.ts'
 
 /**
@@ -25,6 +25,9 @@ import { NOTIFICATION_KIND, type NotificationDoc } from './notify.ts'
  *                  user+path across subscriptions.
  *   notifications  pushes `invalidate` when the tenant's newest notification
  *                  changes (DB checked every few seconds, server side).
+ *   audit          pushes `invalidate` when this replica writes an audit event
+ *                  for the tenant — in-process, no DB polling. (Another
+ *                  replica's writes reach the page through its 60s fallback.)
  *
  * Auth: session cookie (same as every API), origin-checked; a subscription
  * never sees more than the user could fetch themselves. Heartbeat every 25 s;
@@ -38,7 +41,9 @@ interface SubHandle {
 }
 
 const HEARTBEAT_MS = 25_000
-const POLL_MIN_MS = 3_000
+// Server-side polls are the last resort for pull-only backends: once a
+// minute at most, shared per user + path across every tab.
+const POLL_MIN_MS = 60_000
 const POLL_MAX_MS = 300_000
 const NOTIF_CHECK_MS = 4_000
 const MAX_SUBS = 200
@@ -109,6 +114,13 @@ export async function handleLive(req: Request): Promise<Response> {
         case 'notifications':
           subs.set(sid, watchNotifications(sid, auth.activeTenant, auth.user.id, send))
           break
+        case 'audit': {
+          // The push only says "something changed"; the refetch it triggers
+          // goes through the permission-gated audit API.
+          const off = onAuditWrite(auth.activeTenant, (at) => send({ op: 'invalidate', id: sid, reason: 'audit-written', at }))
+          subs.set(sid, { stop: off })
+          break
+        }
         default:
           send({ op: 'error', id: sid, message: `unknown topic ${String(msg.topic)}` })
       }
@@ -182,7 +194,10 @@ function watchK8s(sid: string, id: K8sIdentity, params: Json, send: (m: Json) =>
   const namespace = params.namespace ? String(params.namespace) : ''
   const labelSelector = params.labelSelector ? String(params.labelSelector) : ''
   const fieldSelector = params.fieldSelector ? String(params.fieldSelector) : ''
-  const cluster = params.cluster ? String(params.cluster) : undefined
+  // Every alias of the default cluster ('local', 'in-cluster', '') is one
+  // cluster: normalise so they share a single upstream watch.
+  const rawCluster = params.cluster ? String(params.cluster) : undefined
+  const cluster = rawCluster && !DEFAULT_CLUSTER_ALIASES.has(rawCluster) ? rawCluster : undefined
   if (!resource) throw new Error('resource required')
   if (resolveClusterBase(cluster) === null) throw new Error(`unknown cluster ${cluster}`)
 
@@ -226,33 +241,52 @@ function watchK8s(sid: string, id: K8sIdentity, params: Json, send: (m: Json) =>
       let backoff = 1000
       while (!stopped) {
         try {
-          // 1. list → resync snapshot
-          const lq = new URLSearchParams(base)
-          lq.set('limit', '2000')
-          const list = await apiServerFetch(id, path, { search: `?${lq}`, signal: ac.signal, cluster })
-          if (!list.ok) {
-            const body = await list.text().catch(() => '')
-            const msg: Json = {
-              op: 'error',
-              status: list.status,
-              message: body.slice(0, 300) || `list failed (${list.status})`,
-            }
-            // 401/403/404 will not fix themselves by retrying: the user lacks
-            // access, or the CRD is not installed. Remember it so later
-            // subscribers get the same honest answer without another round trip.
-            if (list.status === 401 || list.status === 403 || list.status === 404) {
-              w.fatal = msg
-              w.ready = true
+          // 1. list → resync snapshot, paged so large lists (cluster-wide
+          // events, pods) arrive whole rather than cut off at one page.
+          const items: KubeObj[] = []
+          let rv = ''
+          let cont = ''
+          let failed = false
+          for (let page = 0; page < 50; page++) {
+            const lq = new URLSearchParams(base)
+            lq.set('limit', '2000')
+            if (cont) lq.set('continue', cont)
+            const list = await apiServerFetch(id, path, { search: `?${lq}`, signal: ac.signal, cluster })
+            if (!list.ok) {
+              // An expired continue token: start the list over.
+              if (list.status === 410 && cont) {
+                items.length = 0
+                cont = ''
+                continue
+              }
+              const body = await list.text().catch(() => '')
+              const msg: Json = {
+                op: 'error',
+                status: list.status,
+                message: body.slice(0, 300) || `list failed (${list.status})`,
+              }
+              // 401/403/404 will not fix themselves by retrying: the user lacks
+              // access, or the CRD is not installed. Remember it so later
+              // subscribers get the same honest answer without another round trip.
+              if (list.status === 401 || list.status === 403 || list.status === 404) {
+                w.fatal = msg
+                w.ready = true
+                fanout(msg)
+                return
+              }
               fanout(msg)
-              return
+              failed = true
+              break
             }
-            fanout(msg)
-            throw new Error(`list ${list.status}`)
+            const body = (await list.json()) as { items?: KubeObj[]; metadata?: { resourceVersion?: string; continue?: string } }
+            items.push(...(body.items ?? []))
+            rv = body.metadata?.resourceVersion ?? rv
+            cont = body.metadata?.continue ?? ''
+            if (!cont) break
           }
-          const body = (await list.json()) as { items?: KubeObj[]; metadata?: { resourceVersion?: string } }
-          const items = body.items ?? []
+          if (failed) throw new Error('list failed')
           w.items = new Map(items.map((it) => [objKey(it), it]))
-          w.resourceVersion = body.metadata?.resourceVersion ?? ''
+          w.resourceVersion = rv
           w.ready = true
           w.fatal = undefined
           fanout({ op: 'resync', items, resourceVersion: w.resourceVersion })
@@ -368,13 +402,15 @@ function fnv(s: string): string {
 function pollTool(sid: string, ctx: PollCtx, params: Json, send: (m: Json) => void): SubHandle {
   const tool = String(params.tool ?? '')
   const rawPath = String(params.path ?? '')
-  const intervalMs = Math.min(POLL_MAX_MS, Math.max(POLL_MIN_MS, Number(params.intervalMs ?? 15_000) || 15_000))
+  const intervalMs = Math.min(POLL_MAX_MS, Math.max(POLL_MIN_MS, Number(params.intervalMs ?? POLL_MIN_MS) || POLL_MIN_MS))
   const windowMs = Number(params.windowMs ?? 0) || 0
   if (!tool || !rawPath) throw new Error('tool and path required')
   if (!/^[a-z0-9-]+$/.test(tool)) throw new Error('bad tool')
 
   const key = `${fnv(ctx.cookie)}|${tool}|${rawPath}|${intervalMs}|${windowMs}`
-  const deliver = (m: Json) => send({ ...m, id: sid })
+  // `hashOnly` subscribers only want the change signal — don't ship the body.
+  const hashOnly = params.hashOnly === true
+  const deliver = (m: Json) => send(hashOnly && 'body' in m ? { ...m, body: undefined, id: sid } : { ...m, id: sid })
   let entry = pollers.get(key)
   if (!entry) {
     const subscribers = new Set<(m: Json) => void>()
@@ -438,47 +474,72 @@ function pollTool(sid: string, ctx: PollCtx, params: Json, send: (m: Json) => vo
 
 /* ─────────── notifications: DB change detection ─────────── */
 
+/**
+ * One DB check per tenant, however many sockets are listening: every tab used
+ * to run its own query every few seconds. The check stops with its last
+ * subscriber.
+ */
+const notifWatchers = new Map<string, { subscribers: Set<(m: Json) => void>; stop(): void }>()
+
 function watchNotifications(sid: string, tenant: string, userId: string, send: (m: Json) => void): SubHandle {
-  let stopped = false
-  let lastAt = ''
-  let lastCount = -1
-  const tick = async () => {
-    if (stopped) return
-    try {
-      const store = await openStore(tenant)
-      if (!store) return
-      const page = await store.query<NotificationDoc>(NOTIFICATION_KIND, { sort: { path: 'at', direction: 'desc' }, limit: 1, offset: 0 })
-      const at = page.items[0]?.data.at ?? ''
-      if (lastCount === -1) {
-        lastAt = at
-        lastCount = page.total
-        return
-      }
-      if (at !== lastAt || page.total !== lastCount) {
-        lastAt = at
-        lastCount = page.total
-        send({ op: 'invalidate', id: sid, reason: 'notifications-changed', at })
-      }
-    } catch {
-      // DB hiccup — try next tick
-    }
-  }
-  const timer = setInterval(() => void tick(), NOTIF_CHECK_MS)
-  void tick()
   void userId
+  const deliver = (m: Json) => send({ ...m, id: sid })
+  let w = notifWatchers.get(tenant)
+  if (!w) {
+    const subscribers = new Set<(m: Json) => void>()
+    let lastAt = ''
+    let lastCount = -1
+    let inflight = false
+    const tick = async () => {
+      if (inflight) return
+      inflight = true
+      try {
+        const store = await openStore(tenant)
+        if (!store) return
+        const page = await store.query<NotificationDoc>(NOTIFICATION_KIND, { sort: { path: 'at', direction: 'desc' }, limit: 1, offset: 0 })
+        const at = page.items[0]?.data.at ?? ''
+        if (lastCount === -1) {
+          lastAt = at
+          lastCount = page.total
+          return
+        }
+        if (at !== lastAt || page.total !== lastCount) {
+          lastAt = at
+          lastCount = page.total
+          for (const s of subscribers) s({ op: 'invalidate', reason: 'notifications-changed', at })
+        }
+      } catch {
+        // DB hiccup — try next tick
+      } finally {
+        inflight = false
+      }
+    }
+    const timer = setInterval(() => void tick(), NOTIF_CHECK_MS)
+    void tick()
+    w = {
+      subscribers,
+      stop() {
+        clearInterval(timer)
+        notifWatchers.delete(tenant)
+      },
+    }
+    notifWatchers.set(tenant, w)
+  }
+  w.subscribers.add(deliver)
+  const entry = w
   return {
     stop() {
-      stopped = true
-      clearInterval(timer)
+      entry.subscribers.delete(deliver)
+      if (entry.subscribers.size === 0) entry.stop()
     },
   }
 }
 
 /** Exposed for diagnostics (`/api/live` is WS-only; this reports hub load). */
-export function liveStats(): { pollers: number; watches: number; watchSubscribers: number } {
+export function liveStats(): { pollers: number; watches: number; watchSubscribers: number; notificationChecks: number } {
   let watchSubscribers = 0
   for (const w of k8sWatchers.values()) watchSubscribers += w.subscribers.size
-  return { pollers: pollers.size, watches: k8sWatchers.size, watchSubscribers }
+  return { pollers: pollers.size, watches: k8sWatchers.size, watchSubscribers, notificationChecks: notifWatchers.size }
 }
 
 // Keep `env` referenced for future tunables without unused-import churn.

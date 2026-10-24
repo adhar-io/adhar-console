@@ -32,7 +32,7 @@ export const fmtPct = (n: number | null | undefined, digits = 1): string => (n =
 /**
  * Error state for a PostHog call. A fresh install answers 502/503 for a long
  * while as PostHog runs its migrations; that is "starting up", not an outage,
- * so say so and retry on our own every 20 s.
+ * so say so and retry on our own once a minute (the console-wide poll floor).
  */
 export function PostHogState({ error, onRetry, compact = false }: { error: unknown; onRetry(): void; compact?: boolean }) {
   const starting = isStartingUp(error)
@@ -41,7 +41,7 @@ export function PostHogState({ error, onRetry, compact = false }: { error: unkno
     // No point waking PostHog from a background tab; the next visible tick retries.
     const id = setInterval(() => {
       if (!document.hidden) onRetry()
-    }, 20_000)
+    }, 60_000)
     return () => clearInterval(id)
   }, [starting, onRetry])
   const status = (error as { status?: number } | null)?.status
@@ -54,7 +54,7 @@ export function PostHogState({ error, onRetry, compact = false }: { error: unkno
         description="PostHog answered but is not ready yet — on a fresh install it runs database migrations for several minutes. This page retries on its own."
         action={
           <span className="inline-flex items-center gap-2 text-xs text-content-muted">
-            <Spinner size={12} /> Retrying every 20 s
+            <Spinner size={12} /> Retrying every minute
             <Button size="sm" onClick={onRetry}>Retry now</Button>
           </span>
         }

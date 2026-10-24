@@ -546,7 +546,7 @@ export function RunLog({ job, live, onClose }: { job: string; live: boolean; onC
       onClose={onClose}
       width="xl"
       title="Resilience run log"
-      description={`${job}${log.data?.pod ? ` · pod ${log.data.pod}` : ''} — the last 300 lines${live ? ', refreshing while it runs' : ''}.`}
+      description={`${job}${log.data?.pod ? ` · pod ${log.data.pod}` : ''} — the last 300 lines${live ? ', followed while it runs' : ''}.`}
       footer={
         <Button variant="ghost" onClick={onClose}>
           Close

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { POLL_FLOOR_MS } from '@adhar/shell-ui'
 
 /**
  * The platform knowledge graph, for the browser.
@@ -94,8 +95,9 @@ export function useGraphStatus() {
     queryKey: ['graph', 'status'],
     queryFn: () => get<GraphStatusResponse>('/status'),
     // The graph changes as the cluster does; this drives the "updated Xs ago"
-    // chip and the still-building banner.
-    refetchInterval: 15_000,
+    // chip and the still-building banner. Served from the BFF's in-memory
+    // graph (no apiserver call), at the console-wide poll floor.
+    refetchInterval: POLL_FLOOR_MS,
     retry: false,
   })
 }
@@ -146,7 +148,7 @@ export function useGraphOverview() {
         unhealthy: GraphNode[]
         updatedAt: string
       }>('/overview'),
-    refetchInterval: 30_000,
+    refetchInterval: POLL_FLOOR_MS,
     retry: false,
   })
 }

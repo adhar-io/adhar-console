@@ -793,7 +793,7 @@ function ScorecardDrawer({
   const [metaFocus, setMetaFocus] = useState<MetadataField | null>(null)
   const [manifest, setManifest] = useState<ManifestTarget | null>(null)
   const runReEval = reEval.run
-  usePendingWatcher({ pending: fix.pending, poll: 20_000, cards: [card], onMerged: () => void runReEval() })
+  usePendingWatcher({ pending: fix.pending, poll: 60_000, cards: [card], onMerged: () => void runReEval() })
   useEffect(() => {
     onEvaluating(card.entityRef, reEval.phase !== 'idle')
   }, [reEval.phase, card.entityRef, onEvaluating])

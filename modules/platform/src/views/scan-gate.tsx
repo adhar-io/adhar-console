@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, CONSOLE_PERMISSIONS, Field, Modal, Textarea, useAccessReview, useToast } from '@adhar/shell-ui';
+import { Button, CONSOLE_PERMISSIONS, Field, Modal, POLL_FLOOR_MS, Textarea, useAccessReview, useLiveRefetch, useToast } from '@adhar/shell-ui';
 import { cn } from '@adhar/utils';
 import { DrawerSection } from './resource-drawer.tsx';
 
@@ -14,6 +14,14 @@ import { DrawerSection } from './resource-drawer.tsx';
  * writes the decision annotation as the user. The annotation's name lives on
  * the server only. Renders nothing for a run without scan results or a gate.
  */
+
+/**
+ * The gate is derived from the PipelineRun itself (its scan results and the
+ * decision annotation), so the run's watch is the change signal. Same params
+ * as the Builds drawer's run watch, so the live hub shares the one upstream
+ * watch.
+ */
+const PIPELINERUNS = { group: 'tekton.dev', version: 'v1', resource: 'pipelineruns', namespaced: true };
 
 type GateState = 'awaiting' | 'approved' | 'rejected' | 'passed' | 'failed' | 'warned' | 'none';
 
@@ -59,6 +67,8 @@ export function ScanGateSection({ namespace, name, running }: { namespace?: stri
   const approval = useAccessReview(CONSOLE_PERMISSIONS.waiverApprove);
   const canApprove = approval.allowed;
   const key = ['security', 'gates', namespace ?? '', name];
+  // Pushed on any change to the run; the timer is only the socket-down fallback while it runs.
+  const liveInterval = useLiveRefetch({ ...PIPELINERUNS, namespace }, [key], POLL_FLOOR_MS, Boolean(namespace && name));
   const gate = useQuery({
     queryKey: key,
     enabled: Boolean(namespace && name),
@@ -67,7 +77,7 @@ export function ScanGateSection({ namespace, name, running }: { namespace?: stri
         credentials: 'same-origin',
         headers: { accept: 'application/json' },
       }).then((r) => readJson<GatesResponse>(r)),
-    refetchInterval: running ? 10_000 : false,
+    refetchInterval: running ? liveInterval : false,
     retry: false,
   });
   const decide = useMutation({

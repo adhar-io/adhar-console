@@ -234,6 +234,14 @@ export function stepFor(startMs: number, endMs: number, points = 150): number {
 }
 
 /**
+ * How often a running run's Prometheus window advances — the console-wide
+ * poll floor. Range queries return the whole window at full resolution, so a
+ * read a minute apart loses no samples; the second-by-second feel of a live
+ * run comes from the pushed pod/TestRun watches and the runner log stream.
+ */
+export const LIVE_WINDOW_QUANTUM_MS = 60_000
+
+/**
  * A live window: from the run's start to now, with the end rounded UP to the
  * step so the query key changes once per step rather than on every render —
  * the bug that refetched every panel on every 5-second TestRun poll.

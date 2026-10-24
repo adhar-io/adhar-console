@@ -9,6 +9,7 @@ import {
   Tabs,
   useAccessReview,
   useCan,
+  POLL_FLOOR_MS,
   useLiveRefetch,
   useToast,
   type TabDef,
@@ -16,8 +17,10 @@ import {
   useDrawerWidth,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
-import { client, clusterParam, useActiveCluster } from '../data/client.ts'
+import { client, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
+import { useObjectEvents } from '../data/hooks.ts'
+import { watchOf } from '../data/live.ts'
 import { age, shortImage } from '../data/format.ts'
 import { PodShell } from './pod-shell.tsx'
 import { PodLogsPanel } from './pod-logs.tsx'
@@ -51,7 +54,13 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
   const pod = useQuery({
     queryKey: podKey,
     queryFn: () => client.getPod(cluster, namespace, name),
-    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace, cluster: clusterParam(cluster) }, [podKey], 10_000),
+    // One pod: watch just it, so a busy namespace's other pods do not re-GET
+    // this one. Same params as the Metrics tab's pod read (shared watch).
+    refetchInterval: useLiveRefetch(
+      watchOf(GVRS.pods, { namespace, fieldSelector: `metadata.name=${name}`, cluster }),
+      [podKey],
+      POLL_FLOOR_MS,
+    ),
   })
 
   const toast = useToast()
@@ -591,13 +600,7 @@ function Mono({ children }: { children: React.ReactNode }) {
 }
 
 function Events({ namespace, name }: { namespace: string; name: string }) {
-  const { cluster } = useActiveCluster()
-  const queryKey = ['k8s', 'pod-events', namespace, name, cluster]
-  const q = useQuery({
-    queryKey,
-    queryFn: () => client.listEvents(cluster, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 5_000),
-  })
+  const q = useObjectEvents(namespace, name, 'Pod')
   const filtered = (q.data ?? []).filter(
     (e) =>
       e.involvedObject.namespace === namespace &&
@@ -653,6 +656,8 @@ function PodRelations({ pod }: { pod: Awaited<ReturnType<typeof client.getPod>> 
     queryKey: ['k8s', 'pod-owner-rs', ns, owner?.name, cluster],
     enabled: Boolean(owner && owner.kind === 'ReplicaSet' && ns),
     retry: false,
+    // Ownership never changes for the life of a pod.
+    staleTime: Infinity,
     queryFn: () =>
       client.getGeneric(cluster, GVRS.replicasets, ns, owner!.name) as unknown as Promise<GenericLite>,
   })
@@ -699,14 +704,7 @@ function Arrow() {
 }
 
 function RecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: string }) {
-  const { cluster } = useActiveCluster()
-  const queryKey = ['k8s', 'pod-events', namespace, name, cluster]
-  const q = useQuery({
-    queryKey,
-    queryFn: () => client.listEvents(cluster, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
-    retry: false,
-  })
+  const q = useObjectEvents(namespace, name, kind)
   const events = (q.data ?? [])
     .filter(
       (e) =>

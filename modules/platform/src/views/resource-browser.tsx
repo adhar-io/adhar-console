@@ -4,6 +4,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  POLL_FLOOR_MS,
   Spinner,
   StatusBadge,
   useMediaQuery,
@@ -41,6 +42,9 @@ import { KindPicker, type KindPickerHandle, KindPickerSheet, StarGlyph } from '.
 import { ExploreDrawer } from './explore-drawer.tsx'
 
 /** GVR the live hook holds (disabled) while discovery is still resolving. */
+/** Minimum gap between two printer-column Table snapshots. */
+const TABLE_MIN_GAP_MS = 30_000
+
 const IDLE_GVR: GVR = { group: '', version: 'v1', resource: 'namespaces', namespaced: false }
 
 /** Rows rendered at once — the grid isn't virtualised; search narrows the rest. */
@@ -330,7 +334,7 @@ function KindView({
     queryKey: ['k8s', 'explore-list', gvr.group, gvr.version, gvr.resource, ns ?? '', selector, cluster],
     queryFn: () => kube.list(gvr, { namespace: ns, labelSelector: selector || undefined, cluster: clusterParam(cluster) }).then((l) => l.items),
     enabled: !watchable,
-    refetchInterval: 15_000,
+    refetchInterval: POLL_FLOOR_MS,
   })
   const items: KubeObject[] = watchable ? live.data : (polled.data ?? [])
   const loading = watchable ? live.isLoading : polled.isLoading
@@ -338,19 +342,32 @@ function KindView({
   const liveStatus: LiveStatus | 'polling' = watchable ? live.status : 'polling'
   const refetch = () => (watchable ? live.refetch() : void polled.refetch())
 
-  // Server-rendered printer columns; re-snapshot (debounced) whenever the watch moves.
+  // Server-rendered printer columns; re-snapshot whenever the watch moves —
+  // debounced, and at most once per TABLE_MIN_GAP_MS. The rows themselves are
+  // live from the watch; only the printer-column cells lag, and a busy kind
+  // (pods, events) would otherwise re-LIST the Table every couple of seconds.
   const signature = useMemo(() => items.map((o) => o.metadata.resourceVersion ?? '').join(','), [items])
   const [tableVersion, setTableVersion] = useState(0)
   const firstSig = useRef(true)
+  const lastSnap = useRef(0)
+  const pendingSnap = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     if (loading) return
     if (firstSig.current) {
       firstSig.current = false
+      lastSnap.current = Date.now()
       return
     }
-    const t = setTimeout(() => setTableVersion((v) => v + 1), 2_000)
-    return () => clearTimeout(t)
+    // Throttle, not debounce: constant churn must not starve the snapshot.
+    if (pendingSnap.current) return
+    const wait = Math.max(2_000, TABLE_MIN_GAP_MS - (Date.now() - lastSnap.current))
+    pendingSnap.current = setTimeout(() => {
+      pendingSnap.current = undefined
+      lastSnap.current = Date.now()
+      setTableVersion((v) => v + 1)
+    }, wait)
   }, [signature, loading])
+  useEffect(() => () => clearTimeout(pendingSnap.current), [])
   const table = useResourceTable(gvr, { namespace: ns, labelSelector: selector || undefined, enabled: !error, version: tableVersion })
   const pcols = useMemo(() => printerColumns(table.data), [table.data])
   const cellIndex = useMemo(() => indexTableRows(table.data), [table.data])

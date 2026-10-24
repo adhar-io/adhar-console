@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import type { k8s } from '@adhar/api-clients'
-import { usePollingInterval } from '@adhar/shell-ui'
+import { useWatchSignal } from './live.ts'
 import { k8sClient } from './delivery.ts'
 import type { TrivyReportObj } from './security-findings.ts'
 import { useProjectXRs } from './project-environments.ts'
@@ -41,7 +41,13 @@ export function useVulnerabilityReports() {
   return useQuery({
     queryKey: ['security', 'trivy', 'vulnerabilityreports'],
     queryFn: () => listReports('vulnerabilityreports'),
-    refetchInterval: usePollingInterval(120_000),
+    // Same cluster-wide watch as `useScans` (one upstream watch); a scan wave
+    // is throttled to one re-list per 30s.
+    refetchInterval: useWatchSignal(
+      { group: GROUP, version: 'v1alpha1', resource: 'vulnerabilityreports' },
+      [['security', 'trivy', 'vulnerabilityreports']],
+      { throttleMs: 30_000 },
+    ),
     placeholderData: keepPreviousData,
     staleTime: 60_000,
   })
@@ -51,9 +57,9 @@ export function useSbomReports(enabled = true) {
   return useQuery({
     queryKey: ['security', 'trivy', 'sbomreports'],
     queryFn: () => listReports('sbomreports'),
-    refetchInterval: usePollingInterval(300_000),
+    // SBOMs change only when an image is rescanned; read once per visit.
     placeholderData: keepPreviousData,
-    staleTime: 120_000,
+    staleTime: 10 * 60_000,
     enabled,
   })
 }

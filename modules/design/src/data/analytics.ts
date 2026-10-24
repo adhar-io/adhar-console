@@ -87,7 +87,7 @@ export function useCohorts(enabled = true) {
     enabled,
     staleTime: 60_000,
     retry: noRetry4xx,
-    refetchInterval: (q) => ((q.state.data as Cohort[] | undefined)?.some((c) => c.is_calculating) ? 15_000 : false),
+    refetchInterval: (q) => ((q.state.data as Cohort[] | undefined)?.some((c) => c.is_calculating) ? 60_000 : false),
   })
 }
 

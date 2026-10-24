@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, canResource, Spinner, StatusBadge, useCan, useLiveRefetch, useToast } from '@adhar/shell-ui'
+import { Button, canResource, POLL_FLOOR_MS, Spinner, StatusBadge, useCan, useLiveRefetch, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { kube } from '@adhar/api-clients/k8s'
 import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
+import { watchOf } from '../data/live.ts'
 import { age } from '../data/format.ts'
 
 /**
@@ -100,6 +101,8 @@ export function WorkloadOpsPanel({
   const resolveQ = useQuery<Target | null>({
     queryKey: ['k8s', 'workload-target', namespace, ctrl?.kind, ctrl?.name, cluster],
     enabled: Boolean(ctrl),
+    // An owner chain never changes for the life of a pod.
+    staleTime: Infinity,
     queryFn: async () => {
       if (!ctrl) return null
       let kind = ctrl.kind
@@ -195,11 +198,17 @@ function WorkloadOps({
   // object itself (spec.replicas / template annotation / spec.paused /
   // spec.template) — not the /scale subresource — so one check covers them.
   const canPatch = useCan(canResource(gvr, 'patch', { namespace, name }))
-  const key = ['k8s', 'workload-ops', namespace, kind, name, cluster]
+  // Same key + watch as the workload drawer's own read of this object, so the
+  // drawer and this panel share one GET and one upstream watch.
+  const key = ['k8s', 'workload', kind, namespace, name, cluster]
 
   const q = useQuery<WorkloadObj | null>({
     queryKey: key,
-    refetchInterval: useLiveRefetch({ ...gvr, namespace, cluster: clusterParam(cluster) }, [key], 8_000),
+    refetchInterval: useLiveRefetch(
+      watchOf(gvr, { namespace, fieldSelector: `metadata.name=${name}`, cluster }),
+      [key],
+      POLL_FLOOR_MS,
+    ),
     queryFn: async () =>
       (await client.getGeneric(cluster, gvr, namespace, name)) as unknown as WorkloadObj,
   })
@@ -218,7 +227,7 @@ function WorkloadOps({
     onSuccess: (_d, replicas) => toast.success(`Scaled ${name} to ${replicas}`),
     onError: (e) => toast.error('Scale failed', { description: (e as Error).message }),
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['k8s', 'workload-ops'] })
+      qc.invalidateQueries({ queryKey: key })
       qc.invalidateQueries({ queryKey: ['k8s', 'pods'] })
     },
   })
@@ -250,7 +259,7 @@ function WorkloadOps({
     onSuccess: (_d, paused) => toast.success(`${paused ? 'Paused' : 'Resumed'} rollout of ${name}`),
     // The optimistic flip is undone by the onSettled refetch; say why it bounced back.
     onError: (e, paused) => toast.error(`Could not ${paused ? 'pause' : 'resume'} rollout: ${(e as Error).message}`),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['k8s', 'workload-ops'] }),
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
   })
 
   if (q.isLoading) {
@@ -648,7 +657,9 @@ function RollbackPanel({
   const rsKey = ['k8s', 'rollout-history', namespace, name, cluster]
   const rsQ = useQuery<RevisionRs[]>({
     queryKey: rsKey,
-    refetchInterval: useLiveRefetch({ ...GVRS.replicasets, namespace, cluster: clusterParam(cluster) }, [rsKey], 15_000),
+    // Same watch params as the ReplicaSets list (useReplicaSets), so the hub
+    // shares one upstream watch.
+    refetchInterval: useLiveRefetch(watchOf(GVRS.replicasets, { namespace, cluster }), [rsKey], POLL_FLOOR_MS),
     queryFn: async () => {
       const list = await kube.list<RevisionRs>(GVRS.replicasets, { namespace, cluster: clusterParam(cluster) })
       return list.items

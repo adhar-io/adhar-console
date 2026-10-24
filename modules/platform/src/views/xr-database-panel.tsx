@@ -5,16 +5,19 @@ import {
   CardBody,
   CardHeader,
   DonutGauge,
+  POLL_FLOOR_MS,
   Skeleton,
   Sparkline,
   StatusBadge,
   type StatusKind,
+  useLiveRefetch,
   useToast,
 } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import type { KubeList } from '@adhar/api-clients/k8s'
 import { cn } from '@adhar/utils'
 import { age, formatBytes } from '../data/format.ts'
+import { watchOf } from '../data/live.ts'
 import { composedRefs, type XrLike } from '../data/xr-ops.ts'
 import { lastValue, promInstant, promRange, scalarOf, toPoints } from '../data/prom.ts'
 import {
@@ -37,7 +40,7 @@ import {
  *
  * Layered so each part degrades on its own:
  *  - topology, replication, backup, storage and certificates come from the
- *    CNPG `Cluster` status (10s poll) — present whenever the database exists;
+ *    CNPG `Cluster` status (pushed by an apiserver watch) — present whenever the database exists;
  *  - the backup history is the cluster's `Backup` objects;
  *  - traffic (connections, transactions, cache hit, size) and replication lag
  *    come from the `cnpg_*` series in Prometheus — when Prometheus is not
@@ -64,18 +67,29 @@ export function DatabaseInsightSection({ xr, cluster }: { xr: XrLike; cluster?: 
 function CnpgInsight({ name, namespace, cluster }: { name: string; namespace?: string; cluster?: string }) {
   const [range, setRange] = useState<RangeKey>('1h')
 
+  // The CNPG Cluster and its Backups are Kubernetes objects: watched, not polled.
+  const clusterKey = ['platform', 'cnpg', 'cluster', cluster ?? '-', namespace ?? '-', name]
   const clusterQ = useQuery({
-    queryKey: ['platform', 'cnpg', 'cluster', cluster ?? '-', namespace ?? '-', name],
+    queryKey: clusterKey,
     queryFn: () => kube.get<CnpgCluster>(CNPG_GVR.cluster, namespace, name, { cluster }),
-    refetchInterval: 10_000,
+    refetchInterval: useLiveRefetch(
+      watchOf(CNPG_GVR.cluster, { namespace, fieldSelector: `metadata.name=${name}`, cluster }),
+      [clusterKey],
+      POLL_FLOOR_MS,
+    ),
     retry: false,
   })
 
+  const backupsKey = ['platform', 'cnpg', 'backups', cluster ?? '-', namespace ?? '-', name]
   const backupsQ = useQuery({
-    queryKey: ['platform', 'cnpg', 'backups', cluster ?? '-', namespace ?? '-', name],
+    queryKey: backupsKey,
     queryFn: () =>
       kube.list<CnpgBackup>(CNPG_GVR.backup, { namespace, cluster, labelSelector: `cnpg.io/cluster=${name}` }),
-    refetchInterval: 30_000,
+    refetchInterval: useLiveRefetch(
+      watchOf(CNPG_GVR.backup, { namespace, labelSelector: `cnpg.io/cluster=${name}`, cluster }),
+      [backupsKey],
+      POLL_FLOOR_MS,
+    ),
     retry: false,
     select: (list: KubeList<CnpgBackup>) => sortBackups(list.items ?? []),
   })
@@ -104,7 +118,9 @@ function CnpgInsight({ name, namespace, cluster }: { name: string; namespace?: s
         rowsRead: rowsRead[0],
       }
     },
-    refetchInterval: 30_000,
+    // Prometheus: a sliding range changes on every read, so a timer at the
+    // poll floor (or once per step, if longer) is the cheapest refresh.
+    refetchInterval: Math.max(POLL_FLOOR_MS, RANGES[range].step * 1000),
     retry: false,
     enabled: Boolean(summary),
   })
@@ -125,7 +141,7 @@ function CnpgInsight({ name, namespace, cluster }: { name: string; namespace?: s
         deadlocks: scalarOf(deadlocks),
       }
     },
-    refetchInterval: 30_000,
+    refetchInterval: POLL_FLOOR_MS,
     retry: false,
     enabled: Boolean(summary),
   })

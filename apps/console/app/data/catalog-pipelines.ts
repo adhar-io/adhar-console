@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { useWatchSignal } from '@adhar/shell-ui'
+import { combineIntervals } from './live-k8s.ts'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { k8s } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
@@ -197,9 +199,18 @@ export function usePipelineRuns(entity: Entity, repoUrl: string | undefined, ena
   // namespace (runs the platform's triggers create). No annotation: the whole
   // cluster, which covers both.
   const namespaces = ns ? [...new Set([ns, CI_NAMESPACE])] : [undefined]
+  const queryKey = ['catalog', 'tekton', 'pipelineruns', namespaces.map((n) => n ?? '*').join(',')]
+  // A run's status moves task by task: the PipelineRun watches drive the
+  // refetch (throttled to one per 5s while a run is busy), not a timer.
+  // At most two namespaces (the service's and CI's), so two fixed signals.
+  const runsWatch = (n: string | undefined) => ({ group: PIPELINERUNS_GVR.group, version: PIPELINERUNS_GVR.version, resource: PIPELINERUNS_GVR.resource, ...(n ? { namespace: n } : {}) })
+  const refetchInterval = combineIntervals(
+    useWatchSignal(runsWatch(namespaces[0]), [queryKey], { enabled, throttleMs: 5_000 }),
+    useWatchSignal(namespaces.length > 1 ? runsWatch(namespaces[1]) : null, [queryKey], { enabled: enabled && namespaces.length > 1, throttleMs: 5_000 }),
+  )
   const q = useQuery({
     // One list per namespace set serves every entity that shares it.
-    queryKey: ['catalog', 'tekton', 'pipelineruns', namespaces.map((n) => n ?? '*').join(',')],
+    queryKey,
     queryFn: async () => {
       const results = await Promise.allSettled(namespaces.map((n) => client.listGeneric(undefined, PIPELINERUNS_GVR, n)))
       const ok = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof client.listGeneric>>> => r.status === 'fulfilled')
@@ -209,7 +220,7 @@ export function usePipelineRuns(entity: Entity, repoUrl: string | undefined, ena
     },
     enabled,
     staleTime: REFRESH_MS,
-    refetchInterval: enabled ? REFRESH_MS : false,
+    refetchInterval,
     // The namespace set settles once Argo CD answers; keep the previous list
     // on screen meanwhile rather than flashing back to a loading state.
     placeholderData: keepPreviousData,

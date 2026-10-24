@@ -1,5 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import type { Entity } from './catalog.ts'
+import { useWatchSignal } from '@adhar/shell-ui'
+import { combineIntervals } from './live-k8s.ts'
+import { routeWatches } from './catalog-deployment-live.ts'
 
 /**
  * Where a catalog entity is reachable — the URLs the drawer offers to open.
@@ -49,8 +52,17 @@ export function useEntityRoutes(entity: Entity, enabled = true, runsIn?: string)
   // beats the annotation, which is often just the Argo CD destination.
   const namespace = (runsIn ?? '').trim() || (entity.metadata.annotations?.['adhar.io/namespace'] ?? '').trim()
 
+  const queryKey = ['catalog', 'routes', name, namespace]
+  // Re-asked when an HTTPRoute or Ingress changes (cluster-wide when the
+  // entity names no namespace), not on a timer.
+  const on = enabled && Boolean(name)
+  const [httpRoutes, ingresses] = routeWatches(namespace || undefined)
+  const refetchInterval = combineIntervals(
+    useWatchSignal(httpRoutes, [queryKey], { enabled: on }),
+    useWatchSignal(ingresses, [queryKey], { enabled: on }),
+  )
   const q = useQuery({
-    queryKey: ['catalog', 'routes', name, namespace],
+    queryKey,
     queryFn: async () => {
       const params = new URLSearchParams({ name })
       if (namespace) params.set('namespace', namespace)
@@ -63,7 +75,7 @@ export function useEntityRoutes(entity: Entity, enabled = true, runsIn?: string)
     },
     enabled: enabled && !!name,
     staleTime: REFRESH_MS,
-    refetchInterval: enabled ? REFRESH_MS : false,
+    refetchInterval,
   })
 
   const routes = q.data?.routes ?? []

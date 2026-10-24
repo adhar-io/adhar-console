@@ -62,6 +62,7 @@ import {
   k6LogLevel,
   k6RemoteQueries,
   lastValue,
+  LIVE_WINDOW_QUANTUM_MS,
   liveWindow,
   logActivity,
   type LogActivity,
@@ -90,8 +91,9 @@ import { Snippet, VerdictBadge } from './perf-bits.tsx'
  *   • Parsing the stream (progress, failures, summary) is throttled to once
  *     every two seconds; at hundreds of failure lines a second it re-ran on
  *     every chunk.
- *   • Polling stops by itself when the run ends, and pauses while the browser
- *     tab is hidden.
+ *   • Nothing polls the apiserver: the TestRun and its pods are pushed by
+ *     watches over the live socket; Prometheus series advance once a minute
+ *     while the run is live and freeze when it ends.
  *   • Errors are toasts; a run deleted underneath the drawer says so once.
  */
 
@@ -275,7 +277,7 @@ export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTes
   const prom = usePrometheusReachable()
   const promOk = prom.data?.ok === true
   const window = useMemo(
-    () => (lc ? liveWindow(lc.loadStartMs ?? lc.createdMs, running ? undefined : (lc.loadEndMs ?? lc.endMs ?? now) + 15_000, now) : null),
+    () => (lc ? liveWindow(lc.loadStartMs ?? lc.createdMs, running ? undefined : (lc.loadEndMs ?? lc.endMs ?? now) + 15_000, now, LIVE_WINDOW_QUANTUM_MS) : null),
     [lc, running, now],
   )
   const k6Queries = useMemo(() => k6RemoteQueries(name), [name])

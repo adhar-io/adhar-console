@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, argoRollouts, harbor, k8s, kargo, nexus, trivy } from '@adhar/api-clients'
-import { useArgocdProject, useHarborProject, useLiveInvalidate, useLiveToolPoll, usePollingInterval } from '@adhar/shell-ui'
+import { useArgocdProject, useHarborProject, useLiveToolPoll } from '@adhar/shell-ui'
+import { useWatchSignal } from './live.ts'
 import {
   deleteApplication,
   fetchManagedResources,
@@ -47,22 +48,39 @@ export const k8sClient = k8s.K8sClient.auto()
  * hook resolves it locally and threads it through its `queryKey` + `queryFn`.
  */
 
-const REFRESH_MS = 15_000
-
 /* ─────────── ArgoCD ─────────── */
 
-/** Argo CD Applications are CRDs — a watch on them drives refreshes; polling only while the live socket is down. */
-const ARGO_APPS_WATCH = { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications' }
+/**
+ * Argo CD Applications are CRDs: sync / health / operation state all live in
+ * `.status`, so the apiserver watch is the change signal and the REST list is
+ * only re-read when an Application really changed (reconcile timestamps are
+ * filtered out — see `./live.ts`). Every panel uses these exact params so the
+ * hub runs ONE upstream watch for all of them.
+ */
+export const ARGO_APPS_WATCH = { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications' }
+
+/** `refetchInterval` for any query derived from the Application list. */
+export function useArgoAppsSignal() {
+  return useWatchSignal(ARGO_APPS_WATCH, [['argocd', 'apps']])
+}
+
+/** Same, for one Application's detail queries — fires only when THAT app changes. */
+function useArgoAppSignal(name: string | undefined, key: string) {
+  return useWatchSignal(
+    name ? { ...ARGO_APPS_WATCH, fieldSelector: `metadata.name=${name}` } : null,
+    [['argocd', key, name]],
+    { enabled: !!name },
+  )
+}
 const KARGO = 'kargo.akuity.io'
 const TRIVY = 'aquasecurity.github.io'
 
 export function useApplications() {
   const project = useArgocdProject()
-  useLiveInvalidate('k8s', ARGO_APPS_WATCH, [['argocd', 'apps'], ['argocd', 'app'], ['argocd', 'resources'], ['argocd', 'history']])
   return useQuery({
     queryKey: ['argocd', 'apps', project],
     queryFn: () => argocdClient.listApplications(project),
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useArgoAppsSignal(),
   })
 }
 
@@ -120,7 +138,7 @@ export function useAppResources(name?: string) {
     queryKey: ['argocd', 'resources', name],
     queryFn: () => fetchManagedResources(name!),
     enabled: !!name,
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useArgoAppSignal(name, 'resources'),
   })
 }
 
@@ -129,6 +147,8 @@ export function useAppHistory(name?: string) {
     queryKey: ['argocd', 'history', name],
     queryFn: () => fetchRevisionHistory(name!),
     enabled: !!name,
+    // History is `.status.history` — it grows when a sync finishes.
+    refetchInterval: useArgoAppSignal(name, 'history'),
   })
 }
 
@@ -170,23 +190,26 @@ export function useRollbackApplication() {
 // warehouse, which is the application.
 const ALL_PROJECTS = ''
 
+/** Cluster-wide Kargo watch — one per resource, shared by every panel. */
+export function kargoWatch(resource: 'stages' | 'freights' | 'promotions' | 'warehouses') {
+  return { group: KARGO, version: 'v1alpha1', resource }
+}
+
 export function useStages() {
   const project = ALL_PROJECTS
-  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'stages' }, [['kargo', 'stages']])
   return useQuery({
     queryKey: ['kargo', 'stages', project],
     queryFn: () => kargoClient.listStages(project),
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useWatchSignal(kargoWatch('stages'), [['kargo', 'stages']]),
   })
 }
 
 export function useFreight() {
   const project = ALL_PROJECTS
-  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'freights' }, [['kargo', 'freight']])
   return useQuery({
     queryKey: ['kargo', 'freight', project],
     queryFn: () => kargoClient.listFreight(project),
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useWatchSignal(kargoWatch('freights'), [['kargo', 'freight']]),
   })
 }
 
@@ -212,21 +235,21 @@ export function usePromote() {
 
 export function usePromotions() {
   const project = ALL_PROJECTS
-  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'promotions' }, [['kargo', 'promotions'], ['kargo', 'stages']])
   return useQuery({
     queryKey: ['kargo', 'promotions', project],
     queryFn: () => kargoClient.listPromotions(project),
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useWatchSignal(kargoWatch('promotions'), [['kargo', 'promotions']]),
   })
 }
 
 export function useWarehouses() {
   const project = useArgocdProject()
-  useLiveInvalidate('k8s', { group: KARGO, version: 'v1alpha1', resource: 'warehouses' }, [['kargo', 'warehouses']])
   return useQuery({
     queryKey: ['kargo', 'warehouses', project],
     queryFn: () => kargoClient.listWarehouses(project),
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    // Cluster-wide watch: a superset of the project list (which itself falls
+    // back to every namespace), and the same watch Flow's warehouse list uses.
+    refetchInterval: useWatchSignal(kargoWatch('warehouses'), [['kargo', 'warehouses']]),
   })
 }
 
@@ -255,11 +278,11 @@ export function useRefreshStage() {
 /* ─────────── Argo Rollouts ─────────── */
 
 export function useRollouts() {
-  useLiveInvalidate('k8s', { group: 'argoproj.io', version: 'v1alpha1', resource: 'rollouts' }, [['rollouts']])
   return useQuery({
     queryKey: ['rollouts', 'all'],
     queryFn: () => rolloutsClient.listRollouts(),
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    // A canary step / pause / abort is a status change on the Rollout itself.
+    refetchInterval: useWatchSignal({ group: 'argoproj.io', version: 'v1alpha1', resource: 'rollouts' }, [['rollouts']]),
   })
 }
 
@@ -433,7 +456,7 @@ export function useHarborStatistics() {
     queryKey,
     queryFn: () => harborClient.statistics(),
     retry: false,
-    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/statistics', 30_000, [queryKey]),
+    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/statistics', 60_000, [queryKey]),
   })
 }
 
@@ -444,7 +467,8 @@ export function useHarborHealth() {
     queryKey,
     queryFn: () => harborClient.health(),
     retry: false,
-    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/health', 30_000, [queryKey]),
+    // Component health rarely flips; the BFF checks it every 2 minutes.
+    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/health', 120_000, [queryKey]),
   })
 }
 
@@ -462,13 +486,13 @@ export function useHarborSystemInfo() {
  * distinguish the two.
  */
 export function useHarborScanners() {
-  const queryKey = ['harbor', 'scanners']
+  // Scanner registration is configuration — it does not change while a page
+  // is open, so it is read once and kept.
   return useQuery({
-    queryKey,
+    queryKey: ['harbor', 'scanners'],
     queryFn: () => harborClient.scanners(),
-    staleTime: 5 * 60_000,
+    staleTime: 10 * 60_000,
     retry: false,
-    refetchInterval: useLiveToolPoll('harbor', '/api/v2.0/scanners', 60_000, [queryKey]),
   })
 }
 
@@ -546,7 +570,8 @@ export function useAdmissionImagePolicies() {
       const [sigstore, kyverno] = await Promise.all([listPolicies(SIGSTORE_POLICIES), listPolicies(KYVERNO_IVPOLICIES)])
       return { sigstore, kyverno }
     },
-    staleTime: 60_000,
+    // Admission policy is configuration; read once per visit.
+    staleTime: 5 * 60_000,
     retry: false,
   })
 }
@@ -554,12 +579,12 @@ export function useAdmissionImagePolicies() {
 /* ─────────── Nexus ─────────── */
 
 export function useNexusRepositories() {
-  const queryKey = ['nexus', 'repositories']
+  // Repository definitions are configuration — no polling.
   return useQuery({
-    queryKey,
+    queryKey: ['nexus', 'repositories'],
     queryFn: () => nexusClient.listRepositories(),
     retry: false,
-    refetchInterval: useLiveToolPoll('nexus', '/service/rest/v1/repositories', 60_000, [queryKey]),
+    staleTime: 5 * 60_000,
   })
 }
 
@@ -569,7 +594,7 @@ export function useNexusStatus() {
     queryKey,
     queryFn: () => nexusClient.statusCheck(),
     retry: false,
-    refetchInterval: useLiveToolPoll('nexus', '/service/rest/v1/status/check', 30_000, [queryKey]),
+    refetchInterval: useLiveToolPoll('nexus', '/service/rest/v1/status/check', 120_000, [queryKey]),
   })
 }
 
@@ -609,13 +634,17 @@ export function useNexusComponents(repository?: string, q?: string) {
 /* ─────────── Trivy ─────────── */
 
 export function useScans(filter?: { target?: trivy.ScanTarget; namespace?: string }) {
-  useLiveInvalidate('k8s', { group: TRIVY, version: 'v1alpha1', resource: 'vulnerabilityreports' }, [['trivy']])
+  const queryKey = ['trivy', 'reports', filter?.target ?? 'all', filter?.namespace ?? 'all']
   return useQuery({
-    queryKey: ['trivy', 'reports', filter?.target ?? 'all', filter?.namespace ?? 'all'],
+    queryKey,
     queryFn: () => trivyClient.listReports(filter),
-    // Reports are CRDs and the watch above already pushes on change, so the
-    // minute-long timer is only needed when the socket is down.
-    refetchInterval: usePollingInterval(60_000),
+    // Reports are CRDs; a rescan rewrites the report, which the watch sees.
+    // Bursts (a scan wave across the cluster) are throttled to one re-list per 30s.
+    refetchInterval: useWatchSignal(
+      { group: TRIVY, version: 'v1alpha1', resource: 'vulnerabilityreports', namespace: filter?.namespace },
+      [queryKey],
+      { throttleMs: 30_000 },
+    ),
   })
 }
 

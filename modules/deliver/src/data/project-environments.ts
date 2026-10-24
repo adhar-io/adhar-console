@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { kargo, type k8s } from '@adhar/api-clients'
-import { usePollingInterval, useTeamProjects } from '@adhar/shell-ui'
-import { argocdClient, k8sClient, useFreight, usePromotions, useStages } from './delivery.ts'
+import { useTeamProjects } from '@adhar/shell-ui'
+import { argocdClient, k8sClient, useArgoAppsSignal, useFreight, usePromotions, useStages } from './delivery.ts'
+import { useWatchSignal } from './live.ts'
 
 /**
  * Data for **Deliver → Environments**, organised Project → its environments.
@@ -15,11 +16,16 @@ import { argocdClient, k8sClient, useFreight, usePromotions, useStages } from '.
  */
 
 const CONTROL_PLANE_NS = 'adhar-system'
-const XR_MS = 20_000
-const ARGO_MS = 15_000
 
 const PROJECT_GVR: k8s.GVR = { group: 'platform.adhar.io', version: 'v1alpha1', resource: 'projects', namespaced: true }
 const APPLICATION_GVR: k8s.GVR = { group: 'platform.adhar.io', version: 'v1alpha1', resource: 'applications', namespaced: true }
+
+/**
+ * Watches for the control plane's XRs in `adhar-system`. Exported so Flow's
+ * XR queries subscribe with the identical params (one upstream watch).
+ */
+export const PROJECT_XR_WATCH = { group: PROJECT_GVR.group, version: PROJECT_GVR.version, resource: PROJECT_GVR.resource, namespace: CONTROL_PLANE_NS }
+export const APPLICATION_XR_WATCH = { group: APPLICATION_GVR.group, version: APPLICATION_GVR.version, resource: APPLICATION_GVR.resource, namespace: CONTROL_PLANE_NS }
 
 const statusOf = (e: unknown) => (e as { status?: number } | null)?.status
 
@@ -35,7 +41,7 @@ export function useProjectXRs() {
         throw e
       }
     },
-    refetchInterval: usePollingInterval(XR_MS),
+    refetchInterval: useWatchSignal(PROJECT_XR_WATCH, [['deliver', 'xr', 'projects']]),
     placeholderData: keepPreviousData,
     retry: 1,
   })
@@ -58,7 +64,7 @@ export function useApplicationXRs() {
         throw e
       }
     },
-    refetchInterval: usePollingInterval(XR_MS),
+    refetchInterval: useWatchSignal(APPLICATION_XR_WATCH, [['deliver', 'xr', 'applications']]),
     placeholderData: keepPreviousData,
     retry: 1,
   })
@@ -73,7 +79,7 @@ export function useAllArgoApps() {
   return useQuery({
     queryKey: ['argocd', 'apps', '*all*'],
     queryFn: () => argocdClient.listApplications(),
-    refetchInterval: usePollingInterval(ARGO_MS),
+    refetchInterval: useArgoAppsSignal(),
     placeholderData: keepPreviousData,
   })
 }
@@ -194,7 +200,14 @@ export function useAnalysisRun(ref: { name: string; namespace: string } | undefi
       }
     },
     enabled: Boolean(ref?.name && ref.namespace),
-    refetchInterval: usePollingInterval(ARGO_MS),
+    // Watch just this run: its phase and per-metric verdicts are its status.
+    refetchInterval: useWatchSignal(
+      ref?.name && ref.namespace
+        ? { group: ANALYSIS_RUN_GVR.group, version: ANALYSIS_RUN_GVR.version, resource: ANALYSIS_RUN_GVR.resource, namespace: ref.namespace, fieldSelector: `metadata.name=${ref.name}` }
+        : null,
+      [['deliver', 'analysisrun', ref?.namespace ?? '', ref?.name ?? '']],
+      { enabled: Boolean(ref?.name && ref.namespace) },
+    ),
     placeholderData: keepPreviousData,
     retry: 1,
   })

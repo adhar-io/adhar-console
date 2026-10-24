@@ -91,8 +91,9 @@ export function useDoraOps(): DoraOps {
       )
       return series as AlertSeries[]
     },
-    refetchInterval: REFRESH_MS,
-    staleTime: REFRESH_MS,
+    // The key moves with the 5-minute step grid; nothing new exists between steps.
+    refetchInterval: STEP_MS,
+    staleTime: STEP_MS,
     retry: false,
   })
 

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
+import { useWatchSignal } from '@adhar/shell-ui'
 import { isRunning, type TestRun } from './k6.ts'
 import { queryRange } from './perf-metrics.ts'
 import { type LiveQuery, stepFor } from './perf-live.ts'
@@ -13,20 +14,40 @@ import { type PodDetail, podDetail, type PodLike, sortPods } from './perf-run-mo
  *
  *   • every query is keyed by the run, so switching runs never shows the
  *     previous run's data under the new name;
- *   • polling runs only while the run is in flight (and React Query pauses it
- *     while the tab is hidden), and stops by itself once the run ends — one
- *     final read, keyed by the terminal stage, captures the end state;
+ *   • nothing polls the apiserver: pod and TestRun changes are pushed by
+ *     watches over the live socket (`/api/live`), the runner output is a
+ *     log stream, and only the Prometheus series are re-read — once a
+ *     minute, when the live window advances (range queries return the
+ *     whole window at full resolution, so nothing is lost between reads);
+ *   • once the run ends, one final read keyed by the terminal stage
+ *     captures the end state and the series window freezes;
  *   • a failed read keeps the last good data instead of blanking the view.
  */
 
 const client = k8s.K8sClient.auto()
 const CONFIG_MAPS: k8s.GVR = { group: '', version: 'v1', resource: 'configmaps', namespaced: true }
+const PODS = { group: '', version: 'v1', resource: 'pods' } as const
+
+/** The watch behind a run's pods — `k6_cr` is the label the operator stamps on every pod of a run. */
+export function runPodsWatch(namespace: string | undefined, name: string | undefined) {
+  return namespace && name ? { ...PODS, namespace, labelSelector: `k6_cr=${name}` } : null
+}
 
 /** Every pod the operator created for the run, including retried attempts. */
 export function useRunPods(run: TestRun | undefined) {
   const namespace = run?.metadata.namespace
   const name = run?.metadata.name
   const live = run ? isRunning(run) : false
+  // Pod phase / container state changes are pushed by an apiserver watch on
+  // the run's pods (prefix key, so the stage-suffixed query refetches too).
+  // The watch is held only while the run is in flight; afterwards the pods
+  // are read once and held. A short throttle keeps runner state changes
+  // feeling immediate; the signal ignores status-heartbeat noise.
+  const refetchInterval = useWatchSignal(live ? runPodsWatch(namespace, name) : null, [['k6', 'run-pods', namespace, name]], {
+    enabled: live,
+    fallbackMs: 60_000,
+    throttleMs: 1_500,
+  })
   return useQuery({
     // The stage is in the key: the read after the run ends is a new query, so
     // the final pod states are fetched exactly once and then held.
@@ -43,7 +64,7 @@ export function useRunPods(run: TestRun | undefined) {
       return sortPods(pods.map((p) => podDetail(name!, p as unknown as PodLike)))
     },
     enabled: Boolean(namespace && name),
-    refetchInterval: live ? 4_000 : false,
+    refetchInterval: live ? refetchInterval : false,
     placeholderData: (prev) => prev,
     retry: false,
   })
@@ -74,7 +95,8 @@ export interface LiveSeries {
 }
 
 /**
- * Range-query a set of live series over a window. Polls while `live`, holds
+ * Range-query a set of live series over a window. Re-reads when the window
+ * advances (`liveWindow` steps it once a minute while live), holds
  * the last result while a new window loads (no flashing back to empty), and
  * reports per-chart emptiness so the view can say which source had nothing.
  */
@@ -88,9 +110,11 @@ export function useLiveSeries(queries: LiveQuery[], window: { startMs: number; e
         return queryRange(q.query, window!.startMs, window!.endMs, Math.ceil((window!.endMs - window!.startMs) / 1000 / step))
       },
       enabled: on,
-      refetchInterval: on && live ? 10_000 : (false as const),
+      // No timer: while live the key changes as the window's end advances,
+      // which is the once-a-minute read; a finished run's window is frozen.
+      refetchInterval: false as const,
       placeholderData: <T,>(prev: T) => prev,
-      staleTime: live ? 5_000 : Infinity,
+      staleTime: live ? 30_000 : Infinity,
       retry: false,
     })),
   })

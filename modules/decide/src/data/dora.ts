@@ -55,8 +55,15 @@ const argoClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
 const kargoClient = kargo.KargoClient.auto({ tool: 'kargo' })
 const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
-const STALE = 60_000
-const REFRESH = 120_000
+/**
+ * DORA and adoption are 7–90-day trends: a deploy landing while the page is
+ * open moves them by a rounding error. So these raw sources are read on open
+ * and held for five minutes — no timers, and no apiserver watches (Argo
+ * rewrites every Application's status on each reconcile, and PipelineRuns
+ * update continuously while running; a watch would re-list far more often
+ * than the numbers can change).
+ */
+const STALE = 5 * 60_000
 const DAY = 86_400_000
 
 export type SourceState = 'ok' | 'empty' | 'missing' | 'error' | 'loading'
@@ -85,7 +92,6 @@ export function useArgoApps() {
     queryKey: ['decide', 'argocd', 'apps'],
     queryFn: async () => (await argoClient.listApplications()) as unknown as Array<ArgoAppLike & argocd.Application>,
     staleTime: STALE,
-    refetchInterval: REFRESH,
     retry: false,
   })
 }
@@ -96,7 +102,6 @@ export function usePromotions() {
     queryFn: async () =>
       (await client.listGeneric(undefined, GVR.promotions)).map((p) => kargo.toPromotion(p as unknown as kargo.RawPromotion)) as PromotionLike[],
     staleTime: STALE,
-    refetchInterval: REFRESH,
     retry: false,
   })
 }
@@ -129,7 +134,6 @@ export function useBuildRuns() {
     queryKey: ['decide', 'tekton', 'pipelineruns'],
     queryFn: async () => (await client.listGeneric(undefined, GVR.pipelineRuns)).map((r) => toBuildRun(r as unknown as RawRun)),
     staleTime: STALE,
-    refetchInterval: REFRESH,
     retry: false,
   })
 }

@@ -1,7 +1,8 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { lgtm, posthog } from '@adhar/api-clients'
 import { useLiveInvalidate, useLivePoll, usePollingInterval } from '@adhar/shell-ui'
-import { listSloSummaries } from './slo-api.ts'
+import { listSloSummaries, SLO_REFRESH_MS } from './slo-api.ts'
+import { windowRefreshMs } from './refresh.ts'
 
 /**
  * Discover hooks layer — wraps the LGTM stack (Loki / Mimir / Tempo /
@@ -19,7 +20,8 @@ import { listSloSummaries } from './slo-api.ts'
 export const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm', mode: 'real' })
 export const phClient = posthog.PostHogClient.auto({ tool: 'posthog', mode: 'real' })
 
-const REFRESH_MS = 15_000
+/** The console-wide poll floor — the BFF change-detection cadence for presets and alerts. */
+const REFRESH_MS = 60_000
 
 /* ─────────── time helpers ─────────── */
 
@@ -75,7 +77,12 @@ export interface LogsOptions {
   enabled?: boolean
 }
 
-export const LIVE_REFRESH_MS = 4_000
+/**
+ * Live tail cadence. Loki's own tail is a WebSocket the BFF proxy does not
+ * relay, so "live" is the BFF re-running the sliding query and pushing only
+ * when new lines arrived — at the console-wide poll floor.
+ */
+export const LIVE_REFRESH_MS = 60_000
 
 export function useLogs(query: string, sel: TimeSelection, limit = 200, opts: LogsOptions = {}) {
   // Loki (LogQL) requires a non-empty stream selector — never fire an empty
@@ -88,11 +95,11 @@ export function useLogs(query: string, sel: TimeSelection, limit = 200, opts: Lo
   useLivePoll(
     'loki',
     `/loki/api/v1/query_range?query=${encodeURIComponent(query)}&start={start}&end={end}&limit=${limit}&direction=${opts.direction ?? 'backward'}`,
-    opts.live ? LIVE_REFRESH_MS : REFRESH_MS,
+    opts.live ? LIVE_REFRESH_MS : windowRefreshMs(presetMs),
     queryKey,
     { windowMs: presetMs, enabled: enabled && sel.kind === 'preset', map: lokiToEntries },
   )
-  const pollMs = usePollingInterval(opts.live ? LIVE_REFRESH_MS : REFRESH_MS)
+  const pollMs = usePollingInterval(opts.live ? LIVE_REFRESH_MS : windowRefreshMs(presetMs))
   return useQuery({
     queryKey,
     // The window is computed inside queryFn so a preset like "last 15m"
@@ -260,7 +267,7 @@ export function useSlos() {
   return useQuery({
     queryKey: ['lgtm', 'slos'],
     queryFn: () => listSloSummaries(),
-    refetchInterval: 60_000,
+    refetchInterval: SLO_REFRESH_MS,
   })
 }
 
@@ -270,7 +277,9 @@ export function useAnalyticsEvents(filter?: { event?: string; sinceMs?: number }
   return useQuery({
     queryKey: ['posthog', 'events', filter?.event ?? 'all', filter?.sinceMs ?? 0],
     queryFn: () => phClient.listEvents(filter),
-    refetchInterval: REFRESH_MS,
+    // A 24-hour product-analytics tile: a re-read every few minutes is plenty.
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   })
 }
 
@@ -278,6 +287,7 @@ export function useSessions(filter?: { hasErrors?: boolean }) {
   return useQuery({
     queryKey: ['posthog', 'sessions', filter?.hasErrors ?? false],
     queryFn: () => phClient.listSessions(filter),
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   })
 }

@@ -36,8 +36,9 @@ export function PerfReadiness() {
       if (!res.ok) throw new Error(`scorecards: ${res.status}`)
       return (await res.json()) as { configured?: boolean; lastRun?: string; services?: ScorerApplication[]; error?: string; detail?: string }
     },
-    refetchInterval: 120_000,
-    staleTime: 60_000,
+    // The scorer runs on its own schedule (`lastRun`); nothing changes while
+    // the page is open, so read once and keep it for a few minutes.
+    staleTime: 5 * 60_000,
     retry: false,
   })
   const apps = useMemo(() => readinessApplications(q.data?.services ?? []), [q.data])

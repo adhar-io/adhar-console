@@ -394,7 +394,7 @@ function escapeHtml(s: string): string {
 function PlaneIssueModal({ finding: f, onClose }: { finding: Finding; onClose(): void }) {
   const toast = useToast()
   const workspace = usePlaneWorkspace()
-  const projects = useQuery({ queryKey: ['plane', 'projects', workspace], queryFn: () => planeClient.listProjects(workspace), retry: false, staleTime: 60_000 })
+  const projects = useQuery({ queryKey: ['plane', 'projects', workspace], queryFn: () => planeClient.listProjects(workspace), retry: false, staleTime: 10 * 60_000 })
   const [project, setProject] = useState('')
   const [busy, setBusy] = useState(false)
   const apps = [...new Set(f.occurrences.map((o) => `${o.project ?? o.namespace}/${o.app ?? '?'}${o.env ? ` (${o.env})` : ''}`))]

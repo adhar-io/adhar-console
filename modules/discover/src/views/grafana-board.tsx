@@ -25,6 +25,7 @@ import {
   QUICK_RANGES,
   rangeLabel,
   readBoardUrl,
+  clampRefresh,
   REFRESH_INTERVALS,
   resolveRange,
   SUPPORTED_PANELS,
@@ -85,7 +86,7 @@ export function GrafanaBoard({
   const d = dash.data?.dashboard
   const [from, setFrom] = useState(initialUrl.from ?? '')
   const [to, setTo] = useState(initialUrl.to ?? '')
-  const [refresh, setRefresh] = useState(initialUrl.refresh ?? '')
+  const [refresh, setRefresh] = useState(clampRefresh(initialUrl.refresh))
   const [tick, setTick] = useState(0)
   const [isStarred, setIsStarred] = useState(!!starred)
   useEffect(() => setIsStarred(!!(dash.data?.meta?.isStarred ?? starred)), [dash.data, starred])
@@ -95,7 +96,7 @@ export function GrafanaBoard({
     if (!d) return
     if (!initialUrl.from) setFrom(d.time?.from ?? 'now-6h')
     if (!initialUrl.to) setTo(d.time?.to ?? 'now')
-    if (!initialUrl.refresh && typeof d.refresh === 'string') setRefresh(d.refresh)
+    if (!initialUrl.refresh && typeof d.refresh === 'string') setRefresh(clampRefresh(d.refresh))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- per board
   }, [d?.uid])
 
@@ -103,8 +104,8 @@ export function GrafanaBoard({
   // tick re-queries every panel, so a background tab skips ticks and catches
   // up with one refresh when it is shown again.
   useEffect(() => {
-    const ms = parseDuration(refresh)
-    if (!ms || ms < 5_000) return
+    const ms = parseDuration(clampRefresh(refresh))
+    if (!ms) return
     let missed = false
     const id = setInterval(() => {
       if (document.hidden) missed = true

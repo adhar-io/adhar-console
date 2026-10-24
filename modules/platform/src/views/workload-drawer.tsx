@@ -9,6 +9,7 @@ import {
   Spinner,
   StatusBadge,
   Tabs,
+  POLL_FLOOR_MS,
   useAccessReview,
   useLiveRefetch,
   type StatusKind,
@@ -20,8 +21,9 @@ import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
 import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
+import { watchOf } from '../data/live.ts'
 import { age, formatBytes, formatCpu, parseQuantity, shortImage } from '../data/format.ts'
-import { usePods } from '../data/hooks.ts'
+import { useObjectEvents, usePods } from '../data/hooks.ts'
 import { PodShell } from './pod-shell.tsx'
 import { PodLogsPanel } from './pod-logs.tsx'
 import { PodYamlPanel } from './pod-yaml.tsx'
@@ -202,7 +204,13 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
     queryKey: wlKey,
     queryFn: () =>
       client.getGeneric(cluster, gvr, namespace, name) as unknown as Promise<WorkloadObj>,
-    refetchInterval: useLiveRefetch({ ...gvr, namespace, cluster: clusterParam(cluster) }, [wlKey], 10_000),
+    // One object: watch just it (a namespace-wide watch would re-GET it on
+    // every other workload's status change). Shared with WorkloadOpsPanel.
+    refetchInterval: useLiveRefetch(
+      watchOf(gvr, { namespace, fieldSelector: `metadata.name=${name}`, cluster }),
+      [wlKey],
+      POLL_FLOOR_MS,
+    ),
   })
 
   // Logs / Shell act on the workload's pods: `get pods/log` and `create
@@ -588,14 +596,14 @@ function RelatedResources({
     queryKey: svcKey,
     enabled: Boolean(namespace && matchLabels),
     retry: false,
-    refetchInterval: useLiveRefetch({ ...GVRS.services, namespace, cluster: clusterParam(cluster) }, [svcKey], 30_000),
+    refetchInterval: useLiveRefetch({ ...GVRS.services, namespace, cluster: clusterParam(cluster) }, [svcKey], POLL_FLOOR_MS),
     queryFn: () => client.listServices(cluster, namespace) as unknown as Promise<ServiceLite[]>,
   })
   const ingQ = useQuery({
     queryKey: ingKey,
     enabled: Boolean(namespace && matchLabels),
     retry: false,
-    refetchInterval: useLiveRefetch({ ...GVRS.ingresses, namespace, cluster: clusterParam(cluster) }, [ingKey], 30_000),
+    refetchInterval: useLiveRefetch({ ...GVRS.ingresses, namespace, cluster: clusterParam(cluster) }, [ingKey], POLL_FLOOR_MS),
     queryFn: () => client.listIngresses(cluster, namespace) as unknown as Promise<IngressLite[]>,
   })
 
@@ -668,14 +676,7 @@ function RelatedResources({
 }
 
 function WorkloadRecentEvents({ namespace, name, kind }: { namespace: string; name: string; kind: WorkloadKind }) {
-  const { cluster } = useActiveCluster()
-  const queryKey = ['k8s', 'workload-events', namespace, kind, name, cluster]
-  const q = useQuery({
-    queryKey,
-    queryFn: () => client.listEvents(cluster, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
-    retry: false,
-  })
+  const q = useObjectEvents(namespace, name, kind)
   const events = (q.data ?? [])
     .filter((e) => e.involvedObject.namespace === namespace && e.involvedObject.name === name && e.involvedObject.kind === kind)
     .sort((a, b) => new Date(b.lastTimestamp ?? 0).getTime() - new Date(a.lastTimestamp ?? 0).getTime())
@@ -877,7 +878,7 @@ function HpaCard({
   const queryKey = ['k8s', 'workload-hpa', namespace, kind, name, cluster]
   const q = useQuery({
     queryKey,
-    refetchInterval: useLiveRefetch({ ...GVRS.hpa, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
+    refetchInterval: useLiveRefetch(watchOf(GVRS.hpa, { namespace, cluster }), [queryKey], POLL_FLOOR_MS),
     retry: false,
     queryFn: async () => {
       const list = (await client
@@ -983,7 +984,7 @@ function ArgoRolloutLadder({
   const queryKey = ['k8s', 'argo-rollouts', namespace, name, cluster]
   const q = useQuery({
     queryKey,
-    refetchInterval: useLiveRefetch({ ...ARGO_ROLLOUTS_GVR, namespace, cluster: clusterParam(cluster) }, [queryKey], 15_000),
+    refetchInterval: useLiveRefetch(watchOf(ARGO_ROLLOUTS_GVR, { namespace, cluster }), [queryKey], POLL_FLOOR_MS),
     retry: false,
     queryFn: async () => {
       const list = (await client
@@ -1267,7 +1268,8 @@ function WorkloadMetricsRollup({
 
   const q = useQuery({
     queryKey: ['k8s', 'workload-metrics-rollup', namespace, cluster],
-    refetchInterval: 10_000,
+    // metrics.k8s.io samples are not watchable: the console-wide poll floor.
+    refetchInterval: POLL_FLOOR_MS,
     retry: false,
     queryFn: async () =>
       (await client
@@ -1310,13 +1312,7 @@ function WorkloadMetricsRollup({
 /* ── Events ──────────────────────────────────────────────────────────────── */
 
 function Events({ namespace, name, kind }: { namespace: string; name: string; kind: WorkloadKind }) {
-  const { cluster } = useActiveCluster()
-  const queryKey = ['k8s', 'workload-events', namespace, kind, name, cluster]
-  const q = useQuery({
-    queryKey,
-    queryFn: () => client.listEvents(cluster, namespace),
-    refetchInterval: useLiveRefetch({ ...GVRS.events, namespace, cluster: clusterParam(cluster) }, [queryKey], 5_000),
-  })
+  const q = useObjectEvents(namespace, name, kind)
   const filtered = (q.data ?? []).filter(
     (e) =>
       e.involvedObject.namespace === namespace &&

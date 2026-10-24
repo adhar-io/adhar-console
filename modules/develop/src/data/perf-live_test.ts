@@ -1,5 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert@^1'
-import { evalThreshold, fmtBytes, k6LogLevel, liveWindow, logActivity, normaliseMessage, parseLogfmt, runnerPodRegex, stepFor } from './perf-live.ts'
+import { evalThreshold, fmtBytes, k6LogLevel, LIVE_WINDOW_QUANTUM_MS, liveWindow, logActivity, normaliseMessage, parseLogfmt, runnerPodRegex, stepFor } from './perf-live.ts'
 import { V1_FAILING_LOG } from './testdata/k6-v1-runner-log.ts'
 
 const LINES = V1_FAILING_LOG.split('\n').map((text) => ({ text }))
@@ -69,4 +69,13 @@ Deno.test('a live window only moves once per quantum', () => {
 Deno.test('bytes', () => {
   assertEquals(fmtBytes(1_900_000), '1.9 MB')
   assertEquals(fmtBytes(512), '512 B')
+})
+
+Deno.test('liveWindow — the live quantum advances the window once a minute', () => {
+  assertEquals(LIVE_WINDOW_QUANTUM_MS, 60_000)
+  const a = liveWindow(0, undefined, 61_000, LIVE_WINDOW_QUANTUM_MS)
+  const b = liveWindow(0, undefined, 119_000, LIVE_WINDOW_QUANTUM_MS)
+  const c = liveWindow(0, undefined, 121_000, LIVE_WINDOW_QUANTUM_MS)
+  assertEquals(a, b)
+  assertEquals(c?.endMs, 180_000)
 })

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { kube } from '@adhar/api-clients/k8s'
-import { useAccessReview, useLiveK8sList } from '@adhar/shell-ui'
+import { type LiveWatchRef, useAccessReview, useLiveK8sList } from '@adhar/shell-ui'
 import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s'
 import { clusterParam, useActiveCluster, useActiveNamespace } from './client.ts'
 
@@ -84,4 +84,25 @@ export function useAccess(attrs: {
   const { enabled = true, ...check } = attrs
   const state = useAccessReview(check, { enabled })
   return { data: state.results[0], isLoading: state.loading }
+}
+
+/* ─────────── watch refs for useLiveRefetch ─────────── */
+
+/**
+ * The `useLiveRefetch` watch for a query that lists/gets `gvr`. Normalises the
+ * cluster to the gateway's `?cluster=` value (undefined for the default
+ * cluster) so every panel watching the same resource sends identical params —
+ * the live hub then shares ONE upstream apiserver watch between them.
+ */
+export function watchOf(
+  gvr: { group: string; version: string; resource: string },
+  opts: { namespace?: string; labelSelector?: string; fieldSelector?: string; cluster?: string } = {},
+): LiveWatchRef {
+  const ref: LiveWatchRef = { group: gvr.group, version: gvr.version, resource: gvr.resource }
+  if (opts.namespace) ref.namespace = opts.namespace
+  if (opts.labelSelector) ref.labelSelector = opts.labelSelector
+  if (opts.fieldSelector) ref.fieldSelector = opts.fieldSelector
+  const cluster = clusterParam(opts.cluster)
+  if (cluster) ref.cluster = cluster
+  return ref
 }

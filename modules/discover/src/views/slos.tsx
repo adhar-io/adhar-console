@@ -20,6 +20,7 @@ import {
   validateSlo,
 } from '../data/slo.ts'
 import {
+  SLO_REFRESH_MS,
   testSlo,
   useDeleteSlo,
   useLeBuckets,
@@ -97,7 +98,7 @@ export function Slos() {
         for (const s of res) if (s.metric.w) ratios[s.metric.w] = sampleNum(s.value[1])
         return evaluate(d, ratios)
       },
-      refetchInterval: 60_000,
+      refetchInterval: SLO_REFRESH_MS,
       retry: false,
     })),
   })

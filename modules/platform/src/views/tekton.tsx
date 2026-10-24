@@ -11,6 +11,7 @@ import {
   Spinner,
   StatusBadge,
   useActiveNamespace,
+  POLL_FLOOR_MS,
   useLiveRefetch,
   useToast,
   type StatusKind,
@@ -219,13 +220,17 @@ function duration(start?: string, end?: string): string {
   return `${s}s`;
 }
 
-/** Re-render on an interval so live durations keep ticking. */
-function useTick(ms = 1000) {
+/**
+ * Re-render on an interval so live durations keep ticking — only while
+ * something is actually running (no network; finished runs show fixed times).
+ */
+function useTick(active: boolean, ms = 1000) {
   const [, setN] = useState(0);
   useEffect(() => {
+    if (!active) return;
     const id = setInterval(() => setN((n) => n + 1), ms);
     return () => clearInterval(id);
-  }, [ms]);
+  }, [active, ms]);
 }
 
 function creationOf(o: KubeObject): number {
@@ -1338,7 +1343,7 @@ export function TektonPipelineRuns({ namespace }: { namespace?: string }) {
     setSelectedState(r);
     writeRunParam(r);
   };
-  useTick();
+  useTick(live.data.some(isRunning));
 
   // A run linked by `?run=ns/name`: fetch it directly and open its drawer.
   const { cluster } = useActiveCluster();
@@ -1520,8 +1525,6 @@ function PipelineRunDrawer(
   const canCancel = useCan(canResource(PIPELINERUNS_GVR, 'patch', { namespace: ns, name }));
   const canRerun = useCan(canResource(PIPELINERUNS_GVR, 'create', { namespace: ns }));
   const canDelete = useCan(canResource(PIPELINERUNS_GVR, 'delete', { namespace: ns, name }));
-  useTick();
-
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleted, setDeleted] = useState(false);
@@ -1535,12 +1538,13 @@ function PipelineRunDrawer(
     refetchInterval: useLiveRefetch(
       { ...PIPELINERUNS_GVR, namespace: ns, cluster: cp },
       [runKey],
-      5000,
+      POLL_FLOOR_MS,
     ),
     retry: false,
   });
   const run = runQ.data ?? initial;
   const running = isRunning(run);
+  useTick(running);
 
   // TaskRuns for this run — colours the DAG and feeds per-step logs.
   const taskRunsKey = ['platform', 'tekton', 'taskruns', ns ?? '-', name, cp ?? '-'];
@@ -1552,8 +1556,9 @@ function PipelineRunDrawer(
       cluster: cp,
     },
     [taskRunsKey],
-    5000,
-    running,
+    POLL_FLOOR_MS,
+    // Kept open after the run ends: a finished run's TaskRuns emit nothing, and
+    // this catches the last status update racing the run's own completion.
   );
   const taskRunsQ = useQuery<TektonTaskRunObj[]>({
     queryKey: taskRunsKey,

@@ -13,7 +13,7 @@ import { type KubeLike, undoPatch } from './rollout-history.ts'
  *
  * Bounded on purpose: history is read for ONE namespace — the environment the
  * user opened — and only while the detail panel is open. Both lists ride the
- * apiserver watch (`useCRD` → `useLiveRefetch`), so a new revision or a
+ * apiserver watch (`useCRD` → `useWatchSignal`), so a new revision or a
  * finished AnalysisRun shows up without polling.
  */
 

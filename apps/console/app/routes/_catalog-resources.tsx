@@ -9,7 +9,7 @@ import type { Entity } from '~/data/catalog.ts'
 import { type EntityDeployment, kargoEnvironments, useKargoStages } from '~/data/catalog-deployment.ts'
 import type { CompositionRoots } from '~/data/catalog-composition.ts'
 import { age, argoHealthLevel, type CompositionGraph, kindsOf, nodeId } from '~/data/catalog-composition-model.ts'
-import { RESOURCES_REFRESH_MS, useAppResources } from '~/data/catalog-resources.ts'
+import { useAppResources } from '~/data/catalog-resources.ts'
 import {
   envTabs,
   resourceViews,
@@ -249,7 +249,7 @@ function AppView({ app, view }: { app: ArgoApp; view: AppViewKind }) {
           {data.data ? ` · ${Object.keys(data.data.graph.nodes).length - 1} resources` : ''}
         </span>
         <div className="ml-auto flex items-center gap-1.5">
-          <Button size="xs" variant="ghost" onClick={() => setPaused((p) => !p)} aria-pressed={!paused} title={paused ? 'Resume auto-refresh' : `Auto-refreshing every ${RESOURCES_REFRESH_MS / 1000}s — pause`}>
+          <Button size="xs" variant="ghost" onClick={() => setPaused((p) => !p)} aria-pressed={!paused} title={paused ? 'Resume live updates' : 'Live — updates as the application changes. Pause'}>
             <span className={cn('mr-1.5 inline-block h-2 w-2 rounded-full', paused ? 'bg-content-subtle' : 'bg-emerald-500')} aria-hidden />
             {paused ? 'Paused' : 'Live'}
           </Button>

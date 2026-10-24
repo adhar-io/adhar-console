@@ -1,6 +1,7 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
 import {
   ALL_VALUE,
+  clampRefresh,
   applyVarRegex,
   builtinVars,
   computeStepMs,
@@ -249,4 +250,14 @@ Deno.test('board URL state round-trips and keeps the host params', () => {
   assertEquals(back.board, 'abc')
   assertEquals(back.vars, { namespace: ['adhar-system'], pod: [ALL_VALUE], port: ['8080'] })
   assertEquals(writeBoardUrl(qs, { vars: {} }), '?section=dashboards')
+})
+
+Deno.test('clampRefresh — raises sub-minute refresh to the poll floor', () => {
+  assertEquals(clampRefresh('5s'), '1m')
+  assertEquals(clampRefresh('30s'), '1m')
+  assertEquals(clampRefresh('1m'), '1m')
+  assertEquals(clampRefresh('5m'), '5m')
+  assertEquals(clampRefresh(''), '')
+  assertEquals(clampRefresh(undefined), '')
+  assertEquals(clampRefresh('soon'), '')
 })

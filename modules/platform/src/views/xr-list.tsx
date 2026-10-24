@@ -8,8 +8,10 @@ import {
   CardHeader,
   DataTable,
   EmptyState,
+  POLL_FLOOR_MS,
   Spinner,
   StatusBadge,
+  useLiveRefetch,
   useToast,
   type StatusKind,
   type Column,
@@ -25,6 +27,7 @@ import { cn, tryParseYaml } from '@adhar/utils'
 import { client, clusterParam, useActiveCluster } from '../data/client.ts'
 import { useGeneric, useNamespaces } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
+import { watchOf } from '../data/live.ts'
 import { age } from '../data/format.ts'
 import { useVariantsForKind, useXrOptions } from '../data/xrds.ts'
 import { AccessDenied } from '../components/role-gate.tsx'
@@ -1049,6 +1052,17 @@ export function ClaimFormModal({
    * details after this does not refetch what is already in hand — and polling
    * stops as soon as the dialog is gone.
    */
+  const appliedKey = applied
+    ? ['platform', 'xr', config.gvr.group, config.gvr.version, config.gvr.resource, applied.metadata.namespace ?? '-', applied.metadata.name]
+    : ['platform', 'xr', 'idle']
+  const applyWatchInterval = useLiveRefetch(
+    applied
+      ? watchOf(config.gvr, { namespace: applied.metadata.namespace, fieldSelector: `metadata.name=${applied.metadata.name}`, cluster: cp })
+      : null,
+    [appliedKey],
+    POLL_FLOOR_MS,
+    applied !== null,
+  )
   const watch = useQuery({
     queryKey: applied
       ? [
@@ -1063,13 +1077,14 @@ export function ClaimFormModal({
       : ['platform', 'xr', 'idle'],
     queryFn: () =>
       client.getGeneric(
-        undefined,
+        cp,
         config.gvr,
         applied!.metadata.namespace,
         applied!.metadata.name,
       ),
     enabled: applied !== null,
-    refetchInterval: 4000,
+    // Pushed by a watch on just this object (same params as the drawer's).
+    refetchInterval: applyWatchInterval,
     initialData: applied ? (applied as unknown as k8s.Generic) : undefined,
     retry: false,
   })
@@ -1947,8 +1962,13 @@ function XrDrawer({
       xr.metadata.name,
     ],
     queryFn: () =>
-      client.getGeneric(undefined, config.gvr, xr.metadata.namespace, xr.metadata.name),
-    refetchInterval: 10_000,
+      client.getGeneric(cp, config.gvr, xr.metadata.namespace, xr.metadata.name),
+    // One object: watch just it.
+    refetchInterval: useLiveRefetch(
+      watchOf(config.gvr, { namespace: xr.metadata.namespace, fieldSelector: `metadata.name=${xr.metadata.name}`, cluster: cp }),
+      [['platform', 'xr', config.gvr.group, config.gvr.version, config.gvr.resource, xr.metadata.namespace ?? '-', xr.metadata.name]],
+      POLL_FLOOR_MS,
+    ),
     initialData: xr as unknown as k8s.Generic,
     retry: false,
   })
@@ -2398,7 +2418,9 @@ function ConnectionSecretSection({
     queryKey: ['platform', 'xr-conn-secret', secretNs ?? '-', secretName ?? '-', cluster ?? '-'],
     enabled: Boolean(secretName && secretNs),
     queryFn: () => kube.get<SecretObj>(GVRS.secrets, secretNs, secretName as string, { cluster }),
-    refetchInterval: 15_000,
+    // Connection details change on rotation, not while the drawer is open
+    // (and `get` on one secret does not imply `watch` on secrets).
+    staleTime: 5 * 60_000,
     retry: false,
   })
 
@@ -2541,9 +2563,14 @@ function ComposedResourcesSection({ xr, cluster }: { xr: XR; cluster?: string })
     .join(',')
 
   const healthQ = useQuery({
-    queryKey: ['platform', 'xr-refs-health', xr.metadata.uid ?? xr.metadata.name, refsKey, cluster ?? '-'],
+    // Keyed on the parent's resourceVersion: Crossplane rewrites the XR's
+    // status whenever a composed resource's readiness moves, and the drawer
+    // watches the XR — so this re-reads the N composed objects exactly when
+    // that happens, instead of N GETs on a timer.
+    queryKey: ['platform', 'xr-refs-health', xr.metadata.uid ?? xr.metadata.name, refsKey, (xr.metadata as { resourceVersion?: string }).resourceVersion ?? '-', cluster ?? '-'],
     enabled: refs.length > 0 && Boolean(discoveryQ.data),
-    refetchInterval: 15_000,
+    placeholderData: (prev) => prev,
+    staleTime: 5 * 60_000,
     retry: false,
     queryFn: async (): Promise<Array<RefHealth | null>> => {
       const resources = discoveryQ.data?.resources ?? []
@@ -2744,18 +2771,19 @@ function ComposedResourceInspector({
 }) {
   const resolved = useMemo(() => resolveRefGvr(refItem, discovery), [refItem, discovery])
 
+  const inspectKey = ['platform', 'composed-inspect', cluster ?? '-', refItem.apiVersion, refItem.kind, refItem.namespace ?? '', refItem.name]
+  const inspectInterval = useLiveRefetch(
+    resolved && refItem.name
+      ? watchOf(resolved.gvr, { namespace: resolved.namespace, fieldSelector: `metadata.name=${refItem.name}`, cluster })
+      : null,
+    [inspectKey],
+    POLL_FLOOR_MS,
+    Boolean(resolved && refItem.name),
+  )
   const q = useQuery({
-    queryKey: [
-      'platform',
-      'composed-inspect',
-      cluster ?? '-',
-      refItem.apiVersion,
-      refItem.kind,
-      refItem.namespace ?? '',
-      refItem.name,
-    ],
+    queryKey: inspectKey,
     enabled: Boolean(resolved && refItem.name),
-    refetchInterval: 15_000,
+    refetchInterval: inspectInterval,
     retry: false,
     queryFn: () =>
       kube.get<XR>(resolved!.gvr, resolved!.namespace, refItem.name!, { cluster }) as Promise<XR>,
@@ -3045,15 +3073,17 @@ function EventsSection({ xr, cluster }: { xr: XR; cluster?: string }) {
     ...(xr.metadata.uid ? [`involvedObject.uid=${xr.metadata.uid}`] : []),
   ].join(',')
 
+  const eventsKey = ['platform', 'xr-events', ns ?? '-', name, xr.metadata.uid ?? '-', cluster ?? '-']
   const eventsQ = useQuery({
-    queryKey: ['platform', 'xr-events', ns ?? '-', name, xr.metadata.uid ?? '-', cluster ?? '-'],
+    queryKey: eventsKey,
     // Namespaced claims → the claim's namespace. Cluster-scoped XRs → search
     // events across all namespaces (the apiserver records them in one).
     queryFn: () =>
       kube
         .list<KubeEventObj>(GVRS.events, { namespace: ns, fieldSelector: selector, cluster })
         .then((l) => l.items),
-    refetchInterval: 15_000,
+    // Same namespace + field selector as the list: a small, quiet watch.
+    refetchInterval: useLiveRefetch(watchOf(GVRS.events, { namespace: ns, fieldSelector: selector, cluster }), [eventsKey], POLL_FLOOR_MS),
     retry: false,
   })
 

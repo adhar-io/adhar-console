@@ -76,7 +76,8 @@ export function useSlos() {
       )
     },
     staleTime: 60_000,
-    refetchInterval: 120_000,
+    // Error budgets move over hours; firing alerts below carry the urgent part.
+    refetchInterval: 5 * 60_000,
     retry: false,
   })
 }

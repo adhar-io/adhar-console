@@ -14,7 +14,8 @@ import { toPublicUrl, useLiveToolPoll, usePublicBaseDomain, useToolPublicUrl } f
 
 export const coderClient = coder.CoderClient.auto({ tool: 'coder' })
 
-const REFRESH_MS = 10_000
+/** BFF change-detection cadence — the console-wide poll floor. */
+const REFRESH_MS = 60_000
 
 export function useCoderInfo() {
   const toolUrl = useToolPublicUrl('coder')
@@ -111,13 +112,27 @@ export function useBuilds(workspaceId?: string) {
   })
 }
 
-/** Provisioner log lines for a build; polls while the build is in flight. */
+/**
+ * Provisioner log lines for a build. While the build is in flight the BFF
+ * watches the log endpoint and pushes only when it grew (Coder's follow mode
+ * is a WebSocket the proxy does not relay); a finished build's log is read
+ * once and kept.
+ */
 export function useBuildLogs(buildId?: string, live = false) {
+  const queryKey = ['coder', 'build-logs', buildId]
+  const refetchInterval = useLiveToolPoll(
+    'coder',
+    `/api/v2/workspacebuilds/${buildId ?? ''}/logs`,
+    REFRESH_MS,
+    [queryKey],
+    { enabled: !!buildId && live },
+  )
   return useQuery({
-    queryKey: ['coder', 'build-logs', buildId],
+    queryKey,
     queryFn: () => coderClient.listBuildLogs(buildId!),
     enabled: !!buildId,
-    refetchInterval: live ? 3_000 : false,
+    staleTime: live ? 30_000 : Infinity,
+    refetchInterval,
   })
 }
 
@@ -224,8 +239,9 @@ export function useRestartWorkspace() {
     const build = await coderClient.buildWorkspace(v.id, { transition: 'stop' })
     // Wait for the stop build to settle before queueing the start (Coder
     // rejects a build while another is in progress).
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 2_000))
+    // Every 5 s for up to 2 min: a one-off wait the user is watching, not a poll.
+    for (let i = 0; i < 24; i++) {
+      await new Promise((r) => setTimeout(r, 5_000))
       const w = await coderClient.getWorkspace(v.id)
       if (w.latest_build.id !== build.id || !['pending', 'stopping', 'canceling'].includes(w.latest_build.status)) break
     }
@@ -322,8 +338,9 @@ export async function ensureRepoWorkspace(input: EnsureRepoWorkspaceInput): Prom
     automatic_updates: 'always',
   })
   // A build takes a minute or two on this platform (image pull + PVC).
-  for (let i = 0; i < 90; i++) {
-    await new Promise((r) => setTimeout(r, 2_000))
+  // Every 5 s for up to 3 min — bounded, and only while this one create runs.
+  for (let i = 0; i < 36; i++) {
+    await new Promise((r) => setTimeout(r, 5_000))
     w = await coderClient.getWorkspace(w.id)
     const st = w.latest_build.status
     if (st === 'running' || st === 'failed' || st === 'canceled') break

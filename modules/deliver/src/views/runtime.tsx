@@ -81,7 +81,7 @@ export function Runtime() {
   const tetragon = agents.engines.find((e) => e.engine === 'tetragon')
   const anyInstalled = agents.engines.some((e) => e.installed)
 
-  const feed = useRuntimeEvents(agents.engines)
+  const feed = useRuntimeEvents(agents.engines, { follow: true })
   const policies = useTracingPolicies(Boolean(tetragon?.installed))
   const nsPolicies = useTracingPoliciesNamespaced(Boolean(tetragon?.installed))
   const metrics = useTetragonMetrics(tetragon, Boolean(tetragon?.installed))

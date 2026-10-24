@@ -4,7 +4,7 @@ import { cn } from '@adhar/utils'
 import { IconBtn, Segmented, ToggleChip } from '~/components/code-viewer.tsx'
 import { GraphView, LEVEL_KIND, StatusPill, SyncMark, TreeTable } from '~/components/resource-graph.tsx'
 import { cardExtra, ResourceDetail } from '~/components/resource-detail.tsx'
-import { COMPOSITION_REFRESH_MS, type CompositionRoots, useCompositionGraph } from '~/data/catalog-composition.ts'
+import { type CompositionRoots, useCompositionGraph } from '~/data/catalog-composition.ts'
 import {
   age,
   deriveStatus,
@@ -26,7 +26,7 @@ export { LEVEL_KIND }
  * Roots are the entity's platform composite and its Argo CD apps (resolved in
  * `catalog-composition.ts`); under them, each composed resource, nested
  * composites, and Argo's managed resources down to Pods. Tree (a layered
- * graph) or list, filterable, refreshed every 12 s unless paused. Clicking a
+ * graph) or list, filterable, re-read live as its roots change unless paused. Clicking a
  * node opens its conditions, events and live YAML.
  */
 
@@ -157,7 +157,7 @@ export function CompositionView({ roots, scope }: {
               variant="ghost"
               onClick={() => setPaused((p) => !p)}
               aria-pressed={!paused}
-              title={paused ? 'Resume auto-refresh' : `Auto-refreshing every ${COMPOSITION_REFRESH_MS / 1000}s — pause`}
+              title={paused ? 'Resume live updates' : 'Live — updates as resources change. Pause'}
             >
               <span className={cn('mr-1.5 inline-block h-2 w-2 rounded-full', paused ? 'bg-content-subtle' : 'bg-emerald-500')} aria-hidden />
               {paused ? 'Paused' : 'Live'}

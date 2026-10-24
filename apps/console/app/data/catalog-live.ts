@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
-import { argocd, gitea, k8s } from '@adhar/api-clients'
+import { gitea, type k8s } from '@adhar/api-clients'
 import { toPublicUrl, useGiteaOrg, usePublicBaseDomain, useToolPublicUrl } from '@adhar/shell-ui'
+import { useK8sList, useK8sListSync } from './live-k8s.ts'
+import { useArgoApplications } from './argo-apps.ts'
 import {
   type ComponentType,
   type Entity,
@@ -31,10 +33,8 @@ import { isSystemNamespace } from './catalog-system-namespaces.ts'
  * honest empty / error banners rather than fabricate data.
  */
 
-const kubeClient = k8s.K8sClient.auto()
 const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
-const REFRESH_MS = 30_000
 
 /**
  * Background-refresh semantics for every live source: cards already on screen
@@ -44,7 +44,6 @@ const REFRESH_MS = 30_000
  * while, so coming back paints instantly and refetches quietly.
  */
 const LIVE_QUERY = {
-  refetchInterval: REFRESH_MS,
   retry: false,
   placeholderData: keepPreviousData,
   gcTime: 24 * 60 * 60_000,
@@ -292,7 +291,8 @@ import { isPlatformRepo } from './catalog-platform-repos.ts'
 import { applicationXRsQuery, belongsToDeletingApp, splitApplications } from './catalog-app-delete.ts'
 import { withDeployedLifecycle } from './catalog-lifecycle.ts'
 
-const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
+const DEPLOYMENTS_GVR = { group: 'apps', version: 'v1', resource: 'deployments', namespaced: true } as const
+const STATEFULSETS_GVR = { group: 'apps', version: 'v1', resource: 'statefulsets', namespaced: true } as const
 
 export function useLiveCatalog(): LiveCatalog {
   // Org whose repos are surfaced as Components — runtime config, never hardcoded.
@@ -300,36 +300,32 @@ export function useLiveCatalog(): LiveCatalog {
   // Public Gitea origin for browser-facing repo links.
   const giteaPublicUrl = useToolPublicUrl('gitea')
   const publicBaseDomain = usePublicBaseDomain()
-  const deployments = useQuery({
-    queryKey: ['catalog', 'live', 'deployments'],
-    queryFn: () => kubeClient.listDeployments(),
-    ...LIVE_QUERY,
-  })
-  const statefulSets = useQuery({
-    queryKey: ['catalog', 'live', 'statefulsets'],
-    queryFn: () => kubeClient.listStatefulSets(),
-    ...LIVE_QUERY,
-  })
+  // Kubernetes sources: canonical live lists (one list, then watch deltas —
+  // see live-k8s.ts), shared with the Overview and the status page.
+  const deployments = useK8sList<k8s.Deployment>(DEPLOYMENTS_GVR, { gcTime: LIVE_QUERY.gcTime })
+  const statefulSets = useK8sList<k8s.Generic>(STATEFULSETS_GVR, { gcTime: LIVE_QUERY.gcTime })
+  // Gitea has no watch. The org's repository list changes when someone
+  // creates or deletes an app — the console's own flows invalidate
+  // ['catalog'] when they do — so it is read on mount, not on a timer.
   const repos = useQuery({
     queryKey: ['catalog', 'live', 'gitea-repos', giteaOrgName],
     queryFn: () => giteaClient.listRepos(giteaOrgName),
     ...LIVE_QUERY,
+    staleTime: 2 * 60_000,
   })
   // The control plane's own record of every custom application: one
-  // Application XR per app, wherever its repository lives.
+  // Application XR per app, wherever its repository lives. Kept current by
+  // the watch on the XRs.
   const applications = useQuery({
     ...applicationXRsQuery,
     ...LIVE_QUERY,
+    refetchInterval: useK8sListSync(applicationXRsQuery.queryKey, { ...APPLICATION_GVR, namespace: CONTROL_PLANE_NAMESPACE }),
   })
   // Every environment's Argo CD application, so an app's lifecycle can follow
-  // where it is actually running (catalog-lifecycle.ts). Same key as the
-  // deployment tab, so both share one request. Best effort: without it the
-  // declared lifecycle stands.
-  const argoApps = useQuery({
-    queryKey: ['catalog', 'argocd', 'apps'],
-    queryFn: () => argocdClient.listApplications(),
-    ...LIVE_QUERY,
-  })
+  // where it is actually running (catalog-lifecycle.ts). Shared with the
+  // deployment tab and the Overview. Best effort: without it the declared
+  // lifecycle stands.
+  const argoApps = useArgoApplications()
 
   return useMemo(() => {
     const gitRepos = repos.data ?? []

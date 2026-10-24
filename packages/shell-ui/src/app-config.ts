@@ -76,7 +76,9 @@ export function useAppConfig() {
       if (!r.ok) throw new Error(`/api/config ${r.status}`)
       return { ...APP_CONFIG_DEFAULTS, ...(await r.json()) }
     },
-    staleTime: 5 * 60_000,
+    // Install config only changes with an upgrade (which reloads the page);
+    // every module reads it, so it is fetched once per session.
+    staleTime: 30 * 60_000,
   })
 }
 

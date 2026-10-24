@@ -235,7 +235,7 @@ export function useRedTable(fam: SpanMetricsFamily | null | undefined, service?:
       return [...rows.values()].sort((a, b) => (b.rps ?? 0) - (a.rps ?? 0))
     },
     enabled: !!fam,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
     retry: false,
   })
 }

@@ -1,16 +1,15 @@
 import { createRouter } from '@tanstack/react-router'
-import { QueryClient } from '@tanstack/react-query'
 import { routeTree } from './routeTree.gen.ts'
 import { RouteError, RouteNotFound } from './components/route-fallbacks.tsx'
+import { createQueryClient } from './query-policy.ts'
 
 /**
  * Single shared QueryClient. Created at module-init so `main.tsx` can wrap
  * `<QueryClientProvider>` around `<RouterProvider>` — without that provider,
- * every `useQuery` throws "No QueryClient set".
+ * every `useQuery` throws "No QueryClient set". The fetch policy (poll floor,
+ * no focus refetch, no 4xx retries) lives in `query-policy.ts`.
  */
-export const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
-})
+export const queryClient = createQueryClient()
 
 /**
  * Named `getRouter` so the auto-generated `routeTree.gen.ts` (produced by
@@ -25,7 +24,9 @@ export async function getRouter() {
     routeTree,
     context: { queryClient, session: null, tenant: null },
     defaultPreload: 'intent',
-    defaultPreloadStaleTime: 0,
+    // Hover-intent preloads reuse anything fetched in the last 30s instead of
+    // re-running the route's loaders on every pointer pass.
+    defaultPreloadStaleTime: 30_000,
     defaultErrorComponent: RouteError,
     defaultNotFoundComponent: RouteNotFound,
   })

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useQueryClient, type QueryKey } from '@tanstack/react-query'
+import { applyEvent, nextDelay, sameSnapshot, type Snapshot, snapshotOf } from './live-signal.ts'
 
 /**
  * Live client — the browser side of `/api/live`, one multiplexed WebSocket
@@ -9,16 +10,23 @@ import { useQueryClient, type QueryKey } from '@tanstack/react-query'
  *   useLiveStatus()                                 → 'connecting' | 'live' | 'reconnecting' | 'offline'
  *   useLiveK8sList(gvr, opts)                       → list kept current by watch deltas
  *   useLiveInvalidate(topic, params, queryKeys)     → invalidate React-Query keys on push
+ *   useWatchSignal(watch, queryKeys, opts)          → invalidate only on real object changes
  *   useLivePoll(tool, path, ms, queryKey, map?)     → server-side change detection feeding a query
  *   usePollingInterval(ms)                          → `ms` while offline, `false` while live
+ *   pollEvery(ms)                                   → `ms` raised to the poll floor
  *
  * Reconnects with backoff, re-subscribes everything, and answers the server
- * heartbeat. When the socket is down, hooks fall back to their old polling
- * interval so nothing goes stale.
+ * heartbeat. When the socket is down, hooks fall back to polling — never
+ * faster than `POLL_FLOOR_MS`, so a dropped socket cannot turn every open tab
+ * into a tight loop against the control plane.
+ *
+ * A tab that stays hidden for `HIDDEN_SUSPEND_MS` closes its socket, which
+ * tears down every watch and BFF poll it held; coming back reopens it and the
+ * server's `resync` brings each subscriber current with one fetch.
  */
 
 export type LiveStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
-export type LiveTopic = 'k8s' | 'poll' | 'notifications'
+export type LiveTopic = 'k8s' | 'poll' | 'notifications' | 'audit'
 
 type Handler = (msg: Record<string, unknown>) => void
 
@@ -28,6 +36,23 @@ interface Sub {
   params: Record<string, unknown>
   handler: Handler
 }
+
+/**
+ * The fastest any timer-driven fetch may run — the last resort behind watches
+ * (k8s) and BFF change detection (tools). Everything that wants to be faster
+ * must be pushed over the live socket instead.
+ */
+export const POLL_FLOOR_MS = 60_000
+
+/** `ms` raised to the poll floor; `false`/`undefined` pass through. */
+export function pollEvery(ms: number): number
+export function pollEvery(ms: number | false | undefined): number | false | undefined
+export function pollEvery(ms: number | false | undefined): number | false | undefined {
+  return typeof ms === 'number' && ms > 0 ? Math.max(ms, POLL_FLOOR_MS) : ms
+}
+
+/** How long a hidden tab keeps its socket (and every upstream watch/poll) open. */
+const HIDDEN_SUSPEND_MS = 2 * 60_000
 
 const BACKOFF_MIN = 1000
 const BACKOFF_MAX = 30_000
@@ -51,6 +76,9 @@ class LiveClient {
   private pingTimer: number | undefined
   /** Timestamp of the last frame received, for the half-open watchdog. */
   private lastMsgAt = 0
+  /** Socket deliberately closed because the tab has been hidden a while. */
+  private suspended = false
+  private hiddenTimer: number | undefined
 
   get status(): LiveStatus {
     return this._status
@@ -94,6 +122,7 @@ class LiveClient {
   private ensureOpen() {
     if (typeof WebSocket === 'undefined') return
     this.wantOpen = true
+    if (this.suspended) return
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return
     this.open()
   }
@@ -146,7 +175,8 @@ class LiveClient {
     }
     ws.onclose = () => {
       if (this.pingTimer) clearInterval(this.pingTimer)
-      this.ws = null
+      if (this.ws === ws) this.ws = null
+      if (this.suspended) return
       if (this.wantOpen && this.subs.size) this.scheduleReconnect()
       else this.setStatus('offline')
     }
@@ -180,11 +210,44 @@ class LiveClient {
    * triggers below all mean "the environment just changed, try again".
    */
   reconnectNow() {
+    if (this.suspended) return
     if (!this.subs.size) return
     if (this.ws?.readyState === WebSocket.OPEN) return
     if (this.timer) clearTimeout(this.timer)
     this.backoff = BACKOFF_MIN
     this.open()
+  }
+
+  /**
+   * Tab visibility. Hidden for longer than `HIDDEN_SUSPEND_MS` closes the
+   * socket, so nobody is holding apiserver watches or BFF polls open for a tab
+   * no one is looking at. Visible again reopens it; subscriptions are kept,
+   * re-sent on open, and answered with a `resync`.
+   */
+  setHidden(hidden: boolean) {
+    if (this.hiddenTimer) clearTimeout(this.hiddenTimer)
+    this.hiddenTimer = undefined
+    if (hidden) {
+      this.hiddenTimer = setTimeout(() => {
+        this.suspended = true
+        if (this.timer) clearTimeout(this.timer)
+        if (this.pingTimer) clearInterval(this.pingTimer)
+        try {
+          this.ws?.close()
+        } catch {
+          // already gone
+        }
+        this.ws = null
+        this.setStatus('reconnecting')
+      }, HIDDEN_SUSPEND_MS) as unknown as number
+      return
+    }
+    if (!this.suspended) return this.reconnectNow()
+    this.suspended = false
+    if (this.wantOpen && this.subs.size) {
+      this.backoff = BACKOFF_MIN
+      this.open()
+    }
   }
 
   private close() {
@@ -212,7 +275,7 @@ export const liveClient = new LiveClient()
 // page that has simply stopped updating.
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') liveClient.reconnectNow()
+    liveClient.setHidden(document.visibilityState === 'hidden')
   })
 }
 if (typeof globalThis.addEventListener === 'function') {
@@ -230,10 +293,13 @@ export function useLiveStatus(): LiveStatus {
   )
 }
 
-/** `ms` while the live socket is down, `false` (no polling) while it is live. */
+/**
+ * `false` (no polling) while the live socket is up; while it is down, `ms`
+ * raised to `POLL_FLOOR_MS`.
+ */
 export function usePollingInterval(ms: number): number | false {
   const status = useLiveStatus()
-  return status === 'live' ? false : ms
+  return status === 'live' ? false : pollEvery(ms)
 }
 
 /* ─────────── k8s live list ─────────── */
@@ -327,9 +393,21 @@ export function useLiveK8sList<T extends KubeLike>(
 
 /* ─────────── invalidate-on-push ─────────── */
 
+/** True when any query under `keys` holds data fetched before `since`. */
+function cachedBefore(qc: ReturnType<typeof useQueryClient>, keys: QueryKey[], since: number): boolean {
+  return keys.some((k) => qc.getQueryCache().findAll({ queryKey: k }).some((q) => q.state.dataUpdatedAt < since))
+}
+
 /**
- * Invalidate React-Query keys whenever the topic pushes. Debounced so a burst
- * of watch events becomes one refetch.
+ * Invalidate React-Query keys when the topic pushes a real change.
+ *
+ *   • k8s — objects are fingerprinted (`live-signal.ts`); no-op MODIFIED
+ *     events and relist `resync`s that change nothing are ignored.
+ *   • poll — the hub's first `changed` after subscribing only refetches if
+ *     the cache predates the subscription (the query just loaded otherwise).
+ *
+ * Debounced so a burst becomes one refetch; an in-flight fetch is never
+ * cancelled to start the same one again.
  */
 export function useLiveInvalidate(
   topic: LiveTopic,
@@ -344,14 +422,31 @@ export function useLiveInvalidate(
   useEffect(() => {
     if (!enabled) return
     let timer: number | undefined
+    let snap: Snapshot | null = null
+    let first = true
+    const subscribedAt = Date.now()
     const bump = () => {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        for (const k of keysRef.current) void qc.invalidateQueries({ queryKey: k })
+        for (const k of keysRef.current) void qc.invalidateQueries({ queryKey: k }, { cancelRefetch: false })
       }, 250) as unknown as number
     }
     const unsub = liveClient.subscribe(topic, JSON.parse(paramsKey), (msg) => {
-      if (msg.op === 'event' || msg.op === 'resync' || msg.op === 'changed' || msg.op === 'invalidate') bump()
+      if (msg.op === 'resync') {
+        const next = snapshotOf((msg.items as unknown[]) ?? [])
+        const prev = snap
+        snap = next
+        if (prev === null ? cachedBefore(qc, keysRef.current, subscribedAt) : !sameSnapshot(prev, next)) bump()
+      } else if (msg.op === 'event') {
+        if (snap === null) snap = new Map()
+        if (applyEvent(snap, String(msg.type ?? ''), msg.object)) bump()
+      } else if (msg.op === 'changed') {
+        const wasFirst = first
+        first = false
+        if (!wasFirst || cachedBefore(qc, keysRef.current, subscribedAt)) bump()
+      } else if (msg.op === 'invalidate') {
+        bump()
+      }
     })
     return () => {
       if (timer) clearTimeout(timer)
@@ -401,15 +496,99 @@ export function useLiveRefetch(
   fallbackMs: number,
   enabled = true,
 ): number | false {
-  useLiveInvalidate(
-    'k8s',
-    (watch ?? {}) as unknown as Record<string, unknown>,
-    queryKeys,
-    enabled && watch !== null,
-  )
-  const interval = usePollingInterval(fallbackMs)
-  // With no watch behind it there is nothing to push, so the timer stands.
-  return watch === null ? fallbackMs : interval
+  return useWatchSignal(watch, queryKeys, { enabled, fallbackMs, throttleMs: 2_000 })
+}
+
+/* ─────────── change-filtered watch signal ─────────── */
+
+export interface WatchSignalOpts {
+  enabled?: boolean
+  /** Timer used only while the socket is down or the watch was refused. Floored at 60s. */
+  fallbackMs?: number
+  /** At most one refetch per this window while changes keep arriving. */
+  throttleMs?: number
+  /** Extra noise keys for this resource (e.g. Kyverno's per-result `timestamp`). */
+  ignore?: readonly string[]
+}
+
+/**
+ * Invalidate `queryKeys` when the objects behind `watch` really change.
+ * Returns the `refetchInterval` for the query: `false` while the watch is
+ * live, the (≥60s) fallback when the socket is down or the watch was refused.
+ */
+export function useWatchSignal(
+  watch: LiveWatchRef | null,
+  queryKeys: QueryKey[],
+  opts: WatchSignalOpts = {},
+): number | false {
+  const { enabled = true, fallbackMs = POLL_FLOOR_MS, throttleMs = 5_000, ignore = [] } = opts
+  const qc = useQueryClient()
+  const status = useLiveStatus()
+  const [refused, setRefused] = useState(false)
+  const keysRef = useRef(queryKeys)
+  keysRef.current = queryKeys
+  const watchKey = watch ? JSON.stringify(watch) : ''
+  const ignoreKey = ignore.join(',')
+
+  useEffect(() => {
+    setRefused(false)
+    if (!enabled || !watchKey) return
+    const extra = ignoreKey ? ignoreKey.split(',') : []
+    let snap: Snapshot | null = null
+    let timer: number | undefined
+    let last = 0
+    const subscribedAt = Date.now()
+
+    const invalidate = () => {
+      for (const k of keysRef.current) {
+        // `cancelRefetch: false` — never abort a fetch already in flight just
+        // to start the same one again.
+        void qc.invalidateQueries({ queryKey: k }, { cancelRefetch: false })
+      }
+    }
+    const bump = () => {
+      if (timer !== undefined) return
+      timer = setTimeout(() => {
+        timer = undefined
+        last = Date.now()
+        invalidate()
+      }, nextDelay(Date.now(), last, throttleMs)) as unknown as number
+    }
+
+    const unsub = liveClient.subscribe('k8s', JSON.parse(watchKey), (msg) => {
+      if (msg.op === 'resync') {
+        const next = snapshotOf((msg.items as unknown[]) ?? [], extra)
+        setRefused(false)
+        if (snap === null) {
+          snap = next
+          // First snapshot: only refetch what was fetched before the watch
+          // started (a cached list from an earlier visit); a list that is
+          // loading right now already reflects this state.
+          const older = keysRef.current.some((k) =>
+            qc.getQueryCache().findAll({ queryKey: k }).some((q) => q.state.dataUpdatedAt < subscribedAt)
+          )
+          if (older) bump()
+          return
+        }
+        const changed = !sameSnapshot(snap, next)
+        snap = next
+        if (changed) bump()
+      } else if (msg.op === 'event') {
+        if (snap === null) snap = new Map()
+        if (applyEvent(snap, String(msg.type ?? ''), msg.object, extra)) bump()
+      } else if (msg.op === 'error') {
+        setRefused(true)
+      }
+    })
+    return () => {
+      if (timer !== undefined) clearTimeout(timer)
+      unsub()
+    }
+  }, [watchKey, ignoreKey, enabled, throttleMs, qc])
+
+  if (!enabled) return false
+  if (!watchKey || refused || status !== 'live') return pollEvery(fallbackMs)
+  return false
 }
 
 /**
@@ -442,18 +621,28 @@ export function useLiveToolPoll(
 ): number | false {
   const qc = useQueryClient()
   const { windowMs = 0, enabled = true } = opts
+  intervalMs = pollEvery(intervalMs)
   const keysRef = useRef(queryKeys)
   keysRef.current = queryKeys
 
   useEffect(() => {
     if (!enabled || !path) return
     let timer: number | undefined
-    const unsub = liveClient.subscribe('poll', { tool, path, intervalMs, windowMs }, (msg) => {
+    let first = true
+    const subscribedAt = Date.now()
+    // `hashOnly`: this hook only needs the change signal, so the hub does not
+    // ship the tool's body over the socket.
+    const unsub = liveClient.subscribe('poll', { tool, path, intervalMs, windowMs, hashOnly: true }, (msg) => {
       if (msg.op !== 'changed') return
+      // The hub's first tick always reports `changed` (it has no previous
+      // hash). The query that just mounted already holds that state.
+      const wasFirst = first
+      first = false
+      if (wasFirst && !cachedBefore(qc, keysRef.current, subscribedAt)) return
       // Coalesce a burst of changes into one refetch.
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        for (const k of keysRef.current) void qc.invalidateQueries({ queryKey: k })
+        for (const k of keysRef.current) void qc.invalidateQueries({ queryKey: k }, { cancelRefetch: false })
       }, 200) as unknown as number
     })
     return () => {
@@ -481,6 +670,7 @@ export function useLivePoll<T = unknown>(
 ) {
   const qc = useQueryClient()
   const { windowMs = 0, enabled = true } = opts
+  intervalMs = pollEvery(intervalMs)
   const mapRef = useRef(opts.map)
   mapRef.current = opts.map
   const keyStr = JSON.stringify(queryKey)

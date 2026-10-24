@@ -1,6 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
-import { notifyUnauthorized } from '@adhar/shell-ui'
+import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { liveClient, notifyUnauthorized } from '@adhar/shell-ui'
 import type { ChaosRunReport } from './chaos-report.ts'
+import { RESULTS_CONFIGMAP, RESULTS_NAMESPACE } from './chaos-suites.ts'
+import { watchOf } from './live.ts'
 
 /**
  * Chaos run reports as `/api/resilience/reports` serves them — every run the
@@ -18,9 +21,39 @@ export interface ChaosReportsState {
   items: ChaosRunReport[]
 }
 
+/**
+ * The BFF recorder freezes a report on its next one-minute tick after the
+ * runner rewrites the results ConfigMap — so a change to that ConfigMap is the
+ * only moment the reports can change, and this is how long to wait after it.
+ */
+export const REPORT_RECORD_DELAY_MS = 75_000
+
+const REPORTS_KEY = ['chaos', 'reports'] as const
+
 export function useChaosReports() {
+  const qc = useQueryClient()
+  // Same watch params as the suites page's results watch, so the hub shares it.
+  useEffect(() => {
+    let timer: number | undefined
+    const unsub = liveClient.subscribe(
+      'k8s',
+      watchOf({ group: '', version: 'v1', resource: 'configmaps' }, {
+        namespace: RESULTS_NAMESPACE,
+        fieldSelector: `metadata.name=${RESULTS_CONFIGMAP}`,
+      }) as unknown as Record<string, unknown>,
+      (msg) => {
+        if (msg.op !== 'event') return
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => void qc.invalidateQueries({ queryKey: REPORTS_KEY }), REPORT_RECORD_DELAY_MS) as unknown as number
+      },
+    )
+    return () => {
+      if (timer) clearTimeout(timer)
+      unsub()
+    }
+  }, [qc])
   return useQuery({
-    queryKey: ['chaos', 'reports'] as const,
+    queryKey: REPORTS_KEY,
     queryFn: async (): Promise<ChaosReportsState> => {
       const res = await fetch('/api/resilience/reports', { credentials: 'include', headers: { accept: 'application/json' } })
       if (res.status === 401) notifyUnauthorized()
@@ -29,7 +62,8 @@ export function useChaosReports() {
       return { configured: body.configured !== false, ...(body.detail ? { detail: body.detail } : {}), items: body.items ?? [] }
     },
     retry: false,
-    refetchInterval: 60_000,
+    // No timer: reports only change after a run, which the watch above catches.
+    staleTime: 5 * 60_000,
   })
 }
 

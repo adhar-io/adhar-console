@@ -4,6 +4,9 @@ import type { lgtm } from '@adhar/api-clients'
 import { promInstant, promRange, sampleNum } from './backends.ts'
 import { BURN_WINDOWS, burnDown, errorRatioExpr, evaluate, eventsExpr, SLO_COLLECTION, type SloDefinition, type SloEval, windowsQuery } from './slo.ts'
 
+/** How often an SLO evaluation is re-read while visible — budgets move over hours, not seconds. */
+export const SLO_REFRESH_MS = 5 * 60_000
+
 /**
  * SLO hooks: definitions persist in the console document store
  * (`discover.slo`, tenant-scoped Postgres); every number is computed live from
@@ -52,7 +55,8 @@ export function useSloEval(def: SloDefinition | null | undefined) {
     queryKey: ['slo', 'eval', def ? JSON.stringify([def.sli, def.objective, def.windowDays]) : ''],
     queryFn: () => evalDef(def!),
     enabled: !!def,
-    refetchInterval: 60_000,
+    // Error budgets move over hours; fast burns surface through alerting.
+    refetchInterval: SLO_REFRESH_MS,
     retry: false,
   })
 }

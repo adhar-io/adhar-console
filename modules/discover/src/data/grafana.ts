@@ -570,8 +570,8 @@ export function useAlertRules(enabled: boolean, tick: number) {
       }
     },
     enabled,
-    staleTime: 15_000,
-    refetchInterval: enabled ? 30_000 : false,
+    staleTime: 30_000,
+    refetchInterval: enabled ? 60_000 : false,
     retry: false,
   })
 }

@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useWatchSignal } from '@adhar/shell-ui'
+import { combineIntervals } from './live-k8s.ts'
 import {
   type Entity,
   type EntityKind,
@@ -697,13 +699,31 @@ export async function fetchPlatformScorecards(): Promise<PlatformScorecards> {
   }
 }
 
-/** `GET /api/scorecards`, refreshed on the scorer's own cadence (30 min job). */
+/** The ConfigMap the scorer writes, as the last answer named it. */
+function scorerConfigMapWatch(namespace: string, name: string) {
+  return { group: '', version: 'v1', resource: 'configmaps', namespace, fieldSelector: `metadata.name=${name}` }
+}
+
+/**
+ * `GET /api/scorecards`, pushed: the watch on the scorer's ConfigMap (and on
+ * `Scorecard` CRs) refetches the moment a run lands — a rerun shows up in
+ * about a minute without anyone polling. The timer is only the fallback for
+ * a dropped socket or a refused watch.
+ */
 export function usePlatformScorecards() {
+  const queryKey = ['platform-scorecards']
+  const qc = useQueryClient()
+  const prev = qc.getQueryData<PlatformScorecards>(queryKey)
+  const cm = scorerConfigMapWatch(prev?.namespace ?? UNCONFIGURED.namespace, prev?.configMap ?? UNCONFIGURED.configMap)
+  const refetchInterval = combineIntervals(
+    useWatchSignal(cm, [queryKey], { fallbackMs: 5 * 60_000 }),
+    useWatchSignal({ group: 'platform.adhar.io', version: 'v1alpha1', resource: 'scorecards' }, [queryKey], { fallbackMs: 5 * 60_000 }),
+  )
   return useQuery({
-    queryKey: ['platform-scorecards'],
+    queryKey,
     queryFn: fetchPlatformScorecards,
-    refetchInterval: 120_000,
-    staleTime: 60_000,
+    refetchInterval,
+    staleTime: 2 * 60_000,
     retry: false,
     placeholderData: keepPreviousData,
   })
@@ -798,8 +818,17 @@ export interface ScorecardHistoryState {
  * page simply shows no sparkline.
  */
 export function useScorecardHistory() {
+  const queryKey = ['platform-scorecards', 'history']
+  const qc = useQueryClient()
+  const prev = qc.getQueryData<PlatformScorecards>(['platform-scorecards'])
+  // History grows by one entry per scorer run: its ConfigMap's watch says when.
+  const refetchInterval = useWatchSignal(
+    scorerConfigMapWatch(prev?.namespace ?? UNCONFIGURED.namespace, `${prev?.configMap ?? UNCONFIGURED.configMap}-history`),
+    [queryKey],
+    { fallbackMs: 10 * 60_000 },
+  )
   return useQuery({
-    queryKey: ['platform-scorecards', 'history'],
+    queryKey,
     queryFn: async (): Promise<ScorecardHistoryState> => {
       const res = await fetch('/api/scorecards/history', {
         headers: { accept: 'application/json' },
@@ -813,8 +842,8 @@ export function useScorecardHistory() {
         ...(body.error ? { error: body.error } : {}),
       }
     },
-    refetchInterval: 300_000,
-    staleTime: 120_000,
+    refetchInterval,
+    staleTime: 10 * 60_000,
     retry: false,
     placeholderData: keepPreviousData,
   })

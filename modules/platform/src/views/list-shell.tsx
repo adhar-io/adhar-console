@@ -190,11 +190,14 @@ export function StatusFilterPills<T extends string>({
 
 export function UpdatedChip({ at }: { at: number }) {
   const [, setTick] = useState(0)
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), 1000)
-    return () => window.clearInterval(id)
-  }, [])
   const ms = Date.now() - at
+  // Seconds matter only for the first minute; after that the label changes
+  // once a minute, so the (network-free) ticker slows down to match.
+  const tickMs = ms < 60_000 ? 1000 : 30_000
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((n) => n + 1), tickMs)
+    return () => window.clearInterval(id)
+  }, [tickMs, at])
   const text = ms < 1000 ? 'just now' : ms < 60_000 ? `${Math.floor(ms / 1000)}s ago` : `${Math.floor(ms / 60_000)}m ago`
   return (
     <span

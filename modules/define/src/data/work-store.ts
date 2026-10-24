@@ -168,8 +168,10 @@ export function useDocs<T>(kind: Kind, enabled = true) {
     queryKey: qk(kind),
     queryFn: () => docStore.list<T>(kind),
     enabled,
-    staleTime: 30_000,
-    refetchInterval: enabled ? 60_000 : false,
+    // The console's own Postgres store: documents change by someone saving
+    // them, and our own writes update this cache (optimistically, then
+    // invalidate). Read on open; no timer.
+    staleTime: 60_000,
     retry: (n, e) => !(e instanceof DocStoreError && (e.status === 503 || e.status === 401 || e.status === 403 || e.code === 'store_unavailable')) && n < 2,
   })
 }

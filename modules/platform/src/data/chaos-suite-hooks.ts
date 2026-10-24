@@ -1,7 +1,10 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { kube } from '@adhar/api-clients/k8s'
-import { notifyUnauthorized } from '@adhar/shell-ui'
+import { notifyUnauthorized, POLL_FLOOR_MS, useLiveRefetch } from '@adhar/shell-ui'
 import { isNotFound } from './chaos.ts'
+import { watchOf } from './live.ts'
+import { useFollowedRunLog } from './run-log-follow.ts'
 import {
   APP_LABEL,
   environmentNames,
@@ -10,7 +13,6 @@ import {
   parseSuite,
   RESULTS_CONFIGMAP,
   RESULTS_NAMESPACE,
-  runPhase,
   SUITE_LABEL,
   type ApplicationSuites,
   type AppResult,
@@ -32,19 +34,38 @@ import {
  */
 const CONFIG_MAPS = { group: '', version: 'v1', resource: 'configmaps', namespaced: true }
 const ARGO_APPS = { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications', namespaced: true }
+const JOBS = { group: 'batch', version: 'v1', resource: 'jobs' }
+/** Where gate Jobs run and the label every one of them carries (BFF `resilience-runs.ts`). */
+const RUNNER_NAMESPACE = 'adhar-system'
+const GATE_LABEL = 'adhar.io/resilience-gate'
+
+/*
+ * Suites, the runner's results and gate runs are all Kubernetes objects (or
+ * read straight from them by the BFF), so each query is invalidated by an
+ * apiserver watch rather than polled; the timer below is only the fallback
+ * while the live socket is down.
+ */
 
 export function useApplicationSuites(namespace?: string) {
+  const suitesKey = ['chaos', 'suites'] as const
+  const resultsKey = ['chaos', 'suite-results'] as const
+  const suitesInterval = useLiveRefetch(watchOf(CONFIG_MAPS, { labelSelector: `${SUITE_LABEL}=true` }), [suitesKey], POLL_FLOOR_MS)
+  const resultsInterval = useLiveRefetch(
+    watchOf(CONFIG_MAPS, { namespace: RESULTS_NAMESPACE, fieldSelector: `metadata.name=${RESULTS_CONFIGMAP}` }),
+    [resultsKey],
+    POLL_FLOOR_MS,
+  )
   const suitesQ = useQuery({
-    queryKey: ['chaos', 'suites'] as const,
+    queryKey: suitesKey,
     queryFn: async () => {
       const res = await kube.list<ConfigMapLike>(CONFIG_MAPS, { labelSelector: `${SUITE_LABEL}=true`, limit: 500 })
       return (res.items ?? []).map(parseSuite)
     },
     retry: false,
-    refetchInterval: 60_000,
+    refetchInterval: suitesInterval,
   })
   const resultsQ = useQuery({
-    queryKey: ['chaos', 'suite-results'] as const,
+    queryKey: resultsKey,
     queryFn: async () => {
       try {
         const cm = await kube.get<ConfigMapLike>(CONFIG_MAPS, RESULTS_NAMESPACE, RESULTS_CONFIGMAP)
@@ -55,7 +76,7 @@ export function useApplicationSuites(namespace?: string) {
       }
     },
     retry: false,
-    refetchInterval: 30_000,
+    refetchInterval: resultsInterval,
   })
   const envQ = useQuery({
     queryKey: ['chaos', 'suite-environments'] as const,
@@ -102,12 +123,15 @@ export interface ResilienceRunsState {
 }
 
 /**
- * Gate runs (console clicks and Kargo promotions alike), newest first. Polls
- * quickly while one is active — people watch a run they just started.
+ * Gate runs (console clicks and Kargo promotions alike), newest first. The BFF
+ * lists the gate Jobs; a watch on those same Jobs re-reads it the moment one
+ * starts, progresses or finishes.
  */
 export function useResilienceRuns() {
+  const queryKey = ['chaos', 'resilience-runs'] as const
+  const interval = useLiveRefetch(watchOf(JOBS, { namespace: RUNNER_NAMESPACE, labelSelector: GATE_LABEL }), [queryKey], POLL_FLOOR_MS)
   return useQuery({
-    queryKey: ['chaos', 'resilience-runs'] as const,
+    queryKey,
     queryFn: async (): Promise<ResilienceRunsState> => {
       const res = await fetch('/api/resilience/runs', { credentials: 'include', headers: { accept: 'application/json' } })
       if (res.status === 401) notifyUnauthorized()
@@ -116,13 +140,8 @@ export function useResilienceRuns() {
       return { installed: !!body.installed, allowed: !!body.allowed, ...(body.detail ? { detail: body.detail } : {}), runs: body.runs ?? [] }
     },
     retry: false,
-    refetchInterval: (q) => {
-      const live = (q.state.data?.runs ?? []).some((r) => {
-        const p = runPhase(r.status)
-        return p === 'running' || p === 'pending'
-      })
-      return live ? 5_000 : 30_000
-    },
+    // Not installed / not allowed is a fact about the cluster, not a moment.
+    refetchInterval: (q) => (q.state.data && !q.state.data.installed ? false : interval),
   })
 }
 
@@ -150,10 +169,11 @@ export async function startResilienceRun(input: { app: string; namespace: string
   }
 }
 
-/** The tail of a gate run's log (its newest pod). */
+/** The tail of a gate run's log (its newest pod) — followed as a stream while `live`. */
 export function useResilienceRunLog(job: string | null, live: boolean) {
-  return useQuery({
-    queryKey: ['chaos', 'resilience-run-log', job],
+  const queryKey = ['chaos', 'resilience-run-log', job]
+  const query = useQuery({
+    queryKey,
     queryFn: async (): Promise<{ pod: string | null; log: string; detail?: string }> => {
       const res = await fetch(`/api/resilience/runs/log?job=${encodeURIComponent(job!)}`, { credentials: 'include' })
       const body = (await res.json().catch(() => ({}))) as { pod?: string | null; log?: string; error?: string; detail?: string }
@@ -162,6 +182,10 @@ export function useResilienceRunLog(job: string | null, live: boolean) {
     },
     enabled: !!job,
     retry: false,
-    refetchInterval: job && live ? 5_000 : false,
+    // A finished run's log no longer changes.
+    staleTime: live ? 30_000 : Infinity,
   })
+  const followed = useFollowedRunLog({ job, pod: query.data?.pod ?? null, live, queryKeys: [queryKey] })
+  const data = useMemo(() => (followed !== undefined && query.data ? { ...query.data, log: followed } : query.data), [followed, query.data])
+  return { ...query, data }
 }

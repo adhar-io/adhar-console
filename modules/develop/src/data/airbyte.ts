@@ -9,7 +9,8 @@ import { airbyte } from '@adhar/api-clients'
 
 export const airbyteClient = airbyte.AirbyteClient.auto({ tool: 'airbyte' })
 
-const REFRESH_MS = 15_000
+/** The console-wide poll floor (see the note on `useConnections`). */
+const REFRESH_MS = 60_000
 
 export function useSources() {
   return useQuery({

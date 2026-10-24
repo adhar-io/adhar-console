@@ -5,15 +5,17 @@ import {
   BarChart,
   DonutGauge,
   EmptyState,
+  POLL_FLOOR_MS,
   Skeleton,
   Sparkline,
   StatusBadge,
   useLiveRefetch,
   type SeriesPoint,
 } from '@adhar/shell-ui'
-import { client, clusterParam, useActiveCluster } from '../data/client.ts'
+import { client, useActiveCluster } from '../data/client.ts'
 import { formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
 import { GVRS } from '../data/gvr.ts'
+import { watchOf } from '../data/live.ts'
 import { lastValue, promRange, toPoints, type PromMatrix } from '../data/prom.ts'
 
 /**
@@ -34,7 +36,11 @@ import { lastValue, promRange, toPoints, type PromMatrix } from '../data/prom.ts
  * come straight off the pod's own status.
  */
 
-const POLL_MS = 10_000
+/**
+ * metrics-server samples are not watchable objects, so the snapshot is read on
+ * a timer — the console-wide poll floor (kubelet scrapes every 15–60 s anyway).
+ */
+const POLL_MS = POLL_FLOOR_MS
 
 type RangeKey = '15m' | '1h' | '6h' | '24h'
 interface RangeCfg {
@@ -72,14 +78,17 @@ function cadvisorSel(namespace: string, podName: string): string {
 /**
  * One batched fetch of every time-series we chart. All queries share the range
  * so a single `query_range` fan-out (via Promise.all) covers the whole panel;
- * `retry:false` + a slow `refetchInterval` keep it cheap.
+ * `retry:false` + a slow `refetchInterval` keep it cheap: re-read once per
+ * step (a new point cannot appear sooner), never faster than the poll floor.
+ * A sliding range changes on every read, so BFF change detection would save
+ * nothing here — a plain timer at the floor is the cheapest honest refresh.
  */
 function usePromMetrics(namespace: string, podName: string, cfg: RangeCfg) {
   return useQuery({
     queryKey: ['prom', 'pod', namespace, podName, cfg.label],
     retry: false,
-    refetchInterval: 30_000,
-    staleTime: 15_000,
+    refetchInterval: Math.max(POLL_FLOOR_MS, cfg.step * 1000),
+    staleTime: 30_000,
     queryFn: async () => {
       const s = sel(namespace, podName)
       const cs = cadvisorSel(namespace, podName)
@@ -165,7 +174,11 @@ export function PodMetricsPanel({
   const podQ = useQuery({
     queryKey: podKey,
     queryFn: () => client.getPod(cluster, namespace, podName),
-    refetchInterval: useLiveRefetch({ ...GVRS.pods, namespace, cluster: clusterParam(cluster) }, [podKey], 15_000),
+    refetchInterval: useLiveRefetch(
+      watchOf(GVRS.pods, { namespace, fieldSelector: `metadata.name=${podName}`, cluster }),
+      [podKey],
+      POLL_FLOOR_MS,
+    ),
     retry: false,
   })
 

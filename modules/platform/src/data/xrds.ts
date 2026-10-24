@@ -343,7 +343,8 @@ export function useXrds() {
         .filter((x): x is XrdInfo => x !== null)
         .sort((a, b) => a.kind.localeCompare(b.kind))
     },
-    staleTime: 60_000,
+    // XRDs and Compositions are platform catalogue: they change on installs.
+    staleTime: 10 * 60_000,
     retry: false,
   })
 }
@@ -361,7 +362,7 @@ export function useCompositions() {
         labels: c.metadata.labels ?? {},
       }))
     },
-    staleTime: 60_000,
+    staleTime: 10 * 60_000,
     retry: false,
   })
 }

@@ -1,6 +1,9 @@
+import { useMemo, useRef } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import type { k8s as K8s } from '@adhar/api-clients'
+import { POLL_FLOOR_MS, useLogStream } from '@adhar/shell-ui'
 import { client, useCRD } from './k8s.ts'
+import { useWatchSignal } from './live.ts'
 import {
   byNewest,
   parseEventLines,
@@ -27,8 +30,15 @@ import { groupBy, parsePrometheusText, series, total, type Sample } from './prom
  * viewer has, and the page is fully usable without it.
  */
 
-const EVENTS_REFRESH_MS = 10_000
-const AGENTS_REFRESH_MS = 30_000
+/**
+ * Agents (DaemonSets + their pods) ride apiserver watches. The event feed is a
+ * followed log stream on the Runtime page, and a minute tail on the dashboard
+ * card. Tetragon's counters are a metric — read at the one-minute floor.
+ */
+const METRICS_REFRESH_MS = POLL_FLOOR_MS
+const TAIL_REFRESH_MS = POLL_FLOOR_MS
+/** Index order matters: the per-engine hooks below are called in this order. */
+const ENGINE_IDS: RuntimeEngine[] = ['tetragon', 'falco']
 
 /** How each engine's events are found once its DaemonSet is located. */
 const ENGINES: Record<RuntimeEngine, { daemonSet: string; container: string; label: string }> = {
@@ -90,7 +100,13 @@ export function useRuntimeAgents() {
   const daemonSets = useQuery({
     queryKey: ['deliver', 'runtime', 'daemonsets'],
     queryFn: () => client.listDaemonSets(undefined, undefined),
-    refetchInterval: AGENTS_REFRESH_MS,
+    // DaemonSet status (desired / ready) moves with its pods, so this one
+    // watch also covers an agent being installed, upgraded or removed.
+    refetchInterval: useWatchSignal(
+      { group: 'apps', version: 'v1', resource: 'daemonsets' },
+      [['deliver', 'runtime', 'daemonsets']],
+      { throttleMs: 15_000 },
+    ),
     retry: false,
   })
 
@@ -101,22 +117,28 @@ export function useRuntimeAgents() {
     }
   }
 
+  // The DaemonSet's own selector is exactly the set of pods it owns — no
+  // guessing at chart labels, and no listing a namespace that holds two
+  // hundred unrelated pods to find five.
+  const podTargets = ENGINE_IDS.map((engine) => {
+    const ds = found[engine]
+    const namespace = ds?.metadata?.namespace
+    const selector = labelSelector(ds)
+    return { engine, namespace, selector, queryKey: ['deliver', 'runtime', 'pods', engine, namespace ?? '-', selector ?? '-'] }
+  })
+  // One watch per engine (a fixed two), scoped to exactly that pod set.
+  const tetragonPods = useAgentPodsSignal(podTargets[0])
+  const falcoPods = useAgentPodsSignal(podTargets[1])
+  const podIntervals = [tetragonPods, falcoPods]
+
   const podQueries = useQueries({
-    queries: (Object.keys(ENGINES) as RuntimeEngine[]).map((engine) => {
-      const ds = found[engine]
-      const namespace = ds?.metadata?.namespace
-      // The DaemonSet's own selector is exactly the set of pods it owns — no
-      // guessing at chart labels, and no listing a namespace that holds two
-      // hundred unrelated pods to find five.
-      const selector = labelSelector(ds)
-      return {
-        queryKey: ['deliver', 'runtime', 'pods', engine, namespace ?? '-', selector ?? '-'],
-        queryFn: () => client.listPods(undefined, namespace, selector),
-        enabled: Boolean(namespace),
-        refetchInterval: AGENTS_REFRESH_MS,
-        retry: false,
-      }
-    }),
+    queries: podTargets.map((t, i) => ({
+      queryKey: t.queryKey,
+      queryFn: () => client.listPods(undefined, t.namespace, t.selector),
+      enabled: Boolean(t.namespace),
+      refetchInterval: podIntervals[i],
+      retry: false,
+    })),
   })
 
   const engines: EngineStatus[] = (Object.keys(ENGINES) as RuntimeEngine[]).map((engine, i) => {
@@ -159,6 +181,28 @@ export function useRuntimeAgents() {
   }
 }
 
+function parseLines(lines: ReadonlyArray<{ text: string }>, engine: RuntimeEngine, cache: WeakMap<object, RuntimeEvent[]>): RuntimeEvent[] {
+  const out: RuntimeEvent[] = []
+  for (const l of lines) {
+    let ev = cache.get(l)
+    if (!ev) {
+      ev = parseEventLines(l.text, engine)
+      cache.set(l, ev)
+    }
+    for (const e of ev) out.push(e)
+  }
+  return out
+}
+
+function useAgentPodsSignal(t: { namespace?: string; selector?: string; queryKey: unknown[] }): number | false {
+  const on = Boolean(t.namespace)
+  return useWatchSignal(
+    on ? { group: '', version: 'v1', resource: 'pods', namespace: t.namespace, labelSelector: t.selector } : null,
+    [t.queryKey],
+    { enabled: on },
+  )
+}
+
 /**
  * The merged event feed.
  *
@@ -169,15 +213,48 @@ export function useRuntimeAgents() {
  */
 export function useRuntimeEvents(
   engines: EngineStatus[],
-  opts: { tailLines?: number; enabled?: boolean } = {},
+  opts: { tailLines?: number; enabled?: boolean; follow?: boolean } = {},
 ) {
   const tailLines = opts.tailLines ?? 250
+  const enabled = opts.enabled !== false
+  const follow = opts.follow === true
   const targets = engines.flatMap((e) =>
     e.installed
       ? e.pods.filter((p) => p.ready).map((p) => ({ engine: e.engine, pod: p }))
       : []
   )
 
+  // Follow mode: one held-open log stream per agent pod, resumed from the last
+  // line on a drop — events arrive as they are written, with no polling.
+  const streams = ENGINE_IDS.map((engine) => {
+    const e = engines.find((x) => x.engine === engine)
+    const pods = e?.installed ? e.pods.filter((p) => p.ready) : []
+    return { engine, namespace: e?.namespace, sources: pods.map((p) => ({ pod: p.name, container: ENGINES[engine].container, label: p.node ?? p.name })) }
+  })
+  const tetragon = useLogStream({
+    namespace: streams[0].namespace,
+    sources: streams[0].sources,
+    follow: true,
+    tailLines,
+    // Bound memory: the feed is the recent window, not an archive.
+    maxLines: Math.max(tailLines, 250) * Math.max(1, streams[0].sources.length),
+    enabled: enabled && follow,
+  })
+  const falco = useLogStream({
+    namespace: streams[1].namespace,
+    sources: streams[1].sources,
+    follow: true,
+    tailLines,
+    maxLines: Math.max(tailLines, 250) * Math.max(1, streams[1].sources.length),
+    enabled: enabled && follow,
+  })
+  // Lines keep their identity as the stream appends, so each is parsed once.
+  const tetragonCache = useRef(new WeakMap<object, RuntimeEvent[]>())
+  const falcoCache = useRef(new WeakMap<object, RuntimeEvent[]>())
+  const tetragonEvents = useMemo(() => parseLines(tetragon.lines, 'tetragon', tetragonCache.current), [tetragon.lines])
+  const falcoEvents = useMemo(() => parseLines(falco.lines, 'falco', falcoCache.current), [falco.lines])
+
+  // Tail mode (dashboard card): a bounded tail per pod at the minute floor.
   const queries = useQueries({
     queries: targets.map(({ engine, pod }) => ({
       queryKey: ['deliver', 'runtime', 'events', engine, pod.namespace, pod.name, tailLines],
@@ -188,14 +265,33 @@ export function useRuntimeEvents(
         })
         return parseEventLines(text, engine)
       },
-      enabled: opts.enabled !== false,
-      refetchInterval: EVENTS_REFRESH_MS,
+      enabled: enabled && !follow,
+      refetchInterval: TAIL_REFRESH_MS,
       retry: false,
-      // A node's feed stays on screen while the next tail is in flight, so the
-      // list does not empty and refill every ten seconds.
+      // A node's feed stays on screen while the next tail is in flight.
       placeholderData: (prev: RuntimeEvent[] | undefined) => prev,
     })),
   })
+
+  if (follow) {
+    const live = [tetragon, falco]
+    const events = [...tetragonEvents, ...falcoEvents].sort(byNewest)
+    const failed = (st: string) => st === 'forbidden' || st === 'error' || st === 'notfound'
+    const failures = streams.reduce((n, s, i) => n + (failed(live[i].status) ? s.sources.length : 0), 0)
+    const connecting = streams.some((s, i) => s.sources.length > 0 && (live[i].status === 'connecting' || live[i].status === 'idle'))
+    return {
+      events,
+      failures,
+      total: targets.length,
+      isLoading: targets.length > 0 && events.length === 0 && connecting,
+      isFetching: connecting,
+      refetch: () => {
+        tetragon.reload()
+        falco.reload()
+        return Promise.resolve()
+      },
+    }
+  }
 
   const events = queries.flatMap((q) => q.data ?? []).sort(byNewest)
   const failures = queries.filter((q) => q.isError).length
@@ -272,7 +368,7 @@ export function useTetragonMetrics(agent?: EngineStatus, enabled = true) {
   return useQuery({
     queryKey: ['deliver', 'runtime', 'tetragon-metrics', namespace ?? '-', pods.join(',')],
     enabled: Boolean(namespace) && pods.length > 0 && enabled,
-    refetchInterval: AGENTS_REFRESH_MS,
+    refetchInterval: METRICS_REFRESH_MS,
     retry: false,
     queryFn: async (): Promise<TetragonMetrics> => {
       const scrapes = await Promise.allSettled(

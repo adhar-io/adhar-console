@@ -1043,8 +1043,9 @@ export function usePHCohorts() {
     },
     staleTime: 60_000,
     retry: noRetryOnClientError,
-    // A cohort that is still calculating gets its count shortly.
-    refetchInterval: (q) => ((q.state.data as RawCohort[] | undefined)?.some((c) => c.is_calculating) ? 10_000 : false),
+    // A cohort that is still calculating gets its count shortly — re-read at
+    // the poll floor until it settles, then stop.
+    refetchInterval: (q) => ((q.state.data as RawCohort[] | undefined)?.some((c) => c.is_calculating) ? 60_000 : false),
   })
 }
 
@@ -1091,8 +1092,9 @@ export function useRecordings(p: { range: DateRangeId; personUuid?: string; limi
       const r = await ph<{ results: Array<Record<string, unknown>>; has_next?: boolean }>(`/session_recordings/?${qs}`)
       return { list: (r.results ?? []).map(normalizeRecording).filter((x) => x.id), hasNext: !!r.has_next }
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    // Recordings land minutes after a session ends; the list is read on open
+    // (and on range change) rather than re-polled.
+    staleTime: 2 * 60_000,
     retry: noRetryOnClientError,
   })
 }

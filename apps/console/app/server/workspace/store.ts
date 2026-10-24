@@ -202,6 +202,24 @@ export async function openStore(tenant: string): Promise<Store | null> {
 
 /* ─────────────────── audit trail ─────────────────── */
 
+type AuditListener = (at: string) => void
+const auditListeners = new Map<string, Set<AuditListener>>()
+
+/**
+ * Be told when this replica writes an audit event for `tenant` — the live
+ * hub's `audit` topic rides on this instead of polling the table. Returns the
+ * unsubscribe.
+ */
+export function onAuditWrite(tenant: string, fn: AuditListener): () => void {
+  let set = auditListeners.get(tenant)
+  if (!set) auditListeners.set(tenant, (set = new Set()))
+  set.add(fn)
+  return () => {
+    set.delete(fn)
+    if (set.size === 0) auditListeners.delete(tenant)
+  }
+}
+
 /**
  * Append one audit event for a mutation. Failures to write the audit doc are
  * logged but never fail the underlying mutation.
@@ -229,6 +247,13 @@ export async function writeAudit(
     await store.put(KIND.audit, crypto.randomUUID(), doc, actor.id)
   } catch (e) {
     console.warn('[workspace] failed to write audit event:', e)
+  }
+  for (const fn of auditListeners.get(store.tenant) ?? []) {
+    try {
+      fn(doc.at)
+    } catch {
+      // a listener's socket went away
+    }
   }
   // Every privileged mutation also lands in the Notification Center.
   void notifyFromAudit(store, doc)

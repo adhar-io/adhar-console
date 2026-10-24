@@ -52,6 +52,7 @@ import { handleGraph } from './app/server/graph/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
 import { handleStatus } from './app/server/status.ts'
+import { handlePromBatch } from './app/server/prom-batch.ts'
 import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
 import {
   csrfRejected,
@@ -348,6 +349,8 @@ async function route(req: Request): Promise<Response> {
   if (path === '/api/config') return apiConfig()
   if (path === '/api/diagnostics') return diagnostics(req)
   if (path === '/api/status') return handleStatus(req)
+  // Many PromQL queries in one request (Overview and other panels coalesce here).
+  if (path === '/api/prom/batch') return handlePromBatch(req)
 
   // Auth (OIDC) — all GET, full-page navigations + the session probe.
   if (path === '/api/auth/login') return handleLogin(req)

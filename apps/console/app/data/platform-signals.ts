@@ -1,6 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
-import { argocd, k8s } from '@adhar/api-clients'
-import { useLiveRefetch } from '@adhar/shell-ui'
+import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { k8s } from '@adhar/api-clients'
+import { useAppConfig, useWatchSignal } from '@adhar/shell-ui'
+import { combineIntervals, useK8sList } from './live-k8s.ts'
+import { useArgoApplications } from './argo-apps.ts'
 
 /**
  * Platform-signal hooks for the Overview page — REAL data, no stubs / no
@@ -18,10 +20,10 @@ import { useLiveRefetch } from '@adhar/shell-ui'
  */
 
 const client = k8s.K8sClient.auto()
-const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
 
-const REFRESH_MS = 30_000
-const FAST_REFRESH_MS = 15_000
+/** Timer for sources with nothing to watch (metrics APIs, tool REST). */
+const POLL_MS = 60_000
+const REFRESH_MS = POLL_MS
 
 /* ─────────── GVR definitions for CRD-backed sources ─────────── */
 
@@ -76,8 +78,15 @@ type Gvr = (typeof GVR)[keyof typeof GVR]
  * list at each version in turn and keep the first the API server answers.
  * Only if every version fails is the panel's error the first one's.
  */
-function useGenericAnyVersion(key: string, gvr: Gvr, versions: string[], refetch = REFRESH_MS) {
+function useGenericAnyVersion(key: string, gvr: Gvr, versions: string[]) {
   const queryKey = ['ov', 'k8s', key]
+  // Watch both candidate versions: the one not served is refused once, the
+  // served one drives the refetch (change-filtered, throttled).
+  const [v1, v2] = versions
+  const refetchInterval = combineIntervals(
+    useWatchSignal({ group: gvr.group, version: v1, resource: gvr.resource }, [queryKey]),
+    useWatchSignal(v2 ? { group: gvr.group, version: v2, resource: gvr.resource } : null, [queryKey], { enabled: Boolean(v2) }),
+  )
   return useQuery({
     queryKey,
     queryFn: async () => {
@@ -91,86 +100,57 @@ function useGenericAnyVersion(key: string, gvr: Gvr, versions: string[], refetch
       }
       throw first
     },
-    refetchInterval: useLiveRefetch(gvr, [queryKey], refetch),
+    refetchInterval,
     retry: false,
   })
 }
 
 function useGeneric(key: string, gvr: Gvr, refetch = REFRESH_MS, watchable = true) {
   const queryKey = ['ov', 'k8s', key]
-  return useQuery({
+  // A watchable resource is a canonical live list (see live-k8s.ts); only the
+  // metrics API, which cannot be watched, is a keyed query on a timer.
+  const live = useK8sList(gvr, { enabled: watchable })
+  const polled = useQuery({
     queryKey,
     queryFn: () => client.listGeneric(undefined, gvr),
-    refetchInterval: useLiveRefetch(watchable ? gvr : null, [queryKey], refetch),
+    refetchInterval: refetch,
     retry: false,
+    enabled: !watchable,
   })
+  return watchable ? live : polled
 }
 
 /* ─────────── core k8s resources ─────────── */
 
+type ItemOf<F extends (...a: never[]) => Promise<unknown[]>> = Awaited<ReturnType<F>>[number]
+
 export function useNodes() {
-  const queryKey = ['ov', 'k8s', 'nodes']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listNodes(),
-    refetchInterval: useLiveRefetch(GVR.nodes, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listNodes>>(GVR.nodes)
 }
 
 export function useAllPods() {
-  const queryKey = ['ov', 'k8s', 'pods']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listPods(),
-    refetchInterval: useLiveRefetch(GVR.pods, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listPods>>(GVR.pods)
 }
 
 /** `metrics.k8s.io` serves point-in-time samples and cannot be watched. */
 export function useNodeMetrics() {
-  return useGeneric('node-metrics', GVR.nodeMetrics, REFRESH_MS, false)
+  return useGeneric('node-metrics', GVR.nodeMetrics, POLL_MS, false)
 }
 
 export function usePvcs() {
-  const queryKey = ['ov', 'k8s', 'pvcs']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listPersistentVolumeClaims(),
-    refetchInterval: useLiveRefetch(GVR.pvcs, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listPersistentVolumeClaims>>(GVR.pvcs)
 }
 
 export function usePvs() {
-  const queryKey = ['ov', 'k8s', 'pvs']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listPersistentVolumes(),
-    refetchInterval: useLiveRefetch(GVR.pvs, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listPersistentVolumes>>(GVR.pvs)
 }
 
 export function useClusterEvents() {
-  const queryKey = ['ov', 'k8s', 'events']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listEvents(),
-    refetchInterval: useLiveRefetch(GVR.events, [queryKey], FAST_REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listEvents>>(GVR.events)
 }
 
 export function useServices() {
-  const queryKey = ['ov', 'k8s', 'services']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listServices(),
-    refetchInterval: useLiveRefetch(GVR.services, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listServices>>(GVR.services)
 }
 
 export function useEndpoints() {
@@ -178,13 +158,7 @@ export function useEndpoints() {
 }
 
 export function useIngresses() {
-  const queryKey = ['ov', 'k8s', 'ingresses']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listIngresses(),
-    refetchInterval: useLiveRefetch(GVR.ingresses, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listIngresses>>(GVR.ingresses)
 }
 
 export function useResourceQuotas() {
@@ -193,13 +167,7 @@ export function useResourceQuotas() {
 
 /** Cluster namespaces — used to map tenants (adhar.io/org label) to namespaces. */
 export function useNamespaces() {
-  const queryKey = ['ov', 'k8s', 'namespaces']
-  return useQuery({
-    queryKey,
-    queryFn: () => client.listNamespaces(),
-    refetchInterval: useLiveRefetch(GVR.namespaces, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+  return useK8sList<ItemOf<typeof client.listNamespaces>>(GVR.namespaces)
 }
 
 /* ─────────── CRD-backed sources ─────────── */
@@ -229,7 +197,7 @@ export function useKafkaTopics() {
 }
 
 export function useWorkflows() {
-  return useGeneric('workflows', GVR.workflows, FAST_REFRESH_MS)
+  return useGeneric('workflows', GVR.workflows)
 }
 
 export function useCiliumPolicies() {
@@ -280,20 +248,12 @@ export interface AppConfig {
   version?: string
 }
 
-export function useToolsConfig() {
-  return useQuery({
-    queryKey: ['ov', 'config'],
-    queryFn: async (): Promise<AppConfig> => {
-      const res = await fetch('/api/config', {
-        credentials: 'include',
-        headers: { accept: 'application/json' },
-      })
-      if (!res.ok) throw new Error(`config request failed (${res.status})`)
-      return (await res.json()) as AppConfig
-    },
-    staleTime: 60_000,
-    retry: false,
-  })
+/**
+ * `/api/config`, through the shell's shared query — one request for the whole
+ * console (the shell reads the same document for tool URLs and org names).
+ */
+export function useToolsConfig(): UseQueryResult<AppConfig> {
+  return useAppConfig() as unknown as UseQueryResult<AppConfig>
 }
 
 /**
@@ -347,18 +307,11 @@ export function appWorkloads(app: DoraApp): string[] {
 }
 
 /**
- * Argo CD Applications are Kubernetes CRDs, so this reads through the proxy but
- * is driven by the apiserver watch on `applications` — a sync finishing updates
- * the panel immediately instead of up to 30 seconds later.
+ * Argo CD Applications through the Argo CD API, kept current by the apiserver
+ * watch on the CRs (see argo-apps.ts). Same cache entry as the catalog's.
  */
-export function useDoraApps() {
-  const queryKey = ['ov', 'argocd', 'dora-apps']
-  return useQuery({
-    queryKey,
-    queryFn: async () => (await argocdClient.listApplications()) as unknown as DoraApp[],
-    refetchInterval: useLiveRefetch(GVR.argoApps, [queryKey], REFRESH_MS),
-    retry: false,
-  })
+export function useDoraApps(): UseQueryResult<DoraApp[]> {
+  return useArgoApplications() as unknown as UseQueryResult<DoraApp[]>
 }
 
 /* ── OpenCost (Budget) ── */
@@ -460,7 +413,8 @@ export function useBudget() {
       }
       return { namespaces, monthlyTotal, budget: configuredBudget() }
     },
-    staleTime: 60_000,
+    // 30-day cost windows: OpenCost's own aggregation moves hourly at best.
+    staleTime: 15 * 60_000,
     retry: false,
   })
 }
@@ -509,7 +463,7 @@ export function useCostTrend() {
       const total = series.reduce((s, v) => s + v, 0)
       return { series, total, compute, storage, network }
     },
-    staleTime: 60_000,
+    staleTime: 15 * 60_000,
     retry: false,
   })
 }

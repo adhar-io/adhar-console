@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useOptionalUser } from '@adhar/shell-ui'
+import { useLiveRefetch, useOptionalUser } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
 import { finishedAt, isRunning, type TestRun, useTestRuns } from './k6.ts'
@@ -72,8 +72,11 @@ const TEST_RUNS: k8s.GVR = { group: 'k6.io', version: 'v1alpha1', resource: 'tes
 /* ─────────────────────────── results ─────────────────────────── */
 
 export function useRunRecords() {
+  const queryKey = ['perf', 'results']
+  // Kept results are ConfigMaps; a watch on the label pushes each new harvest.
+  const refetchInterval = useLiveRefetch({ group: '', version: 'v1', resource: 'configmaps', labelSelector: `${LABEL_RESULT}=true` }, [queryKey], 60_000)
   return useQuery<RunRecord[]>({
-    queryKey: ['perf', 'results'],
+    queryKey,
     queryFn: async () => {
       const res = await kube.list<Parameters<typeof recordFromConfigMap>[0]>(CONFIG_MAPS, {
         labelSelector: `${LABEL_RESULT}=true`,
@@ -84,7 +87,7 @@ export function useRunRecords() {
         return r ? [r] : []
       }))
     },
-    refetchInterval: 30_000,
+    refetchInterval,
     retry: false,
   })
 }
@@ -375,8 +378,11 @@ export function usePinBaseline() {
 /* ─────────────────────────── schedules ─────────────────────────── */
 
 export function usePerfSchedules() {
+  const queryKey = ['perf', 'schedules']
+  // CronJob edits (and each fire's lastScheduleTime) arrive over the watch.
+  const refetchInterval = useLiveRefetch({ group: 'batch', version: 'v1', resource: 'cronjobs', labelSelector: LABEL_SCHEDULE }, [queryKey], 60_000)
   return useQuery<PerfSchedule[]>({
-    queryKey: ['perf', 'schedules'],
+    queryKey,
     queryFn: async () => {
       const res = await kube.list<Parameters<typeof scheduleFromCronJob>[0]>(CRON_JOBS, {
         labelSelector: LABEL_SCHEDULE,
@@ -389,7 +395,7 @@ export function usePerfSchedules() {
         })
         .sort((a, b) => a.test.localeCompare(b.test) || a.name.localeCompare(b.name))
     },
-    refetchInterval: 30_000,
+    refetchInterval,
     retry: false,
   })
 }

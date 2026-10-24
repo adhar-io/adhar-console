@@ -1,6 +1,7 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, k8s } from '@adhar/api-clients'
 import type { ArgoTreeNode, CompositionGraph, KObj } from './catalog-composition-model.ts'
+import { useWatchInvalidate } from './live-k8s.ts'
 import { buildAppGraph, indexLive, type ManagedResource, managedIndex, podUsage, type PodUsage, withLive } from './catalog-resources-model.ts'
 
 /**
@@ -23,7 +24,10 @@ import { buildAppGraph, indexLive, type ManagedResource, managedIndex, podUsage,
 
 const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
 
+/** Minimum gap between two watch-driven re-reads of the tab. */
 export const RESOURCES_REFRESH_MS = 10_000
+/** Pod usage (metrics.k8s.io) has no watch; re-read this often while shown. */
+const USAGE_REFRESH_MS = 120_000
 
 const ARGO_APPS: k8s.GatewayGVR = { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications', namespaced: true }
 
@@ -94,11 +98,33 @@ export async function loadAppResources(ref: { name: string; namespace?: string }
 }
 
 export function useAppResources(ref: { name: string; namespace?: string } | undefined, opts: { paused: boolean }) {
+  const queryKey = ['catalog', 'resources', ref?.namespace, ref?.name]
+  const qc = useQueryClient()
+  const prev = qc.getQueryData<AppResources>(queryKey)
+  // What changes the picture: the Application (Argo CD rewrites its status on
+  // every health/sync change) and the Pods in the app's namespaces. Their
+  // watches trigger the re-read — at most one per 10s during a rollout,
+  // nothing at all while the app is steady.
+  const podNamespaces = prev
+    ? [...new Set(Object.values(prev.graph.nodes).filter((n) => n.kind === 'Pod' && n.namespace).map((n) => n.namespace as string))].sort()
+    : []
+  const fallback = useWatchInvalidate(
+    ref
+      ? [
+        { group: ARGO_APPS.group, version: ARGO_APPS.version, resource: ARGO_APPS.resource, ...(ref.namespace ? { namespace: ref.namespace } : {}), fieldSelector: `metadata.name=${ref.name}` },
+        ...podNamespaces.map((namespace) => ({ group: '', version: 'v1', resource: 'pods', namespace })),
+      ]
+      : [],
+    [queryKey],
+    { enabled: !opts.paused, minGapMs: RESOURCES_REFRESH_MS },
+  )
   return useQuery<AppResources>({
-    queryKey: ['catalog', 'resources', ref?.namespace, ref?.name],
+    queryKey,
     queryFn: () => loadAppResources(ref!),
     enabled: Boolean(ref),
-    refetchInterval: opts.paused ? false : RESOURCES_REFRESH_MS,
+    // Pod CPU/memory come from metrics.k8s.io, which cannot be watched: with
+    // usage on screen, a slow timer keeps it honest.
+    refetchInterval: opts.paused ? false : fallback || (prev?.usage ? USAGE_REFRESH_MS : false),
     refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
     retry: false,

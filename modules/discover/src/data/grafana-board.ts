@@ -208,7 +208,22 @@ export const QUICK_RANGES: Array<{ from: string; label: string }> = [
   { from: 'now-30d', label: 'Last 30 days' },
 ]
 
-export const REFRESH_INTERVALS = ['', '10s', '30s', '1m', '5m', '15m', '1h'] as const
+export const REFRESH_INTERVALS = ['', '1m', '5m', '15m', '1h'] as const
+
+/** The fastest a board may auto-refresh — the console-wide poll floor (`POLL_FLOOR_MS`). */
+export const MIN_BOARD_REFRESH_MS = 60_000
+
+/**
+ * A board's refresh setting raised to the poll floor: a board saved with
+ * `5s`/`10s`/`30s` refreshes every minute here; unparseable means off.
+ * Every tick re-queries every panel, so a sub-minute refresh on a twenty-panel
+ * board was twenty-plus datasource queries every few seconds per open tab.
+ */
+export function clampRefresh(s: string | undefined | null): string {
+  const ms = parseDuration(s)
+  if (!ms) return ''
+  return ms < MIN_BOARD_REFRESH_MS ? '1m' : s!.trim()
+}
 
 const UNIT_MS: Record<string, number> = {
   ms: 1,

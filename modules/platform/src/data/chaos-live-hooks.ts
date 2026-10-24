@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { kube } from '@adhar/api-clients/k8s'
-import { notifyUnauthorized } from '@adhar/shell-ui'
+import { notifyUnauthorized, POLL_FLOOR_MS, useLiveRefetch } from '@adhar/shell-ui'
 import {
   deltaFromFirst,
   type MetricSeries,
@@ -20,25 +20,41 @@ import type { ChaosResult } from './chaos-kinds.ts'
 import { isNotFound, useChaosCluster } from './chaos.ts'
 import { addProbeSample, type PodLike, type ProbeSample, targetPods, type TargetPods } from './chaos-live.ts'
 import { promRangeAt } from './prom.ts'
+import { watchOf } from './live.ts'
+import { useFollowedRunLog } from './run-log-follow.ts'
 
 /**
  * The I/O behind the live run canvas: the target's pods (Kubernetes API), its
  * metrics over the run window (Prometheus through the BFF), the probe state
- * the page observes poll by poll (ChaosResult), a suite run's timestamped log
- * (resilience runner), and the scorer's resilience grades. Every hook polls
- * only while the run is active and stops on its own when it ends; React
- * Query does not poll a hidden tab.
+ * the page observes change by change (ChaosResult), a suite run's timestamped
+ * log (resilience runner), and the scorer's resilience grades.
+ *
+ * Kubernetes reads are pushed by apiserver watches over the live socket; the
+ * runner's log is followed as a stream while the run is active; only the
+ * Prometheus range reads run on a timer, at the 60 s floor and only while the
+ * run is active (a range read returns full-resolution points regardless).
  */
 
 const PODS = { group: '', version: 'v1', resource: 'pods', namespaced: true }
 const CONFIG_MAPS = { group: '', version: 'v1', resource: 'configmaps', namespaced: true }
 
-/** The pods a run targets: `namespace` + one label (`app=cart`), live while it runs. */
+/**
+ * The pods a run targets: `namespace` + one label (`app=cart`), kept current
+ * by a pod watch with the same namespace and selector. `live` is kept for
+ * callers; readiness and restarts are pushed whether or not the run is active.
+ */
 export function useTargetPods(input: { namespace?: string; selector?: string; live: boolean; enabled?: boolean }) {
   const { cluster, key } = useChaosCluster()
   const enabled = (input.enabled ?? true) && !!input.namespace
+  const queryKey = ['chaos', 'target-pods', key, input.namespace, input.selector ?? '']
+  const interval = useLiveRefetch(
+    watchOf(PODS, { namespace: input.namespace, labelSelector: input.selector || undefined, cluster }),
+    [queryKey],
+    POLL_FLOOR_MS,
+    enabled,
+  )
   return useQuery({
-    queryKey: ['chaos', 'target-pods', key, input.namespace, input.selector ?? ''],
+    queryKey,
     queryFn: async (): Promise<TargetPods & { raw: PodLike[] }> => {
       const res = await kube.list<PodLike>(PODS, { namespace: input.namespace, labelSelector: input.selector || undefined, cluster })
       const raw = res.items ?? []
@@ -46,7 +62,7 @@ export function useTargetPods(input: { namespace?: string; selector?: string; li
     },
     enabled,
     retry: false,
-    refetchInterval: enabled ? (input.live ? 3_000 : 20_000) : false,
+    refetchInterval: enabled ? interval : false,
   })
 }
 
@@ -58,7 +74,8 @@ export interface LiveMetrics {
 
 /**
  * The target's metrics from a run's start until now (or its end, padded),
- * re-read every 15 s while it runs. The window starts two minutes before the
+ * re-read at the poll floor (60 s) while it runs — each read is a range query,
+ * so the chart keeps its full resolution. The window starts two minutes before the
  * run so the steady state is on the chart to compare against.
  */
 export function useLiveTargetMetrics(input: { namespace?: string; podRegex?: string; start?: number; end?: number; active: boolean }) {
@@ -93,8 +110,8 @@ export function useLiveTargetMetrics(input: { namespace?: string; podRegex?: str
     },
     enabled,
     retry: false,
-    refetchInterval: enabled && input.active ? 15_000 : false,
-    staleTime: input.active ? 10_000 : 5 * 60_000,
+    refetchInterval: enabled && input.active ? POLL_FLOOR_MS : false,
+    staleTime: input.active ? 30_000 : 5 * 60_000,
   })
 }
 
@@ -120,21 +137,40 @@ export function useProbeTimeline(result: ChaosResult | null | undefined, resetKe
   return samples
 }
 
-/** A suite run's log, read with timestamps and parsed into phases — re-read every 5 s while it runs. */
+/**
+ * A suite run's log, read with timestamps and parsed into phases. Read once
+ * through the BFF (which resolves the run's newest pod), then — while the run
+ * is live — followed as a log stream, so phases appear as the runner prints
+ * them instead of on a timer. A new pod (a Job retry) is picked up by the
+ * run-log hook's pod watch.
+ */
 export function useRunTimeline(job: string | null, app: string, live: boolean) {
-  return useQuery({
+  const query = useQuery({
     queryKey: ['chaos', 'run-timeline', job, app],
-    queryFn: async (): Promise<RunnerTimeline & { pod: string | null }> => {
+    queryFn: async (): Promise<RunnerTimeline & { pod: string | null; log: string }> => {
       const res = await fetch(`/api/resilience/runs/log?job=${encodeURIComponent(job!)}&timestamps=1`, { credentials: 'include' })
       if (res.status === 401) notifyUnauthorized()
       const body = (await res.json().catch(() => ({}))) as { pod?: string | null; log?: string; error?: string; detail?: string }
       if (!res.ok) throw new Error(body.detail || body.error || `log could not be read (${res.status})`)
-      return { ...parseRunnerTimeline(body.log ?? '', app), pod: body.pod ?? null }
+      return { ...parseRunnerTimeline(body.log ?? '', app), pod: body.pod ?? null, log: body.log ?? '' }
     },
     enabled: !!job,
     retry: false,
-    refetchInterval: job && live ? 5_000 : false,
+    // A finished run's log no longer changes.
+    staleTime: live ? 30_000 : Infinity,
   })
+  const followed = useFollowedRunLog({
+    job,
+    pod: query.data?.pod ?? null,
+    live,
+    timestamps: true,
+    queryKeys: [['chaos', 'run-timeline', job, app]],
+  })
+  const data = useMemo(
+    () => (followed !== undefined && query.data ? { ...parseRunnerTimeline(followed, app), pod: query.data.pod, log: followed } : query.data),
+    [followed, query.data, app],
+  )
+  return { ...query, data }
 }
 
 /* ─────────────────────────── scorer ─────────────────────────── */
@@ -190,7 +226,8 @@ export function useScorerResilience() {
       return out
     },
     retry: false,
-    staleTime: 5 * 60_000,
-    refetchInterval: 10 * 60_000,
+    // The scorer rewrites these on its own schedule (a CronJob, hours apart):
+    // read once per visit, not on a timer.
+    staleTime: 10 * 60_000,
   })
 }

@@ -30,7 +30,8 @@ import {
  *   falls back to Prometheus-only state (no silences).
  */
 
-const REFRESH_MS = 15_000
+/** The console-wide poll floor — also the BFF change-detection cadence, shared with `useAlerts`. */
+const REFRESH_MS = 60_000
 
 interface AmTarget {
   tool: string
@@ -147,7 +148,9 @@ export function useSilences() {
   return useQuery({
     queryKey: ['alerting', 'silences'],
     queryFn: () => am<AmSilence[]>('/api/v2/silences'),
-    refetchInterval: 30_000,
+    // Silences change by someone's action, not on their own (expiry is
+    // computed from `endsAt`); our own mutations invalidate this key.
+    staleTime: 60_000,
     retry: false,
   })
 }

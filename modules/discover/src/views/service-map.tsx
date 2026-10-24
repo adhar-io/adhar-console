@@ -73,7 +73,7 @@ export function ServiceMap() {
   const available = useMemo(() => GRAPH_SOURCES.filter((s) => names.data?.includes(s.probe)), [names.data])
   const src = available.find((s) => s.id === srcId) ?? available[0] ?? null
   const queries = src ? src.queries(win) : { rps: null, err: null, p95: null }
-  const q = useInstantSet({ rps: queries.rps, err: queries.err, p95: queries.p95 }, { refreshMs: 30_000 })
+  const q = useInstantSet({ rps: queries.rps, err: queries.err, p95: queries.p95 }, { refreshMs: 60_000 })
 
   const graph: Graph = useMemo(
     () => (src ? buildGraph(src, q.rps.data ?? [], q.err.data ?? [], q.p95.data ?? []) : { nodes: [], edges: [] }),
@@ -377,7 +377,7 @@ function NodePanel({
   onPick(id: string): void
 }) {
   const nq = nodeQueries(src, node, '5m')
-  const r = useRangeSet({ rps: nq.rps, err: nq.errPct, p95: nq.p95 }, { windowMs: 3_600_000, stepSec: 60, refreshMs: 30_000 })
+  const r = useRangeSet({ rps: nq.rps, err: nq.errPct, p95: nq.p95 }, { windowMs: 3_600_000, stepSec: 60, refreshMs: 60_000 })
   const callers = graph.edges.filter((e) => e.to === node.id).sort((a, b) => b.rps - a.rps)
   const callees = graph.edges.filter((e) => e.from === node.id).sort((a, b) => b.rps - a.rps)
   const byId = new Map(graph.nodes.map((n) => [n.id, n]))

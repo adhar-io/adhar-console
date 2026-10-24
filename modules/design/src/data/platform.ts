@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { argocd, k8s } from '@adhar/api-clients'
-import { CONSOLE_PERMISSIONS, useCan, useGiteaOrg, useTeamScope } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, useCan, useGiteaOrg, useLiveRefetch, useTeamScope } from '@adhar/shell-ui'
 import { giteaClient, unb64, useGiteaRepos } from './gitea.ts'
 import {
   type AppXR,
@@ -36,8 +36,14 @@ import { isAdrFile, type RemoteAdrFile } from './adr-sync.ts'
 const kube = k8s.K8sClient.auto()
 const argo = argocd.ArgoCDClient.auto({ tool: 'argocd' })
 
-const STALE = 30_000
-const LIVE = { staleTime: STALE, refetchInterval: 60_000, placeholderData: keepPreviousData, retry: false } as const
+/**
+ * Design reads platform context — tenancy, the catalog, Argo apps — to draw
+ * diagrams and fill pickers. None of it changes while someone is designing, so
+ * it is read on open and held for a few minutes (no timers). Application XRs
+ * are the exception that is cheap to keep exact: an apiserver watch pushes
+ * their changes.
+ */
+const READ = { staleTime: 5 * 60_000, placeholderData: keepPreviousData, retry: false } as const
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: 'same-origin', headers: { accept: 'application/json' } })
@@ -81,13 +87,13 @@ export interface WsMe {
 }
 
 export function useWorkspaceProjects() {
-  return useQuery({ queryKey: ['design', 'ws', 'projects'], queryFn: async () => (await getJson<{ items?: WsProject[] }>('/api/workspace/projects')).items ?? [], ...LIVE })
+  return useQuery({ queryKey: ['design', 'ws', 'projects'], queryFn: async () => (await getJson<{ items?: WsProject[] }>('/api/workspace/projects')).items ?? [], ...READ })
 }
 export function useWorkspaceTeams() {
-  return useQuery({ queryKey: ['design', 'ws', 'teams'], queryFn: async () => (await getJson<{ items?: WsTeam[] }>('/api/workspace/teams')).items ?? [], ...LIVE })
+  return useQuery({ queryKey: ['design', 'ws', 'teams'], queryFn: async () => (await getJson<{ items?: WsTeam[] }>('/api/workspace/teams')).items ?? [], ...READ })
 }
 export function useWorkspaceMembers(enabled = true) {
-  return useQuery({ queryKey: ['design', 'ws', 'members'], queryFn: async () => (await getJson<{ items?: WsMember[] }>('/api/workspace/members')).items ?? [], enabled, ...LIVE })
+  return useQuery({ queryKey: ['design', 'ws', 'members'], queryFn: async () => (await getJson<{ items?: WsMember[] }>('/api/workspace/members')).items ?? [], enabled, ...READ })
 }
 export function useWorkspaceMe() {
   return useQuery({ queryKey: ['design', 'ws', 'me'], queryFn: () => getJson<WsMe>('/api/workspace/me'), staleTime: 5 * 60_000, retry: false })
@@ -126,13 +132,17 @@ export function useDesignScope(): DesignScope {
 /* ───────────────────────── catalog ───────────────────────── */
 
 const APPLICATION_GVR = { group: 'platform.adhar.io', version: 'v1alpha1', resource: 'applications', namespaced: true }
+const APPLICATION_WATCH = { group: 'platform.adhar.io', version: 'v1alpha1', resource: 'applications', namespace: 'adhar-system' }
 
 /** Same key and fetch as the host catalog, so the two share one cache entry. */
 export function useApplicationXRs() {
+  const queryKey = ['catalog', 'live', 'applications']
+  const refetchInterval = useLiveRefetch(APPLICATION_WATCH, [queryKey], 60_000)
   return useQuery({
-    queryKey: ['catalog', 'live', 'applications'],
+    queryKey,
     queryFn: () => kube.listGeneric(undefined, APPLICATION_GVR, 'adhar-system'),
-    ...LIVE,
+    ...READ,
+    refetchInterval,
   })
 }
 
@@ -199,11 +209,9 @@ export function usePlatformCatalog(enabled = true): PlatformCatalog {
       })
       return lists.flat()
     },
-    ...LIVE,
-    staleTime: 5 * 60_000,
-    // The key already changes when any repo is pushed (`updated_at`), so polling
-    // only re-reads up to 2×MAX_DESCRIPTOR_REPOS unchanged files every minute.
-    refetchInterval: false,
+    // The key already changes when any repo is pushed (`updated_at`), so a
+    // timer would only re-read up to 2×MAX_DESCRIPTOR_REPOS unchanged files.
+    ...READ,
   })
   return useMemo(() => {
     const fromApps = entitiesFromApplications((apps.data ?? []) as AppXR[])
@@ -252,7 +260,7 @@ export function useArgoApps(enabled = true) {
         sync: a.status.sync.status,
         health: a.status.health.status,
       })),
-    ...LIVE,
+    ...READ,
   })
 }
 

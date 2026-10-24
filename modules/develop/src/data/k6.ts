@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useLiveRefetch } from '@adhar/shell-ui'
+import { useLiveRefetch, useWatchSignal } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
 import { rerunName } from './k6-summary.ts'
@@ -151,7 +151,7 @@ export function useTestRuns(enabled = true) {
     queryFn: async () => (await client.listGeneric(undefined, TEST_RUNS_GVR)) as unknown as TestRun[],
     // A load test's interesting window is minutes, and the stage transitions
     // are what people watch — the apiserver watch pushes them as they happen.
-    refetchInterval: useLiveRefetch(TEST_RUNS_GVR, [queryKey], 10_000, enabled),
+    refetchInterval: useLiveRefetch(TEST_RUNS_GVR, [queryKey], 60_000, enabled),
     enabled,
     retry: false,
   })
@@ -164,7 +164,10 @@ export function useTestRun(namespace: string | undefined, name: string | undefin
     queryKey,
     queryFn: async () =>
       (await client.getGeneric(undefined, TEST_RUNS_GVR, namespace, name!)) as unknown as TestRun,
-    refetchInterval: useLiveRefetch(TEST_RUNS_GVR, [queryKey], 5_000, enabled),
+    // Same watch params as `useTestRuns`, so the list and the drawer share one
+    // upstream apiserver watch; a short throttle so stage changes of the run
+    // being watched land within a couple of seconds.
+    refetchInterval: useWatchSignal(TEST_RUNS_GVR, [queryKey], { enabled, fallbackMs: 60_000, throttleMs: 1_500 }),
     enabled,
     retry: false,
   })
@@ -218,7 +221,12 @@ export function useTestRunPods(run: TestRun | undefined) {
         }))
         .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.name.localeCompare(b.name, undefined, { numeric: true }))
     },
-    refetchInterval: enabled ? 10_000 : false,
+    refetchInterval: useLiveRefetch(
+      enabled ? { group: '', version: 'v1', resource: 'pods', namespace, labelSelector: `k6_cr=${name}` } : null,
+      [queryKey],
+      60_000,
+      enabled,
+    ),
     enabled,
     retry: false,
   })

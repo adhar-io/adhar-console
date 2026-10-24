@@ -3,6 +3,8 @@ import { envOrder } from './catalog-env-order.ts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { argocd, kargo } from '@adhar/api-clients'
 import type { Entity } from './catalog.ts'
+import { ARGO_APPS_WATCH, useArgoApplications } from './argo-apps.ts'
+import { useWatchSignal } from '@adhar/shell-ui'
 
 /**
  * Live deployment / GitOps signals for the Service Catalog entity drawer.
@@ -229,14 +231,27 @@ export function deriveDeployment(
  */
 export function useResourceTree(app: argocd.Application | undefined, enabled = true) {
   const unhealthy = Boolean(app && app.status.health.status !== 'Healthy')
+  const queryKey = ['catalog', 'argocd', 'tree', app?.metadata.namespace, app?.metadata.name]
+  // Argo CD rewrites the Application's status whenever a resource's health
+  // changes, so the app's own watch says when the tree is worth re-reading.
+  const refetchInterval = useWatchSignal(app ? appWatch(app) : null, [queryKey], { enabled: enabled && unhealthy })
   return useQuery({
-    queryKey: ['catalog', 'argocd', 'tree', app?.metadata.namespace, app?.metadata.name],
+    queryKey,
     queryFn: () => argocdClient.getResourceTree(app!.metadata.name, app!.metadata.namespace),
     enabled: enabled && unhealthy,
     staleTime: REFRESH_MS,
-    refetchInterval: enabled && unhealthy ? REFRESH_MS : false,
+    refetchInterval,
     retry: 1,
   })
+}
+
+/** The apiserver watch on one Argo CD Application. */
+export function appWatch(app: { metadata: { name: string; namespace?: string } }) {
+  return {
+    ...ARGO_APPS_WATCH,
+    ...(app.metadata.namespace ? { namespace: app.metadata.namespace } : {}),
+    fieldSelector: `metadata.name=${app.metadata.name}`,
+  }
 }
 
 /** Unhealthy nodes, the cause before its symptoms: pods first, then their owners. */
@@ -262,13 +277,7 @@ export function useDeploymentIndex(enabled = true): {
   isLoading: boolean
   isError: boolean
 } {
-  const q = useQuery({
-    queryKey: ['catalog', 'argocd', 'apps'],
-    queryFn: () => argocdClient.listApplications(),
-    refetchInterval: enabled ? REFRESH_MS : false,
-    staleTime: REFRESH_MS,
-    enabled,
-  })
+  const q = useArgoApplications(enabled)
   // A failed BACKGROUND refetch keeps the last good list: only a query that
   // never answered is an error.
   return { apps: q.data, isLoading: q.isLoading, isError: q.isError && !q.data }
@@ -280,13 +289,7 @@ export function useDeploymentIndex(enabled = true): {
  * actions (the catalog runs under a view-only service account).
  */
 export function useEntityDeployment(entity: Entity, enabled = true): EntityDeployment {
-  const q = useQuery({
-    queryKey: ['catalog', 'argocd', 'apps'],
-    queryFn: () => argocdClient.listApplications(),
-    refetchInterval: enabled ? REFRESH_MS : false,
-    staleTime: REFRESH_MS,
-    enabled,
-  })
+  const q = useArgoApplications(enabled)
   const state = { isLoading: q.isLoading, isError: q.isError && !q.data }
   return useMemo(
     () => deriveDeployment(entity, q.data, state),
@@ -353,11 +356,22 @@ export function orderKargoStages(stages: readonly kargo.Stage[]): kargo.Stage[] 
   return [...stages].sort((a, b) => (depth.get(a.name) ?? 0) - (depth.get(b.name) ?? 0) || a.name.localeCompare(b.name))
 }
 
+/** Kargo's resources are CRs: their watches drive the refetches (a promotion lands in seconds). */
+const KARGO = (resource: string, project?: string) => ({
+  group: 'kargo.akuity.io',
+  version: 'v1alpha1',
+  resource,
+  ...(project ? { namespace: project } : {}),
+})
+const KARGO_GAP = { throttleMs: 3_000 }
+
 export function useKargoStages(enabled = true) {
+  const queryKey = ['catalog', 'kargo', 'stages']
+  const refetchInterval = useWatchSignal(KARGO('stages'), [queryKey], { enabled, ...KARGO_GAP })
   return useQuery({
-    queryKey: ['catalog', 'kargo', 'stages'],
+    queryKey,
     queryFn: async () => orderKargoStages(await kargoClient.listStages('')),
-    refetchInterval: enabled ? REFRESH_MS : false,
+    refetchInterval,
     staleTime: REFRESH_MS,
     enabled,
     retry: 1,
@@ -475,24 +489,30 @@ export function kargoEnvironments(
  * can only ever show history.
  */
 export function useKargoFreight(project: string | undefined, enabled = true) {
+  const queryKey = ['catalog', 'kargo', 'freight', project ?? '']
+  const on = enabled && Boolean(project)
+  const refetchInterval = useWatchSignal(KARGO('freights', project), [queryKey], { enabled: on, ...KARGO_GAP })
   return useQuery({
-    queryKey: ['catalog', 'kargo', 'freight', project ?? ''],
+    queryKey,
     queryFn: () => kargoClient.listFreight(project ?? ''),
-    enabled: enabled && Boolean(project),
+    enabled: on,
     staleTime: REFRESH_MS,
-    refetchInterval: enabled && project ? REFRESH_MS : false,
+    refetchInterval,
     retry: 1,
   })
 }
 
 /** Promotions in the project, newest first — the chain's recent history. */
 export function useKargoPromotions(project: string | undefined, enabled = true) {
+  const queryKey = ['catalog', 'kargo', 'promotions', project ?? '']
+  const on = enabled && Boolean(project)
+  const refetchInterval = useWatchSignal(KARGO('promotions', project), [queryKey], { enabled: on, ...KARGO_GAP })
   return useQuery({
-    queryKey: ['catalog', 'kargo', 'promotions', project ?? ''],
+    queryKey,
     queryFn: () => kargoClient.listPromotions(project ?? ''),
-    enabled: enabled && Boolean(project),
+    enabled: on,
     staleTime: REFRESH_MS,
-    refetchInterval: enabled && project ? REFRESH_MS : false,
+    refetchInterval,
     retry: 1,
   })
 }

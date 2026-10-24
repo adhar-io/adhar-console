@@ -15,8 +15,8 @@ import type { ComponentStatus, Dependency, StatusSnapshot } from '~/server/statu
  * app/server/status.ts): the platform version is the image the Adhar
  * controller runs, the console version is the image of the console
  * Deployment, component health and versions come from their workloads, and
- * each dependency is probed with its latency. The page polls every few
- * seconds; the server shares one snapshot between viewers and keeps an hour
+ * each dependency is probed with its latency. The page re-reads once a
+ * minute; the server shares one snapshot between viewers and keeps an hour
  * of history and a log of status changes.
  */
 export const Route = createFileRoute('/status')({
@@ -25,7 +25,8 @@ export const Route = createFileRoute('/status')({
   component: StatusPage,
 })
 
-const POLL_MS = 5_000
+/** The BFF recomputes its shared snapshot at most every 30s and samples history per minute. */
+const POLL_MS = 60_000
 
 const KIND: Record<ServiceHealth, StatusKind> = {
   operational: 'healthy',

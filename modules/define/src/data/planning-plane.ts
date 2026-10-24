@@ -86,7 +86,8 @@ export function usePlanIssues(projectId?: string) {
     queryFn: () => planning.listPlanIssues(slug, projectId!),
     enabled: !!projectId,
     staleTime: REFRESH_MS,
-    refetchInterval: 60_000,
+    // One project's plan, re-read slowly: every read spends the shared Plane key.
+    refetchInterval: 2 * 60_000,
   })
 }
 
@@ -97,8 +98,9 @@ export function usePortfolio(projectIds: string[], opts: { labels?: boolean; mod
     queries: projectIds.map((id) => ({
       queryKey: ['plane', 'plan-issues', slug, id],
       queryFn: () => planning.listPlanIssues(slug, id),
-      staleTime: REFRESH_MS,
-      refetchInterval: 90_000,
+      // Many projects at once: one timer each would spend the shared Plane
+      // key N times every 90s. Read on open; our own writes invalidate.
+      staleTime: 2 * 60_000,
     })),
   })
   const cycles = useQueries({

@@ -14,8 +14,6 @@ import { useQuery } from '@tanstack/react-query'
  * so rather than drawing a zero.
  */
 
-const PROM_BASE = '/api/svc/prometheus'
-
 export interface PromSample {
   labels: Record<string, string>
   value: number
@@ -27,17 +25,71 @@ interface PromVector {
   error?: string
 }
 
-export async function promInstant(query: string): Promise<PromSample[]> {
-  const res = await fetch(`${PROM_BASE}/api/v1/query?${new URLSearchParams({ query })}`, {
-    credentials: 'include',
-    headers: { accept: 'application/json' },
-  })
-  if (!res.ok) {
-    throw new Error(
-      res.status === 503 ? 'Prometheus is not configured for this install.' : `Prometheus returned HTTP ${res.status}.`,
-    )
+/* ─────────── batching ───────────
+ *
+ * Every query issued in the same instant — all the panels of a page mounting,
+ * or their minute timers firing together — goes out as ONE `POST
+ * /api/prom/batch` instead of one request per query. The BFF fans them out
+ * to Prometheus and caches each answer briefly per user, so tabs and panels
+ * asking the same thing share one evaluation.
+ */
+
+interface BatchItem {
+  kind: 'instant' | 'range'
+  query: string
+  start?: number
+  end?: number
+  step?: number
+}
+interface Pending {
+  item: BatchItem
+  resolve(v: { status: number; body: unknown }): void
+  reject(e: unknown): void
+}
+
+/** How long to gather queries before sending — long enough to catch a page's panels. */
+const BATCH_WINDOW_MS = 40
+const BATCH_MAX = 64
+let queue: Pending[] = []
+let flushTimer: ReturnType<typeof setTimeout> | undefined
+
+async function flush() {
+  flushTimer = undefined
+  const batch = queue
+  queue = []
+  for (let i = 0; i < batch.length; i += BATCH_MAX) {
+    const chunk = batch.slice(i, i + BATCH_MAX)
+    try {
+      const res = await fetch('/api/prom/batch', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ items: chunk.map((p) => p.item) }),
+      })
+      if (!res.ok) throw new Error(`Prometheus returned HTTP ${res.status}.`)
+      const { results } = (await res.json()) as { results: Array<{ status: number; body: unknown }> }
+      chunk.forEach((p, j) => p.resolve(results[j] ?? { status: 502, body: null }))
+    } catch (e) {
+      for (const p of chunk) p.reject(e)
+    }
   }
-  const body = (await res.json()) as PromVector
+}
+
+function enqueue(item: BatchItem): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    queue.push({ item, resolve, reject })
+    flushTimer ??= setTimeout(() => void flush(), BATCH_WINDOW_MS)
+  })
+}
+
+function promError(status: number): Error {
+  return new Error(status === 503 ? 'Prometheus is not configured for this install.' : `Prometheus returned HTTP ${status}.`)
+}
+
+export async function promInstant(query: string): Promise<PromSample[]> {
+  const { status, body: raw } = await enqueue({ kind: 'instant', query })
+  if (status !== 200) throw promError(status)
+  const body = (raw ?? {}) as PromVector
   if (body.status && body.status !== 'success') throw new Error(body.error ?? 'Prometheus query failed.')
   return (body.data?.result ?? [])
     .map((r) => ({ labels: r.metric ?? {}, value: Number(r.value?.[1]) }))
@@ -50,7 +102,7 @@ export async function promInstant(query: string): Promise<PromSample[]> {
  * of the panel still renders; only a transport failure — Prometheus missing —
  * fails the whole set.
  */
-export function usePromInstant<K extends string>(key: string, queries: Record<K, string>, refetchMs = 30_000) {
+export function usePromInstant<K extends string>(key: string, queries: Record<K, string>, refetchMs = 60_000) {
   return useQuery({
     queryKey: ['ov', 'prom', key, queries],
     queryFn: async (): Promise<Record<K, PromSample[]>> => {
@@ -82,21 +134,18 @@ export interface PromSeries {
   values: Array<[number, string]>
 }
 
-/** Range query over `[now - windowMs, now]` at `stepS` resolution. */
+/**
+ * Range query over `[now - windowMs, now]` at `stepS` resolution. The window
+ * end snaps to the step grid, so repeats within a step are the same query
+ * (and the BFF's cache answers them).
+ */
 export async function promRange(query: string, windowMs: number, stepS: number): Promise<PromSeries[]> {
-  const end = Math.floor(Date.now() / 1000)
+  const step = Math.max(1, Math.floor(stepS))
+  const end = Math.floor(Date.now() / 1000 / step) * step
   const start = end - Math.floor(windowMs / 1000)
-  const qs = new URLSearchParams({ query, start: String(start), end: String(end), step: String(stepS) })
-  const res = await fetch(`${PROM_BASE}/api/v1/query_range?${qs}`, {
-    credentials: 'include',
-    headers: { accept: 'application/json' },
-  })
-  if (!res.ok) {
-    throw new Error(
-      res.status === 503 ? 'Prometheus is not configured for this install.' : `Prometheus returned HTTP ${res.status}.`,
-    )
-  }
-  const body = (await res.json()) as { status?: string; error?: string; data?: { result?: PromSeries[] } }
+  const { status, body: raw } = await enqueue({ kind: 'range', query, start, end, step })
+  if (status !== 200) throw promError(status)
+  const body = (raw ?? {}) as { status?: string; error?: string; data?: { result?: PromSeries[] } }
   if (body.status && body.status !== 'success') throw new Error(body.error ?? 'Prometheus query failed.')
   return (body.data?.result ?? []).map((r) => ({ metric: r.metric ?? {}, values: r.values ?? [] }))
 }

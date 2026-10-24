@@ -1,7 +1,7 @@
+import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import {
   airbyte,
-  argocd,
   gitea,
   lgtm,
   metabase,
@@ -11,6 +11,7 @@ import {
 } from '@adhar/api-clients'
 import { docStore, useArgocdProject, useGiteaOrg, usePlaneWorkspace } from '@adhar/shell-ui'
 import { promRange } from './prom-instant.ts'
+import { useArgoApplications } from './argo-apps.ts'
 
 /**
  * Cross-module signal hooks for the Overview page.
@@ -26,14 +27,16 @@ import { promRange } from './prom-instant.ts'
 
 const planeClient = plane.PlaneClient.auto({ tool: 'plane' })
 const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
-const argocdClient = argocd.ArgoCDClient.auto({ tool: 'argocd' })
 const trivyClient = trivy.TrivyClient.auto({ tool: 'trivy' })
 const lgtmClient = lgtm.LgtmClient.auto({ tool: 'lgtm' })
 const phClient = posthog.PostHogClient.auto({ tool: 'posthog' })
 const metabaseClient = metabase.MetabaseClient.auto({ tool: 'metabase' })
 const airbyteClient = airbyte.AirbyteClient.auto({ tool: 'airbyte' })
 
-const REFRESH_MS = 30_000
+/** Metrics and tool REST with no push source: the poll floor. */
+const REFRESH_MS = 60_000
+/** Sources that change on a schedule of their own (scans, syncs). */
+const SLOW_MS = 5 * 60_000
 
 /* ─────────── Define · Plane ─────────── */
 
@@ -203,38 +206,58 @@ export function useDevelopRepos() {
 }
 
 export function useAirbyteConnections() {
+  // Connection config and sync schedules (hourly at best): no timer faster
+  // than the syncs themselves.
   return useQuery({
     queryKey: ['ov', 'airbyte', 'connections'],
     queryFn: () => airbyteClient.listConnections(),
-    refetchInterval: REFRESH_MS,
+    staleTime: 2 * 60_000,
+    refetchInterval: SLOW_MS,
   })
 }
 
 /* ─────────── Deliver · ArgoCD + Trivy ─────────── */
 
+/**
+ * The project's Argo CD applications: the one shared, watch-driven app list
+ * (argo-apps.ts) filtered here — not a second, per-project list on a timer.
+ */
 export function useDeliverApplications() {
   const project = useArgocdProject()
-  return useQuery({
-    queryKey: ['ov', 'argocd', 'apps', project],
-    queryFn: () => argocdClient.listApplications(project),
-    refetchInterval: REFRESH_MS,
-  })
+  const q = useArgoApplications()
+  const data = useMemo(
+    () => (project && q.data ? q.data.filter((a) => a.spec.project === project) : q.data),
+    [q.data, project],
+  )
+  return { ...q, data }
 }
 
+/**
+ * Trivy reports are CRs, but large ones (a vulnerability list per image) and
+ * they only change when a scan finishes — a watch would stream every report
+ * body to the browser. A slow timer is the cheaper honest option.
+ */
 export function useTrivyReports() {
   return useQuery({
     queryKey: ['ov', 'trivy', 'reports'],
     queryFn: () => trivyClient.listReports(),
-    refetchInterval: 60_000,
+    staleTime: 2 * 60_000,
+    refetchInterval: SLOW_MS,
   })
 }
 
 /* ─────────── Discover · LGTM + PostHog ─────────── */
 
+/**
+ * Firing alerts. Prometheus re-evaluates every rule (and so changes each
+ * alert's `value`) on every cycle, so server-side change detection would fire
+ * every time — a plain poll at the floor is the cheapest honest refresh.
+ */
 export function useDiscoverAlerts() {
   return useQuery({
     queryKey: ['ov', 'lgtm', 'alerts'],
     queryFn: () => lgtmClient.listAlerts(),
+    staleTime: 30_000,
     refetchInterval: REFRESH_MS,
   })
 }
@@ -304,6 +327,8 @@ export function useGoldenSignals() {
     queries: (['rps', 'errors', 'p95', 'errorsByWorkload'] as const).map((k) => ({
       queryKey: ['ov', 'hubble', 'golden', k],
       queryFn: range(GOLDEN_QUERIES[k]),
+      // 1h window at 60s steps: a new point exists once a minute.
+      staleTime: 30_000,
       refetchInterval: REFRESH_MS,
       retry: false,
     })),

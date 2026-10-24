@@ -269,7 +269,8 @@ export {
   type AppConfig,
 } from './app-config.ts'
 export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from './unauthorized.ts'
-export { liveClient, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveRefetch, useLiveStatus, useLiveToolPoll, usePollingInterval, type LiveListState, type LiveStatus as LiveHubStatus, type LiveTopic, type LiveWatchRef } from './live.ts'
+export { applyEvent, fingerprint, NOISE_KEYS, objectKey, sameSnapshot, snapshotOf, type Snapshot } from './live-signal.ts'
+export { liveClient, pollEvery, POLL_FLOOR_MS, useLiveInvalidate, useLiveK8sList, useLivePoll, useLiveRefetch, useLiveStatus, useLiveToolPoll, usePollingInterval, useWatchSignal, type WatchSignalOpts, type LiveListState, type LiveStatus as LiveHubStatus, type LiveTopic, type LiveWatchRef } from './live.ts'
 export { ToastProvider, useToast, type Toast, type ToastApi, type ToastKind, type ToastOptions } from './toast.tsx'
 export { useOverlayDismiss } from './overlay.ts'
 export { useClickOutside } from './use-click-outside.ts'

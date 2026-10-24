@@ -74,7 +74,8 @@ export function useKindCount(gvr: GVR | null, namespace: string | undefined, ena
       return list.items.length + remaining
     },
     enabled: enabled && !!gvr,
-    staleTime: 60_000,
+    // One count per kind in the picker: a hint, not a live number.
+    staleTime: 5 * 60_000,
     retry: false,
   })
 }

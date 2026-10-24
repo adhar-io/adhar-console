@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { k8s } from '@adhar/api-clients'
 import type { argocd } from '@adhar/api-clients'
-import { usePollingInterval } from '@adhar/shell-ui'
+import { useWatchSignal } from './live.ts'
 
 /**
  * Data layer for **Environments**.
@@ -34,8 +34,8 @@ import { workloadRows } from './workloads.ts'
 
 export const client = k8s.K8sClient.auto()
 
-const REFRESH_MS = 20_000
-const SLOW_MS = 60_000
+/** Argo CD's cluster registry is configuration; connection state is re-checked every 5 minutes. */
+const CLUSTERS_MS = 5 * 60_000
 
 /* ─────────── Argo CD cluster registry ─────────── */
 
@@ -86,7 +86,8 @@ export function useArgoClusters() {
       const json = (await res.json()) as { items?: ArgoCluster[] }
       return json.items ?? []
     },
-    refetchInterval: usePollingInterval(SLOW_MS),
+    staleTime: 2 * 60_000,
+    refetchInterval: CLUSTERS_MS,
     retry: false,
   })
 }
@@ -208,7 +209,9 @@ export function useLocalNodes() {
   return useQuery({
     queryKey: ['deliver', 'env', 'nodes'],
     queryFn: () => client.listNodes(),
-    refetchInterval: usePollingInterval(SLOW_MS),
+    // Kubelet heartbeats are filtered out; a node joining, leaving or going
+    // NotReady is what refetches.
+    refetchInterval: useWatchSignal({ group: '', version: 'v1', resource: 'nodes' }, [['deliver', 'env', 'nodes']], { throttleMs: 30_000 }),
     retry: false,
   })
 }
@@ -217,7 +220,7 @@ export function useLocalNamespaces() {
   return useQuery({
     queryKey: ['deliver', 'env', 'namespaces'],
     queryFn: () => client.listNamespaces(),
-    refetchInterval: usePollingInterval(SLOW_MS),
+    refetchInterval: useWatchSignal({ group: '', version: 'v1', resource: 'namespaces' }, [['deliver', 'env', 'namespaces']], { throttleMs: 30_000 }),
     retry: false,
   })
 }
@@ -228,9 +231,23 @@ export function useNamespaceDeployments(namespace?: string, enabled = true) {
     queryKey: ['deliver', 'env', 'deployments', namespace ?? '*'],
     queryFn: () => client.listDeployments(undefined, namespace),
     enabled: enabled && !!namespace,
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useWatchSignal(
+      namespace ? { group: 'apps', version: 'v1', resource: 'deployments', namespace } : null,
+      [['deliver', 'env', 'deployments', namespace ?? '*']],
+      { enabled: enabled && !!namespace },
+    ),
     retry: false,
   })
+}
+
+/** The roll-up reads two resources, so either one changing refetches it. */
+function useWorkloadsSignal(namespace: string | undefined, enabled: boolean): number | false {
+  const on = enabled && !!namespace
+  const key = [['deliver', 'env', 'workloads', namespace ?? '*']]
+  const a = useWatchSignal(on ? { group: 'apps', version: 'v1', resource: 'deployments', namespace } : null, key, { enabled: on })
+  const b = useWatchSignal(on ? { group: 'argoproj.io', version: 'v1alpha1', resource: 'rollouts', namespace } : null, key, { enabled: on })
+  // Rollouts are optional (no CRD → the watch is refused); the Deployment watch alone keeps it live then.
+  return a === false ? false : b === false ? false : a
 }
 
 /**
@@ -250,7 +267,7 @@ export function useNamespaceWorkloads(namespace?: string, enabled = true) {
       return workloadRows({ deployments, rollouts: rollouts as never })
     },
     enabled: enabled && !!namespace,
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useWorkloadsSignal(namespace, enabled),
     retry: false,
   })
 }
@@ -261,7 +278,11 @@ export function useNamespacePods(namespace?: string, enabled = true) {
     queryKey: ['deliver', 'env', 'pods', namespace ?? '*'],
     queryFn: () => client.listPods(undefined, namespace),
     enabled: enabled && !!namespace,
-    refetchInterval: usePollingInterval(REFRESH_MS),
+    refetchInterval: useWatchSignal(
+      namespace ? { group: '', version: 'v1', resource: 'pods', namespace } : null,
+      [['deliver', 'env', 'pods', namespace ?? '*']],
+      { enabled: enabled && !!namespace },
+    ),
     retry: false,
   })
 }

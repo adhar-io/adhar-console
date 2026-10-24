@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.158",
+    "date": "2026-10-24",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Optimize API calls"
+      }
+    ]
+  },
+  {
     "version": "0.1.157",
     "date": "2026-10-24",
     "changes": [
@@ -656,56 +666,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "improvement",
         "scope": "notifications",
         "text": "Keep the list surface white"
-      }
-    ]
-  },
-  {
-    "version": "0.1.118",
-    "date": "2026-10-10",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix log"
-      },
-      {
-        "type": "fix",
-        "scope": "adhar resources",
-        "text": "Fix the Browse modal and add management tooling"
-      },
-      {
-        "type": "improvement",
-        "scope": "cloud shell",
-        "text": "Make the terminal look like a terminal"
-      },
-      {
-        "type": "improvement",
-        "scope": "platform logs",
-        "text": "Drop the namespace picker, two control rows, keep quiet follows alive"
-      },
-      {
-        "type": "improvement",
-        "scope": "catalog",
-        "text": "Make the Metrics tab render, and give it real charts"
-      },
-      {
-        "type": "improvement",
-        "scope": "marketplace",
-        "text": "Make the Healthy stat tile a selectable filter"
-      },
-      {
-        "type": "improvement",
-        "scope": "catalog",
-        "text": "Drop the All / Components kind chips under Browse"
-      },
-      {
-        "type": "change",
-        "scope": "console",
-        "text": "White page canvas in light mode"
-      },
-      {
-        "type": "improvement",
-        "scope": "launch",
-        "text": "Drop needless async on appendRecord (deno lint require-await)"
       }
     ]
   }

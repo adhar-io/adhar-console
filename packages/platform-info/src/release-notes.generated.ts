@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.157",
+    "date": "2026-10-24",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Perf center & Chaos improvements"
+      }
+    ]
+  },
+  {
     "version": "0.1.156",
     "date": "2026-10-24",
     "changes": [
@@ -696,16 +706,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "improvement",
         "scope": "launch",
         "text": "Drop needless async on appendRecord (deno lint require-await)"
-      }
-    ]
-  },
-  {
-    "version": "0.1.117",
-    "date": "2026-10-10",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix ci issue"
       }
     ]
   }

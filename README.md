@@ -315,7 +315,7 @@ Each of these has a comment in `.env.example` explaining where to get it.
 | Server exits immediately on boot | Keycloak env missing | Set `KEYCLOAK_URL`, `AUTH_CLIENT_SECRET`, `AUTH_COOKIE_SECRET` — it fails closed by design |
 | Login loops back to the sign-in page | `AUTH_PUBLIC_URL` doesn't match the origin in your address bar | Make them identical, including port |
 | `certificate` / TLS errors in the BFF log | `DENO_CERT` missing or incomplete | Point it at a bundle trusting **both** the apiserver and Keycloak CAs |
-| A tool's page says it can't be reached | That tool's `*_URL` is unset, so it resolves to a public hostname behind an OAuth proxy | Set the in-cluster Service URL for that tool |
+| A tool's page says it can't be reached | That tool's `*_URL` is unset, so it resolves to a public hostname behind an OAuth proxy | Set the adhar-controlplane Service URL for that tool |
 | `/readyz` reports `db: unconfigured` | No `DATABASE_URL` | Preferences, notifications and the document store return `503` without it |
 | Cluster pages are empty but tools work | Your Keycloak user has no RBAC in the cluster | The console impersonates *you*; bind your group in the cluster |
 

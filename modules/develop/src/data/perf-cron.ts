@@ -243,6 +243,34 @@ export function describeCron(expr: string): string {
     }
   }
   if (at && fixed(dom) && mo === '*' && dow === '*') return `Monthly on day ${dom} ${at}`
+
+  // Repeating times restricted to some weekdays — `0 */6 * * 1-5` read as
+  // "Every 6 hours at :00, on weekdays" instead of echoing the expression.
+  if (dom === '*' && mo === '*' && dow !== '*') {
+    const time = /^\*\/\d+$/.test(mi) && h === '*'
+      ? `Every ${mi.slice(2)} minutes`
+      : fixed(mi) && h === '*'
+      ? `Every hour at :${pad(mi)}`
+      : fixed(mi) && /^\*\/\d+$/.test(h)
+      ? `Every ${h.slice(2)} hours at :${pad(mi)}`
+      : fixed(mi) && /^\d+(,\d+)+$/.test(h)
+      ? `At ${h.split(',').map((x) => `${pad(x)}:${pad(mi)}`).join(', ')}`
+      : null
+    if (time) {
+      if (dow === '1-5' || dow.toUpperCase() === 'MON-FRI') return `${time}, on weekdays`
+      if (dow === '0,6' || dow === '6,0' || dow.toUpperCase() === 'SAT,SUN') return `${time}, at weekends`
+      try {
+        const days = [...parseCron(e).weekdays].sort().map((d) => DAYS[d][0] + DAYS[d].slice(1).toLowerCase())
+        return `${time}, on ${days.join(', ')}`
+      } catch {
+        return e
+      }
+    }
+  }
+  // Several fixed hours every day: `0 8,20 * * *` → "Every day at 08:00, 20:00".
+  if (fixed(mi) && /^\d+(,\d+)+$/.test(h) && dom === '*' && mo === '*' && dow === '*') {
+    return `Every day at ${h.split(',').map((x) => `${pad(x)}:${pad(mi)}`).join(', ')}`
+  }
   return e
 }
 

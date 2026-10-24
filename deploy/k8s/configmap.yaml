@@ -34,7 +34,7 @@ data:
   ADHAR_CONSOLE_VERSION: "0.3.0"
 
   # AI assistant (self-hosted / OpenAI-compatible). Leave AI_BASE_URL empty to
-  # disable AI. Point it at an in-cluster OpenAI-compatible endpoint (vLLM,
+  # disable AI. Point it at an adhar-controlplane OpenAI-compatible endpoint (vLLM,
   # Ollama /v1, LiteLLM, LocalAI). The API key (if any) lives in the Secret.
   AI_BASE_URL: ""
   AI_MODEL: "default"

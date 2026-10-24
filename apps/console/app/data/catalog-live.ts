@@ -194,7 +194,7 @@ function repoLanguageType(name?: string): ComponentType {
 function repoToComponent(repo: gitea.Repo, publicBase: { toolUrl?: string; baseDomain?: string } = {}): Entity {
   const created = repo.updated_at
   // Gitea reports `html_url` with the host the BFF used to reach it — an
-  // in-cluster Service address the browser cannot open. Rewrite it to the
+  // adhar-controlplane Service address the browser cannot open. Rewrite it to the
   // public Gitea host so "Source" links actually work.
   const sourceUrl = toPublicUrl(repo.html_url, { tool: 'gitea', toolUrl: publicBase.toolUrl, baseDomain: publicBase.baseDomain })
   return live({

@@ -153,7 +153,7 @@ export function toPublicUrl(raw: string, opts: { toolUrl?: string; tool?: string
 }
 
 /**
- * Which public tool an in-cluster Service name belongs to.
+ * Which public tool an adhar-controlplane Service name belongs to.
  *
  * A URL a backend self-reports names the Service the BFF used —
  * `gitea-http`, `prometheus-grafana`, `argocd-server` — not the tool.
@@ -207,7 +207,7 @@ export function toolForInternalHost(host: string): string | undefined {
 /**
  * The one place a link gets made openable.
  *
- * Returns a function that rewrites a URL with an in-cluster host to the
+ * Returns a function that rewrites a URL with an adhar-controlplane host to the
  * tool's public URL (from `/api/config.tools`, else `<tool>.<base>`),
  * keeping the path. Public URLs pass through untouched, as does anything
  * whose tool cannot be inferred — a wrong rewrite is worse than a dead

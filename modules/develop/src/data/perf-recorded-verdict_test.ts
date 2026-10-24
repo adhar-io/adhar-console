@@ -5,7 +5,7 @@ import type { RunMetrics } from './perf-results.ts'
 const gate: PerfGate = { ...DEFAULT_GATE, p95Ms: 500, errorRatePct: 1, minRps: 10 }
 const env = gateEnv({ test: 'my-service-load', namespace: 'test', gate, application: 'my-service' })
 
-// The console reads back exactly the gate the in-cluster runner sources.
+// The console reads back exactly the gate the adhar-controlplane runner sources.
 Deno.test('gateFromEnv is the inverse of gateEnv', () => {
   const back = gateFromEnv(env)
   assertEquals(back.gate, gate)

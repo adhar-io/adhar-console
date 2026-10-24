@@ -1,6 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar/utils'
 import { chartMax, chartPeak } from './chart-scale.ts'
+import { useElementWidth } from './use-element-size.ts'
 
 /**
  * Zero-dep SVG charts used throughout the console.
@@ -373,11 +374,13 @@ export function TimeSeriesChart({
   className?: string
 }) {
   const [hover, setHover] = useState<number | null>(null)
-  const W = 640
+  // Draw at the width the chart actually has. A fixed 640-unit viewBox
+  // stretched into a 360px card scaled the axis text to ~5px (and blew it up
+  // in a wide one); measuring keeps 9px text 9px at any width.
+  const boxRef = useRef<HTMLDivElement | null>(null)
+  const measured = useElementWidth(boxRef)
+  const W = measured > 0 ? Math.round(measured) : 640
   const H = height
-  const PAD = { l: 44, r: 12, t: 10, b: 22 }
-  const plotW = W - PAD.l - PAD.r
-  const plotH = H - PAD.t - PAD.b
 
   const data = useMemo(
     () =>
@@ -392,6 +395,7 @@ export function TimeSeriesChart({
   if (all.length < 2) {
     return (
       <div
+        ref={boxRef}
         className={cn(
           'flex items-center justify-center rounded-lg border border-dashed border-edge-default text-xs text-content-subtle',
           className,
@@ -407,10 +411,14 @@ export function TimeSeriesChart({
   const span = Math.max(1, t1 - t0)
   const peak = Math.max(chartPeak(all.map((p) => p[1])), ...thresholds.map((th) => th.value))
   const top = yMax ?? niceCeil(peak || 1)
+  const gridVals = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top)
+  // The value axis is as wide as its longest label (9px mono ≈ 5.5px a char).
+  const PAD = { l: Math.max(28, Math.ceil(Math.max(...gridVals.map((v) => formatY(v).length)) * 5.6) + 10), r: 12, t: 10, b: 22 }
+  const tickCount = W < 420 ? 2 : 4
+  const plotW = W - PAD.l - PAD.r
+  const plotH = H - PAD.t - PAD.b
   const x = (t: number) => PAD.l + ((t - t0) / span) * plotW
   const y = (v: number) => PAD.t + plotH - (Math.min(v, top) / top) * plotH
-  const gridVals = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top)
-  const tickCount = 4
   const ticks = Array.from({ length: tickCount + 1 }, (_, i) => t0 + (span * i) / tickCount)
 
   const pathOf = (pts: Array<[number, number]>) =>
@@ -428,7 +436,7 @@ export function TimeSeriesChart({
   const hoverX = hoverPts.length ? x(hoverPts[0].p[0]) : null
 
   return (
-    <div className={cn('relative', className)}>
+    <div ref={boxRef} className={cn('relative', className)}>
       <svg
         width="100%"
         viewBox={`0 0 ${W} ${H}`}

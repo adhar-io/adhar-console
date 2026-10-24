@@ -9,7 +9,7 @@
  * Most tools answer on the public ingress and need nothing. A handful sit
  * behind an oauth2-proxy that redirects to Keycloak — prometheus, argocd and
  * metabase among them — and a server-to-server call cannot complete an
- * interactive SSO flow. For those the in-cluster Service is the only usable
+ * interactive SSO flow. For those the adhar-controlplane Service is the only usable
  * address, which is what the console uses in production anyway.
  *
  * Which tools, and which local port each gets, comes from `dev-cluster.ts` so

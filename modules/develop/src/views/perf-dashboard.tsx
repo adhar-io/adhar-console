@@ -9,6 +9,7 @@ import { fmtMetric, type MetricKey, type RunRecord, sortRecords } from '../data/
 import { LABEL_TEST } from '../data/perf-format.ts'
 import { fetchPerfTest, findTest, useRunPerfTest } from '../data/perf-suite.ts'
 import { RegressionBadge, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
+import { TrendsSection } from './perf-trends.tsx'
 import { runPerfTestChecks, useAllowedNamespaces } from '../data/access.ts'
 
 /**
@@ -27,6 +28,7 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
   onQuickTest?: () => void
 }) {
   const { records, tests, configs, schedules, verdictOf, loading } = insights
+  const [nowMs] = useState(() => Date.now())
   // RBAC: "Run" applies the test's artefact ConfigMap and a TestRun in its namespace.
   const runnable = useAllowedNamespaces([...configs.values()].map((c) => c.namespace || 'default'), runPerfTestChecks)
   const byTest = useMemo(() => {
@@ -144,6 +146,8 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
           </table>
         </div>
       </section>
+
+      <TrendsSection records={records} verdictOf={verdictOf} nowMs={nowMs} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <section>

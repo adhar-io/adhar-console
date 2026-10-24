@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { UpcomingStrip } from './perf-trends.tsx'
 import {
   Badge,
   Button,
@@ -32,12 +33,14 @@ import { VerdictBadge } from './perf-bits.tsx'
  *
  * A CronJob is the native answer: it survives the console, it is visible to
  * kubectl and Argo CD, it has history and suspend built in. Each fire starts
- * the in-cluster runner, which runs the committed test, keeps the result and
+ * the adhar-controlplane runner, which runs the committed test, keeps the result and
  * applies the gate — so a nightly regression run needs nobody watching.
  */
 
 export function SchedulesView({ insights, presetTest }: { insights: PerfInsights; presetTest?: string }) {
   const { schedules, records, verdictOf, tests: allTests, configs } = insights
+  // Fixed per mount: the upcoming list is "from when you opened the tab".
+  const [nowMs] = useState(() => Date.now())
   // RBAC per namespace (docs/rbac.md). A schedule is a CronJob plus the
   // runner and artefact it needs; run-now creates a Job; pause patches and
   // delete deletes the CronJob. New schedules are offered only for tests whose
@@ -219,6 +222,8 @@ export function SchedulesView({ insights, presetTest }: { insights: PerfInsights
           )
           : null}
       </div>
+
+      <UpcomingStrip schedules={schedules} nowMs={nowMs} />
 
       <DataTable
         columns={columns}

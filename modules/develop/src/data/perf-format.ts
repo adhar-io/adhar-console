@@ -45,7 +45,7 @@ export const LABEL_COMMIT = 'adhar.io/perf-commit'
  * The application a test drives, stamped on its TestRun and its result. It is
  * the same key the platform's delivery chain and scorecard use, so a team's
  * Performance Center results count towards that application's production
- * readiness grade (the in-cluster scorer reads every result carrying it).
+ * readiness grade (the adhar-controlplane scorer reads every result carrying it).
  */
 export const LABEL_APPLICATION = 'adhar.io/application'
 export const LABEL_MANAGED = 'app.kubernetes.io/managed-by'

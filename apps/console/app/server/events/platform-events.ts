@@ -439,7 +439,7 @@ export function startPlatformEvents(): () => void {
   }
   const token = getK8sServiceToken()
   if (!token) {
-    console.log('[events] no ServiceAccount token — platform event watching is off (set K8S_SA_TOKEN or run in-cluster)')
+    console.log('[events] no ServiceAccount token — platform event watching is off (set K8S_SA_TOKEN or run adhar-controlplane)')
     return () => {}
   }
 

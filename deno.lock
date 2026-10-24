@@ -58,7 +58,9 @@
     "npm:tailwindcss@4": "4.2.2",
     "npm:tailwindcss@^4.1.0": "4.2.2",
     "npm:three@0.186": "0.186.1",
+    "npm:typescript@5.6.3": "5.6.3",
     "npm:typescript@5.7": "5.7.3",
+    "npm:vite@7.3.2": "7.3.2_picomatch@4.0.4",
     "npm:vite@^7.1.12": "7.3.2_picomatch@4.0.4",
     "npm:zod@^3.23.0": "3.25.76"
   },
@@ -744,7 +746,7 @@
         "ansi-colors",
         "isomorphic-ws",
         "node-schedule",
-        "typescript",
+        "typescript@5.7.3",
         "undici",
         "ws"
       ]
@@ -3202,6 +3204,10 @@
       "dependencies": [
         "zustand@4.5.7_@types+react@19.3.0_react@19.2.5"
       ]
+    },
+    "typescript@5.6.3": {
+      "integrity": "sha512-hjcS1mhfuyi4WW8IWtjP7brDrG2cuDZukyrYrSauoXGNgx0S7zceP07adYkJycEr56BOUTNPzbInooiN3fn1qw==",
+      "bin": true
     },
     "typescript@5.7.3": {
       "integrity": "sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw==",

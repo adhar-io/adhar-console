@@ -1385,7 +1385,7 @@ function GitOpsSection({ ctx }: { ctx: Ctx }) {
         </Fact>
         <Fact label="Path"><span className="font-mono">{src.path || '/'}{src.targetRevision ? ` @ ${src.targetRevision}` : ''}</span></Fact>
         <Fact label="Destination">
-          <span className="font-mono">{app.spec.destination.name || (app.spec.destination.server === 'https://kubernetes.default.svc' ? 'in-cluster' : app.spec.destination.server)} · {app.spec.destination.namespace || '—'}</span>
+          <span className="font-mono">{app.spec.destination.name || (app.spec.destination.server === 'https://kubernetes.default.svc' ? 'adhar-controlplane' : app.spec.destination.server)} · {app.spec.destination.namespace || '—'}</span>
         </Fact>
         {runsIn !== app.spec.destination.namespace ? (
           <Fact label="Runs in" title="The manifests set their own namespace"><span className="font-mono">{runsIn}</span></Fact>

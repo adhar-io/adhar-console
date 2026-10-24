@@ -59,7 +59,7 @@ import {
  * that already passed there, which the page says rather than implying a fresh
  * result.
  */
-export function ApplicationSuites({ namespace }: { namespace?: string }) {
+export function ApplicationSuites({ namespace, onWatch }: { namespace?: string; onWatch(job: string): void }) {
   const { apps, results, isLoading, suitesError, resultsError } = useApplicationSuites(namespace)
   const runs = useResilienceRuns()
 
@@ -105,7 +105,7 @@ export function ApplicationSuites({ namespace }: { namespace?: string }) {
             }
           />
         ) : (
-          apps.map((a) => <ApplicationCard key={a.app} entry={a} runs={runs.data} />)
+          apps.map((a) => <ApplicationCard key={a.app} entry={a} runs={runs.data} onWatch={onWatch} />)
         )}
       </CardBody>
     </Card>
@@ -144,7 +144,7 @@ const GATE_LABEL: Record<GateVerdictKind, string> = {
   unknown: 'gate unknown',
 }
 
-function ApplicationCard({ entry, runs }: { entry: AppSuites; runs?: ResilienceRunsState }) {
+function ApplicationCard({ entry, runs, onWatch }: { entry: AppSuites; runs?: ResilienceRunsState; onWatch(job: string): void }) {
   // Open on the environment the runner last tested, so the results are visible
   // without a click; otherwise the first.
   const initial = entry.environments.find((r) => r.namespace === entry.last?.namespace)?.namespace ??
@@ -186,7 +186,7 @@ function ApplicationCard({ entry, runs }: { entry: AppSuites; runs?: ResilienceR
           )}
         </span>
       </div>
-      {row ? <EnvironmentDetail app={entry.app} row={row} last={last} runs={runs} /> : null}
+      {row ? <EnvironmentDetail app={entry.app} row={row} last={last} runs={runs} onWatch={onWatch} /> : null}
       {entry.orphanGates.length > 0 ? (
         <div className="border-t border-edge-default px-3 py-2 text-[11px] text-content-subtle">
           Gate verdicts for namespaces without a suite here:{' '}
@@ -211,7 +211,7 @@ function GateDot({ verdict }: { verdict?: GateVerdictKind }) {
 /* ─────────────────────────── one environment ─────────────────────────── */
 
 function EnvironmentDetail(
-  { app, row, last, runs }: { app: string; row: SuiteEnvironmentRow; last?: AppResult; runs?: ResilienceRunsState },
+  { app, row, last, runs, onWatch }: { app: string; row: SuiteEnvironmentRow; last?: AppResult; runs?: ResilienceRunsState; onWatch(job: string): void },
 ) {
   const { suite, result, gate } = row
   const perf = suite.perf
@@ -232,12 +232,12 @@ function EnvironmentDetail(
         <Fact label="Load test">
           <span>
             <code className="text-[11px]">{perf.path || suite.probePath || 'readiness path'}</code>
-            {' · '}p95 &lt; {perf.p95Ms !== undefined ? formatMs(perf.p95Ms) : 'default'}
-            {' · '}errors &lt; {perf.errorRate !== undefined ? formatRate(perf.errorRate) : 'default'}
+            {` · p95 < ${perf.p95Ms !== undefined ? formatMs(perf.p95Ms) : 'default'}`}
+            {` · errors < ${perf.errorRate !== undefined ? formatRate(perf.errorRate) : 'default'}`}
           </span>
         </Fact>
         <div className="ml-auto">
-          <RunControl app={app} row={row} last={last} runs={runs} />
+          <RunControl app={app} row={row} last={last} runs={runs} onWatch={onWatch} />
         </div>
       </div>
 
@@ -434,7 +434,7 @@ const OUTCOME_LABEL: Record<RunOutcome, string> = {
 }
 
 function RunControl(
-  { app, row, last, runs }: { app: string; row: SuiteEnvironmentRow; last?: AppResult; runs?: ResilienceRunsState },
+  { app, row, last, runs, onWatch }: { app: string; row: SuiteEnvironmentRow; last?: AppResult; runs?: ResilienceRunsState; onWatch(job: string): void },
 ) {
   const toast = useToast()
   const qc = useQueryClient()
@@ -495,6 +495,8 @@ function RunControl(
     if (res.started && res.job) {
       before.current.set(res.job, testedAt)
       toast.success(`Suite started for ${app} in ${row.environment}`)
+      // Straight to the live canvas: the run is what the person wants to see.
+      onWatch(res.job)
     } else if (res.error === 'already_running') {
       toast.info(`A run is already in progress for ${app} in ${row.environment}`)
     } else {
@@ -506,7 +508,7 @@ function RunControl(
   return (
     <div className="flex max-w-xs flex-col items-end gap-1 text-right">
       {canRun ? (
-        <Button size="sm" disabled={!!disabledReason || starting} title={disabledReason} onClick={() => void start()}>
+        <Button size="sm" variant="primary" disabled={!!disabledReason || starting} title={disabledReason} onClick={() => void start()}>
           {starting ? 'Starting…' : active ? 'Running…' : 'Run suite'}
         </Button>
       ) : null}
@@ -521,9 +523,14 @@ function RunControl(
             ) : null}
           </div>
           <div className="text-[11px] text-content-muted">{runOutcomeMessage(outcome)}</div>
-          <Button variant="link" size="xs" onClick={() => setViewing(run.job)}>
-            {active ? 'Follow log' : 'View log'}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="link" size="xs" onClick={() => onWatch(run.job)}>
+              {active ? 'Watch live' : 'Open run'}
+            </Button>
+            <Button variant="link" size="xs" onClick={() => setViewing(run.job)}>
+              {active ? 'Follow log' : 'View log'}
+            </Button>
+          </div>
         </>
       ) : null}
       {viewing ? <RunLog job={viewing} live={active} onClose={() => setViewing(null)} /> : null}
@@ -531,7 +538,7 @@ function RunControl(
   )
 }
 
-function RunLog({ job, live, onClose }: { job: string; live: boolean; onClose(): void }) {
+export function RunLog({ job, live, onClose }: { job: string; live: boolean; onClose(): void }) {
   const log = useResilienceRunLog(job, live)
   return (
     <Modal

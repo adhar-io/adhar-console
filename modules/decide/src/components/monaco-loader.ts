@@ -47,7 +47,17 @@ export function loadMonaco(): Promise<MonacoApi> {
     return Promise.reject(new Error('Monaco requires a browser'))
   }
   ensureMonacoCss()
-  if (globalThis.__adharMonaco) return globalThis.__adharMonaco
+  // The runtime is shared on globalThis with Develop and Platform, and Monaco has
+  // ONE theme registry per page. Whichever module loaded it first defined only
+  // its own themes, so when Develop got there first `adhar-dark` did not exist,
+  // setTheme() ignored the unknown name and the SQL Editor stayed white in dark
+  // mode (2026-10-24). Defining is idempotent, so do it on every call.
+  if (globalThis.__adharMonaco) {
+    return globalThis.__adharMonaco.then((m) => {
+      defineThemes(m)
+      return m
+    })
+  }
 
   globalThis.__adharMonaco = Promise.all([
     import('monaco-editor/esm/vs/editor/editor.api'),

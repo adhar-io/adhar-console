@@ -36,7 +36,8 @@ export function useChaosReports() {
 /* ─────────────────────────── deep links ─────────────────────────── */
 
 /**
- * `/deliver?section=chaos&tab=reports&commit=<sha>&app=<app>&report=<id>`.
+ * `/deliver?section=chaos&tab=reports&commit=<sha>&app=<app>&report=<id>`, plus
+ * `run=` / `gameday=` / `job=` for a live run and `compare=<id>~<id>`.
  * The host route owns `?section=`; these params sit next to it.
  */
 export interface ChaosParams {
@@ -44,9 +45,17 @@ export interface ChaosParams {
   commit?: string
   app?: string
   report?: string
+  /** An experiment (ChaosEngine) whose live canvas is open. */
+  run?: string
+  /** A game day (Workflow) whose live canvas is open. */
+  gameday?: string
+  /** A suite run (gate Job) whose live canvas is open. */
+  job?: string
+  /** Two report ids, `a~b`, open side by side. */
+  compare?: string
 }
 
-const KEYS = ['tab', 'commit', 'app', 'report'] as const
+const KEYS = ['tab', 'commit', 'app', 'report', 'run', 'gameday', 'job', 'compare'] as const
 
 export function readChaosParams(search = typeof location === 'undefined' ? '' : location.search): ChaosParams {
   const q = new URLSearchParams(search)

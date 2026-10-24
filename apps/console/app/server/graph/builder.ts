@@ -199,7 +199,7 @@ export function startGraph(): () => void {
   const token = getK8sServiceToken()
   if (!token) {
     status = { running: false, ready: false, reason: 'no ServiceAccount token' }
-    console.log('[graph] no ServiceAccount token — the knowledge graph is off (set K8S_SA_TOKEN or run in-cluster)')
+    console.log('[graph] no ServiceAccount token — the knowledge graph is off (set K8S_SA_TOKEN or run adhar-controlplane)')
     return () => {}
   }
 

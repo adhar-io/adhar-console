@@ -17,7 +17,7 @@ import { LABEL_APPLICATION, LABEL_COMMIT, LABEL_MANAGED, LABEL_TEST } from './pe
  * ConfigMap — `k6-result-<run>` — labelled with the test, the commit and what
  * triggered it. The summary is stored as the text k6 printed, not as numbers
  * someone derived, so the same tested parser (`parseK6Summary`) reads it back
- * and nothing is lost in translation. The harvest is done by the in-cluster
+ * and nothing is lost in translation. The harvest is done by the adhar-controlplane
  * runner script for scheduled and CI runs, and by the console for runs it
  * launched itself.
  *
@@ -30,7 +30,7 @@ export const LABEL_RESULT = 'adhar.io/perf-result'
 export const LABEL_TRIGGER = 'adhar.io/perf-trigger'
 /** Name of the schedule (CronJob) that produced a run; also marks schedules. */
 export const LABEL_SCHEDULE = 'adhar.io/perf-schedule'
-/** `job` when the in-cluster runner script owns the run and its harvest. */
+/** `job` when the adhar-controlplane runner script owns the run and its harvest. */
 export const LABEL_RUNNER = 'adhar.io/perf-runner'
 
 export const ANN_RUN = 'adhar.io/perf-run'
@@ -273,14 +273,42 @@ const PROGRESS = /running \(|\[ *\d+%|\[=/
  * Keep only what follows k6's last progress line: the end-of-test summary.
  *
  * The runner script does exactly this with awk, so a summary harvested by
- * the console and one harvested in-cluster are byte-for-byte comparable.
+ * the console and one harvested adhar-controlplane are byte-for-byte comparable.
  */
 export function extractSummary(log: string): string {
   const lines = log.split('\n')
   let last = -1
   for (let i = 0; i < lines.length; i++) if (PROGRESS.test(lines[i])) last = i
-  return lines.slice(last + 1).join('\n').replace(/\s+$/, '') + '\n'
+  let from = last + 1
+  if (last < 0) {
+    // A `--quiet` runner (every console-launched run) prints no progress
+    // lines, so "after the last one" was the WHOLE log — every logged
+    // request failure went into the result ConfigMap (355 kB for a two-minute
+    // run; a long one would pass the 1 MiB object limit and the harvest would
+    // fail). Start at the summary instead: k6 v1's first `█` section, or the
+    // first summary metric line for older versions.
+    const v1 = lines.findIndex((l) => SUMMARY_SECTION.test(l))
+    const legacy = lines.findIndex((l) => LEGACY_METRIC.test(l))
+    const start = v1 >= 0 ? v1 : legacy
+    if (start >= 0) {
+      // Older k6 prints the check results (`✓ status is 200`) just above the
+      // metrics; keep that block with them.
+      from = start
+      while (v1 < 0 && from > 0 && (/^\s*[✓✗×√]\s/.test(lines[from - 1]) || !lines[from - 1].trim())) from--
+    }
+  }
+  // Request-failure log lines can still interleave with the summary as
+  // stdout and stderr are merged; they are not part of it.
+  const kept = lines.slice(from).filter((l) => !LOG_LINE.test(l) || /level=error/.test(l))
+  return kept.join('\n').replace(/\s+$/, '') + '\n'
 }
+
+/** k6 v1's summary sections: `  █ THRESHOLDS`, `  █ TOTAL RESULTS`. */
+const SUMMARY_SECTION = /^\s*█\s+[A-Z]/
+/** A pre-v1 summary metric line: `     checks.....: 99.00% ✓ 2934 ✗ 30`. */
+const LEGACY_METRIC = /^\s*[a-z_]+\.{3,}:\s/
+/** A k6 logfmt line — `time="…" level=warning msg="Request Failed" …`. */
+const LOG_LINE = /^time="[^"]*"\s+level=/
 
 /** Join several runners' summaries into one `summary.txt`. */
 export function joinRunnerSummaries(parts: Array<{ pod: string; summary: string }>): string {
@@ -402,7 +430,7 @@ export function resultConfigMap(input: {
   exitCode?: number
   parallelism?: number
   application?: string
-  /** The gate's verdict, as the in-cluster runner records it. */
+  /** The gate's verdict, as the adhar-controlplane runner records it. */
   verdict?: 'pass' | 'fail'
   reasons?: string
 }) {

@@ -1,71 +1,50 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Badge,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
   DataTable,
   EmptyState,
   Field,
   Input,
-  LogConsole,
   Modal,
   PageHeader,
   Select,
-  Spinner,
   StatusBadge,
   useAccessReview,
-  useCan,
-  useLogStream,
-  useOverlayDismiss,
   useToast,
   type Column,
   type StatusKind,
-  DrawerWidenButton,
-  useDrawerWidth,
-  type DrawerWidth,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { CrdMissing } from '../components/crd-missing.tsx'
 import { PerfSuite } from './perf-suite.tsx'
-import { PerfReport } from './perf-report.tsx'
-import { LiveCharts, StageRail } from './perf-run-live.tsx'
+import { RunDrawer } from './perf-run-drawer.tsx'
 import { PerfOverview } from './perf-overview.tsx'
 import { PerfDashboard } from './perf-dashboard.tsx'
 import { QuickTestModal } from './perf-quick.tsx'
+import { TriggerBadge } from './perf-bits.tsx'
 import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts'
 import { ResultsView } from './perf-results.tsx'
 import { PerfReadiness } from './perf-readiness.tsx'
 import { SchedulesView } from './perf-schedules.tsx'
-import { harvestedRuns, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
+import { harvestedRuns, type PerfInsights, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
 import { runPerfTestChecks, startTestRunChecks, testRunCheck, useAllowedNamespaces } from '../data/access.ts'
-import { DEFAULT_CONFIG, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
-import { usePerfSuite, usePerfTest } from '../data/perf-suite.ts'
+import { LABEL_APPLICATION, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
+import { ANN_HARVESTED, fmtMetric, LABEL_SCHEDULE, LABEL_TRIGGER, type RunRecord, type Trigger } from '../data/perf-results.ts'
 import {
   createTestRun,
   deleteTestRun,
   durationSecs,
   finishedAt,
   fmtDuration,
-  HEADLINE_METRICS,
   isCrdMissing,
   isPaused,
   isRunning,
-  parseK6Summary,
   rerunTestRun,
   setTestRunPaused,
-  STAGE_ORDER,
   useScriptConfigMaps,
-  useTestRun,
-  useTestRunPods,
   useTestRuns,
-  type K6Summary,
-  type PodRef,
   type TestRun,
-  type TestRunStage,
 } from '../data/k6.ts'
 
 /**
@@ -128,8 +107,10 @@ export function Performance() {
     const i = params.run?.indexOf('/') ?? -1
     return params.run && i > 0 ? { namespace: params.run.slice(0, i), name: params.run.slice(i + 1) } : null
   }, [params.run])
-  const openRun = (namespace: string, name: string) => setParams({ view: 'runs', run: `${namespace}/${name}` })
-  const [creating, setCreating] = useState(false)
+  // Opening a run keeps the page where it is — the drawer sits over any tab,
+  // and `?run=` deep-links it from anywhere.
+  const openRun = (namespace: string, name: string) => setParams({ run: `${namespace}/${name}` })
+  const [creating, setCreating] = useState<false | Partial<NewRunInit>>(false)
   const [quick, setQuick] = useState(false)
   const [newTestToken, setNewTestToken] = useState(0)
   const [resultsFor, setResultsFor] = useState<string | undefined>(undefined)
@@ -158,6 +139,18 @@ export function Performance() {
             type="button"
             role="tab"
             aria-selected={tab === id}
+            tabIndex={tab === id ? 0 : -1}
+            onKeyDown={(e) => {
+              // Arrow keys move between tabs (WAI-ARIA tabs pattern).
+              const i = PERF_TABS.findIndex(([t]) => t === id)
+              const n = PERF_TABS.length
+              const next = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i - 1 + n) % n : -1
+              if (next < 0) return
+              e.preventDefault()
+              setTab(PERF_TABS[next][0])
+              const sib = (e.currentTarget.parentElement?.children[next] as HTMLElement | undefined)
+              sib?.focus()
+            }}
             onClick={() => {
               setTab(id)
               if (id !== 'results') setResultsFor(undefined)
@@ -180,15 +173,45 @@ export function Performance() {
         ? (
           <div className="ml-auto flex items-center gap-1.5 pb-1">
             <ClearFinished runs={items} />
-            {canStartScript ? <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>Run a ConfigMap script</Button> : null}
+            {canStartScript ? <Button size="sm" variant="secondary" onClick={() => setCreating({})}>Run a ConfigMap script</Button> : null}
           </div>
         )
         : null}
     </div>
   )
 
+  // Kept results by run, so the drawer and the table can show a run's
+  // combined summary and gate verdict without reading it again.
+  const recordsByRun = useMemo(() => {
+    const m = new Map<string, RunRecord>()
+    for (const r of insights.records) if (!m.has(`${r.namespace}/${r.run}`)) m.set(`${r.namespace}/${r.run}`, r)
+    return m
+  }, [insights.records])
+  const selectedRecord = selected ? recordsByRun.get(`${selected.namespace}/${selected.name}`) : undefined
+
   const drawer = selected
-    ? <RunDrawer namespace={selected.namespace} name={selected.name} onClose={() => setParams({ run: undefined })} />
+    ? (
+      <RunDrawer
+        // Keyed by run: switching runs must reset every piece of drawer state.
+        key={`${selected.namespace}/${selected.name}`}
+        namespace={selected.namespace}
+        name={selected.name}
+        record={selectedRecord}
+        verdict={selectedRecord ? insights.verdictOf(selectedRecord) : undefined}
+        onClose={() => setParams({ run: undefined })}
+        onOpenRun={openRun}
+        onOpenTest={(t) => setParams({ view: 'tests', suite: t, run: undefined })}
+        onDuplicate={(r) =>
+          setCreating({
+            namespace: r.metadata.namespace,
+            name: `${r.metadata.name.replace(/-r\d+$/, '').slice(0, 50)}-copy`,
+            configMap: r.spec?.script?.configMap?.name,
+            file: r.spec?.script?.configMap?.file,
+            parallelism: r.spec?.parallelism,
+            arguments: r.spec?.arguments,
+          })}
+      />
+    )
     : null
 
   return (
@@ -262,12 +285,29 @@ export function Performance() {
               Every k6 TestRun on the cluster. Click one for stages, runner pods and the end-of-test summary. Finished runs
               started from the console are kept under Results automatically.
             </div>
-            <RunTable runs={items} loading={runs.isLoading} onSelect={(r) => openRun(r.namespace, r.name)} />
+            <RunTable
+              runs={items}
+              loading={runs.isLoading}
+              records={recordsByRun}
+              verdictOf={insights.verdictOf}
+              onSelect={(r) => openRun(r.namespace, r.name)}
+            />
           </div>
         )}
 
       {drawer}
-      {creating ? <NewRunDialog onClose={() => setCreating(false)} /> : null}
+      {creating
+        ? (
+          <NewRunDialog
+            initial={creating}
+            onClose={() => setCreating(false)}
+            onCreated={(r) => {
+              setCreating(false)
+              openRun(r.metadata.namespace ?? '', r.metadata.name)
+            }}
+          />
+        )
+        : null}
       <QuickTestModal
         open={quick}
         onClose={() => setQuick(false)}
@@ -325,43 +365,63 @@ function ClearFinished({ runs }: { runs: TestRun[] }) {
 
 /* ─────────────────────────── the table ─────────────────────────── */
 
-const STAGE_KIND: Record<TestRunStage, StatusKind> = {
-  initialization: 'progressing',
-  initialized: 'progressing',
-  created: 'progressing',
-  started: 'progressing',
-  stopped: 'paused',
-  finished: 'healthy',
-  error: 'failed',
+/** The status a person reads: running, or the outcome — never the bare operator stage. */
+function runStatus(run: TestRun, record: RunRecord | undefined, verdictOf: PerfInsights['verdictOf']): { kind: StatusKind; label: string; sort: string } {
+  const stage = run.status?.stage ?? 'initialization'
+  if (isRunning(run)) {
+    if (isPaused(run) && stage !== 'started') return { kind: 'paused', label: 'paused', sort: '0-paused' }
+    return { kind: 'progressing', label: stage === 'started' ? 'running' : 'starting', sort: '0-running' }
+  }
+  if (stage === 'error') return { kind: 'failed', label: 'error', sort: '3-error' }
+  if (stage === 'stopped') return { kind: 'paused', label: 'stopped', sort: '2-stopped' }
+  if (record) {
+    const v = verdictOf(record)
+    if (v.status === 'pass') return { kind: 'healthy', label: 'passed', sort: '1-passed' }
+    if (v.status === 'fail') return { kind: 'degraded', label: 'failed gate', sort: '2-failed' }
+  }
+  return { kind: 'unknown', label: 'finished', sort: '1-finished' }
 }
 
-function stageOf(run: TestRun): TestRunStage {
-  return run.status?.stage ?? 'initialization'
+/** Elapsed for a running run, total for a finished one — ticking once a second while any run is live. */
+function useTick(active: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') setNow(Date.now())
+    }, 1000)
+    return () => clearInterval(id)
+  }, [active])
+  return now
 }
 
 function RunTable({
   runs,
   loading,
+  records,
+  verdictOf,
   onSelect,
 }: {
   runs: TestRun[]
   loading: boolean
+  records: Map<string, RunRecord>
+  verdictOf: PerfInsights['verdictOf']
   onSelect(sel: { namespace: string; name: string }): void
 }) {
   const toast = useToast()
   const qc = useQueryClient()
-  // Per-namespace RBAC for the row actions: pause/resume patch the TestRun,
-  // "Run again" creates one, Delete deletes it.
+  // Per-namespace RBAC for the row actions: resume patches the TestRun,
+  // "Run again" creates one, Stop / Delete delete it.
   const runNamespaces = runs.map((r) => r.metadata.namespace)
   const patchNs = useAllowedNamespaces(runNamespaces, (ns) => [testRunCheck('patch', ns)])
   const startNs = useAllowedNamespaces(runNamespaces, startTestRunChecks)
   const deleteNs = useAllowedNamespaces(runNamespaces, (ns) => [testRunCheck('delete', ns)])
   const canManage = patchNs.size > 0 || startNs.size > 0 || deleteNs.size > 0
   const [busy, setBusy] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<TestRun | null>(null)
+  const now = useTick(runs.some(isRunning))
+  const recordOf = (r: TestRun) => records.get(`${r.metadata.namespace}/${r.metadata.name}`)
 
-  // Acting on a run meant opening it first. Re-running the same test after a
-  // change, or clearing out a failed one, is the commonest thing to do from a
-  // list of runs and it took two extra clicks and a drawer.
   const act = async (key: string, label: string, fn: () => Promise<unknown>) => {
     setBusy(key)
     try {
@@ -369,55 +429,81 @@ function RunTable({
       toast.success(label)
       void qc.invalidateQueries({ queryKey: ['k6'] })
     } catch (e) {
-      toast.error(label, { description: e instanceof Error ? e.message : String(e) })
+      toast.error(`Could not ${label.charAt(0).toLowerCase()}${label.slice(1)}`, { description: e instanceof Error ? e.message : String(e) })
     } finally {
       setBusy(null)
     }
   }
 
+  const metric = (key: 'p95Ms' | 'rps' | 'errorRatePct', header: string, hidden = false): Column<TestRun> => ({
+    key,
+    header,
+    numeric: true,
+    defaultHidden: hidden,
+    value: (r) => recordOf(r)?.metrics?.[key] ?? -1,
+    cell: (r) => {
+      const v = recordOf(r)?.metrics?.[key]
+      return <span className="tabular-nums text-[12px] text-content-muted">{v === undefined ? '—' : fmtMetric(key, v)}</span>
+    },
+  })
+
   const columns: Column<TestRun>[] = [
     {
       key: 'name',
-      header: 'Test',
-      cell: (r) => (
-        <div className="min-w-0">
-          <div className="truncate font-medium text-content">{r.metadata.name}</div>
-          <div className="truncate text-[11px] text-content-subtle">{r.metadata.namespace}</div>
-        </div>
-      ),
-    },
-    {
-      key: 'stage',
-      header: 'Stage',
-      value: (r) => stageOf(r),
+      header: 'Run',
+      pinned: true,
+      value: (r) => r.metadata.name,
       cell: (r) => {
-        const stage = stageOf(r)
+        const test = r.metadata.labels?.[LABEL_TEST]
         return (
-          <div className="flex items-center gap-1.5">
-            <StatusBadge kind={STAGE_KIND[stage]} pulse={isRunning(r)}>
-              {stage}
-            </StatusBadge>
-            {isPaused(r) ? <Badge>paused</Badge> : null}
+          <div className="min-w-0">
+            <div className="truncate font-medium text-content">{test ?? r.metadata.name}</div>
+            <div className="truncate font-mono text-[10px] text-content-subtle">{test ? r.metadata.name : r.metadata.namespace}</div>
           </div>
         )
+      },
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      value: (r) => runStatus(r, recordOf(r), verdictOf).label,
+      cell: (r) => {
+        const s = runStatus(r, recordOf(r), verdictOf)
+        const running = isRunning(r)
+        return <StatusBadge kind={s.kind} pulse={running && s.kind === 'progressing'}>{s.label}</StatusBadge>
       },
     },
     {
       key: 'test',
-      header: 'From test',
+      header: 'Test',
+      defaultHidden: true,
       value: (r) => r.metadata.labels?.[LABEL_TEST] ?? '',
       cell: (r) => {
-        const test = r.metadata.labels?.[LABEL_TEST]
         const commit = r.metadata.labels?.[LABEL_COMMIT]
-        if (!test) return <span className="text-content-subtle">—</span>
         return (
-          <div className="min-w-0">
-            <div className="truncate font-mono text-[11px] text-content">{test}</div>
-            {commit ? <div className="truncate font-mono text-[10px] text-content-subtle">{commit.slice(0, 7)}</div> : null}
+          <div className="min-w-0 font-mono text-[11px]">
+            <div className="truncate text-content">{r.metadata.labels?.[LABEL_TEST] ?? '—'}</div>
+            {commit ? <div className="truncate text-[10px] text-content-subtle">{commit.slice(0, 7)}</div> : null}
           </div>
         )
       },
     },
+    {
+      key: 'application',
+      header: 'Application',
+      value: (r) => r.metadata.labels?.[LABEL_APPLICATION] ?? '',
+      cell: (r) => <span className="text-[12px] text-content-muted">{r.metadata.labels?.[LABEL_APPLICATION] ?? '—'}</span>,
+    },
+    {
+      key: 'trigger',
+      header: 'Trigger',
+      value: (r) => r.metadata.labels?.[LABEL_TRIGGER] ?? 'manual',
+      cell: (r) => {
+        const t = r.metadata.labels?.[LABEL_TRIGGER] as Trigger | undefined
+        return t ? <TriggerBadge trigger={t} schedule={r.metadata.labels?.[LABEL_SCHEDULE]} /> : <span className="text-[11px] text-content-subtle">by hand</span>
+      },
+    },
+    { key: 'namespace', header: 'Namespace', defaultHidden: true, value: (r) => r.metadata.namespace ?? '', cell: (r) => <span className="text-[12px] text-content-muted">{r.metadata.namespace}</span> },
     {
       key: 'parallelism',
       header: 'Runners',
@@ -425,43 +511,28 @@ function RunTable({
       value: (r) => r.spec?.parallelism ?? 1,
       cell: (r) => <span className="tabular-nums">{r.spec?.parallelism ?? 1}</span>,
     },
-    {
-      key: 'script',
-      header: 'Script',
-      cell: (r) => {
-        const cm = r.spec?.script?.configMap
-        if (!cm) return <span className="text-content-subtle">—</span>
-        return (
-          <code className="text-[11px] text-content-muted">
-            {cm.name}
-            {cm.file ? `/${cm.file}` : ''}
-          </code>
-        )
-      },
-    },
+    metric('p95Ms', 'p95'),
+    metric('rps', 'Req/s'),
+    metric('errorRatePct', 'Errors', true),
     {
       key: 'started',
       header: 'Started',
       value: (r) => r.metadata.creationTimestamp ?? '',
       cell: (r) =>
-        r.metadata.creationTimestamp ? (
-          <span title={formatAbsolute(r.metadata.creationTimestamp)} className="text-[12px] text-content-muted">
-            {formatRelative(r.metadata.creationTimestamp)}
-          </span>
-        ) : (
-          <span className="text-content-subtle">—</span>
-        ),
+        r.metadata.creationTimestamp
+          ? <span title={formatAbsolute(r.metadata.creationTimestamp)} className="text-[12px] text-content-muted">{formatRelative(r.metadata.creationTimestamp)}</span>
+          : <span className="text-content-subtle">—</span>,
     },
     {
       key: 'duration',
       header: 'Duration',
       numeric: true,
       value: (r) => durationSecs(r.metadata.creationTimestamp, finishedAt(r)) ?? -1,
-      cell: (r) => (
-        <span className="tabular-nums text-[12px] text-content-muted">
-          {fmtDuration(durationSecs(r.metadata.creationTimestamp, finishedAt(r)))}
-        </span>
-      ),
+      cell: (r) => {
+        const end = finishedAt(r)
+        const secs = isRunning(r) && r.metadata.creationTimestamp ? (now - Date.parse(r.metadata.creationTimestamp)) / 1000 : durationSecs(r.metadata.creationTimestamp, end)
+        return <span className={cn('tabular-nums text-[12px]', isRunning(r) ? 'text-content' : 'text-content-muted')}>{fmtDuration(secs)}</span>
+      },
     },
   ]
 
@@ -470,45 +541,32 @@ function RunTable({
       key: 'actions',
       header: '',
       sortable: false,
+      filter: false,
       cell: (r) => {
         const key = `${r.metadata.namespace}/${r.metadata.name}`
         const running = isRunning(r)
         const ns = r.metadata.namespace ?? ''
+        const held = running && isPaused(r) && r.status?.stage !== 'started'
         return (
           <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-            {running && !patchNs.has(ns) ? null : !running && !startNs.has(ns) ? null : running
+            {held && patchNs.has(ns)
               ? (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy === key}
-                  onClick={() =>
-                    act(key, isPaused(r) ? `Resumed ${r.metadata.name}` : `Paused ${r.metadata.name}`, () =>
-                      setTestRunPaused(r.metadata.namespace ?? '', r.metadata.name, !isPaused(r)))}
-                >
-                  {isPaused(r) ? 'Resume' : 'Pause'}
+                <Button size="xs" variant="secondary" disabled={busy === key} onClick={() => act(key, `Resumed ${r.metadata.name}`, () => setTestRunPaused(ns, r.metadata.name, false))}>
+                  Resume
                 </Button>
               )
-              : (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy === key}
-                  onClick={() => act(key, `Started a rerun of ${r.metadata.name}`, () => rerunTestRun(r))}
-                >
+              : null}
+            {!running && startNs.has(ns)
+              ? (
+                <Button size="xs" variant="ghost" disabled={busy === key} onClick={() => act(key, `Started a rerun of ${r.metadata.name}`, () => rerunTestRun(r))}>
                   Run again
                 </Button>
-              )}
+              )
+              : null}
             {deleteNs.has(ns)
               ? (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  disabled={busy === key}
-                  className="text-rose-700 dark:text-rose-300"
-                  onClick={() => act(key, `Deleted ${r.metadata.name}`, () => deleteTestRun(ns, r.metadata.name))}
-                >
-                  Delete
+                <Button size="xs" variant="ghost" disabled={busy === key} className="text-rose-700 dark:text-rose-300" onClick={() => setConfirm(r)}>
+                  {running ? 'Stop' : 'Delete'}
                 </Button>
               )
               : null}
@@ -518,671 +576,81 @@ function RunTable({
     })
   }
 
+  const confirmRunning = confirm ? isRunning(confirm) : false
+  const confirmKept = confirm ? Boolean(confirm.metadata.annotations?.[ANN_HARVESTED]) : false
+
   return (
-    <DataTable
-      columns={columns}
-      rows={runs}
-      rowKey={(r) => `${r.metadata.namespace}/${r.metadata.name}`}
-      onRowClick={(r) => onSelect({ namespace: r.metadata.namespace ?? '', name: r.metadata.name })}
-      loading={loading}
-      tableId="k6-testruns"
-      features={{ search: true, filters: true, columns: true, density: true, export: true }}
-      defaultSort={{ key: 'started', dir: 'desc' }}
-      searchPlaceholder="Search test runs…"
-      empty={
-        <EmptyState
-          title="No load tests yet"
-          description="A k6 TestRun points at a script in a ConfigMap and fans it out across runner pods. Create one to see it here."
-        />
-      }
-    />
-  )
-}
-
-/* ─────────────────────────── the drawer ─────────────────────────── */
-
-function RunDrawer({
-  namespace,
-  name,
-  onClose,
-}: {
-  namespace: string
-  name: string
-  onClose(): void
-}) {
-  const run = useTestRun(namespace, name)
-  const pods = useTestRunPods(run.data)
-  const [tab, setTab] = useState<'live' | 'summary' | 'report' | 'logs' | 'spec'>('live')
-  const [stage, setStage] = useState<TestRunStage | null>(null)
-  const [pod, setPod] = useState<string | null>(null)
-  const width = useDrawerWidth('develop.perf-run', { base: 'max-w-3xl' })
-  useOverlayDismiss(true, onClose)
-
-  const podList = pods.data ?? []
-  // Default to the first runner: the initializer only prints the plan, the
-  // starter prints nothing at all, and the summary lives on a runner.
-  const defaultPod = podList.find((p) => p.role === 'runner')?.name ?? podList[0]?.name ?? null
-  useEffect(() => {
-    setPod((current) => current ?? defaultPod)
-  }, [defaultPod])
-
-  const body = (
-    <div className="fixed inset-0 z-[60] flex justify-end bg-scrim/60 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label="Test run">
-      <button type="button" aria-label="Close" className="flex-1 cursor-default" onClick={onClose} />
-      <div className={cn('flex h-full w-full flex-col bg-surface-raised shadow-2xl sm:border-l sm:border-edge-default', width.className)}>
-        <DrawerHeader run={run.data} loading={run.isLoading} onClose={onClose} width={width} />
-
-        {/* shrink-0: the scrolling body is flex-1, and without this the header
-            and tabs are squeezed below their content height — the subtitle
-            ends up drawn on top of the tab row. */}
-        <div className="flex shrink-0 gap-1 overflow-x-auto border-b border-edge-default px-4 [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none] sm:[mask-image:none] [&::-webkit-scrollbar]:hidden">
-          {(['live', 'summary', 'report', 'logs', 'spec'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={cn(
-                'border-b-2 px-3 py-2 text-[12px] font-medium capitalize transition-colors',
-                tab === t
-                  ? 'border-brand-600 text-content'
-                  : 'border-transparent text-content-muted hover:text-content',
-              )}
+    <>
+      <DataTable
+        columns={columns}
+        rows={runs}
+        rowKey={(r) => `${r.metadata.namespace}/${r.metadata.name}`}
+        onRowClick={(r) => onSelect({ namespace: r.metadata.namespace ?? '', name: r.metadata.name })}
+        loading={loading}
+        tableId="k6-testruns-v2"
+        features={{ search: true, filters: true, columns: true, density: true, export: true }}
+        defaultSort={{ key: 'started', dir: 'desc' }}
+        searchPlaceholder="Search test runs…"
+        empty={
+          <EmptyState
+            title="No load tests yet"
+            description="A k6 TestRun points at a script and fans it out across runner pods. Start one with Quick test, from a test in the Tests tab, or from a ConfigMap script."
+          />
+        }
+      />
+      <Modal
+        open={confirm !== null}
+        onClose={() => setConfirm(null)}
+        title={confirmRunning ? 'Stop this run?' : 'Delete this run?'}
+        description={confirmRunning
+          ? 'Stopping deletes the TestRun and its runner pods, which ends the load at once. A stopped run prints no summary. Open the run first to download its logs.'
+          : confirmKept
+          ? 'Its kept result stays under Results; the TestRun and its pods are removed.'
+          : 'Its result has not been kept yet — deleting it now loses the summary.'}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              loading={confirm ? busy === `${confirm.metadata.namespace}/${confirm.metadata.name}` : false}
+              onClick={() => {
+                const r = confirm!
+                void act(`${r.metadata.namespace}/${r.metadata.name}`, confirmRunning ? `Stopped ${r.metadata.name}` : `Deleted ${r.metadata.name}`, () => deleteTestRun(r.metadata.namespace ?? '', r.metadata.name))
+                  .then(() => setConfirm(null))
+              }}
             >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4">
-          {run.isLoading ? (
-            <div className="flex justify-center py-12">
-              <Spinner />
-            </div>
-          ) : !run.data ? (
-            <EmptyState title="Test run not found" description="It may have been deleted while this drawer was open." />
-          ) : tab === 'live' ? (
-            <LiveTab run={run.data} pods={podList} podName={pod} stage={stage} onStage={setStage} />
-          ) : tab === 'summary' ? (
-            <SummaryTab run={run.data} pods={podList} podName={pod} />
-          ) : tab === 'report' ? (
-            <ReportTab run={run.data} podName={pod} />
-          ) : tab === 'logs' ? (
-            <LogsTab run={run.data} pods={podList} podName={pod} onPod={setPod} />
-          ) : (
-            <SpecTab run={run.data} />
-          )}
-        </div>
-      </div>
-    </div>
-  )
-
-  return createPortal(body, document.body)
-}
-
-function DrawerHeader({
-  run,
-  loading,
-  onClose,
-  width,
-}: {
-  run: TestRun | undefined
-  loading: boolean
-  onClose(): void
-  width: DrawerWidth
-}) {
-  const toast = useToast()
-  const qc = useQueryClient()
-  const ns = run?.metadata.namespace ?? ''
-  const canPause = useCan(testRunCheck('patch', ns, run?.metadata.name), { enabled: !!run })
-  const canRerun = useCan(startTestRunChecks(ns), { enabled: !!run })
-  const canDelete = useCan(testRunCheck('delete', ns, run?.metadata.name), { enabled: !!run })
-  const canManage = canPause || canRerun || canDelete
-
-  const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: ['k6'] })
-  }
-
-  const pause = useMutation({
-    mutationFn: (paused: boolean) => setTestRunPaused(run!.metadata.namespace!, run!.metadata.name, paused),
-    onSuccess: (_d, paused) => {
-      toast.success(paused ? 'Test paused' : 'Test resumed')
-      invalidate()
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const rerun = useMutation({
-    mutationFn: () => rerunTestRun(run!),
-    onSuccess: (created) => {
-      toast.success(`Started ${created.metadata.name}`)
-      invalidate()
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const remove = useMutation({
-    mutationFn: () => deleteTestRun(run!.metadata.namespace!, run!.metadata.name),
-    onSuccess: () => {
-      toast.success('Test run deleted')
-      invalidate()
-      onClose()
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const busy = pause.isPending || rerun.isPending || remove.isPending
-  // Deleting a live run also stops its load generators; arm on first click
-  // (same pattern as "Clear finished") so a stray click cannot abort a test.
-  const [armDelete, setArmDelete] = useState(false)
-
-  return (
-    <div className="flex shrink-0 items-start gap-3 border-b border-edge-default px-4 py-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          {run ? <StatusBadge kind={STAGE_KIND[stageOf(run)]} pulse={isRunning(run)}>{stageOf(run)}</StatusBadge> : null}
-          <span className="truncate font-semibold text-content">{run?.metadata.name ?? (loading ? 'Loading…' : '—')}</span>
-        </div>
-        {run ? (
-          <div className="mt-0.5 text-[11px] text-content-subtle">
-            {run.metadata.namespace} · {run.spec?.parallelism ?? 1} runner{(run.spec?.parallelism ?? 1) === 1 ? '' : 's'} ·{' '}
-            {fmtDuration(durationSecs(run.metadata.creationTimestamp, finishedAt(run)))}
-          </div>
-        ) : null}
-      </div>
-
-      {run && canManage ? (
-        <div className="flex shrink-0 items-center gap-1.5">
-          {isRunning(run) ? (
-            canPause
-              ? (
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => pause.mutate(!isPaused(run))}>
-                  {isPaused(run) ? 'Resume' : 'Pause'}
-                </Button>
-              )
-              : null
-          ) : canRerun ? (
-            <Button variant="ghost" size="sm" disabled={busy} onClick={() => rerun.mutate()}>
-              Run again
+              {confirmRunning ? 'Stop run' : 'Delete run'}
             </Button>
-          ) : null}
-          {canDelete ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onBlur={() => setArmDelete(false)}
-            onClick={() => (armDelete ? remove.mutate(undefined, { onSettled: () => setArmDelete(false) }) : setArmDelete(true))}
-          >
-            {armDelete ? (isRunning(run) ? 'Stop and delete?' : 'Delete run?') : 'Delete'}
-          </Button>
-          ) : null}
-        </div>
-      ) : null}
-
-      <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="shrink-0 rounded-md px-2 py-1 text-content-muted hover:bg-surface-sunken hover:text-content"
+          </>
+        }
       >
-        ✕
-      </button>
-    </div>
-  )
-}
-
-/* ─────────────────────────── live tab ─────────────────────────── */
-
-/**
- * The run as it happens: CI-style stages with real durations, and k6's own
- * counters charted from the progress lines it prints every second.
- *
- * The drawer used to open on Summary, which is empty until the end-of-test
- * summary is printed — so a twenty-minute run showed nothing for twenty
- * minutes. This is what the drawer opens on now.
- */
-function LiveTab({
-  run,
-  pods,
-  podName,
-  stage,
-  onStage,
-}: {
-  run: TestRun
-  pods: PodRef[]
-  podName: string | null
-  stage: TestRunStage | null
-  onStage(s: TestRunStage | null): void
-}) {
-  const running = isRunning(run)
-  // Follow only while it is running: a finished run's output is fixed, and a
-  // socket held open on it is a socket held open for nothing.
-  const stream = useLogStream({
-    namespace: run.metadata.namespace,
-    sources: podName ? [{ pod: podName, label: podName }] : [],
-    follow: running,
-    tailLines: 8000,
-    enabled: Boolean(podName),
-  })
-  const lines = useMemo(() => stream.lines.map((l) => l.text), [stream.lines])
-
-  return (
-    <div className="space-y-3">
-      <StageRail run={run} selected={stage} onSelect={onStage} />
-      <LiveCharts lines={lines} running={running} />
-      <Conditions run={run} />
-      <PodStrip pods={pods} />
-    </div>
-  )
-}
-
-/* ─────────────────────────── summary tab ─────────────────────────── */
-
-function SummaryTab({ run, pods, podName }: { run: TestRun; pods: PodRef[]; podName: string | null }) {
-  // One-shot tail of the chosen runner: the summary is printed once, at the
-  // end, so following the stream adds nothing but keeps a socket open.
-  const stream = useLogStream({
-    namespace: run.metadata.namespace,
-    sources: podName ? [{ pod: podName, label: podName }] : [],
-    follow: false,
-    tailLines: 4000,
-    enabled: Boolean(podName),
-  })
-
-  const text = useMemo(() => stream.lines.map((l) => l.text).join('\n'), [stream.lines])
-  const summary = useMemo(() => parseK6Summary(text), [text])
-
-  return (
-    <div className="space-y-4">
-      <StageTimeline run={run} />
-      <Conditions run={run} />
-
-      {!podName ? (
-        <EmptyState
-          title="No runner pods"
-          description={
-            run.spec?.cleanup === 'post' && !isRunning(run)
-              ? 'The operator cleaned up this run’s pods after it finished, so the logs and summary are gone. Run it again to capture them.'
-              : 'The operator has not created the runner pods yet.'
-          }
-        />
-      ) : !summary.complete ? (
-        <EmptyState
-          title={isRunning(run) ? 'Test still running' : 'No summary in the logs'}
-          description={
-            isRunning(run)
-              ? 'k6 prints its summary once, at the end of the test. This fills in when the run completes.'
-              : 'The runner produced no end-of-test summary — check the Logs tab for what it did print.'
-          }
-        />
-      ) : (
-        <>
-          <Thresholds summary={summary} />
-          <Metrics summary={summary} />
-        </>
-      )}
-
-      <PodStrip pods={pods} />
-    </div>
-  )
-}
-
-function StageTimeline({ run }: { run: TestRun }) {
-  const current = stageOf(run)
-  const failed = current === 'error'
-  const stopped = current === 'stopped'
-  const reachedIndex = STAGE_ORDER.indexOf(current)
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="text-[12px] font-semibold text-content">Stages</div>
-      </CardHeader>
-      <CardBody>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {STAGE_ORDER.map((stage, i) => {
-            // A terminal failure stops the walk: stages after the point of
-            // failure were never reached, and drawing them as pending would
-            // imply the run is still on its way to them.
-            const done = !failed && !stopped && reachedIndex >= 0 && i < reachedIndex
-            const active = !failed && !stopped && i === reachedIndex
-            return (
-              <div key={stage} className="flex items-center gap-1.5">
-                <span
-                  className={cn(
-                    'rounded-full px-2.5 py-1 text-[11px] font-medium',
-                    done && 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
-                    active && 'bg-brand-600 text-white',
-                    !done && !active && 'bg-surface-sunken text-content-subtle',
-                  )}
-                >
-                  {stage}
-                </span>
-                {i < STAGE_ORDER.length - 1 ? <span className="text-content-subtle">→</span> : null}
-              </div>
-            )
-          })}
-          {failed ? (
-            <>
-              <span className="text-content-subtle">→</span>
-              <span className="rounded-full bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-white">error</span>
-            </>
-          ) : null}
-          {stopped ? (
-            <>
-              <span className="text-content-subtle">→</span>
-              <span className="rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-medium text-white">stopped</span>
-            </>
-          ) : null}
-        </div>
-      </CardBody>
-    </Card>
-  )
-}
-
-function Conditions({ run }: { run: TestRun }) {
-  const conditions = run.status?.conditions ?? []
-  if (!conditions.length) return null
-  return (
-    <Card>
-      <CardHeader>
-        <div className="text-[12px] font-semibold text-content">Conditions</div>
-      </CardHeader>
-      <CardBody className="space-y-1.5">
-        {conditions.map((c) => (
-          <div key={c.type} className="flex flex-wrap items-baseline gap-2 text-[12px]">
-            <StatusBadge kind={c.status === 'True' ? 'healthy' : c.status === 'False' ? 'unknown' : 'paused'}>
-              {c.type}
-            </StatusBadge>
-            <span className="text-content-muted">{c.reason}</span>
-            {c.message && c.message !== c.reason ? (
-              <span className="text-content-subtle">{c.message}</span>
-            ) : null}
-            <span className="ml-auto text-[11px] text-content-subtle" title={formatAbsolute(c.lastTransitionTime)}>
-              {formatRelative(c.lastTransitionTime)}
-            </span>
-          </div>
-        ))}
-      </CardBody>
-    </Card>
-  )
-}
-
-function Thresholds({ summary }: { summary: K6Summary }) {
-  if (!summary.thresholds.length) {
-    return (
-      <Card>
-        <CardHeader>
-          <div className="text-[12px] font-semibold text-content">Thresholds</div>
-        </CardHeader>
-        <CardBody>
-          <p className="text-[12px] text-content-muted">
-            This script declares no thresholds, so k6 had no pass/fail criteria to check. Adding a{' '}
-            <code className="text-[11px]">thresholds</code> block to the script turns this run into a gate rather than
-            a measurement.
-          </p>
-        </CardBody>
-      </Card>
-    )
-  }
-
-  const failed = summary.thresholds.filter((t) => !t.passed).length
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <div className="text-[12px] font-semibold text-content">Thresholds</div>
-          <StatusBadge kind={failed ? 'failed' : 'healthy'}>
-            {failed ? `${failed} failed` : 'all passed'}
-          </StatusBadge>
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-1">
-        {summary.thresholds.map((t) => (
-          <div key={`${t.metric}:${t.expression}`} className="flex items-center gap-2 text-[12px]">
-            <span className={cn('font-mono', t.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>
-              {t.passed ? '✓' : '✗'}
-            </span>
-            <span className="font-medium text-content">{t.metric}</span>
-            <code className="text-[11px] text-content-muted">{t.expression}</code>
-          </div>
-        ))}
-      </CardBody>
-    </Card>
-  )
-}
-
-/**
- * The one number to print large for a headline metric.
- *
- * Trend metrics (`http_req_duration`) lead with their average. Counters and
- * rates (`http_reqs: 1482  49.06/s`, `data_received: 12 MB  397 kB/s`) have no
- * `avg=` at all — their value is the leading bare token, and for those the
- * SECOND token is either the unit or the rate, never a `k=v` pair. Taking only
- * the first token turned "12 MB" into "12", which reads as twelve of nothing.
- */
-function headlineValue(m: { raw: string; values: Record<string, string> }): string {
-  const trend = m.values['avg'] ?? m.values['p(95)'] ?? m.values['rate']
-  if (trend) return trend
-  const [first, second] = m.raw.split(/\s+/)
-  if (!first) return m.raw
-  // Append the second token only when it is a unit or a rate (`MB`, `49.06/s`).
-  // It is not, for `50 min=50 max=50` (a breakdown) or for
-  // `1.00% ✓ 15 ✗ 1467` (pass/fail counts) — appending those reads as noise.
-  return second && /^[\w%./]+$/.test(second) ? `${first} ${second}` : first
-}
-
-function Metrics({ summary }: { summary: K6Summary }) {
-  const headline = HEADLINE_METRICS.map((n) => summary.metrics.find((m) => m.name === n)).filter(
-    (m): m is NonNullable<typeof m> => Boolean(m),
-  )
-  const rest = summary.metrics.filter((m) => !HEADLINE_METRICS.includes(m.name as typeof HEADLINE_METRICS[number]))
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <div className="text-[12px] font-semibold text-content">Results</div>
-          {summary.checks ? (
-            <StatusBadge kind={summary.checks.failed ? 'degraded' : 'healthy'}>
-              {summary.checks.passed} checks passed
-              {summary.checks.failed ? `, ${summary.checks.failed} failed` : ''}
-            </StatusBadge>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardBody className="space-y-3">
-        {headline.length ? (
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
-            {headline.map((m) => (
-              <div key={m.name} className="rounded-lg border border-edge-default px-3 py-2">
-                <div className="text-[11px] text-content-subtle">{m.name}</div>
-                <div className="truncate font-mono text-[12px] text-content" title={m.raw}>
-                  {headlineValue(m)}
-                </div>
-                {m.values['p(95)'] && m.values['avg'] ? (
-                  <div className="text-[10px] text-content-subtle">p95 {m.values['p(95)']}</div>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {rest.length ? (
-          <details className="text-[12px]">
-            <summary className="cursor-pointer text-content-muted">All {summary.metrics.length} metrics</summary>
-            <div className="mt-2 space-y-0.5 font-mono text-[11px]">
-              {rest.map((m) => (
-                <div key={m.name} className="flex gap-2">
-                  <span className="w-48 shrink-0 truncate text-content-muted">{m.name}</span>
-                  <span className="min-w-0 flex-1 truncate text-content">{m.raw}</span>
-                </div>
-              ))}
-            </div>
-          </details>
-        ) : null}
-      </CardBody>
-    </Card>
-  )
-}
-
-function PodStrip({ pods }: { pods: PodRef[] }) {
-  if (!pods.length) return null
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {pods.map((p) => (
-        <span
-          key={p.name}
-          className="rounded-md border border-edge-default px-2 py-1 font-mono text-[11px] text-content-muted"
-          title={`${p.role} · ${p.phase ?? 'unknown'}`}
-        >
-          {p.name}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-/* ─────────────────────────── report tab ─────────────────────────── */
-
-/**
- * Bridge a TestRun to the report.
- *
- * The run knows three things the report needs and nothing else does: the
- * window it occupied, which pods generated the load, and — through the labels
- * the console stamped at launch — which committed test it came from. The
- * test's own configuration supplies the target selector, so a run started
- * from the workbench charts the system under test, and one started by hand
- * charts what it can and says what it cannot.
- */
-function ReportTab({ run, podName }: { run: TestRun; podName: string | null }) {
-  const testName = run.metadata.labels?.[LABEL_TEST]
-  const commit = run.metadata.labels?.[LABEL_COMMIT]
-  const suite = usePerfSuite()
-  const test = usePerfTest(suite.data, testName ?? null)
-
-  // One-shot read of the runner's stdout for the end-of-test summary.
-  const stream = useLogStream({
-    namespace: run.metadata.namespace,
-    sources: podName ? [{ pod: podName, label: podName }] : [],
-    follow: false,
-    tailLines: 4000,
-    enabled: Boolean(podName),
-  })
-  const summary = useMemo(() => {
-    const text = stream.lines.map((l) => l.text).join('\n')
-    const parsed = parseK6Summary(text)
-    return parsed.complete ? parsed : null
-  }, [stream.lines])
-
-  const window = useMemo(() => {
-    const startMs = run.metadata.creationTimestamp ? new Date(run.metadata.creationTimestamp).getTime() : NaN
-    if (!Number.isFinite(startMs)) return null
-    const finished = finishedAt(run)
-    // A run still going is charted up to now, so the picture fills in live.
-    const endMs = finished ? new Date(finished).getTime() : Date.now()
-    return { startMs, endMs: Math.max(endMs, startMs + 60_000) }
-  }, [run])
-
-  return (
-    <PerfReport
-      testName={testName ?? run.metadata.name}
-      config={test.data?.config ?? DEFAULT_CONFIG}
-      summary={summary}
-      window={window}
-      // The operator names every pod for a TestRun after the run itself.
-      runnerSelector={`${run.metadata.name}.*`}
-      runnerNamespace={run.metadata.namespace ?? 'default'}
-      commit={commit}
-    />
-  )
-}
-
-/* ─────────────────────────── logs tab ─────────────────────────── */
-
-function LogsTab({
-  run,
-  pods,
-  podName,
-  onPod,
-}: {
-  run: TestRun
-  pods: PodRef[]
-  podName: string | null
-  onPod(name: string): void
-}) {
-  const running = isRunning(run)
-  const stream = useLogStream({
-    namespace: run.metadata.namespace,
-    sources: podName ? [{ pod: podName, label: podName }] : [],
-    follow: running,
-    tailLines: 8000,
-    enabled: Boolean(podName),
-  })
-
-  if (!pods.length) {
-    return (
-      <EmptyState
-        title="No pods to read"
-        description="The operator has not created pods for this run, or it already cleaned them up."
-      />
-    )
-  }
-
-  return (
-    <div className="space-y-2">
-      <Select
-        value={podName ?? ''}
-        onChange={(e) => onPod(e.target.value)}
-        options={pods.map((p) => ({ value: p.name, label: `${p.name} · ${p.role}` }))}
-      />
-      <LogConsole lines={stream.lines} status={stream.status} />
-    </div>
-  )
-}
-
-/* ─────────────────────────── spec tab ─────────────────────────── */
-
-function SpecTab({ run }: { run: TestRun }) {
-  const rows: Array<[string, ReactNode]> = [
-    ['Namespace', run.metadata.namespace ?? '—'],
-    ['Parallelism', String(run.spec?.parallelism ?? 1)],
-    ['Script', run.spec?.script?.configMap
-      ? `${run.spec.script.configMap.name}${run.spec.script.configMap.file ? `/${run.spec.script.configMap.file}` : ''}`
-      : run.spec?.script?.localFile ?? '—'],
-    ['Arguments', run.spec?.arguments || '—'],
-    ['Cleanup', run.spec?.cleanup || 'none'],
-    ['Separate runners', run.spec?.separate ? 'yes' : 'no'],
-    ['Test run id', run.status?.testRunId ?? run.spec?.testRunId ?? '—'],
-    ['Created', run.metadata.creationTimestamp ? formatAbsolute(run.metadata.creationTimestamp) : '—'],
-  ]
-  return (
-    <Card>
-      <CardBody className="space-y-1.5">
-        {rows.map(([k, v]) => (
-          <div key={k} className="flex gap-3 text-[12px]">
-            <span className="w-36 shrink-0 text-content-subtle">{k}</span>
-            <span className="min-w-0 flex-1 break-words font-mono text-content">{v}</span>
-          </div>
-        ))}
-      </CardBody>
-    </Card>
+        <p className="font-mono text-[12px] text-content">{confirm?.metadata.namespace}/{confirm?.metadata.name}</p>
+      </Modal>
+    </>
   )
 }
 
 /* ─────────────────────────── create dialog ─────────────────────────── */
 
-function NewRunDialog({ onClose }: { onClose(): void }) {
+interface NewRunInit {
+  namespace?: string
+  name?: string
+  configMap?: string
+  file?: string
+  parallelism?: number
+  arguments?: string
+}
+
+/** Start a TestRun from a ConfigMap script — blank, or pre-filled to duplicate a run. */
+function NewRunDialog({ initial = {}, onClose, onCreated }: { initial?: NewRunInit; onClose(): void; onCreated(run: TestRun): void }) {
   const toast = useToast()
   const qc = useQueryClient()
-  const [namespace, setNamespace] = useState('')
-  const [name, setName] = useState('')
-  const [configMap, setConfigMap] = useState('')
-  const [file, setFile] = useState('')
-  const [parallelism, setParallelism] = useState(1)
-  const [args, setArgs] = useState('')
+  const [namespace, setNamespace] = useState(initial.namespace ?? '')
+  const [name, setName] = useState(initial.name ?? '')
+  const [configMap, setConfigMap] = useState(initial.configMap ?? '')
+  const [file, setFile] = useState(initial.file ?? '')
+  const [parallelism, setParallelism] = useState(initial.parallelism ?? 1)
+  const [args, setArgs] = useState(initial.arguments ?? '')
 
   // Scripts are looked up across all namespaces until one is chosen, so the
   // dialog can answer "what can I run" before "where should it run".
@@ -1209,11 +677,11 @@ function NewRunDialog({ onClose }: { onClose(): void }) {
         arguments: args || undefined,
       }),
     onSuccess: (run) => {
-      toast.success(`Created ${run.metadata.name}`)
+      toast.success(`Started ${run.metadata.name}`)
       void qc.invalidateQueries({ queryKey: ['k6'] })
-      onClose()
+      onCreated(run)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error('Could not start the run', { description: e.message }),
   })
 
   const ready = name.trim() && configMap && file && parallelism >= 1
@@ -1226,8 +694,8 @@ function NewRunDialog({ onClose }: { onClose(): void }) {
       open
       onClose={onClose}
       branded
-      title="New test run"
-      description="Fan a k6 script out across runner pods on the cluster."
+      title={initial.configMap ? 'Duplicate run' : 'New test run'}
+      description={initial.configMap ? 'Same script and settings — change what you need, then start it.' : 'Fan a k6 script out across runner pods on the cluster.'}
       footer={
         <>
           {!access.allowed && !access.loading

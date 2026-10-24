@@ -189,7 +189,7 @@ const TERMINAL = new Set(['finished', 'error', 'stopped'])
 /**
  * Runs the console launched itself, finished, and not yet kept.
  *
- * Runs started by the in-cluster runner (schedules, CI) are labelled
+ * Runs started by the adhar-controlplane runner (schedules, CI) are labelled
  * `adhar.io/perf-runner=job` and harvested by that runner; the console
  * leaving them alone is what stops the two from racing.
  */
@@ -237,7 +237,7 @@ export async function harvestRun(run: TestRun): Promise<string> {
     application: labels[LABEL_APPLICATION],
   }
   // Judge it now, against the gate the test's artefact carries — the same
-  // gate.env the in-cluster runner sources — so the result carries a verdict
+  // gate.env the adhar-controlplane runner sources — so the result carries a verdict
   // whoever launched the run. Without the artefact the default gate applies.
   const record = recordFromConfigMap(resultConfigMap(result))
   const artefact = await kube.get<{ data?: Record<string, string> }>(CONFIG_MAPS, ns, artefactName(labels[LABEL_TEST]))

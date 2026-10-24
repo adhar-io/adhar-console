@@ -38,7 +38,7 @@ export interface ServerAuthConfig {
   /** Hard ceiling on total session age regardless of refreshes (forces re-login). */
   sessionAbsoluteTtlSeconds: number
   /**
-   * Optional in-cluster base URL for Keycloak's SERVER-SIDE backchannel
+   * Optional adhar-controlplane base URL for Keycloak's SERVER-SIDE backchannel
    * (discovery, token exchange, JWKS) — e.g.
    * `http://keycloak.adhar-system.svc.cluster.local:8080`. Set this when the
    * public `KEYCLOAK_URL` isn't routable from inside the cluster (split-horizon

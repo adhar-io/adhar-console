@@ -1,28 +1,21 @@
-import { useMemo, useState, type ReactNode } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
+  canResource,
   DataTable,
   EmptyState,
-  Field,
-  Input,
   LitmusIcon,
-  Modal,
-  Select,
   StatusBadge,
-  canResource,
+  Tabs,
   useCan,
   useToast,
   type Column,
   type StatusKind,
 } from '@adhar/shell-ui'
-import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
+import { formatAbsolute, formatRelative } from '@adhar/utils'
 import {
-  CHAOS_FAULTS,
   CHAOS_NAMESPACE,
   durationOf,
   ENGINES_GVR,
@@ -30,28 +23,34 @@ import {
   faultById,
   faultOf,
   isLive,
-  modeLabel,
   phaseOf,
   resultNameFor,
   targetSummary,
   type ChaosEngine,
-  type ChaosFault,
   type ChaosPhase,
   type ChaosResult,
-  type TargetMode,
 } from '../data/chaos-kinds.ts'
-import { ChaosGameDays } from './chaos-gameday.tsx'
-import { ApplicationSuites } from './chaos-suites.tsx'
-import { ChaosReports } from './chaos-reports.tsx'
-import { readChaosParams, writeChaosParams } from '../data/chaos-report-hooks.ts'
+import { ChaosGameDays, GameDayBuilder, GameDayDrawer } from './chaos-gameday.tsx'
+import { ApplicationSuites, RunLog } from './chaos-suites.tsx'
+import { ChaosReports, CompareDrawer, ReportDrawer } from './chaos-reports.tsx'
+import { ChaosHome } from './chaos-home.tsx'
+import { ChaosLibrary } from './chaos-library.tsx'
+import { LaunchWizard } from './chaos-launch.tsx'
+import { ExperimentRunDrawer, SuiteRunDrawer } from './chaos-run-canvas.tsx'
+import { readChaosParams, useChaosReports, writeChaosParams, type ChaosParams } from '../data/chaos-report-hooks.ts'
+import { useApplicationSuites, useResilienceRuns } from '../data/chaos-suite-hooks.ts'
+import { useScorerResilience } from '../data/chaos-live-hooks.ts'
+import { rerunManifest, rerunName } from '../data/chaos-live.ts'
 import {
-  createChaosEngine,
+  applyChaosEngine,
   deleteChaosEngine,
   stopChaosEngine,
+  useChaosCluster,
   useChaosEngines,
   useChaosResults,
+  useChaosWorkflows,
   useInstalledFaults,
-  useTargetNamespaces,
+  WORKFLOWS_GVR,
 } from '../data/chaos.ts'
 
 /**
@@ -65,164 +64,176 @@ import {
  *   • "Live" is computed from what the RUNNER reports, not from what was
  *     asked for. A run that has been told to stop but whose runner still says
  *     the fault is applied reads as `recovering`, not `stopped`.
- *   • Stopping is `engineState: stop`, never a delete. Litmus unwinds the
- *     fault on the way out; deleting a live engine can strand it.
+ *   • Stopping is `engineState: stop` (or Argo's graceful `shutdown: Stop` for
+ *     a game day), never a delete. Litmus unwinds the fault on the way out;
+ *     deleting a live engine can strand it.
  *   • Launching states the blast radius in words — "all pods in payments" —
- *     and high-blast faults require typing the name to confirm. Slower on
- *     purpose.
+ *     platform namespaces cannot be targeted, durations are capped, and
+ *     high-blast faults require typing the name to confirm. Slower on purpose.
+ *
+ * Every run opens a live canvas (lifecycle, steps, target pods, probe,
+ * metrics) and every suite run is recorded as a report with its metrics.
+ * Deep links: `?tab=` · `?run=<engine>` · `?gameday=<workflow>` ·
+ * `?job=<suite run>` · `?report=<id>` · `?compare=<id>~<id>` ·
+ * `?commit=&app=` (reports filter).
  */
-type ChaosTab = 'experiments' | 'suites' | 'gamedays' | 'reports'
-const CHAOS_TABS: ChaosTab[] = ['experiments', 'suites', 'gamedays', 'reports']
+type ChaosTab = 'overview' | 'experiments' | 'suites' | 'gamedays' | 'reports' | 'library'
+const CHAOS_TABS: ChaosTab[] = ['overview', 'experiments', 'suites', 'gamedays', 'reports', 'library']
 
 export function ChaosView({ namespace }: { namespace?: string }) {
-  /*
-   * "Experiments" is every individual run on the cluster. "Application suites"
-   * is what each application declares it survives, run by the platform hourly
-   * and as the promotion gate. "Game days" is the automated side: a catalogue
-   * of scenarios composed into one workflow. Tabs rather than pages because
-   * the last two are how you should normally run the first. "Run reports" is
-   * the record: one report per suite run, findable by commit, and the tab a
-   * `?tab=reports&commit=<sha>` deep link (from Deliver's Kargo views) opens.
-   */
-  const [tab, setTabState] = useState<ChaosTab>(() => {
-    const t = readChaosParams().tab as ChaosTab | undefined
-    return t && CHAOS_TABS.includes(t) ? t : 'experiments'
-  })
-  const setTab = (t: ChaosTab) => {
-    setTabState(t)
-    writeChaosParams({ tab: t === 'experiments' ? undefined : t, ...(t === 'reports' ? {} : { commit: undefined, app: undefined, report: undefined }) })
+  const [params, setParams] = useState<ChaosParams>(() => readChaosParams())
+  const patch = (p: ChaosParams) => {
+    setParams((prev) => {
+      const next = { ...prev, ...p }
+      for (const k of Object.keys(next) as Array<keyof ChaosParams>) if (!next[k]) delete next[k]
+      return next
+    })
+    writeChaosParams(p)
   }
-  const { engines, installed, isLoading, error } = useChaosEngines(namespace)
-  const faults = useInstalledFaults()
-  const results = useChaosResults()
-  const [launching, setLaunching] = useState(false)
-  // Runs are ChaosEngines created in the platform namespace beside the
-  // operator (CHAOS_NAMESPACE) — that is where RBAC must allow the create.
-  const canLaunch = useCan(canResource(ENGINES_GVR, 'create', { namespace: CHAOS_NAMESPACE }))
+  const tab: ChaosTab = params.tab && CHAOS_TABS.includes(params.tab as ChaosTab) ? params.tab as ChaosTab : 'overview'
+  const setTab = (t: ChaosTab) => patch({ tab: t === 'overview' ? undefined : t, ...(t === 'reports' ? {} : { commit: undefined, app: undefined }) })
 
-  if (!isLoading && !installed) {
-    // The suites still matter without Litmus: the load test and the promotion
-    // gate run regardless, and the runner reports each fault as unavailable.
-    return (
-      <div className="space-y-4">
+  const { cluster: activeCluster } = useChaosCluster()
+  const { engines, all: allEngines, installed, isLoading, error } = useChaosEngines(namespace)
+  const live = engines.filter(isLive)
+  const faults = useInstalledFaults()
+  const results = useChaosResults(engines.some((e) => isLive(e) || phaseOf(e) === 'injecting'))
+  const workflows = useChaosWorkflows(namespace)
+  const runs = useResilienceRuns()
+  const reports = useChaosReports()
+  const suites = useApplicationSuites(namespace)
+  const scorer = useScorerResilience()
+  const canLaunch = useCan(canResource(ENGINES_GVR, 'create', { namespace: CHAOS_NAMESPACE }))
+  const canGameDay = useCan(canResource(WORKFLOWS_GVR, 'create', { namespace: CHAOS_NAMESPACE }))
+
+  const [launching, setLaunching] = useState<{ fault?: string } | null>(null)
+  const [building, setBuilding] = useState<{ scenarios?: string[] } | null>(null)
+  const [logJob, setLogJob] = useState<string | null>(null)
+
+  const reportItems = useMemo(() => (reports.data?.items ?? []).filter((r) => !namespace || r.namespace === namespace), [reports.data, namespace])
+  const suiteRun = params.job ? runs.data?.runs.find((r) => r.job === params.job) : undefined
+  const suiteFaults = useMemo(() => {
+    if (!suiteRun) return []
+    const row = suites.apps.find((a) => a.app === suiteRun.app)?.environments.find((e) => e.namespace === suiteRun.namespace)
+    return (row?.faults ?? []).filter((f) => f.inSuite).map((f) => ({ name: f.name, ...(f.hypothesis ? { hypothesis: f.hypothesis } : {}) }))
+  }, [suiteRun, suites.apps])
+  const [cmpA, cmpB] = (params.compare ?? '').split('~')
+
+  const openReport = (id: string) => patch({ report: id, compare: undefined })
+  const openCompare = (a: string, b: string) => patch({ compare: `${a}~${b}`, report: undefined })
+
+  const actions = (
+    <div className="flex flex-wrap gap-2">
+      {canGameDay && !workflows.notInstalled ? <Button size="sm" onClick={() => setBuilding({})}>New game day</Button> : null}
+      {canLaunch && installed ? <Button size="sm" variant="primary" onClick={() => setLaunching({})}>New experiment</Button> : null}
+    </div>
+  )
+
+  const remote = activeCluster !== undefined
+  const tabs = [
+    { id: 'overview' as const, label: 'Overview' },
+    { id: 'experiments' as const, label: 'Experiments', badge: live.length ? { kind: 'failed' as StatusKind, value: live.length } : undefined },
+    { id: 'suites' as const, label: 'Application suites' },
+    { id: 'gamedays' as const, label: 'Game days' },
+    { id: 'reports' as const, label: 'Run reports' },
+    { id: 'library' as const, label: 'Library' },
+  ]
+
+  return (
+    <div className="space-y-4">
+      {/* Actions sit right of the tabs on a wide screen and above them on a
+          phone, where the tab strip needs the whole row to scroll. */}
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-start">
+        <div className="min-w-0 flex-1"><Tabs tabs={tabs} value={tab} onChange={setTab} ariaLabel="Chaos Engineering" /></div>
+        <div className="flex justify-end">{actions}</div>
+      </div>
+
+      {/* The overview's "Running now" already leads with them. */}
+      {live.length > 0 && tab !== 'overview' ? <LiveBanner engines={live} onOpen={(n) => patch({ run: n })} /> : null}
+
+      {!isLoading && !installed && (tab === 'overview' || tab === 'experiments' || tab === 'library') ? (
         <EmptyState
           title="LitmusChaos is not installed"
           description={
             <>
-              The Litmus CRDs are not registered on this cluster, so there are no experiments to show. LitmusChaos
-              ships with the Adhar platform as the chaos engine (the <code>litmus</code> package) — enable it in the
-              stack and this page populates on its own.{' '}
-              <a
-                className="text-brand-700 underline dark:text-brand-300"
-                href="https://docs.litmuschaos.io/docs/getting-started/installation"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Litmus docs ↗
-              </a>
+              The Litmus CRDs are not registered on this cluster, so there are no experiments to run or show. LitmusChaos ships with the Adhar platform as the chaos engine (the <code>litmus</code> package) — enable it in the stack and this page populates on its own. Application suites and run reports still work: the runner reports each fault as unavailable.{' '}
+              <a className="text-brand-700 underline dark:text-brand-300" href="https://docs.litmuschaos.io/docs/getting-started/installation" target="_blank" rel="noreferrer">Litmus docs ↗</a>
             </>
           }
+          action={<Button variant="primary" onClick={() => setTab('suites')}>Go to application suites</Button>}
         />
-        <ApplicationSuites namespace={namespace} />
-        <ChaosReports namespace={namespace} onRunSuites={() => setTab('suites')} />
-      </div>
-    )
-  }
+      ) : null}
 
-  const live = engines.filter(isLive)
-
-  const tabs = (
-    <div className="flex gap-1">
-      {([['experiments', 'Experiments'], ['suites', 'Application suites'], ['gamedays', 'Game days'], ['reports', 'Run reports']] as Array<[ChaosTab, string]>).map(([id, label]) => (
-        <button
-          key={id}
-          type="button"
-          onClick={() => setTab(id)}
-          className={cn(
-            'rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors',
-            tab === id ? 'bg-brand-600 text-white' : 'text-content-muted hover:bg-surface-sunken hover:text-content',
-          )}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
-  )
-
-  if (tab === 'suites') {
-    return (
-      <div className="space-y-4">
-        {tabs}
-        {live.length > 0 ? <LiveBanner engines={live} /> : null}
-        <ApplicationSuites namespace={namespace} />
-      </div>
-    )
-  }
-
-  if (tab === 'reports') {
-    return (
-      <div className="space-y-4">
-        {tabs}
-        {live.length > 0 ? <LiveBanner engines={live} /> : null}
-        <ChaosReports namespace={namespace} onRunSuites={() => setTab('suites')} />
-      </div>
-    )
-  }
-
-  if (tab === 'gamedays') {
-    return (
-      <div className="space-y-4">
-        {tabs}
-        {live.length > 0 ? <LiveBanner engines={live} /> : null}
-        <ChaosGameDays namespace={namespace} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      {tabs}
-      {live.length > 0 ? <LiveBanner engines={live} /> : null}
-
-      <Summary engines={engines} loading={isLoading} />
+      {remote && (tab === 'suites' || tab === 'reports' || tab === 'overview') ? (
+        <div className="rounded-lg border border-edge-default bg-surface-sunken px-3 py-2 text-[12px] text-content-muted">
+          Application suites, suite runs and run reports come from the platform&apos;s control-plane cluster (the resilience runner lives there); experiments and game days below are the selected cluster&apos;s.
+        </div>
+      ) : null}
 
       {error ? (
-        <Card>
-          <CardBody className="text-[12px] text-rose-600 dark:text-rose-400">
-            Chaos runs could not be read: {(error as Error).message}.
-          </CardBody>
-        </Card>
+        <EmptyState compact title="Chaos runs could not be read" description={(error as Error).message} />
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-content">
-                <LitmusIcon size={16} /> Experiments
-              </div>
-              <div className="text-[12px] text-content-muted">
-                {faults.installed.length} of {CHAOS_FAULTS.length} catalogued faults are installed on this cluster
-                {faults.definitions > faults.installed.length ? ` (${faults.definitions} definitions in total)` : ''}.
-              </div>
-            </div>
-            {canLaunch ? (
-              <Button variant="primary" className="ml-auto" onClick={() => setLaunching(true)}>
-                New experiment
-              </Button>
-            ) : null}
-          </div>
-        </CardHeader>
-        <CardBody className="p-0">
-          <ExperimentTable engines={engines} results={results} loading={isLoading} canLaunch={canLaunch} />
-        </CardBody>
-      </Card>
-
-      <FaultCatalog installed={faults.installed} />
+      {tab === 'overview' ? (
+        <ChaosHome
+          engines={installed ? engines : []}
+          results={results}
+          enginesLoading={isLoading}
+          workflows={workflows.data ?? []}
+          runs={runs.data?.runs.filter((r) => !namespace || r.namespace === namespace) ?? []}
+          reports={reportItems}
+          reportsLoading={reports.isLoading}
+          reportsConfigured={reports.data?.configured !== false}
+          scorer={scorer.data}
+          canLaunch={canLaunch && installed}
+          canGameDay={canGameDay}
+          onNewExperiment={() => setLaunching({})}
+          onNewGameDay={() => setBuilding({})}
+          onTab={setTab}
+          onOpenRun={(n) => patch({ run: n })}
+          onOpenGameDay={(n) => patch({ gameday: n })}
+          onOpenSuiteRun={(j) => patch({ job: j })}
+          onOpenReport={openReport}
+          onCompare={openCompare}
+        />
+      ) : tab === 'experiments' && installed ? (
+        <ExperimentsTab engines={engines} results={results} loading={isLoading} canLaunch={canLaunch} faultCount={faults.installed.length} definitions={faults.definitions} onOpen={(n) => patch({ run: n })} onNew={() => setLaunching({})} allNames={allEngines.map((e) => e.metadata.name)} />
+      ) : tab === 'suites' ? (
+        <ApplicationSuites namespace={namespace} onWatch={(j) => patch({ job: j })} />
+      ) : tab === 'gamedays' ? (
+        <ChaosGameDays namespace={namespace} onNew={() => setBuilding({})} onOpen={(o) => patch({ gameday: o.name })} />
+      ) : tab === 'reports' ? (
+        <ChaosReports namespace={namespace} commit={params.commit ?? ''} app={params.app ?? ''} onFilter={(f) => patch(f)} onRunSuites={() => setTab('suites')} onOpen={openReport} onCompare={openCompare} />
+      ) : tab === 'library' && installed ? (
+        <ChaosLibrary installed={faults.installed} canLaunch={canLaunch} canGameDay={canGameDay && !workflows.notInstalled} onRunFault={(id) => setLaunching({ fault: id })} onGameDay={(s) => setBuilding({ scenarios: s })} />
+      ) : null}
 
       {launching && canLaunch ? (
-        <LaunchDialog installed={faults.installed} onClose={() => setLaunching(false)} />
+        <LaunchWizard
+          installed={faults.installed}
+          initialFault={launching.fault}
+          taken={allEngines.map((e) => e.metadata.name)}
+          onClose={() => setLaunching(null)}
+          onLaunched={(n) => {
+            setLaunching(null)
+            patch({ run: n })
+          }}
+        />
       ) : null}
+      {building && canGameDay ? (
+        <GameDayBuilder initialScenarios={building.scenarios} taken={(workflows.data ?? []).map((w) => w.metadata.name)} onClose={() => setBuilding(null)} onCreated={(o) => patch({ gameday: o.name, tab: tab === 'overview' ? undefined : 'gamedays' })} />
+      ) : null}
+
+      {params.run ? <ExperimentRunDrawer name={params.run} onClose={() => patch({ run: undefined })} onOpenRun={(n) => patch({ run: n })} /> : null}
+      {params.gameday ? (
+        <GameDayDrawer namespace={CHAOS_NAMESPACE} name={params.gameday} taken={(workflows.data ?? []).map((w) => w.metadata.name)} onClose={() => patch({ gameday: undefined })} onOpen={(o) => patch({ gameday: o.name })} />
+      ) : null}
+      {params.job && suiteRun ? (
+        <SuiteRunDrawer run={suiteRun} faults={suiteFaults} onClose={() => patch({ job: undefined })} onViewLog={() => setLogJob(suiteRun.job)} />
+      ) : null}
+      {params.report ? <ReportDrawer id={params.report} onClose={() => patch({ report: undefined })} onCompare={openCompare} /> : null}
+      {cmpA && cmpB ? <CompareDrawer a={cmpA} b={cmpB} onClose={() => patch({ compare: undefined })} onPick={openCompare} /> : null}
+      {logJob ? <RunLog job={logJob} live={!!suiteRun && !suiteRun.completionTime} onClose={() => setLogJob(null)} /> : null}
     </div>
   )
 }
@@ -235,7 +246,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
  * Someone arriving at this page mid-incident needs to know in the first
  * second whether the thing they are debugging is a fault somebody injected.
  */
-function LiveBanner({ engines }: { engines: ChaosEngine[] }) {
+function LiveBanner({ engines, onOpen }: { engines: ChaosEngine[]; onOpen(name: string): void }) {
   return (
     <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
       <div className="flex items-center gap-2">
@@ -249,55 +260,16 @@ function LiveBanner({ engines }: { engines: ChaosEngine[] }) {
       </div>
       <div className="mt-1.5 space-y-0.5">
         {engines.map((e) => (
-          <div key={`${e.metadata.namespace}/${e.metadata.name}`} className="text-[12px] text-rose-700 dark:text-rose-300">
+          <button key={`${e.metadata.namespace}/${e.metadata.name}`} type="button" onClick={() => onOpen(e.metadata.name)} className="block text-left text-[12px] text-rose-700 hover:underline dark:text-rose-300">
             <span className="font-medium">{e.metadata.name}</span> — {faultOf(e)} on {targetSummary(e)}
-          </div>
+          </button>
         ))}
       </div>
     </div>
   )
 }
 
-/* ─────────────────────────── summary ─────────────────────────── */
-
-function Summary({ engines, loading }: { engines: ChaosEngine[]; loading: boolean }) {
-  const stats = useMemo(() => {
-    const live = engines.filter(isLive).length
-    const passed = engines.filter((e) => phaseOf(e) === 'passed').length
-    const failed = engines.filter((e) => phaseOf(e) === 'failed').length
-    return { total: engines.length, live, passed, failed }
-  }, [engines])
-
-  const tiles: Array<{ label: string; value: ReactNode; hint: string; alarm?: boolean }> = [
-    { label: 'Runs', value: stats.total, hint: 'ChaosEngines on the cluster' },
-    { label: 'Injecting now', value: stats.live, hint: 'Faults currently applied to targets', alarm: stats.live > 0 },
-    { label: 'Hypothesis held', value: stats.passed, hint: 'Runs whose verdict was Pass' },
-    { label: 'Hypothesis failed', value: stats.failed, hint: 'Runs whose verdict was Fail — the findings', alarm: stats.failed > 0 },
-  ]
-
-  return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {tiles.map((t) => (
-        <Card key={t.label}>
-          <CardBody className="space-y-1">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-content-subtle">{t.label}</div>
-            <div
-              className={cn(
-                'text-2xl font-semibold tabular-nums',
-                t.alarm ? 'text-rose-600 dark:text-rose-400' : 'text-content',
-              )}
-            >
-              {loading ? '—' : t.value}
-            </div>
-            <div className="text-[11px] text-content-subtle">{t.hint}</div>
-          </CardBody>
-        </Card>
-      ))}
-    </div>
-  )
-}
-
-/* ─────────────────────────── table ─────────────────────────── */
+/* ─────────────────────────── experiments ─────────────────────────── */
 
 const PHASE_KIND: Record<ChaosPhase, StatusKind> = {
   injected: 'failed',
@@ -319,16 +291,16 @@ const PHASE_LABEL: Record<ChaosPhase, string> = {
   unknown: 'unknown',
 }
 
-function ExperimentTable({
-  engines,
-  results,
-  loading,
-  canLaunch,
-}: {
+function ExperimentsTab({ engines, results, loading, canLaunch, faultCount, definitions, onOpen, onNew, allNames }: {
   engines: ChaosEngine[]
   results: Map<string, ChaosResult>
   loading: boolean
   canLaunch: boolean
+  faultCount: number
+  definitions: number
+  onOpen(name: string): void
+  onNew(): void
+  allNames: string[]
 }) {
   const resultOf = (e: ChaosEngine) => {
     const n = resultNameFor(e)
@@ -344,7 +316,7 @@ function ExperimentTable({
         <div className="min-w-0">
           <div className="truncate font-medium text-content">{e.metadata.name}</div>
           <div className="truncate text-[11px] text-content-subtle">
-            {e.metadata.labels?.['adhar.io/chaos-gameday'] ? `game day ${e.metadata.labels['adhar.io/chaos-gameday']}` : e.metadata.namespace}
+            {e.metadata.labels?.['adhar.io/chaos-gameday'] ? `game day ${e.metadata.labels['adhar.io/chaos-gameday']}` : e.metadata.labels?.['adhar.io/resilience-test'] ? 'resilience suite' : e.metadata.namespace}
           </div>
         </div>
       ),
@@ -358,7 +330,7 @@ function ExperimentTable({
         return (
           <div className="flex items-center gap-1.5">
             <Badge>{fault ? FAMILY_LABEL[fault.family] : 'fault'}</Badge>
-            <code className="text-[11px] text-content-muted">{faultOf(e)}</code>
+            <span className="font-mono text-[11px] text-content-muted">{faultOf(e)}</span>
           </div>
         )
       },
@@ -370,18 +342,16 @@ function ExperimentTable({
       cell: (e) => {
         const phase = phaseOf(e)
         const r = resultOf(e)
-        const probe = r?.status?.experimentStatus?.probeSuccessPercentage
+        // Litmus writes "Awaited" until the run ends; only a number is a result.
+        const raw = r?.status?.experimentStatus?.probeSuccessPercentage
+        const probe = raw !== undefined && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : undefined
         return (
           <div className="flex items-center gap-1.5">
-            <StatusBadge kind={PHASE_KIND[phase]} pulse={isLive(e)}>
-              {PHASE_LABEL[phase]}
-            </StatusBadge>
+            <StatusBadge kind={PHASE_KIND[phase]} pulse={isLive(e)}>{PHASE_LABEL[phase]}</StatusBadge>
             {phase === 'failed' && r?.status?.experimentStatus?.failStep ? (
-              <span className="truncate text-[11px] text-rose-700 dark:text-rose-400" title={r.status.experimentStatus.failStep}>
-                {r.status.experimentStatus.failStep}
-              </span>
-            ) : probe && probe !== '' ? (
-              <span className="text-[11px] tabular-nums text-content-subtle">probes {probe}%</span>
+              <span className="truncate text-[11px] text-rose-700 dark:text-rose-400" title={r.status.experimentStatus.failStep}>{r.status.experimentStatus.failStep}</span>
+            ) : probe !== undefined ? (
+              <span className="text-[11px] tabular-nums text-content-subtle">probes {Number(probe.toFixed(1))}%</span>
             ) : null}
           </div>
         )
@@ -406,91 +376,102 @@ function ExperimentTable({
       key: 'created',
       header: 'Started',
       value: (e) => e.metadata.creationTimestamp ?? '',
-      cell: (e) =>
-        e.metadata.creationTimestamp ? (
-          <span title={formatAbsolute(e.metadata.creationTimestamp)} className="text-[12px] text-content-muted">
-            {formatRelative(e.metadata.creationTimestamp)}
-          </span>
-        ) : (
-          <span className="text-content-subtle">—</span>
-        ),
+      cell: (e) => e.metadata.creationTimestamp
+        ? <span title={formatAbsolute(e.metadata.creationTimestamp)} className="text-[12px] text-content-muted">{formatRelative(e.metadata.creationTimestamp)}</span>
+        : <span className="text-content-subtle">—</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      sortable: false,
+      // Stop / Re-run / Delete are asked per run (RowActions renders nothing it may not do).
+      cell: (e) => <RowActions engine={e} allNames={allNames} onOpen={onOpen} />,
     },
   ]
 
-  // Stop/Delete are asked per run (RowActions renders nothing it may not do).
-  columns.push({
-    key: 'actions',
-    header: '',
-    align: 'right',
-    sortable: false,
-    cell: (e) => <RowActions engine={e} />,
-  })
-
   return (
-    <DataTable
-      columns={columns}
-      rows={engines}
-      rowKey={(e) => `${e.metadata.namespace}/${e.metadata.name}`}
-      loading={loading}
-      tableId="chaos-experiments"
-      features={{ search: true, filters: true, columns: true, density: true, export: true }}
-      defaultSort={{ key: 'created', dir: 'desc' }}
-      searchPlaceholder="Search runs…"
-      empty={
-        <EmptyState
-          title="No chaos experiments"
-          description={
-            canLaunch
-              ? 'Nothing is being broken on purpose right now. Start with pod-delete on a non-critical workload — it is the experiment real clusters survive.'
-              : 'Nothing is being broken on purpose right now. Ask a platform admin to run an experiment, or for permission to create ChaosEngines.'
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-content"><LitmusIcon size={16} /> Experiments</h2>
+          <p className="text-[12px] text-content-muted">
+            Every ChaosEngine on this cluster — click one to watch it live. {faultCount} of {definitions || faultCount} installed fault definitions are catalogued here.
+          </p>
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+        <DataTable
+          columns={columns}
+          rows={engines}
+          rowKey={(e) => `${e.metadata.namespace}/${e.metadata.name}`}
+          onRowClick={(e) => onOpen(e.metadata.name)}
+          loading={loading}
+          tableId="chaos-experiments"
+          features={{ search: true, filters: true, columns: true, density: true, export: true }}
+          defaultSort={{ key: 'created', dir: 'desc' }}
+          searchPlaceholder="Search runs…"
+          empty={
+            <EmptyState
+              title="No chaos experiments"
+              description={canLaunch
+                ? 'Nothing is being broken on purpose right now. Start with pod-delete on a non-critical workload — it is the experiment real clusters survive.'
+                : 'Nothing is being broken on purpose right now. Ask a platform admin to run an experiment, or for permission to create ChaosEngines.'}
+              action={canLaunch ? <Button variant="primary" onClick={onNew}>New experiment</Button> : undefined}
+            />
           }
         />
-      }
-    />
+      </div>
+    </section>
   )
 }
 
-function RowActions({ engine }: { engine: ChaosEngine }) {
+function RowActions({ engine, allNames, onOpen }: { engine: ChaosEngine; allNames: string[]; onOpen(name: string): void }) {
   const toast = useToast()
   const qc = useQueryClient()
+  const { cluster } = useChaosCluster()
   const live = isLive(engine)
   const phase = phaseOf(engine)
   const ns = engine.metadata.namespace ?? CHAOS_NAMESPACE
-  // Stop is a merge-patch of spec.engineState; delete removes the engine.
   const canStop = useCan(canResource(ENGINES_GVR, 'patch', { namespace: ns, name: engine.metadata.name }))
   const canDelete = useCan(canResource(ENGINES_GVR, 'delete', { namespace: ns, name: engine.metadata.name }))
-
-  const invalidate = () => void qc.invalidateQueries({ queryKey: ['chaos'] })
-
-  const stop = useMutation({
-    mutationFn: () => stopChaosEngine(ns, engine.metadata.name),
-    onSuccess: () => {
-      toast.success('Stopping — Litmus is recovering the fault')
-      invalidate()
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const remove = useMutation({
-    mutationFn: () => deleteChaosEngine(engine),
-    onSuccess: () => {
-      toast.success('Run deleted')
-      invalidate()
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
+  const canCreate = useCan(canResource(ENGINES_GVR, 'create', { namespace: ns }))
+  const [busy, setBusy] = useState(false)
+  const run = async (f: () => Promise<unknown>, ok: string) => {
+    setBusy(true)
+    try {
+      await f()
+      toast.success(ok)
+      void qc.invalidateQueries({ queryKey: ['chaos'] })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const over = phase === 'passed' || phase === 'failed' || phase === 'stopped'
-  if (!(canStop && !over) && !canDelete) return null
-
   return (
-    <div className="flex justify-end gap-1">
-      {/* A finished run has already recovered; there is nothing to stop and
-          no resume — running the fault again is a new run with its own
-          verdict, which is what the launcher is for. */}
+    <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+      {/* A finished run has already recovered; there is nothing to stop. */}
       {!over && canStop ? (
-        <Button variant="ghost" size="xs" disabled={stop.isPending || phase === 'recovering'} onClick={() => stop.mutate()}>
-          Stop
+        <Button variant="ghost" size="xs" disabled={busy || phase === 'recovering'} onClick={() => void run(() => stopChaosEngine(ns, engine.metadata.name, cluster), 'Stopping — Litmus is recovering the fault')}>Stop</Button>
+      ) : null}
+      {over && canCreate ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={busy}
+          title="Run the same fault against the same target again"
+          onClick={() => {
+            const next = rerunName(engine.metadata.name, allNames)
+            void run(async () => {
+              await applyChaosEngine(rerunManifest(engine, next), cluster)
+              onOpen(next)
+            }, `${next} launched`)
+          }}
+        >
+          Re-run
         </Button>
       ) : null}
       {/* Deleting a live run can strand the injected fault with nothing left
@@ -499,255 +480,13 @@ function RowActions({ engine }: { engine: ChaosEngine }) {
         <Button
           variant="ghost"
           size="xs"
-          disabled={live || remove.isPending}
+          disabled={live || busy}
           title={live ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
-          onClick={() => remove.mutate()}
+          onClick={() => void run(() => deleteChaosEngine(engine, cluster), 'Run deleted')}
         >
           Delete
         </Button>
       ) : null}
     </div>
-  )
-}
-
-/* ─────────────────────────── fault catalogue ─────────────────────────── */
-
-const BLAST_TONE: Record<ChaosFault['blast'], string> = {
-  low: 'text-emerald-700 dark:text-emerald-400',
-  medium: 'text-amber-700 dark:text-amber-400',
-  high: 'text-rose-700 dark:text-rose-400',
-}
-
-function FaultCatalog({ installed }: { installed: ChaosFault[] }) {
-  const ids = new Set(installed.map((k) => k.id))
-  return (
-    <Card>
-      <CardHeader>
-        <div className="text-sm font-semibold text-content">Faults</div>
-        <div className="text-[12px] text-content-muted">
-          What Litmus can break, ordered by how much of a real outage it resembles.
-        </div>
-      </CardHeader>
-      <CardBody className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-        {CHAOS_FAULTS.map((fault) => {
-          const present = ids.has(fault.id)
-          return (
-            <div
-              key={fault.id}
-              className={cn(
-                'rounded-lg border border-edge-default px-3 py-2',
-                !present && 'opacity-50',
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] font-semibold text-content">{fault.label}</span>
-                <span className="text-[10px] text-content-subtle">{FAMILY_LABEL[fault.family]}</span>
-                <span className={cn('text-[10px] font-medium uppercase', BLAST_TONE[fault.blast])}>
-                  {fault.blast}
-                </span>
-                {!present ? <span className="ml-auto text-[10px] text-content-subtle">not installed</span> : null}
-              </div>
-              <div className="mt-0.5 text-[11px] text-content-muted">{fault.blurb}</div>
-            </div>
-          )
-        })}
-      </CardBody>
-    </Card>
-  )
-}
-
-/* ─────────────────────────── launch dialog ─────────────────────────── */
-
-const MODES: TargetMode[] = ['one', 'percent', 'all']
-const APP_KINDS = ['deployment', 'statefulset', 'daemonset', 'rollout'] as const
-
-function LaunchDialog({ installed, onClose }: { installed: ChaosFault[]; onClose(): void }) {
-  const toast = useToast()
-  const qc = useQueryClient()
-  const namespaces = useTargetNamespaces()
-
-  const [faultId, setFaultId] = useState<string>(installed[0]?.id ?? 'pod-delete')
-  const fault = faultById(faultId)
-  const [name, setName] = useState('')
-  const [targetNs, setTargetNs] = useState('')
-  const [label, setLabel] = useState('')
-  const [appKind, setAppKind] = useState<typeof APP_KINDS[number]>('deployment')
-  const [node, setNode] = useState('')
-  const [mode, setMode] = useState<TargetMode>('one')
-  const [percent, setPercent] = useState('50')
-  const [env, setEnv] = useState<Record<string, string>>({})
-  const [probeUrl, setProbeUrl] = useState('')
-  const [confirm, setConfirm] = useState('')
-
-  const pickFault = (id: string) => {
-    setFaultId(id)
-    setEnv({})
-  }
-
-  const knob = (key: string, fallback: string) => env[key] ?? fallback
-  const duration = knob('TOTAL_CHAOS_DURATION', fault?.knobs.find((k) => k.env === 'TOTAL_CHAOS_DURATION')?.value ?? '60')
-
-  // High-blast faults, or anything pointed at every pod, must be typed out.
-  const needsConfirm = fault?.blast === 'high' || mode === 'all'
-  const confirmed = !needsConfirm || confirm === name
-
-  const create = useMutation({
-    mutationFn: () =>
-      createChaosEngine({
-        fault: faultId,
-        name,
-        targetNamespace: targetNs,
-        label: label.trim() || undefined,
-        appKind,
-        mode,
-        percent: mode === 'percent' ? percent : undefined,
-        node: fault?.node ? node.trim() || undefined : undefined,
-        env,
-        ...(probeUrl.trim() ? { steadyState: { url: probeUrl.trim(), statusCode: 200, intervalSeconds: 5 } } : {}),
-      }),
-    onSuccess: (e) => {
-      toast.success(`${e.metadata.name} launched — Litmus is selecting targets`)
-      void qc.invalidateQueries({ queryKey: ['chaos'] })
-      onClose()
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const ready = name.trim() && (fault?.node || targetNs) && confirmed && (mode !== 'percent' || percent.trim())
-
-  const blastSentence = fault?.node
-    ? `${faultId} on ${node.trim() ? `node ${node.trim()}` : 'a node the runner picks'} for ${duration}s`
-    : targetNs
-    ? `${faultId} on ${modeLabel(mode, percent)} in ${targetNs}${label.trim() ? ` matching ${label.trim()}` : ''} for ${duration}s`
-    : 'Choose a target namespace.'
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      branded
-      width="lg"
-      title="New chaos experiment"
-      description="Break something on purpose, with a way back."
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="danger" disabled={!ready || create.isPending} onClick={() => create.mutate()}>
-            {create.isPending ? 'Launching…' : 'Launch experiment'}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <Field label="Fault">
-          <Select
-            value={faultId}
-            onChange={(e) => pickFault(e.target.value)}
-            options={installed.map((k) => ({ value: k.id, label: `${FAMILY_LABEL[k.family]} · ${k.label} — ${k.blurb}` }))}
-          />
-        </Field>
-
-        <Field label="Name" hint="Lowercase, dashes — it names the ChaosEngine.">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="checkout-pod-delete" />
-        </Field>
-
-        {fault?.node ? (
-          <Field label="Node" hint="Empty lets the runner pick one. Name a node to be precise.">
-            <Input value={node} onChange={(e) => setNode(e.target.value)} placeholder="production-worker-workers-2" />
-          </Field>
-        ) : (
-          <>
-            <Field label="Target namespace" hint="Where the pods being broken live.">
-              <Select
-                value={targetNs}
-                onChange={(e) => setTargetNs(e.target.value)}
-                options={[
-                  { value: '', label: namespaces.isLoading ? 'Loading namespaces…' : 'Choose a namespace…' },
-                  ...(namespaces.data ?? []).map((n) => ({ value: n, label: n })),
-                ]}
-              />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="App label" hint="One label, e.g. app=checkout. Optional but strongly advised.">
-                <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="app=checkout" />
-              </Field>
-              <Field label="App kind">
-                <Select
-                  value={appKind}
-                  onChange={(e) => setAppKind(e.target.value as typeof APP_KINDS[number])}
-                  options={APP_KINDS.map((k) => ({ value: k, label: k }))}
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Mode">
-                <Select
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as TargetMode)}
-                  options={MODES.map((m) => ({ value: m, label: modeLabel(m, percent) }))}
-                />
-              </Field>
-              {mode === 'percent' ? (
-                <Field label="Percent">
-                  <Input value={percent} onChange={(e) => setPercent(e.target.value)} />
-                </Field>
-              ) : (
-                <div />
-              )}
-            </div>
-          </>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
-          {(fault?.knobs ?? []).map((k) => (
-            <Field key={k.env} label={k.label} hint={k.hint}>
-              <Input value={knob(k.env, k.value)} onChange={(e) => setEnv((prev) => ({ ...prev, [k.env]: e.target.value }))} />
-            </Field>
-          ))}
-        </div>
-
-        <Field
-          label="Steady-state probe"
-          hint="Polled every 5s through the fault. One failed poll fails the run — that is the hypothesis being tested."
-        >
-          <Input
-            value={probeUrl}
-            onChange={(e) => setProbeUrl(e.target.value)}
-            placeholder="http://checkout.payments.svc.cluster.local/health"
-          />
-        </Field>
-
-        {/* The blast radius, in a sentence, before anyone presses the button. */}
-        <div
-          className={cn(
-            'rounded-lg border px-3 py-2 text-[12px]',
-            needsConfirm
-              ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200'
-              : 'border-edge-default bg-surface-sunken text-content-muted',
-          )}
-        >
-          <span className="font-medium">This will: </span>
-          {blastSentence}
-          {!probeUrl.trim() ? (
-            <div className="mt-1 text-[11px]">
-              With no probe the verdict only says whether the fault ran, not whether the system survived it.
-            </div>
-          ) : null}
-        </div>
-
-        {needsConfirm ? (
-          <Field
-            label="Confirm"
-            hint={`${fault?.blast === 'high' ? 'High blast radius' : 'Targets every matching pod'} — type the name to confirm.`}
-          >
-            <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={name || 'experiment name'} />
-          </Field>
-        ) : null}
-      </div>
-    </Modal>
   )
 }

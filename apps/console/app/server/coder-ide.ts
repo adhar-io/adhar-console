@@ -29,7 +29,7 @@ import { toPublicToolUrl, toolPublicUrl } from './domain.ts'
  *     identity this process already uses for every Coder call, and the
  *     credential is already on that laptop, so nothing is escalated. The
  *     fallback is refused as soon as an identity provider is configured, and
- *     refused outright in-cluster.
+ *     refused outright adhar-controlplane.
  *
  * The client never names an owner: it asks for a workspace it can already see
  * and the owner is resolved here, so nobody can request a token for someone
@@ -509,7 +509,7 @@ export async function handleCoderIdeSession(req: Request): Promise<Response> {
   return withCookie(Response.json({ url, owner: identity.owner, external: false, matched: identity.matched }), auth?.refreshedCookie)
 }
 
-/** Coder's browser-reachable origin (never an in-cluster Service host). */
+/** Coder's browser-reachable origin (never an adhar-controlplane Service host). */
 function coderPublicUrl(): string {
   const configured = getTool('coder')?.baseUrl
   const publicised = toPublicToolUrl(configured, 'coder', 'CODER_URL')

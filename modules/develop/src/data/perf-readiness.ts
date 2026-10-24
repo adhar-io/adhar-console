@@ -4,7 +4,7 @@
  * ---------------------------------------------------------------------------
  * ONE SOURCE OF TRUTH, READ FROM THE SCORER
  * ---------------------------------------------------------------------------
- * The platform's in-cluster scorer (the adhar-scorecards package) already
+ * The platform's adhar-controlplane scorer (the adhar-scorecards package) already
  * joins every piece of evidence an application has:
  *
  *   - the resilience runner's AUTOMATED k6 load test and chaos suite

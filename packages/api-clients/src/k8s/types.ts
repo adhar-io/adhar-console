@@ -45,7 +45,7 @@ export const ClusterSchema = z.object({
   platform: z.string(),
   nodeCount: z.number(),
   healthy: z.boolean(),
-  source: z.enum(['in-cluster', 'kubeconfig', 'crossplane-managed']),
+  source: z.enum(['adhar-controlplane', 'kubeconfig', 'crossplane-managed']),
 })
 export type Cluster = z.infer<typeof ClusterSchema>
 

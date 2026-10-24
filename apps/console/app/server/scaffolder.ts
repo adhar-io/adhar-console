@@ -306,12 +306,12 @@ async function scaffold(
   }
   const repo = (await repoRes.json().catch(() => ({}))) as { html_url?: string; clone_url?: string }
   // Gitea builds `html_url` / `clone_url` from the host of the request it
-  // received, and the console reaches it over in-cluster Service DNS — so both
+  // received, and the console reaches it over adhar-controlplane Service DNS — so both
   // come back as `http://gitea-http.<ns>.svc.cluster.local:3000/...`, which no
   // developer can clone and no browser can open. Everything below this line is
   // consumed outside the cluster (the response, the catalog annotation, the
   // Argo CD `repoURL`), so it all uses the public origin; the Application
-  // composition addresses the platform's Gitea in-cluster from it.
+  // composition addresses the platform's Gitea adhar-controlplane from it.
   //
   // Verified reachable from inside the cluster with valid TLS, so the GitOps
   // and build references stay correct too.

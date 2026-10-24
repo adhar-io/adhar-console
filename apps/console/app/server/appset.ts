@@ -41,7 +41,7 @@ export function resolvePackageName(
   requested: string,
 ): { kind: 'package'; name: string } | { kind: 'always-installed'; why: string } {
   const ALWAYS_INSTALLED: Record<string, string> = {
-    gitea: 'the in-cluster Git server GitOps reads from',
+    gitea: 'the adhar-controlplane Git server GitOps reads from',
     argocd: 'the GitOps engine itself',
     'argo-cd': 'the GitOps engine itself',
     cilium: 'the CNI',

@@ -1,26 +1,22 @@
 import { useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
+  canResource,
   EmptyState,
   Field,
   Input,
   Select,
-  Spinner,
+  Skeleton,
   StatusBadge,
-  canResource,
   useCan,
+  useOverlayDismiss,
   useToast,
   type StatusKind,
-  DrawerWidenButton,
-  useDrawerWidth,
-  useOverlayDismiss,
 } from '@adhar/shell-ui'
-import { cn, formatRelative } from '@adhar/utils'
+import { cn, formatRelative, podRegexFromPods } from '@adhar/utils'
 import {
   buildGameDay,
   CATEGORY_BLURB,
@@ -33,17 +29,25 @@ import {
   scenarioById,
   totalSeconds,
 } from '../data/chaos-scenarios.ts'
-import { CHAOS_NAMESPACE, modeLabel, type TargetMode } from '../data/chaos-kinds.ts'
+import { CHAOS_NAMESPACE, isLive, modeLabel, resultNameFor, type TargetMode } from '../data/chaos-kinds.ts'
 import {
   type ChaosWorkflow,
-  type ChaosWorkflowNode,
   createGameDay,
   deleteGameDay,
+  stopGameDay,
+  useChaosCluster,
+  useChaosResult,
   useChaosWorkflow,
   useChaosWorkflows,
+  useGameDayEngines,
   useTargetNamespaces,
   WORKFLOWS_GVR,
 } from '../data/chaos.ts'
+import { gameDayInputFrom, gameDayRun, type GameDayPhase, orderSteps, rerunName, workflowPhase } from '../data/chaos-live.ts'
+import { useProbeTimeline, useTargetPods } from '../data/chaos-live-hooks.ts'
+import { isProtectedNamespace, launchAllowed, MAX_GAMEDAY_SECONDS, reviewLaunch } from '../data/chaos-safety.ts'
+import { ChaosDrawer, LiveMetricsPanel, Panel, ProbePanel, runBadge, RunHero, StepList, TargetPodsPanel, useNow } from './chaos-run-canvas.tsx'
+import { BLAST_TONE, GuardRow } from './chaos-launch.tsx'
 
 /**
  * Game days — a whole sequence of experiments as one automated run.
@@ -57,116 +61,103 @@ import {
  * Serial with pauses is the default because simultaneous faults tell you the
  * system broke without telling you which one broke it.
  */
-export function ChaosGameDays({ namespace }: { namespace?: string }) {
+export function ChaosGameDays({ namespace, onNew, onOpen }: { namespace?: string; onNew?(): void; onOpen(o: { namespace: string; name: string }): void }) {
   const workflows = useChaosWorkflows(namespace)
-  const [building, setBuilding] = useState(false)
-  const [open, setOpen] = useState<{ namespace: string; name: string } | null>(null)
   // A game day is an Argo Workflow created beside the Litmus operator.
   const canCreate = useCan(canResource(WORKFLOWS_GVR, 'create', { namespace: CHAOS_NAMESPACE }))
-
   const list = workflows.data ?? []
 
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <div>
-              <div className="text-sm font-semibold text-content">Game days</div>
-              <div className="text-[12px] text-content-muted">
-                A sequence of experiments, run automatically with recovery time between each and a steady-state
-                probe that fails a scenario — and stops the run — if the system stops serving.
-              </div>
-            </div>
-            {canCreate ? <Button variant="primary" className="ml-auto" onClick={() => setBuilding(true)}>New game day</Button> : null}
-          </div>
-        </CardHeader>
-        <CardBody className="p-0">
-          {workflows.isLoading
-            ? <div className="flex justify-center py-8"><Spinner /></div>
-            : list.length === 0
-            ? (
-              <div className="p-6">
-                <EmptyState
-                  compact
-                  title="No game days yet"
-                  description={
-                    canCreate
-                      ? 'Start with availability and network — one replica failing, then the network getting slow. Those two cover most of what actually happens.'
-                      : 'Ask a platform admin to schedule one, or for permission to create Argo Workflows in the chaos namespace.'
-                  }
-                />
-              </div>
-            )
-            : (
-              <ul className="divide-y divide-edge-subtle">
-                {list.map((w) => <GameDayRow key={`${w.metadata.namespace}/${w.metadata.name}`} wf={w} onOpen={setOpen} />)}
-              </ul>
-            )}
-        </CardBody>
-      </Card>
+  if (workflows.notInstalled) {
+    return (
+      <EmptyState
+        title="Game days need Argo Workflows"
+        description="A game day runs as an Argo Workflow, and Argo Workflows is an optional package on this platform that is not installed on this cluster. Enable the argo-workflows package and game days can be built and run from here; single experiments work without it."
+      />
+    )
+  }
 
-      {open ? <GameDayDrawer namespace={open.namespace} name={open.name} onClose={() => setOpen(null)} /> : null}
-      {building && canCreate ? <GameDayBuilder onClose={() => setBuilding(false)} onCreated={setOpen} /> : null}
-    </div>
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-content">Game days</h2>
+          <p className="text-[12px] text-content-muted">
+            A sequence of experiments, run automatically with recovery time between each and a steady-state probe that fails a scenario — and stops the run — if the system stops serving.
+          </p>
+        </div>
+      </div>
+      {workflows.error ? (
+        <EmptyState compact title="Game days could not be read" description={(workflows.error as Error).message} action={<Button onClick={() => void workflows.refetch()}>Try again</Button>} />
+      ) : workflows.isLoading ? (
+        <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} height={58} />)}</div>
+      ) : list.length === 0 ? (
+        <EmptyState
+          title="No game days yet"
+          description={canCreate
+            ? 'Start with availability and network — one replica failing, then the network getting slow. Those two cover most of what actually happens.'
+            : 'Ask a platform admin to schedule one, or for permission to create Argo Workflows in the chaos namespace.'}
+          action={canCreate && onNew ? <Button variant="primary" onClick={onNew}>New game day</Button> : undefined}
+        />
+      ) : (
+        <ul className="divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+          {list.map((w) => <GameDayRow key={`${w.metadata.namespace}/${w.metadata.name}`} wf={w} onOpen={onOpen} />)}
+        </ul>
+      )}
+    </section>
   )
 }
 
 /* ─────────────────────────── status ─────────────────────────── */
 
-/**
- * A workflow's state, read from Argo's phase.
- *
- * `Failed` here is NOT a failure of the tool — a scenario step exits non-zero
- * when its hypothesis did not hold (a probe stopped passing, a verdict of
- * Fail), which is the experiment producing its most important answer.
- */
-export function workflowPhase(wf: ChaosWorkflow): 'running' | 'accomplished' | 'aborted' | 'pending' {
-  switch (wf.status?.phase) {
-    case 'Succeeded':
-      return 'accomplished'
-    case 'Failed':
-    case 'Error':
-      return 'aborted'
-    case 'Running':
-      return 'running'
-    default:
-      return wf.status?.startedAt ? 'running' : 'pending'
-  }
-}
+export { workflowPhase }
 
-const PHASE_KIND: Record<ReturnType<typeof workflowPhase>, StatusKind> = {
+export const GD_PHASE_KIND: Record<GameDayPhase, StatusKind> = {
+  pending: 'unknown',
   running: 'progressing',
+  stopping: 'paused',
   accomplished: 'healthy',
   aborted: 'failed',
-  pending: 'unknown',
+  stopped: 'paused',
 }
 
-const PHASE_LABEL: Record<ReturnType<typeof workflowPhase>, string> = {
-  running: 'running',
-  accomplished: 'completed — every hypothesis held',
-  aborted: 'stopped — a hypothesis failed',
+export const GD_PHASE_LABEL: Record<GameDayPhase, string> = {
   pending: 'pending',
+  running: 'running',
+  stopping: 'stopping — reverting',
+  accomplished: 'every hypothesis held',
+  aborted: 'a hypothesis failed',
+  stopped: 'stopped',
 }
 
 function GameDayRow({ wf, onOpen }: { wf: ChaosWorkflow; onOpen(o: { namespace: string; name: string }): void }) {
   const phase = workflowPhase(wf)
-  const steps = (wf.metadata.annotations?.['adhar.io/chaos-scenarios'] ?? '').split(',').filter(Boolean).length
-
+  const steps = orderSteps(wf).filter((s) => s.kind === 'scenario')
+  const done = steps.filter((s) => s.phase === 'done' || s.phase === 'failed').length
+  const live = phase === 'running' || phase === 'stopping'
   return (
     <li>
       <button
         type="button"
-        onClick={() => onOpen({ namespace: wf.metadata.namespace ?? '', name: wf.metadata.name })}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-sunken"
+        onClick={() => onOpen({ namespace: wf.metadata.namespace ?? CHAOS_NAMESPACE, name: wf.metadata.name })}
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left hover:bg-surface-sunken"
       >
-        <StatusBadge kind={PHASE_KIND[phase]} pulse={phase === 'running'}>{PHASE_LABEL[phase]}</StatusBadge>
-        <div className="min-w-0 flex-1">
+        <StatusBadge kind={GD_PHASE_KIND[phase]} pulse={live}>{GD_PHASE_LABEL[phase]}</StatusBadge>
+        <div className="min-w-0 flex-1 basis-48">
           <div className="truncate text-[13px] font-medium text-content">{wf.metadata.name}</div>
           <div className="truncate text-[11px] text-content-subtle">
-            {wf.metadata.labels?.['adhar.io/chaos-target'] ?? wf.metadata.namespace} · {steps} scenario{steps === 1 ? '' : 's'}
+            {wf.metadata.labels?.['adhar.io/chaos-target'] ?? wf.metadata.namespace} · {steps.length} scenario{steps.length === 1 ? '' : 's'}
             {wf.metadata.creationTimestamp ? ` · ${formatRelative(wf.metadata.creationTimestamp)}` : ''}
           </div>
+        </div>
+        {/* One segment per scenario: the run's progress at a glance. */}
+        <div className="flex w-full items-center gap-1 sm:w-48" aria-label={`${done} of ${steps.length} scenarios finished`}>
+          {steps.map((s) => (
+            <span
+              key={s.template}
+              title={`${s.scenario?.title ?? s.template}: ${s.phase}`}
+              className={cn('h-1.5 flex-1 rounded-full', s.phase === 'done' ? 'bg-emerald-500' : s.phase === 'failed' ? 'bg-rose-500' : s.phase === 'running' ? 'animate-pulse bg-brand-500' : 'bg-surface-sunken')}
+            />
+          ))}
         </div>
       </button>
     </li>
@@ -177,14 +168,21 @@ function GameDayRow({ wf, onOpen }: { wf: ChaosWorkflow; onOpen(o: { namespace: 
 
 const MODES: TargetMode[] = ['one', 'percent', 'all']
 
-function GameDayBuilder({
+export function GameDayBuilder({
+  initialScenarios,
+  taken = [],
   onClose,
   onCreated,
 }: {
+  initialScenarios?: string[]
+  /** Workflow names that exist already. */
+  taken?: string[]
   onClose(): void
   onCreated(o: { namespace: string; name: string }): void
 }) {
   const toast = useToast()
+  const qc = useQueryClient()
+  const { cluster } = useChaosCluster()
   const panelRef = useRef<HTMLDivElement>(null)
   useOverlayDismiss(true, onClose, { focusRef: panelRef })
   const namespaces = useTargetNamespaces()
@@ -193,16 +191,35 @@ function GameDayBuilder({
   const [selector, setSelector] = useState('')
   const [mode, setMode] = useState<TargetMode>('one')
   const [value, setValue] = useState('50')
-  const [picked, setPicked] = useState<string[]>(['pod-delete-one'])
+  const [picked, setPicked] = useState<string[]>(initialScenarios?.length ? initialScenarios : ['pod-delete-one'])
   const [strategy, setStrategy] = useState<'serial' | 'parallel'>('serial')
   const [recovery, setRecovery] = useState(30)
   const [probeUrl, setProbeUrl] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
 
   const chosen = picked.map(scenarioById).filter((s): s is Scenario => Boolean(s))
   const duration = totalSeconds(chosen, { strategy, recoverySeconds: recovery })
   const highBlast = chosen.filter((s) => s.blast === 'high')
-  const ready = name.trim() && namespace && picked.length > 0
+  const nsLabels = namespaces.data?.find((n) => n.name === namespace)?.labels
+  const guards = useMemo(() => {
+    const g = reviewLaunch({
+      name: name.trim(),
+      namespace: namespace || undefined,
+      namespaceLabels: nsLabels,
+      label: selector,
+      mode,
+      percent: value,
+      blast: highBlast.length ? 'high' : chosen.some((s) => s.blast === 'medium') ? 'medium' : 'low',
+      seconds: duration,
+      maxSeconds: MAX_GAMEDAY_SECONDS,
+      hasProbe: !!probeUrl.trim(),
+      taken,
+    })
+    return chosen.length ? g : [{ level: 'block' as const, message: 'Pick at least one scenario.' }, ...g]
+  }, [name, namespace, nsLabels, selector, mode, value, highBlast.length, chosen, duration, probeUrl, taken])
+  const allowed = launchAllowed(guards, confirm, name.trim())
+  const needsConfirm = guards.some((g) => g.level === 'confirm') && !guards.some((g) => g.level === 'block')
 
   const byCategory = useMemo(() => {
     const out = new Map<ScenarioCategory, Scenario[]>()
@@ -228,8 +245,9 @@ function GameDayBuilder({
         recoverySeconds: recovery,
         ...(probeUrl.trim() ? { steadyState: { url: probeUrl.trim(), statusCode: 200, intervalSeconds: 5 } } : {}),
       })
-      const created = await createGameDay(manifest)
+      const created = await createGameDay(manifest, cluster)
       toast.success(`${created.metadata.name} started`)
+      void qc.invalidateQueries({ queryKey: ['chaos'] })
       onCreated({ namespace: created.metadata.namespace ?? CHAOS_NAMESPACE, name: created.metadata.name })
       onClose()
     } catch (e) {
@@ -240,44 +258,38 @@ function GameDayBuilder({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="New game day">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true" aria-label="New game day">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
-      <div ref={panelRef} className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
+      <div ref={panelRef} className="relative flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
         <div className="border-b border-edge-default px-5 py-3">
           <div className="text-sm font-semibold text-content">New game day</div>
-          <div className="text-[11px] text-content-subtle">
-            Litmus runs these as one Argo workflow (an optional package). Everything is bounded and reversible.
-          </div>
+          <div className="text-[11px] text-content-subtle">Litmus runs these as one Argo workflow (an optional package). Everything is bounded and reversible.</div>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-5 lg:grid-cols-[1fr_320px]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[1fr_340px]">
           <div className="space-y-4">
             {byCategory.map(([category, list]) => (
               <div key={category}>
-                <div className="flex items-baseline gap-2">
+                <div className="flex flex-wrap items-baseline gap-x-2">
                   <div className="text-[12px] font-semibold text-content">{CATEGORY_LABEL[category]}</div>
                   <div className="text-[11px] text-content-muted">{CATEGORY_BLURB[category]}</div>
                 </div>
                 <div className="mt-1.5 space-y-1.5">
-                  {list.map((s) => (
-                    <ScenarioCard key={s.id} scenario={s} on={picked.includes(s.id)} onToggle={() => toggle(s.id)} />
-                  ))}
+                  {list.map((s) => <ScenarioCard key={s.id} scenario={s} order={picked.indexOf(s.id)} onToggle={() => toggle(s.id)} />)}
                 </div>
               </div>
             ))}
           </div>
 
-          <div className="space-y-3">
-            <Field label="Name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="friday-gameday" />
-            </Field>
-            <Field label="Target namespace" hint="Where the pods being broken live.">
+          <div className="space-y-3 lg:sticky lg:top-0 lg:self-start">
+            <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="friday-gameday" /></Field>
+            <Field label="Target namespace" hint="Where the pods being broken live. Platform namespaces are not offered.">
               <Select
                 value={namespace}
                 onChange={(e) => setNamespace(e.target.value)}
                 options={[
                   { value: '', label: namespaces.isLoading ? 'Loading…' : 'Choose a namespace…' },
-                  ...(namespaces.data ?? []).map((n) => ({ value: n, label: n })),
+                  ...(namespaces.data ?? []).filter((n) => !isProtectedNamespace(n.name)).map((n) => ({ value: n.name, label: n.name })),
                 ]}
               />
             </Field>
@@ -286,83 +298,42 @@ function GameDayBuilder({
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Mode">
-                <Select
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as TargetMode)}
-                  options={MODES.map((m) => ({ value: m, label: modeLabel(m, value) }))}
-                />
+                <Select value={mode} onChange={(e) => setMode(e.target.value as TargetMode)} options={MODES.map((m) => ({ value: m, label: modeLabel(m, value) }))} />
               </Field>
-              {mode === 'percent'
-                ? (
-                  <Field label="Percent">
-                    <Input value={value} onChange={(e) => setValue(e.target.value)} />
-                  </Field>
-                )
-                : <div />}
+              {mode === 'percent' ? <Field label="Percent"><Input value={value} onChange={(e) => setValue(e.target.value)} /></Field> : <div />}
             </div>
-
             <Field label="Order" hint="Serial isolates cause; parallel is a worst-case storm.">
               <Select
                 value={strategy}
                 onChange={(e) => setStrategy(e.target.value as 'serial' | 'parallel')}
-                options={[
-                  { value: 'serial', label: 'One at a time, with recovery' },
-                  { value: 'parallel', label: 'All at once' },
-                ]}
+                options={[{ value: 'serial', label: 'One at a time, with recovery' }, { value: 'parallel', label: 'All at once' }]}
               />
             </Field>
-            {strategy === 'serial'
-              ? (
-                <Field label="Recovery between scenarios" hint="Seconds of quiet, so recovery is observable.">
-                  <Input
-                    type="number"
-                    min={0}
-                    value={String(recovery)}
-                    onChange={(e) => setRecovery(Math.max(0, Number(e.target.value) || 0))}
-                  />
-                </Field>
-              )
-              : null}
-
-            <Field
-              label="Steady-state probe"
-              hint="Polled every 5s throughout each fault. One failed poll fails that scenario and stops the run — this is what keeps an experiment from becoming an outage."
-            >
-              <Input
-                value={probeUrl}
-                onChange={(e) => setProbeUrl(e.target.value)}
-                placeholder="http://checkout.payments.svc.cluster.local/health"
-              />
+            {strategy === 'serial' ? (
+              <Field label="Recovery between scenarios" hint="Seconds of quiet, so recovery is observable.">
+                <Input type="number" min={0} value={String(recovery)} onChange={(e) => setRecovery(Math.max(0, Number(e.target.value) || 0))} />
+              </Field>
+            ) : null}
+            <Field label="Steady-state probe" hint="Polled every 5s throughout each fault. One failed poll fails that scenario and stops the run.">
+              <Input value={probeUrl} onChange={(e) => setProbeUrl(e.target.value)} placeholder="http://checkout.payments.svc.cluster.local/health" />
             </Field>
 
             <div className="rounded-lg border border-edge-default bg-surface-sunken p-3 text-[12px]">
-              <div className="font-medium text-content">
-                {picked.length} scenario{picked.length === 1 ? '' : 's'} · about {formatSeconds(duration)}
-              </div>
-              {!probeUrl.trim()
-                ? (
-                  <div className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-                    With no probe the run continues even if the system stops serving.
-                  </div>
-                )
-                : null}
-              {highBlast.length
-                ? (
-                  <div className="mt-1 text-[11px] text-rose-700 dark:text-rose-400">
-                    {highBlast.length} high-blast scenario{highBlast.length === 1 ? '' : 's'}:{' '}
-                    {highBlast.map((s) => s.title.toLowerCase()).join(', ')}.
-                  </div>
-                )
-                : null}
+              <div className="font-medium text-content">{picked.length} scenario{picked.length === 1 ? '' : 's'} · about {formatSeconds(duration)}</div>
+              {chosen.length ? <div className="mt-1 text-[11px] text-content-muted">{chosen.map((s, i) => `${i + 1}. ${s.title}`).join(' → ')}</div> : null}
             </div>
+            {guards.length ? <ul className="space-y-1.5">{guards.map((g, i) => <GuardRow key={i} g={g} />)}</ul> : null}
+            {needsConfirm ? (
+              <Field label="Confirm" hint={`Type ${name.trim() || 'the name'} to confirm.`}>
+                <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={name.trim()} />
+              </Field>
+            ) : null}
           </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-edge-default px-5 py-3">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button variant="danger" disabled={!ready || busy} onClick={launch}>
-            {busy ? 'Starting…' : 'Start game day'}
-          </Button>
+          <Button variant="danger" disabled={!allowed || busy} onClick={() => void launch()}>{busy ? 'Starting…' : 'Start game day'}</Button>
         </div>
       </div>
     </div>,
@@ -370,223 +341,147 @@ function GameDayBuilder({
   )
 }
 
-const BLAST_TONE: Record<Scenario['blast'], string> = {
-  low: 'text-emerald-700 dark:text-emerald-400',
-  medium: 'text-amber-700 dark:text-amber-400',
-  high: 'text-rose-700 dark:text-rose-400',
-}
-
-function ScenarioCard({ scenario, on, onToggle }: { scenario: Scenario; on: boolean; onToggle(): void }) {
+function ScenarioCard({ scenario, order, onToggle }: { scenario: Scenario; order: number; onToggle(): void }) {
+  const on = order >= 0
   return (
     <button
       type="button"
       onClick={onToggle}
-      className={cn(
-        'block w-full rounded-lg border px-3 py-2 text-left transition-colors',
-        on ? 'border-brand-400 bg-brand-50/60 dark:bg-brand-500/10' : 'border-edge-default hover:bg-surface-sunken',
-      )}
+      aria-pressed={on}
+      className={cn('block w-full rounded-lg border px-3 py-2 text-left transition-colors', on ? 'border-brand-400 bg-brand-50/60 dark:bg-brand-500/10' : 'border-edge-default hover:bg-surface-sunken')}
     >
       <div className="flex items-center gap-2">
-        <span className={cn('h-3.5 w-3.5 shrink-0 rounded border', on ? 'border-brand-500 bg-brand-600' : 'border-edge-strong')} />
-        <span className="text-[12px] font-medium text-content">{scenario.title}</span>
-        <span className={cn('ml-auto text-[10px] font-medium uppercase', BLAST_TONE[scenario.blast])}>
-          {scenario.blast}
-        </span>
+        <span className={cn('flex size-4 shrink-0 items-center justify-center rounded border text-[9px] font-bold', on ? 'border-brand-500 bg-brand-600 text-white' : 'border-edge-strong')}>{on ? order + 1 : ''}</span>
+        <span className="min-w-0 text-[12px] font-medium text-content">{scenario.title}</span>
+        <Badge tone={BLAST_TONE[scenario.blast]} className="ml-auto">{scenario.blast}</Badge>
         <span className="text-[10px] text-content-subtle">{formatSeconds(scenario.seconds)}</span>
       </div>
       {/* The hypothesis is the experiment. Without it this is just breakage. */}
-      <div className="mt-1 pl-5.5 text-[11px] text-content-muted">
-        <span className="font-medium text-content-subtle">Expect:</span> {scenario.hypothesis}
-      </div>
-      <div className="pl-5.5 text-[11px] text-content-subtle">{scenario.rationale}</div>
+      <div className="mt-1 pl-6 text-[11px] text-content-muted"><span className="font-medium text-content-subtle">Expect:</span> {scenario.hypothesis}</div>
+      <div className="pl-6 text-[11px] text-content-subtle">{scenario.rationale}</div>
     </button>
   )
 }
 
 /* ─────────────────────────── drawer ─────────────────────────── */
 
-function GameDayDrawer({ namespace, name, onClose }: { namespace: string; name: string; onClose(): void }) {
-  const wf = useChaosWorkflow(namespace, name)
+export function GameDayDrawer({ namespace, name, taken = [], onClose, onOpen }: { namespace: string; name: string; taken?: string[]; onClose(): void; onOpen(o: { namespace: string; name: string }): void }) {
+  const wfq = useChaosWorkflow(namespace, name)
+  const wf = wfq.data
   const toast = useToast()
+  const qc = useQueryClient()
+  const { cluster } = useChaosCluster()
   const canDelete = useCan(canResource(WORKFLOWS_GVR, 'delete', { namespace, name }))
-  const width = useDrawerWidth('platform.gameday', { base: 'max-w-2xl' })
-  // Portalled + Esc/focus-trapped like every other console drawer; this one was
-  // rendered in place at z-50 with no Esc, so it could sit under the topbar.
-  const panelRef = useRef<HTMLElement>(null)
-  useOverlayDismiss(true, onClose, { focusRef: panelRef })
+  const canStop = useCan(canResource(WORKFLOWS_GVR, 'patch', { namespace, name }))
+  const canCreate = useCan(canResource(WORKFLOWS_GVR, 'create', { namespace }))
+  const [busy, setBusy] = useState<string | null>(null)
 
-  const phase = wf.data ? workflowPhase(wf.data) : 'pending'
-  const steps = useMemo(() => orderSteps(wf.data), [wf.data])
+  const phase = wf ? workflowPhase(wf) : 'pending'
+  const run = useMemo(() => (wf ? gameDayRun(wf) : undefined), [wf])
+  const now = useNow(!!run?.active)
+  const input = useMemo(() => (wf ? gameDayInputFrom(wf, name) : undefined), [wf, name])
+  const engines = useGameDayEngines(name, !!run?.active)
+  const current = (engines.data ?? []).find(isLive) ?? (engines.data ?? [])[0]
+  const result = useChaosResult(current?.metadata.namespace, current ? resultNameFor(current) : undefined, !!run?.active)
+  const probes = useProbeTimeline(result.data ?? undefined, current?.metadata.name)
+  const targetNs = input?.target.namespace ?? wf?.metadata.labels?.['adhar.io/chaos-target']
+  const pods = useTargetPods({ namespace: targetNs, selector: input?.target.label || undefined, live: !!run?.active })
+  const regexRef = useRef<string | undefined>(undefined)
+  if (!regexRef.current && pods.data?.raw.length) {
+    regexRef.current = podRegexFromPods(pods.data.raw.map((p) => ({ name: p.metadata.name, templateHash: p.metadata.labels?.['pod-template-hash'] })))
+  }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={`Game day ${name}`}>
-      <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
-      <aside ref={panelRef} className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
-        <div className="flex shrink-0 items-start gap-3 border-b border-edge-default bg-surface-raised px-5 py-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <StatusBadge kind={PHASE_KIND[phase]} pulse={phase === 'running'}>{PHASE_LABEL[phase]}</StatusBadge>
-              <span className="truncate text-sm font-semibold text-content">{name}</span>
+  const act = async (what: string, f: () => Promise<unknown>, ok: string) => {
+    setBusy(what)
+    try {
+      await f()
+      toast.success(ok)
+      void qc.invalidateQueries({ queryKey: ['chaos'] })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+  const running = phase === 'running' || phase === 'pending' || phase === 'stopping'
+
+  const actions = wf ? (
+    <>
+      {canStop && (phase === 'running' || phase === 'pending') ? (
+        <Button size="sm" variant="danger" disabled={busy !== null} title="Stop after the current step; the revert step still runs and removes every engine" onClick={() => void act('stop', () => stopGameDay(namespace, name, cluster), 'Stopping — the revert step will recover every fault')}>
+          Stop
+        </Button>
+      ) : null}
+      {canCreate && input ? (
+        <Button
+          size="sm"
+          disabled={busy !== null || running}
+          title={running ? 'Wait for this game day to finish, or stop it, before running it again' : 'Run the same scenarios against the same target again'}
+          onClick={() => {
+            const next = rerunName(name, taken)
+            void act('rerun', async () => {
+              const created = await createGameDay(buildGameDay({ ...input, name: next }), cluster)
+              onOpen({ namespace: created.metadata.namespace ?? CHAOS_NAMESPACE, name: created.metadata.name })
+            }, `${next} started`)
+          }}
+        >
+          Re-run
+        </Button>
+      ) : null}
+      {canDelete ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy !== null || running}
+          title={running ? 'A running game day owns live engines — stop it or let it finish' : undefined}
+          onClick={() => void act('delete', async () => {
+            await deleteGameDay(namespace, name, cluster)
+            onClose()
+          }, 'Game day deleted')}
+        >
+          Delete
+        </Button>
+      ) : null}
+    </>
+  ) : null
+
+  return (
+    <ChaosDrawer widthKey="platform.gameday" eyebrow={`Game day · targets ${targetNs ?? '—'}`} title={name} badge={run ? runBadge(run) : null} actions={actions} onClose={onClose}>
+      {wfq.isLoading ? (
+        <div className="space-y-3 p-5"><Skeleton height={120} /><Skeleton height={200} /></div>
+      ) : wfq.gone ? (
+        <div className="p-5"><EmptyState title="This game day no longer exists" description="Its workflow was deleted. The engines it created were removed by its revert step." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
+      ) : wfq.error ? (
+        <div className="p-5"><EmptyState title="The game day could not be read" description={(wfq.error as Error).message} action={<Button onClick={() => void wfq.refetch()}>Try again</Button>} /></div>
+      ) : wf && run ? (
+        <div className="space-y-4 p-4 sm:p-5">
+          <RunHero run={run} now={now} target={pods.data ? { ready: pods.data.ready, total: pods.data.total } : undefined} />
+          {phase === 'aborted' ? (
+            <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-[12px] text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+              A hypothesis did not hold and the run stopped; the revert step recovered the fault. That is the experiment&apos;s most valuable result: the system stopped serving under a fault it was expected to survive.
             </div>
-            <div className="mt-0.5 text-[11px] text-content-subtle">
-              targets {wf.data?.metadata.labels?.['adhar.io/chaos-target'] ?? '—'}
-              {wf.data?.status?.startedAt ? ` · started ${formatRelative(wf.data.status.startedAt)}` : ''}
+          ) : null}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <Panel title="Scenarios" sub={wf.metadata.annotations?.['adhar.io/chaos-strategy'] === 'parallel' ? 'all at once' : 'one at a time, with recovery'}>
+              {run.steps.length ? <StepList steps={run.steps} now={now} /> : <div className="text-[12px] text-content-subtle">Argo creates a node per step as the workflow starts.</div>}
+            </Panel>
+            <div className="space-y-4">
+              <TargetPodsPanel title={`${targetNs ?? ''}${input?.target.label ? ` · ${input.target.label}` : ''}`} rows={pods.data?.rows} loading={pods.isLoading} error={pods.error as Error | null} />
+              <ProbePanel
+                samples={probes}
+                url={input?.steadyState?.url}
+                finalPct={(() => {
+                  const n = Number(result.data?.status?.experimentStatus?.probeSuccessPercentage)
+                  return Number.isFinite(n) && result.data?.status?.experimentStatus?.probeSuccessPercentage !== '' ? n : undefined
+                })()}
+                active={run.active}
+                now={now}
+              />
             </div>
           </div>
-          {canDelete
-            ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={phase === 'running'}
-                title={phase === 'running' ? 'A running game day owns live engines — let it finish or fail' : undefined}
-                onClick={async () => {
-                  try {
-                    await deleteGameDay(namespace, name)
-                    toast.success('Game day deleted')
-                    onClose()
-                  } catch (e) {
-                    toast.error((e as Error).message)
-                  }
-                }}
-              >
-                Delete
-              </Button>
-            )
-            : null}
-          <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="shrink-0 rounded-md px-2 py-1 text-content-subtle hover:bg-surface-sunken hover:text-content"
-          >
-            ✕
-          </button>
+          <LiveMetricsPanel namespace={targetNs} podRegex={regexRef.current} start={run.startedAt} end={run.finishedAt} active={run.active} windows={run.windows} now={now} />
         </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
-          {phase === 'aborted'
-            ? (
-              <div className="mb-4 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-[12px] text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-                A hypothesis did not hold and the run stopped; the revert step recovered the fault. That is the
-                experiment's most valuable result: the system stopped serving under a fault it was expected to survive.
-              </div>
-            )
-            : null}
-
-          {wf.isLoading
-            ? <div className="flex justify-center py-12"><Spinner /></div>
-            : !steps.length
-            ? <EmptyState compact title="No steps yet" description="Argo creates a node per step as the workflow starts." />
-            : <Timeline steps={steps} />}
-        </div>
-      </aside>
-    </div>,
-    document.body,
-  )
-}
-
-export interface Step {
-  /** Template name, e.g. `2-net-latency`. */
-  template: string
-  kind: 'scenario' | 'pause' | 'revert'
-  seconds?: number
-  scenario?: Scenario
-  phase: 'done' | 'running' | 'pending' | 'failed'
-  startedAt?: string
-  message?: string
-}
-
-/**
- * The declared steps, in declaration order, joined to whatever nodes exist.
- *
- * Driving the timeline off the SPEC rather than off the nodes matters: Argo
- * creates a node as the workflow reaches it, so a node-driven list would show
- * a game day as having only the steps it has already run, and the operator
- * could not see what is still coming.
- */
-export function orderSteps(wf: ChaosWorkflow | undefined): Step[] {
-  if (!wf?.spec?.templates) return []
-  const nodes = Object.values(wf.status?.nodes ?? {}) as ChaosWorkflowNode[]
-  const declared = wf.spec.templates.filter((t) => t.name !== wf.spec?.entrypoint)
-
-  const nodeFor = (template: string) =>
-    nodes.find((n) => n.templateName === template && n.type !== 'StepGroup')
-
-  return declared.map((t) => {
-    const template = String(t.name ?? '')
-    const node = nodeFor(template)
-    const phase: Step['phase'] = !node
-      ? 'pending'
-      : node.phase === 'Succeeded'
-      ? 'done'
-      : node.phase === 'Failed' || node.phase === 'Error'
-      ? 'failed'
-      : 'running'
-    const kind: Step['kind'] = template === 'revert' ? 'revert' : 'suspend' in t ? 'pause' : 'scenario'
-    // Template names are `<index>-<scenario id>`; recover the scenario for
-    // its hypothesis, which is what makes the timeline readable.
-    const scenario = kind === 'scenario' ? scenarioById(template.replace(/^\d+-/, '')) : undefined
-    const suspend = (t as { suspend?: { duration?: string } }).suspend
-    return {
-      template,
-      kind,
-      seconds: scenario?.seconds ?? (suspend?.duration ? Number(String(suspend.duration).replace(/s$/, '')) || undefined : undefined),
-      scenario,
-      phase,
-      startedAt: node?.startedAt,
-      message: node?.message,
-    }
-  })
-}
-
-const STEP_KIND: Record<Step['phase'], StatusKind> = {
-  done: 'healthy',
-  running: 'progressing',
-  pending: 'unknown',
-  failed: 'failed',
-}
-
-function Timeline({ steps }: { steps: Step[] }) {
-  return (
-    <ol className="space-y-2">
-      {steps.map((s) => {
-        const isPause = s.kind === 'pause'
-        const isRevert = s.kind === 'revert'
-        return (
-          <li
-            key={s.template}
-            className={cn(
-              'rounded-lg border px-3 py-2',
-              isPause || isRevert ? 'border-dashed border-edge-default' : 'border-edge-default',
-            )}
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge kind={STEP_KIND[s.phase]} pulse={s.phase === 'running'}>{s.phase}</StatusBadge>
-              <span className="text-[12px] font-medium text-content">
-                {s.scenario?.title ?? (isPause ? 'Recovery pause' : isRevert ? 'Revert — stop and remove every engine' : s.template)}
-              </span>
-              {s.scenario ? <Badge>{s.scenario.fault}</Badge> : null}
-              {s.seconds ? <span className="ml-auto text-[11px] text-content-subtle">{formatSeconds(s.seconds)}</span> : null}
-            </div>
-            {s.scenario
-              ? (
-                <div className="mt-1 text-[11px] text-content-muted">
-                  <span className="font-medium text-content-subtle">Expect:</span> {s.scenario.hypothesis}
-                </div>
-              )
-              : isPause
-              ? <div className="mt-1 text-[11px] text-content-subtle">Quiet time, so recovery is observable.</div>
-              : isRevert
-              ? <div className="mt-1 text-[11px] text-content-subtle">Runs whatever happened, so a fault never outlives the game day.</div>
-              : null}
-            {s.phase === 'failed' && s.message
-              ? <div className="mt-1 text-[11px] text-rose-700 dark:text-rose-400">{s.message}</div>
-              : null}
-          </li>
-        )
-      })}
-    </ol>
+      ) : null}
+    </ChaosDrawer>
   )
 }

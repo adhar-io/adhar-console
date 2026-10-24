@@ -221,7 +221,7 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
   },
   {
     // The platform ships OpenBao, the Linux Foundation fork of Vault. Its
-    // ingress is `openbao.<base>`; the `vault` Service is only an in-cluster
+    // ingress is `openbao.<base>`; the `vault` Service is only an adhar-controlplane
     // compatibility alias, so deriving the host from the id gave a dead link.
     // The id stays `vault` so existing pins and the BFF tool id keep working.
     id: 'vault',
@@ -613,7 +613,7 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
     const map = tools ?? {}
     // The cluster base domain apps are exposed under (`<tool>.<base>`), used
     // to build URLs for every app whose external URL the BFF doesn't report
-    // (in-cluster `.svc` URLs are hidden from the browser). Priority:
+    // (adhar-controlplane `.svc` URLs are hidden from the browser). Priority:
     //   1. `publicBaseDomain` from /api/config (ADHAR_BASE_DOMAIN / AUTH_PUBLIC_URL)
     //   2. the console's own origin minus its first label
     //      (console.platform.adhar.io → platform.adhar.io)
@@ -715,7 +715,7 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
       // derived from the base domain, not observed. Tiles for those were dead
       // links that spent a sign-in round trip to reach a 404.
       if (!routed.has(id)) continue
-      // Tools reachable only via an in-cluster URL report `url: ''` — derive
+      // Tools reachable only via an adhar-controlplane URL report `url: ''` — derive
       // their public host from the base domain instead of dropping them, so
       // every configured platform app is launchable (not just the few whose
       // public URL the BFF happens to know).

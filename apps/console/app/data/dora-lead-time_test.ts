@@ -14,7 +14,7 @@ const HOUR = 3_600_000
 
 /* ─────────── repo URL parsing ─────────── */
 
-Deno.test('an in-cluster Service URL resolves to org/repo', () => {
+Deno.test('an adhar-controlplane Service URL resolves to org/repo', () => {
   // This is the form Argo CD actually stores on an Adhar platform.
   assertEquals(
     parseRepoSlug('http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/packages'),

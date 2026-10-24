@@ -79,4 +79,8 @@ Deno.test('common shapes read as English', () => {
   assertEquals(describeCron('0 3 * * 0'), 'Every Sun at 03:00')
   assertEquals(describeCron('@hourly'), 'Every hour')
   assertEquals(describeCron('5 4 1,15 * *'), '5 4 1,15 * *')
+  assertEquals(describeCron('0 */6 * * 1-5'), 'Every 6 hours at :00, on weekdays')
+  assertEquals(describeCron('*/10 * * * 0,6'), 'Every 10 minutes, at weekends')
+  assertEquals(describeCron('0 8,20 * * *'), 'Every day at 08:00, 20:00')
+  assertEquals(describeCron('15 9,17 * * 1,3'), 'At 09:15, 17:15, on Mon, Wed')
 })

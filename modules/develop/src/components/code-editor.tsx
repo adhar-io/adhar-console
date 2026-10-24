@@ -71,16 +71,19 @@ interface RichMonaco {
   KeyCode: Record<string, number>
 }
 
-/** Resolve the Monaco theme from the app's current theme setting. */
+/**
+ * Resolve the Monaco theme from the app's current theme. The console applies
+ * light / dark / system as one `.dark` class on <html> (shell-ui theme.ts); an
+ * explicit `data-theme` still wins. Consulting the OS instead painted a dark
+ * editor on a light page and a light one on a dark page.
+ */
 function themeName(): string {
   if (typeof document === 'undefined') return 'adhar-light'
-  const attr = document.documentElement.getAttribute('data-theme')
-  if (attr === 'dark') return 'vs-dark'
+  const root = document.documentElement
+  const attr = root.getAttribute('data-theme')
+  if (attr === 'dark') return 'adhar-dark'
   if (attr === 'light') return 'adhar-light'
-  const prefersDark =
-    typeof globalThis.matchMedia === 'function' &&
-    globalThis.matchMedia('(prefers-color-scheme: dark)').matches
-  return prefersDark ? 'vs-dark' : 'adhar-light'
+  return root.classList.contains('dark') ? 'adhar-dark' : 'adhar-light'
 }
 
 /** Pretty-print JSON / YAML-ish content for the Format action (best-effort). */
@@ -246,7 +249,7 @@ export function CodeEditor({
   useEffect(() => {
     if (typeof document === 'undefined') return
     const obs = new MutationObserver(() => monacoRef.current?.editor.setTheme(themeName()))
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] })
     return () => obs.disconnect()
   }, [])
 

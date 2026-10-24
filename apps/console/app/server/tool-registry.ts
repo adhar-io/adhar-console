@@ -90,7 +90,7 @@ const SA_TOKEN_PATH = '/var/run/secrets/kubernetes.io/serviceaccount/token'
 /**
  * Resolve the Kubernetes service-account bearer token. Prefers an explicit
  * `K8S_SA_TOKEN` env (out-of-cluster / impersonation setups); otherwise reads
- * the projected in-cluster SA token file. Returns undefined when neither is
+ * the projected adhar-controlplane SA token file. Returns undefined when neither is
  * available (e.g. running outside a cluster with no override).
  */
 function readK8sToken(): string | undefined {
@@ -100,7 +100,7 @@ function readK8sToken(): string | undefined {
     const d = (globalThis as { Deno?: { readTextFileSync(p: string): string } }).Deno
     if (d) return d.readTextFileSync(SA_TOKEN_PATH).trim()
   } catch {
-    /* not in-cluster */
+    /* not adhar-controlplane */
   }
   return undefined
 }
@@ -420,7 +420,7 @@ export function getTool(name: string): ToolDef | undefined {
 /**
  * True for a URL that is only reachable from inside the cluster (a Service DNS
  * name or localhost). In production each tool's `<TOOL>_URL` is set to its
- * in-cluster Service so the server-side proxy can reach it despite split-horizon
+ * adhar-controlplane Service so the server-side proxy can reach it despite split-horizon
  * DNS — but such a URL is NOT browser-linkable, so we hide it from the launcher
  * and let the client derive the public URL from the cluster's base domain.
  */
@@ -436,7 +436,7 @@ export function publicToolInfo(): Record<string, { configured: boolean; url: str
   const out: Record<string, { configured: boolean; url: string }> = {}
   for (const [name, def] of Object.entries(reg)) {
     // Report the URL only when it's a public, browser-openable address. The
-    // k8s apiserver and any in-cluster Service URL are hidden (empty) — the
+    // k8s apiserver and any adhar-controlplane Service URL are hidden (empty) — the
     // launcher still shows the tool as configured and derives the public link
     // from the cluster base domain.
     const external = name === 'k8s' || isInClusterUrl(def.baseUrl) ? '' : def.baseUrl

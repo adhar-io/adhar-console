@@ -15,7 +15,7 @@
  * Keycloak — measured on a live cluster: prometheus, argocd and metabase all
  * answer 302 to `keycloak.<domain>/realms/...`. A server-to-server call cannot
  * complete an interactive SSO flow, so for those the only usable address is the
- * in-cluster Service, which is exactly what the console uses in production.
+ * adhar-controlplane Service, which is exactly what the console uses in production.
  *
  * `kubectl port-forward` gives us that address from a laptop, using the
  * kubeconfig that is already set.

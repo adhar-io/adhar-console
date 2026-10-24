@@ -71,7 +71,7 @@ import {
  * Two scorers feed this page and the source of every number is stated on it:
  *
  *   • **platform scorer** (authoritative) — the `application/scorecards`
- *     package's in-cluster CronJob grades each service from signals only the
+ *     package's adhar-controlplane CronJob grades each service from signals only the
  *     cluster can see (Argo CD health/sync, probes + requests/limits, image not
  *     `:latest`, Kyverno pass rate, HTTPRoute exposure, backup coverage) and
  *     publishes `adhar-system/adhar-scorecards`. Read via `GET /api/scorecards`.
@@ -255,7 +255,7 @@ function ScorecardsDashboard() {
   )
 
   // Fleet averages from the PLATFORM scorer's own categories — a different,
-  // in-cluster view than the catalog-derived categories above.
+  // adhar-controlplane view than the catalog-derived categories above.
   const platformAverages = useMemo(() => platformCategoryAverages(scorecards), [scorecards])
 
   const filtered = useMemo(() => {
@@ -546,7 +546,7 @@ function ScorecardsDashboard() {
                 ? 'No scorecard matches the current filters — clear them to see the full fleet.'
                 : platform.configured
                   ? 'No service has been graded yet. Scorecards appear here as soon as your teams create applications (Service Catalog → Create New) or register existing ones.'
-                  : `Scorecards appear as soon as applications exist in the Service Catalog. Enable the "scorecards" package for authoritative in-cluster grading (it publishes ${platform.namespace}/${platform.configMap}).`
+                  : `Scorecards appear as soon as applications exist in the Service Catalog. Enable the "scorecards" package for authoritative adhar-controlplane grading (it publishes ${platform.namespace}/${platform.configMap}).`
             }
           />
         }
@@ -1033,7 +1033,7 @@ function SourceBadge({ source }: { source: ScoreSource }) {
     <span
       title={
         platform
-          ? 'Graded by the platform scorer (in-cluster signals: Argo CD health/sync, probes, resources, image tags, Kyverno, exposure, backups)'
+          ? 'Graded by the platform scorer (adhar-controlplane signals: Argo CD health/sync, probes, resources, image tags, Kyverno, exposure, backups)'
           : "Derived by the console from the catalog entity's own metadata — the platform scorer has not graded this service"
       }
       className={cn(
@@ -1070,7 +1070,7 @@ function formatWhen(iso: string | undefined): { label: string; title: string } |
 /**
  * One card for readiness by category: the catalog's own checks (every service,
  * click a category to filter to its gaps) and, beneath, the platform scorer's
- * in-cluster categories with its weights. They used to be two cards that both
+ * adhar-controlplane categories with its weights. They used to be two cards that both
  * read "readiness by category" from different sources; the shared header now
  * carries the scorer's run state, trend and Re-run.
  */
@@ -1203,7 +1203,7 @@ function PlatformStrip({
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-content-muted">
                   Enable the <span className="font-mono text-content">scorecards</span> package
-                  (Marketplace → Application) to grade services from real in-cluster signals — Argo CD
+                  (Marketplace → Application) to grade services from real adhar-controlplane signals — Argo CD
                   health and sync, readiness/liveness probes, resource requests and limits, container
                   images that are not <span className="font-mono">:latest</span>, Kyverno policy-report
                   pass rate, HTTPRoute exposure and backup coverage. Its CronJob publishes{' '}

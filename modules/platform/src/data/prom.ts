@@ -41,7 +41,10 @@ async function promFetch<T>(path: string, params: URLSearchParams): Promise<T[]>
     credentials: 'include',
     headers: { accept: 'application/json' },
   })
-  if (!res.ok) throw new Error(`Prometheus request failed (${res.status} ${res.statusText})`)
+  if (!res.ok) {
+    await res.body?.cancel()
+    throw Object.assign(new Error(res.status === 503 || res.status === 404 ? 'Prometheus is not configured for this console.' : `Prometheus request failed (${res.status} ${res.statusText})`), { status: res.status })
+  }
   const json = (await res.json()) as PromResponse<T>
   if (json.status !== 'success' || !json.data) throw new Error(json.error ?? 'Prometheus query failed')
   return json.data.result
@@ -57,6 +60,14 @@ export function promRange(
   return promFetch<PromMatrix>(
     '/api/v1/query_range',
     new URLSearchParams({ query, start: String(start), end: String(end), step: String(cfg.step) }),
+  )
+}
+
+/** `query_range` over an absolute window (epoch ms), sampled every `stepSeconds`. */
+export function promRangeAt(query: string, w: { start: number; end: number; stepSeconds: number }): Promise<PromMatrix[]> {
+  return promFetch<PromMatrix>(
+    '/api/v1/query_range',
+    new URLSearchParams({ query, start: String(Math.floor(w.start / 1000)), end: String(Math.ceil(w.end / 1000)), step: String(w.stepSeconds) }),
   )
 }
 

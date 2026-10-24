@@ -43,7 +43,7 @@ export interface DeployRevision {
  * `{ org: 'adhar', repo: 'packages' }`.
  *
  * Takes the last two path segments rather than parsing a known host, because
- * the same repository is reachable by several names — the in-cluster Service
+ * the same repository is reachable by several names — the adhar-controlplane Service
  * DNS that Argo CD stores, and the public ingress a person would paste. A
  * trailing `.git` is stripped; SSH-style `git@host:org/repo.git` is handled
  * too, since Argo CD accepts it.

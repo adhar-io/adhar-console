@@ -9,6 +9,7 @@
 
 import { REPORT_PRIORITY_COLOR, REPORT_TONE_COLOR, REPORT_TONE_LABEL, type ReportTone as Tone } from '../report-html.ts'
 import { type FontName, hex, PdfDocument, type Rgb, textWidth, wrapMono, wrapText } from './writer.ts'
+import { chartScale, segments, segmentsFor } from '../run-metrics.ts'
 
 /** What a finding card and a recommendation need — both reports' findings fit. */
 export interface KitFinding {
@@ -317,4 +318,196 @@ export function coverBand(doc: PdfDocument, height: number): void {
     const c = COVER.map((v, k) => v + (COVER_2[k] - v) * t) as Rgb
     doc.rect((doc.width / strips) * i, 0, doc.width / strips + 0.6, height, { fill: c })
   }
+}
+
+
+/* ─────────────────────────── charts ─────────────────────────── */
+
+export interface PdfChartSeries {
+  /** `[epoch ms, value]`, sorted. */
+  points: Array<[number, number]>
+  color: Rgb
+  label?: string
+  dashed?: boolean
+  /** Points come in (start, end) pairs, each its own flat piece (the probe). */
+  pairs?: boolean
+}
+
+export interface PdfChartBand {
+  start: number
+  end: number
+  color: Rgb
+  label?: string
+}
+
+export interface PdfChart {
+  title: string
+  /** One line under the title (latest / peak, or why it is empty). */
+  caption?: string
+  series: PdfChartSeries[]
+  bands?: PdfChartBand[]
+  /** Shared time domain, so charts of one run line up. */
+  domain?: [number, number]
+  yMax?: number
+  formatY(v: number): string
+  formatX(t: number): string
+  /** Drawn instead of the plot when there is nothing to draw. */
+  emptyText?: string
+}
+
+/** Outer box of one chart, in page points (top-left origin). */
+export interface ChartBox {
+  x: number
+  top: number
+  w: number
+  h: number
+}
+
+/** The plot area inside a chart box: room for the title, the y labels and the time axis. */
+export function chartPlotArea(box: ChartBox): ChartBox {
+  const l = 30
+  const t = 32
+  const b = 13
+  const r = 6
+  return { x: box.x + l, top: box.top + t, w: Math.max(10, box.w - l - r), h: Math.max(10, box.h - t - b) }
+}
+
+/**
+ * One time-series chart drawn into `box`: title and caption, gridlines with
+ * y labels, shaded bands (fault windows) under the lines, the series, and a
+ * time axis. Every mark stays inside the box — values are clamped to the
+ * plot, points outside the domain are dropped.
+ */
+export function drawLineChart(doc: PdfDocument, box: ChartBox, c: PdfChart): void {
+  doc.rect(box.x, box.top, box.w, box.h, { stroke: LINE, lineWidth: 0.6, radius: 6 })
+  doc.text(fitTextKit(c.title, 'bold', 8, box.w - 16), box.x + 8, box.top + 12, { font: 'bold', size: 8, color: INK })
+  if (c.caption) doc.text(fitTextKit(c.caption, 'regular', 6.5, box.w - 16), box.x + 8, box.top + 20, { size: 6.5, color: MUTED })
+  const plot = chartPlotArea(box)
+  const series = c.series.map((s) => ({
+    ...s,
+    points: s.points.filter(([t, v]) => Number.isFinite(t) && Number.isFinite(v) && (!c.domain || (t >= c.domain[0] && t <= c.domain[1]))),
+  }))
+  const frame = { width: plot.w, height: plot.h, pad: { l: 0, r: 0, t: 0, b: 0 } }
+  const scale = series.some((s) => s.points.length > 1) ? chartScale(series.map((s) => s.points), frame, { domain: c.domain, yMax: c.yMax }) : undefined
+  if (!scale) {
+    const msg = c.emptyText ?? 'No samples'
+    doc.rect(plot.x, plot.top, plot.w, plot.h, { fill: SOFT, radius: 4 })
+    const lines = wrapText(msg, 'regular', 7, plot.w - 12).slice(0, 3)
+    lines.forEach((ln, i) => doc.text(ln, plot.x + plot.w / 2 - textWidth(ln, 'regular', 7) / 2, plot.top + plot.h / 2 - (lines.length - 1) * 4.5 + i * 9 + 2, { size: 7, color: SUBTLE }))
+    return
+  }
+  const X = (t: number) => plot.x + scale.x(t)
+  const Y = (v: number) => plot.top + scale.y(v)
+  for (const b of c.bands ?? []) {
+    const x0 = Math.max(plot.x, X(Math.max(b.start, scale.t0)))
+    const x1 = Math.min(plot.x + plot.w, X(Math.min(b.end, scale.t1)))
+    if (x1 - x0 > 0.2) doc.rect(x0, plot.top, x1 - x0, plot.h, { fill: tint(b.color, 0.1) })
+  }
+  scale.yTicks.forEach((v, i) => {
+    const y = Y(v)
+    doc.line(plot.x, y, plot.x + plot.w, y, i === 0 ? LINE : hex('#f1f5f9'), 0.5)
+    const label = c.formatY(v)
+    doc.text(label, plot.x - 3 - textWidth(label, 'regular', 6), y + 2, { size: 6, color: SUBTLE })
+  })
+  for (const s of series) {
+    for (const seg of s.pairs ? segmentsFor('probe', s.points) : segments(s.points)) {
+      if (seg.length < 2) continue
+      doc.polyline(seg.map(([t, v]) => [X(t), Y(v)] as [number, number]), s.color, 1.1, s.dashed ? [2.5, 2] : undefined)
+    }
+  }
+  scale.xTicks.forEach((t, i) => {
+    const label = c.formatX(t)
+    const w = textWidth(label, 'regular', 6)
+    const x = i === 0 ? X(t) : i === scale.xTicks.length - 1 ? X(t) - w : X(t) - w / 2
+    doc.text(label, x, plot.top + plot.h + 9, { size: 6, color: SUBTLE })
+  })
+}
+
+/** `fitText` without importing it twice into the public surface. */
+function fitTextKit(s: string, font: FontName, size: number, maxWidth: number): string {
+  if (textWidth(s, font, size) <= maxWidth) return s
+  let n = s.length
+  while (n > 0 && textWidth(`${s.slice(0, n)}\u2026`, font, size) > maxWidth) n--
+  return `${s.slice(0, n)}\u2026`
+}
+
+/** Charts in a grid at the cursor, `cols` per row, each row kept on one page. */
+export function lineCharts(L: Layout, charts: PdfChart[], opts: { cols?: number; height?: number; gap?: number } = {}): void {
+  const cols = Math.max(1, opts.cols ?? 2)
+  const h = opts.height ?? 112
+  const gap = opts.gap ?? 10
+  const w = (L.W - gap * (cols - 1)) / cols
+  for (let i = 0; i < charts.length; i += cols) {
+    L.ensure(h + gap)
+    charts.slice(i, i + cols).forEach((c, j) => drawLineChart(L.doc, { x: M + j * (w + gap), top: L.y, w, h }, c))
+    L.y += h + gap
+  }
+}
+
+export interface TimelineItem {
+  label: string
+  start: number
+  end: number
+  color: Rgb
+  /** A short outcome drawn at the end of the bar (Pass / Fail / 12s). */
+  note?: string
+  /** More bars on the same row (a fault's recovery after its injection). */
+  more?: Array<{ start: number; end: number; color: Rgb }>
+}
+
+/**
+ * A run's phases as a Gantt strip: one row per phase on a shared time axis,
+ * so the order, the overlap and the length of each fault read at a glance.
+ */
+export function timelineChart(L: Layout, items: TimelineItem[], opts: { domain?: [number, number]; formatX(t: number): string }): void {
+  if (!items.length) return
+  const rowH = 14
+  const labelW = 112
+  const h = items.length * rowH + 20
+  L.ensure(h + 8)
+  const t0 = opts.domain?.[0] ?? Math.min(...items.map((i) => i.start))
+  const t1 = opts.domain?.[1] ?? Math.max(...items.flatMap((i) => [i.end, ...(i.more ?? []).map((m) => m.end)]))
+  const span = Math.max(1, t1 - t0)
+  const px = M + labelW
+  const pw = L.W - labelW - 40
+  const X = (t: number) => px + (Math.max(t0, Math.min(t1, t)) - t0) / span * pw
+  const top = L.y
+  for (let k = 0; k <= 4; k++) {
+    const x = px + (pw * k) / 4
+    L.doc.line(x, top, x, top + items.length * rowH, hex('#f1f5f9'), 0.5)
+    const label = opts.formatX(t0 + (span * k) / 4)
+    const w = textWidth(label, 'regular', 6)
+    L.text(label, k === 0 ? x : k === 4 ? x - w : x - w / 2, top + items.length * rowH + 9, 'regular', 6, SUBTLE)
+  }
+  items.forEach((it, i) => {
+    const y = top + i * rowH
+    L.text(fitTextKit(it.label, 'regular', 7.5, labelW - 8), M, y + 9.5, 'regular', 7.5, INK)
+    let right = px
+    for (const bar of [{ start: it.start, end: it.end, color: it.color }, ...(it.more ?? [])]) {
+      const x0 = X(bar.start)
+      const x1 = Math.max(x0 + 1.5, X(bar.end))
+      L.doc.rect(x0, y + 3, x1 - x0, rowH - 6, { fill: bar.color, radius: 2 })
+      right = Math.max(right, x1)
+    }
+    if (it.note) L.text(it.note, Math.min(right + 4, M + L.W - textWidth(it.note, 'bold', 6.5)), y + 9.5, 'bold', 6.5, MUTED)
+  })
+  L.y = top + h
+}
+
+/** A legend row: coloured swatches with labels, wrapping to the next line when full. */
+export function legend(L: Layout, items: Array<{ label: string; color: Rgb }>): void {
+  let x = M
+  L.ensure(14)
+  for (const it of items) {
+    const w = textWidth(it.label, 'regular', 7) + 18
+    if (x + w > M + L.W) {
+      x = M
+      L.y += 12
+      L.ensure(14)
+    }
+    L.doc.rect(x, L.y + 2, 9, 6, { fill: it.color, radius: 1.5 })
+    L.text(it.label, x + 12, L.y + 8, 'regular', 7, MUTED)
+    x += w
+  }
+  L.y += 14
 }

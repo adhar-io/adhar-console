@@ -7,7 +7,7 @@
  * `adhar-templates` is the golden-path collection the Create New page reads,
  * `adhar-ui` / `adhar-kit` are the shared libraries mirrored from GitHub, and
  * `adhar` is the platform's OWN source, mirrored for the AI knowledge base
- * (docs/ and cmd/ live nowhere else in-cluster). None of them is a service
+ * (docs/ and cmd/ live nowhere else adhar-controlplane). None of them is a service
  * anybody created — and on 2026-10-15 "adhar" sat in the catalog as a Component
  * because this list did not name it.
  *

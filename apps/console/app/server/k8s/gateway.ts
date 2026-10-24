@@ -85,7 +85,7 @@ export function originOk(req: Request): boolean {
     // which proxies to this server on another loopback port, so the two hosts
     // never match and every WebSocket upgrade was refused — the console sat on
     // "Reconnecting" for the whole session while polling quietly did the work.
-    // Both sides being loopback, on a process that is not running in-cluster,
+    // Both sides being loopback, on a process that is not running adhar-controlplane,
     // is exactly the laptop case and cannot be reached from another machine.
     return isLoopback(from.hostname) && isLoopback(to.hostname) && !env('KUBERNETES_SERVICE_HOST')
   } catch {
@@ -162,7 +162,7 @@ export function parseClusters(): ClusterDef[] {
  * Resolve a `?cluster=` selector to an apiserver base URL.
  *   - Named cluster from `K8S_CLUSTERS` → its apiUrl.
  *   - Unset / `default` / `local` → `K8S_API_URL`, else the `K8S_CLUSTERS`
- *     entry marked default (or the first), else in-cluster DNS.
+ *     entry marked default (or the first), else adhar-controlplane DNS.
  *   - Unknown name → `null` (callers answer 400 — never silently fall back to
  *     a different cluster than the one the user asked for).
  */
@@ -247,7 +247,7 @@ export function k8sAuthState(): {
   const hint = impersonationDenied
     ? 'The console ServiceAccount lacks the `impersonate` verb on users/groups — apply the console-impersonator ClusterRole from the platform manifests.'
     : effective !== 'user' && !getK8sServiceToken()
-      ? 'No ServiceAccount token available; run the console in-cluster or set K8S_SA_TOKEN.'
+      ? 'No ServiceAccount token available; run the console adhar-controlplane or set K8S_SA_TOKEN.'
       : undefined
   return {
     mode,
@@ -293,7 +293,7 @@ function apiServerAuthHeaders(auth: K8sIdentity | string): Array<[string, string
   if (!sa) {
     throw new Error(
       'The API server rejected the user token and no ServiceAccount token is available to impersonate with. ' +
-        'Run the console in-cluster, or set K8S_SA_TOKEN.',
+        'Run the console adhar-controlplane, or set K8S_SA_TOKEN.',
     )
   }
   const headers: Array<[string, string]> = [['authorization', `Bearer ${sa}`]]
@@ -352,7 +352,7 @@ const idCache = new Map<string, { at: number; id: K8sIdentity }>()
 
 /**
  * Resolve the caller's Kubernetes identity (their Keycloak access token). When
- * `K8S_SA_TOKEN` is set (or an in-cluster SA token file exists) AND no user
+ * `K8S_SA_TOKEN` is set (or an adhar-controlplane SA token file exists) AND no user
  * session is present, we intentionally do NOT fall back to it for user-facing
  * calls — per-user impersonation is the security model. Returns null → 401.
  */
@@ -373,7 +373,7 @@ const idCache = new Map<string, { at: number; id: K8sIdentity }>()
  *      this branch is unreachable there.
  *   2. `ADHAR_DEV_CLUSTER_AUTH=true` is set explicitly. Nothing sets it but
  *      `npm run dev:env`, which writes a gitignored local `.env`.
- *   3. The process is NOT running in-cluster (`KUBERNETES_SERVICE_HOST`
+ *   3. The process is NOT running adhar-controlplane (`KUBERNETES_SERVICE_HOST`
  *      unset). Belt and braces: a deployed pod can never take this path even
  *      if the first two were somehow true.
  *

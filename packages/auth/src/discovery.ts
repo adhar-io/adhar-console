@@ -45,7 +45,7 @@ export function getDiscovery(cfg: ServerAuthConfig): Promise<OidcEndpoints> {
   const cached = discoveryCache.get(cfg.issuer)
   if (cached) return cached
   const p = (async () => {
-    // Fetch discovery over the in-cluster backchannel when configured, else the
+    // Fetch discovery over the adhar-controlplane backchannel when configured, else the
     // public issuer. `internalUrl` is Keycloak's base (…/svc:8080), so the
     // well-known lives under /realms/<realm>/.
     const base = cfg.internalUrl ? `${cfg.internalUrl}/realms/${cfg.realm}` : cfg.issuer

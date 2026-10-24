@@ -322,6 +322,12 @@ export function useLogStream(opts: UseLogStreamOptions): LogStream {
     setStatus('connecting')
     setError(undefined)
     setReconnect(undefined)
+    // Every run of this effect starts a fresh tail with fresh per-source
+    // resume state, so whatever the previous run showed must go: keeping it
+    // appended the whole tail a second time whenever `follow`, the source set
+    // or `tailLines` changed (a run drawer that stopped following when its
+    // test ended showed every line twice).
+    setLines([])
     for (const s of sources) connect(s, 0)
 
     return () => {

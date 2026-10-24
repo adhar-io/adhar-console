@@ -10,7 +10,9 @@ import { getK8sServiceToken } from './tool-registry.ts'
  *
  *   GET  /api/resilience/runs          → { installed, allowed, runs: ResilienceRun[] }
  *   POST /api/resilience/runs          { app, namespace, environment } → { started, job }
- *   GET  /api/resilience/runs/log?job= → { job, pod, log }
+ *   GET  /api/resilience/runs/log?job=[&timestamps=1] → { job, pod, log }
+ *     (`timestamps=1` prefixes each line with its RFC3339 time and reads up to
+ *     2000 lines — what the live run canvas parses into phases)
  *
  * A run is the runner's own GATE mode: a Job made from CronJob
  * `adhar-system/adhar-resilience-runner`'s `jobTemplate.spec` with
@@ -174,6 +176,12 @@ export function buildGateJob(
     },
     spec: spec as Record<string, unknown>,
   }
+}
+
+/** The pod-log query for `/log`: the plain tail, or a longer timestamped one for the live timeline. */
+export function logSearch(q: URLSearchParams): string {
+  const ts = q.get('timestamps') === '1' || q.get('timestamps') === 'true'
+  return ts ? '?timestamps=true&tailLines=2000' : '?tailLines=300'
 }
 
 /* ─────────────────────────── wire types ─────────────────────────── */
@@ -384,7 +392,7 @@ async function readLog(req: Request, id: K8sIdentity | string, cookie?: string):
   if (!pod) return json({ job, pod: null, log: '' }, 200, cookie)
 
   const name = pod.metadata!.name!
-  const lr = await apiServerFetch(id, `/api/v1/namespaces/${RUNNER_NAMESPACE}/pods/${encodeURIComponent(name)}/log`, { search: '?tailLines=300' })
+  const lr = await apiServerFetch(id, `/api/v1/namespaces/${RUNNER_NAMESPACE}/pods/${encodeURIComponent(name)}/log`, { search: logSearch(new URL(req.url).searchParams) })
   // A pod still pulling its image has no log yet; that is not an error.
   if (!lr.ok) {
     const detail = await readErr(lr)

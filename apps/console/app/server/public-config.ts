@@ -20,7 +20,7 @@ import { consolePublicUrl, platformDomain } from './domain.ts'
 /**
  * Public base domain tools are exposed under (`<tool>.<base>`), used by the app
  * launcher to build URLs for tools whose external URL the BFF can't report
- * (in-cluster `.svc` URLs). An explicit `ADHAR_BASE_DOMAIN` wins; otherwise it
+ * (adhar-controlplane `.svc` URLs). An explicit `ADHAR_BASE_DOMAIN` wins; otherwise it
  * is derived from `AUTH_PUBLIC_URL` by dropping the console's own first label
  * (`console.platform.adhar.io` → `platform.adhar.io`) so one immutable image
  * resolves the right hosts on any cluster/domain. Empty when unknowable — the
@@ -106,7 +106,7 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
   const base = publicBaseDomain()
   // Start from the env-driven registry, then overlay what the cluster's
   // gateway actually routes: a discovered app gets its REAL public URL (the
-  // registry only knows in-cluster `.svc` URLs, reported as ''), and apps the
+  // registry only knows adhar-controlplane `.svc` URLs, reported as ''), and apps the
   // registry never heard of are added as configured. Discovery is best-effort
   // and can only add — it never marks a configured tool unavailable.
   const tools: Record<string, { configured: boolean; url: string; explicit?: boolean }> = publicToolInfo()

@@ -1,4 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react'
+import { ResultTrend } from './perf-trends.tsx'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Badge,
@@ -220,6 +221,8 @@ export function ResultsView({
           </Button>
         </div>
       </div>
+
+      {test ? <ResultTrend records={rows} baseline={configs.get(test)?.baseline?.metrics} /> : null}
 
       <DataTable
         columns={columns}

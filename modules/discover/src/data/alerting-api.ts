@@ -22,7 +22,7 @@ import {
  *   catalogue, and `ALERTS` history for the timeline.
  *
  *   Alertmanager — not a console tool of its own; reached through Grafana,
- *   which ships an `alertmanager`-type datasource pointing at the in-cluster
+ *   which ships an `alertmanager`-type datasource pointing at the adhar-controlplane
  *   Alertmanager. We try Grafana's Alertmanager API
  *   (`/api/alertmanager/<uid>/…`), then its raw datasource proxy
  *   (`/api/datasources/proxy/uid/<uid>/…`), then a direct `alertmanager` tool,

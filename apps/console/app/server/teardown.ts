@@ -276,7 +276,7 @@ export async function handleTeardown(req: Request): Promise<Response> {
 
 /**
  * `owner/repo` when `url` points at this platform's Gitea — its configured
- * base URL, its public URL, or an in-cluster Service host — else null. The
+ * base URL, its public URL, or an adhar-controlplane Service host — else null. The
  * check is by host, so a GitHub or GitLab URL can never be mistaken for a
  * local repository.
  */

@@ -77,6 +77,9 @@ export interface LogConsoleProps {
    * fills its card rather than sitting inside it as a box.
    */
   flush?: boolean
+  /** Lift the search box, so a caller can jump the console to a message. */
+  search?: string
+  onSearchChange?(search: string): void
 }
 
 /**
@@ -104,11 +107,15 @@ export function LogConsole({
   onTimestampsChange,
   emptyMessage,
   flush = false,
+  search: searchProp,
+  onSearchChange,
 }: LogConsoleProps) {
   const [followLocal, setFollowLocal] = useState(true)
   const [tsLocal, setTsLocal] = useState(false)
   const [wrap, setWrap] = useState(false)
-  const [search, setSearch] = useState('')
+  const [searchLocal, setSearchLocal] = useState('')
+  const search = searchProp ?? searchLocal
+  const setSearch = (v: string) => (onSearchChange ? onSearchChange(v) : setSearchLocal(v))
   const [regex, setRegex] = useState(false)
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [filterOnly, setFilterOnly] = useState(false)

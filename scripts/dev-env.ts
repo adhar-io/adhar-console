@@ -285,7 +285,7 @@ const rawBulk: Record<string, string> = {
  * the login just fails. Leaving them out is what keeps the one-click demo
  * session, which is the point of local dev.
  *
- * The POSTGRES keys and DATABASE_URL address an in-cluster database, and the bare
+ * The POSTGRES keys and DATABASE_URL address an adhar-controlplane database, and the bare
  * `username`/`password` keys are too generic to mean anything as env vars.
  */
 const SKIP_KEYS = new Set([
@@ -301,7 +301,7 @@ const SKIP_KEYS = new Set([
   'password',
 ])
 
-/** `.svc`, `.cluster.local`, localhost — right in-cluster, useless here, and
+/** `.svc`, `.cluster.local`, localhost — right adhar-controlplane, useless here, and
  *  an explicit `<TOOL>_URL` always beats the derived public one, so copying
  *  such a value would actively break that tool. */
 function internalUrl(v: string): boolean {
@@ -318,7 +318,7 @@ const bulk: Record<string, string> = {}
 const dropped: string[] = []
 for (const [k, v] of Object.entries(rawBulk)) {
   if (SKIP_KEYS.has(k)) { dropped.push(k); continue }
-  if (internalUrl(v)) { dropped.push(`${k} (in-cluster URL)`); continue }
+  if (internalUrl(v)) { dropped.push(`${k} (adhar-controlplane URL)`); continue }
   bulk[k] = v
 }
 
@@ -338,7 +338,7 @@ if (dropped.length) {
 // ── 6. tools that only a tunnel can reach ───────────────────────────────────
 // Most tools answer on the public ingress. A handful sit behind an
 // oauth2-proxy that redirects to Keycloak, and a server-to-server call cannot
-// complete an interactive SSO flow — for those the in-cluster Service is the
+// complete an interactive SSO flow — for those the adhar-controlplane Service is the
 // only usable address. `dev:tunnel` forwards them; this writes the matching
 // localhost URLs. Both read the mapping from dev-cluster.ts so they agree.
 const deployJson = await trySh(['kubectl', 'get', 'deploy', DEPLOY, '-n', NS, '-o', 'json'])
@@ -400,7 +400,7 @@ AUTH_COOKIE_SECURE=false
 # That stub session lives in the BROWSER only — the BFF never sees a cookie, so
 # every cluster route would 401 "Not signed in". This lets the BFF answer as the
 # ServiceAccount instead. It is refused unless Keycloak is unconfigured AND the
-# process is not in-cluster, so it cannot engage anywhere but a laptop.
+# process is not adhar-controlplane, so it cannot engage anywhere but a laptop.
 ADHAR_DEV_CLUSTER_AUTH=true
 
 # ── tool credentials (from cluster Secrets) ────────────────────────────────

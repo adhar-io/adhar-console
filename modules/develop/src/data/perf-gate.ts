@@ -13,7 +13,7 @@ import { fmtMetric, metricDef, type MetricKey, type RunMetrics, type RunRecord }
  * The script answers the first and nothing else. Budgets and baselines live
  * in the test's `test.json` in git — beside the script, reviewed like it, and
  * versioned with it — so "who loosened the p95 budget, and when" has an
- * answer. The console, the in-cluster runner script and the CI step all read
+ * answer. The console, the adhar-controlplane runner script and the CI step all read
  * the same numbers.
  *
  * Every function here is pure and mirrored by the awk in the runner script;
@@ -378,7 +378,7 @@ function shWord(v: string | undefined): string {
 }
 
 /**
- * The gate as a sourceable env file, read by the in-cluster runner script.
+ * The gate as a sourceable env file, read by the adhar-controlplane runner script.
  *
  * Generated rather than hand-written so the console, the CronJob and the CI
  * step evaluate the same numbers. Values are reduced to numbers and safe
@@ -425,7 +425,7 @@ export function gateEnv(input: {
  * The gate (and baseline) back out of a `gate.env` — the inverse of gateEnv.
  *
  * The console records the result of a run it launched itself, and that record
- * must carry the same verdict the in-cluster runner would have written: the
+ * must carry the same verdict the adhar-controlplane runner would have written: the
  * platform scorer reads only the recorded verdict and never re-judges a run.
  * The env file in the test's artefact is the one copy of the gate the console,
  * the CronJob and CI all evaluate, so the verdict is computed from it.
@@ -473,7 +473,7 @@ export function gateFromEnv(text: string): { gate: PerfGate; baseline?: PerfBase
 }
 
 /**
- * The verdict to RECORD for a finished run, judged exactly as the in-cluster
+ * The verdict to RECORD for a finished run, judged exactly as the adhar-controlplane
  * runner judges one (perf-runner.ts, step 6): a run that did not finish, or
  * left no end-of-test summary, fails; otherwise the gate decides.
  *

@@ -20,6 +20,23 @@
  */
 
 import {
+  bandsFrom,
+  type ChartBand,
+  chartScale,
+  clockUtc,
+  faultImpact,
+  formatMetric,
+  type MetricDef,
+  METRIC_DEFS,
+  type MetricPoint,
+  type MetricSeries,
+  type MissingMetric,
+  PHASE_COLOR,
+  type PhaseWindow,
+  type RunMetrics,
+  segmentsFor,
+  seriesStats,
+  yMaxFor,
   escapeHtml as esc,
   REPORT_CSS,
   REPORT_GRADE_COLOR,
@@ -91,6 +108,12 @@ export interface ChaosRunReport {
   gate?: { verdict: string; reasons: string[]; at?: string }
   checks?: DesignCheck[]
   checksEnvironment?: string
+  /** Wall-clock phases from the runner's log (newer reports only). */
+  phases?: PhaseWindow[]
+  /** Target metrics over the run window (newer reports only, when Prometheus was reachable). */
+  metrics?: RunMetrics
+  /** Why `metrics` is absent or empty. */
+  metricsNote?: string
   recordedAt: string
 }
 
@@ -110,7 +133,7 @@ export function matchesCommit(r: Pick<ChaosRunReport, 'commit'>, q: string): boo
   return !!s && !!r.commit && r.commit.startsWith(s)
 }
 
-/** `http://gitea…/org/repo.git` + sha → the commit page (still in-cluster; the view makes it public). */
+/** `http://gitea…/org/repo.git` + sha → the commit page (still adhar-controlplane; the view makes it public). */
 export function commitUrl(repoUrl: string | undefined, sha: string | undefined): string | undefined {
   if (!repoUrl || !sha || !/^https?:\/\//.test(repoUrl)) return undefined
   return `${repoUrl.replace(/\.git$/, '').replace(/\/+$/, '')}/commit/${sha}`
@@ -233,12 +256,144 @@ export function compareRuns(after: ChaosRunReport, before: ChaosRunReport): { ro
   return { rows, overall: worse ? 'worse' : better ? 'better' : 'same' }
 }
 
+/* ─────────────────────────── metrics ─────────────────────────── */
+
+export const FINDING_AREAS: Finding['area'][] = ['Experiments', 'Recovery', 'Target metrics', 'Workload design', 'Change over time']
+
+/** One metric of a report: its definition and either its series or why it is missing. */
+export interface ReportMetric {
+  def: MetricDef
+  series?: MetricSeries
+  missing?: MissingMetric
+}
+
+/** The report's metrics in catalogue order; empty for reports recorded without them. */
+export function reportMetrics(r: Pick<ChaosRunReport, 'metrics'>): ReportMetric[] {
+  const m = r.metrics
+  if (!m) return []
+  return METRIC_DEFS.map((def) => ({
+    def,
+    series: m.series.find((s) => s.id === def.id && s.points.length > 1),
+    missing: m.missing?.find((x) => x.id === def.id),
+  })).filter((x) => x.series || x.missing)
+}
+
+/** The time axis every chart of a report shares: the captured window, else the phases. */
+export function runDomain(r: Pick<ChaosRunReport, 'metrics' | 'phases' | 'startedAt' | 'finishedAt'>): [number, number] | undefined {
+  if (r.metrics && r.metrics.window.end > r.metrics.window.start) return [r.metrics.window.start, r.metrics.window.end]
+  const ps = r.phases ?? []
+  if (!ps.length) return undefined
+  const t0 = Math.min(...ps.map((p) => p.start))
+  const t1 = Math.max(...ps.map((p) => p.end ?? p.start), Date.parse(r.finishedAt) || 0)
+  return t1 > t0 ? [t0 - 30_000, t1 + 30_000] : undefined
+}
+
+/** Fault, recovery and load-test windows, for shading. */
+export function reportBands(r: Pick<ChaosRunReport, 'phases'>, domain: [number, number]): ChartBand[] {
+  return bandsFrom(r.phases, domain)
+}
+
+/** "peak 12% during faults (baseline 0.1%)" — the caption under a chart. */
+export function metricCaption(m: ReportMetric, phases: PhaseWindow[] = []): string {
+  if (!m.series) return m.missing?.reason ?? 'No samples'
+  const pts = m.series.points
+  const st = seriesStats(pts)!
+  const lowIsBad = m.def.id === 'ready' || m.def.id === 'rps' || m.def.id === 'probe'
+  const impact = faultImpact(pts, phases, lowIsBad ? 'min' : 'max')
+  const f = (v?: number) => formatMetric(v, m.def.unit)
+  if (impact.during !== undefined) {
+    return `${lowIsBad ? 'low' : 'peak'} ${f(impact.during)} during faults${impact.baseline !== undefined ? ` · baseline ${f(impact.baseline)}` : ''}`
+  }
+  return `range ${f(st.min)} – ${f(st.max)} · last ${f(st.last)}`
+}
+
+/**
+ * What the metrics say, as findings: the dips and spikes during the faults
+ * against the steady state before them. Only drawn from recorded series.
+ */
+export function metricFindings(r: ChaosRunReport): Finding[] {
+  const phases = r.phases ?? []
+  if (!r.metrics || !phases.some((p) => p.kind === 'fault')) return []
+  const out: Finding[] = []
+  const get = (id: string) => r.metrics!.series.find((s) => s.id === id)
+  const errors = get('errors')
+  if (errors) {
+    const i = faultImpact(errors.points, phases, 'max')
+    if (i.during !== undefined && i.during >= 1 && i.during > (i.baseline ?? 0) * 2) {
+      out.push({
+        area: 'Target metrics',
+        tone: i.during >= 5 ? 'bad' : 'warn',
+        title: `Server errors rose to ${formatMetric(i.during, 'percent')} during the faults`,
+        observation: `The application's own HTTP metrics show 5xx responses peaking at ${formatMetric(i.during, 'percent')} while faults were injected${i.baseline !== undefined ? `, against ${formatMetric(i.baseline, 'percent')} before them` : ''}.`,
+        explanation: 'Real callers saw these errors. A probe that passes can hide them when it polls a health endpoint rather than the paths users hit.',
+        recommendation: 'Find which fault window the errors line up with on the chart, then add retries with backoff for idempotent calls and a readiness probe that fails before the pod stops serving.',
+        priority: i.during >= 5 ? 'high' : 'medium',
+      })
+    }
+  }
+  const p95 = get('p95')
+  if (p95) {
+    const i = faultImpact(p95.points, phases, 'max')
+    if (i.during !== undefined && i.baseline !== undefined && i.baseline > 0 && i.during >= i.baseline * 3 && i.during - i.baseline >= 100) {
+      out.push({
+        area: 'Target metrics',
+        tone: 'warn',
+        title: `p95 latency rose ${Math.round(i.during / i.baseline)}× during the faults`,
+        observation: `p95 latency reached ${formatMetric(i.during, 'ms')} during the faults, from ${formatMetric(i.baseline, 'ms')} before them.`,
+        explanation: 'Latency that multiplies under a fault ties up callers; with their own timeouts it becomes their errors.',
+        recommendation: 'Set client timeouts below the caller\'s own deadline and shed load early (bounded queues, circuit breakers) instead of queueing.',
+        priority: 'medium',
+      })
+    }
+  }
+  const ready = get('ready')
+  if (ready) {
+    const i = faultImpact(ready.points, phases, 'min')
+    if (i.during !== undefined && i.during < 1 && (i.baseline ?? 0) >= 1) {
+      out.push({
+        area: 'Target metrics',
+        tone: 'bad',
+        title: 'No pod was ready during a fault',
+        observation: `Ready pods fell from ${formatMetric(i.baseline, 'count')} to zero while faults were injected.`,
+        explanation: 'With no ready pod the Service has no endpoints: every request in that window failed or waited.',
+        recommendation: 'Run at least two replicas spread across nodes, with a PodDisruptionBudget, so one is always serving.',
+        priority: 'high',
+      })
+    }
+  }
+  const restarts = get('restarts')
+  const rs = restarts ? seriesStats(restarts.points) : undefined
+  if (rs && rs.max >= 1) {
+    out.push({
+      area: 'Target metrics',
+      tone: 'warn',
+      title: `${rs.max} container restart${rs.max === 1 ? '' : 's'} during the run`,
+      observation: `Containers of ${r.app} restarted ${rs.max} time${rs.max === 1 ? '' : 's'} inside the run window.`,
+      explanation: 'A restart under CPU or memory stress is usually an OOM kill or a liveness probe that is too strict for a busy pod.',
+      recommendation: 'Read the restarted container\'s last termination reason: OOMKilled means raise the memory limit or fix a leak; a liveness failure means give the probe more timeout and failure threshold.',
+      priority: 'medium',
+    })
+  }
+  return out
+}
+
+/**
+ * A metric's points relative to the run's own start, for overlaying two runs
+ * of one application on one chart ("seconds into the run").
+ */
+export function alignedPoints(r: ChaosRunReport, id: string): MetricPoint[] {
+  const s = r.metrics?.series.find((x) => x.id === id)
+  const start = Date.parse(r.startedAt ?? '') || r.phases?.[0]?.start || r.metrics?.window.start
+  if (!s || !start) return []
+  return s.points.map(([t, v]) => [t - start, v] as MetricPoint)
+}
+
 /* ─────────────────────────── guidance ─────────────────────────── */
 
 export type Priority = 'high' | 'medium' | 'low'
 
 export interface Finding {
-  area: 'Experiments' | 'Recovery' | 'Workload design' | 'Change over time'
+  area: 'Experiments' | 'Recovery' | 'Target metrics' | 'Workload design' | 'Change over time'
   tone: Tone
   title: string
   observation: string
@@ -527,6 +682,8 @@ export function chaosFindings(r: ChaosRunReport, h: History = {}): Finding[] {
     }
   }
 
+  out.push(...metricFindings(r))
+
   for (const c of r.checks ?? []) {
     if (!c.applicable || c.score >= 1) continue
     const d = DESIGN[c.name]
@@ -609,7 +766,15 @@ const EXTRA_CSS = `.facts{display:grid;grid-template-columns:150px 1fr;gap:6px 1
 .facts code,.sha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
 .sha{background:#ffffff26;padding:2px 8px;border-radius:6px;font-weight:700;letter-spacing:.02em}
 .verdict{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;background:#fff}
-@media (max-width:720px){.facts{grid-template-columns:1fr}}`
+.charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.chart{border:1px solid var(--line);border-radius:12px;padding:10px 12px 6px;break-inside:avoid}
+.chart h4{margin:0;font-size:12.5px}.chart .cap{font-size:11px;color:var(--muted);margin:1px 0 4px}
+.chart svg{display:block;width:100%;height:auto}
+.chart .none{height:110px;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 16px;font-size:11.5px;color:var(--subtle);background:var(--soft);border-radius:8px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:11.5px;color:var(--muted);margin:0 0 10px}
+.legend i{display:inline-block;width:12px;height:8px;border-radius:2px;margin-right:5px;vertical-align:baseline}
+.timeline .tl{overflow-x:auto}.timeline svg{display:block;width:100%;height:auto;min-width:680px}
+@media (max-width:720px){.facts{grid-template-columns:1fr}.charts{grid-template-columns:1fr}}`
 
 function compareTable(cur: ChaosRunReport, other: ChaosRunReport, caption: string): string {
   const { rows } = compareRuns(cur, other)
@@ -620,6 +785,111 @@ function compareTable(cur: ChaosRunReport, other: ChaosRunReport, caption: strin
 <table><thead><tr><th>Fault</th><th>Then</th><th>Now</th><th>Change</th></tr></thead><tbody>
 ${rows.map((x) => `<tr><td>${esc(faultTitle(x.name))}<div class="sub">${esc(x.name)}</div></td><td class="num">${cell(x.before)}</td><td class="num">${cell(x.after)}</td><td>${pill(CHANGE_TONE[x.change], CHANGE_TEXT[x.change])}</td></tr>`).join('\n')}
 </tbody></table>`
+}
+
+/* ─────────────────────────── charts (inline SVG) ─────────────────────────── */
+
+const BAND_LABEL: Record<string, string> = { fault: 'Fault injected', recovery: 'Recovering', load: 'Load test' }
+
+function bandLegend(bands: ChartBand[]): string {
+  const kinds = [...new Set(bands.map((b) => b.kind))]
+  if (!kinds.length) return ''
+  return `<div class="legend">${kinds.map((k) => `<span><i style="background:${PHASE_COLOR[k]};opacity:.35"></i>${esc(BAND_LABEL[k] ?? k)}</span>`).join('')}</div>`
+}
+
+/** One metric as an inline SVG line chart with the fault windows shaded. */
+export function metricChartSvg(points: MetricPoint[], def: Pick<MetricDef, 'label' | 'unit' | 'color'> & { id?: string }, domain: [number, number], bands: ChartBand[], opts: { yMax?: number } = {}): string {
+  const W = 440
+  const H = 150
+  const frame = { width: W, height: H, pad: { l: 44, r: 10, t: 8, b: 20 } }
+  const pts = points.filter(([t]) => t >= domain[0] && t <= domain[1])
+  const sc = chartScale([pts], frame, { domain, yMax: opts.yMax })
+  if (!sc || pts.length < 2) return '<div class="none">No samples in the run window.</div>'
+  const b = bands.map((x) => `<rect x="${sc.x(x.start).toFixed(1)}" y="${frame.pad.t}" width="${Math.max(0.5, sc.x(x.end) - sc.x(x.start)).toFixed(1)}" height="${H - frame.pad.t - frame.pad.b}" fill="${PHASE_COLOR[x.kind]}" fill-opacity=".12"/>`).join('')
+  const grid = sc.yTicks.map((v, i) => `<line x1="${frame.pad.l}" x2="${W - frame.pad.r}" y1="${sc.y(v).toFixed(1)}" y2="${sc.y(v).toFixed(1)}" stroke="#e2e8f0" ${i ? 'stroke-dasharray="3 4"' : ''}/><text x="${frame.pad.l - 6}" y="${(sc.y(v) + 3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#94a3b8">${esc(formatMetric(v, def.unit))}</text>`).join('')
+  const xt = sc.xTicks.map((t, i) => `<text x="${sc.x(t).toFixed(1)}" y="${H - 5}" text-anchor="${i === 0 ? 'start' : i === sc.xTicks.length - 1 ? 'end' : 'middle'}" font-size="9.5" fill="#94a3b8">${clockUtc(t)}</text>`).join('')
+  const lines = segmentsFor(def.id ?? '', pts).filter((g) => g.length > 1).map((g) => `<path d="${g.map(([t, v], i) => `${i ? 'L' : 'M'}${sc.x(t).toFixed(1)},${sc.y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${def.color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`).join('')
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(def.label)} over the run">${b}${grid}${lines}${xt}</svg>`
+}
+
+/** The run's phases as a Gantt strip: one row per fault (with its recovery), the load test first. */
+export function timelineSvg(phases: PhaseWindow[], domain: [number, number]): string {
+  const rows = timelineRows(phases)
+  if (!rows.length) return ''
+  const W = 880
+  const L = 150
+  const R = 220
+  const rowH = 24
+  const H = rows.length * rowH + 24
+  const x = (t: number) => L + ((Math.max(domain[0], Math.min(domain[1], t)) - domain[0]) / (domain[1] - domain[0])) * (W - L - R)
+  const ticks = Array.from({ length: 5 }, (_, i) => domain[0] + ((domain[1] - domain[0]) * i) / 4)
+  const grid = ticks.map((t) => `<line x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="0" y2="${rows.length * rowH}" stroke="#f1f5f9"/><text x="${x(t).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="#94a3b8">${clockUtc(t)}</text>`).join('')
+  const body = rows.map((r, i) => {
+    const y = i * rowH
+    const bars = r.parts.map((p) => `<rect x="${x(p.start).toFixed(1)}" y="${y + 5}" width="${Math.max(2, x(p.end ?? domain[1]) - x(p.start)).toFixed(1)}" height="${rowH - 10}" rx="3" fill="${PHASE_COLOR[p.kind]}" fill-opacity="${p.kind === 'recovery' ? '.55' : '.85'}"/>`).join('')
+    return `<text x="0" y="${y + 16}" font-size="11.5" fill="#0f172a">${esc(r.label)}</text>${bars}<text x="${W - R + 10}" y="${y + 16}" font-size="11" font-weight="600" fill="${REPORT_TONE_COLOR[r.tone]}">${esc(r.note)}</text>`
+  }).join('')
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Run timeline">${grid}${body}</svg>`
+}
+
+export interface TimelineRow {
+  label: string
+  parts: PhaseWindow[]
+  tone: Tone
+  note: string
+}
+
+/** Phases grouped into display rows: the load test, then each fault with its recovery. */
+export function timelineRows(phases: PhaseWindow[]): TimelineRow[] {
+  const rows: TimelineRow[] = []
+  for (const p of [...phases].sort((a, b) => a.start - b.start)) {
+    if (p.kind === 'recovery') {
+      const row = rows.find((r) => r.parts[0].kind === 'fault' && r.parts[0].name === p.name)
+      if (row) row.parts.push(p)
+      continue
+    }
+    const tone: Tone = p.status === 'passed' ? 'good' : p.status === 'failed' ? 'bad' : p.status === 'error' ? 'warn' : 'none'
+    const bits = [
+      p.status ? statusText(p.status) : '',
+      p.probeSuccessPercentage !== undefined ? `probe ${fmtPct(p.probeSuccessPercentage)}` : '',
+      p.recoverySeconds !== undefined ? `${p.recoverySeconds}s back` : '',
+    ].filter(Boolean)
+    rows.push({ label: p.kind === 'load' ? 'Load test' : faultTitle(p.name), parts: [p], tone, note: p.status === 'running' ? 'running' : bits.join(' · ') })
+  }
+  return rows
+}
+
+function metricsSection(r: ChaosRunReport): string {
+  const domain = runDomain(r)
+  const phases = r.phases ?? []
+  if (!domain) {
+    return `<section>
+<h2>Target metrics during the run</h2>
+<p class="note">${esc(r.metricsNote ?? 'This run was recorded without target metrics or a phase timeline — it predates their capture, or the runner\'s log and Prometheus were not reachable when it was recorded.')}</p>
+</section>`
+  }
+  const bands = reportBands(r, domain)
+  const list = reportMetrics(r)
+  // The probe chart can be drawn from the phases alone, without Prometheus.
+  if (!list.some((m) => m.def.id === 'probe') && phases.some((p) => p.probeSuccessPercentage !== undefined)) {
+    const def = METRIC_DEFS.find((d) => d.id === 'probe')!
+    const pts = phases.filter((p) => p.kind === 'fault' && p.probeSuccessPercentage !== undefined && p.end !== undefined)
+      .flatMap((p) => [[p.start, p.probeSuccessPercentage!], [p.end!, p.probeSuccessPercentage!]] as MetricPoint[])
+    list.unshift({ def, series: { id: 'probe', label: def.label, unit: def.unit, points: pts } })
+  }
+  const chart = (m: ReportMetric) => `<div class="chart"><h4>${esc(m.def.label)}</h4><div class="cap">${esc(metricCaption(m, phases))}</div>${m.series ? metricChartSvg(m.series.points, m.def, domain, bands, { yMax: yMaxFor(m.def.id, m.def.unit, m.series.points) }) : `<div class="none">${esc(m.missing?.reason ?? 'No samples')}</div>`}</div>`
+  return `<section class="timeline">
+<h2>Run timeline</h2>
+<p class="note">When each phase ran, from the resilience runner's own log. A fault's bar is the injection; the lighter bar after it is the time until the workload was back at full readiness.</p>
+${phases.length ? `<div class="tl">${timelineSvg(phases, domain)}</div>` : '<p class="note">The runner\'s log was not available when this run was recorded, so the phase windows are not known.</p>'}
+</section>
+
+<section>
+<h2>Target metrics during the run</h2>
+<p class="note">${r.metrics ? `The target's own series from Prometheus over the run window (${esc(clockUtc(domain[0]))}–${esc(clockUtc(domain[1]))} UTC, one sample every ${r.metrics.window.stepSeconds}s), selected by <code>${esc(r.metrics.selector ?? '')}</code>. Shaded bands are the phases above.` : esc(r.metricsNote ?? 'Prometheus series were not captured for this run; the probe chart is drawn from the faults\' recorded results.')}</p>
+${bandLegend(bands)}
+${list.length ? `<div class="charts">${list.map(chart).join('\n')}</div>` : ''}
+</section>`
 }
 
 /** The full report as a standalone HTML document. */
@@ -636,7 +906,7 @@ export function chaosReportHtml(r: ChaosRunReport, h: History, meta: ReportMeta)
   const worstRecovery = recoveries.length ? Math.max(...recoveries) : undefined
   const minProbe = probes.length ? Math.round(Math.min(...probes)) : null
   const high = recs.filter((f) => f.priority === 'high').length
-  const areas: Finding['area'][] = ['Experiments', 'Recovery', 'Workload design', 'Change over time']
+  const areas: Finding['area'][] = FINDING_AREAS
   const when = (iso?: string) => (iso ? `${esc(iso.slice(0, 19).replace('T', ' '))} UTC` : '<span class="muted">not recorded</span>')
 
   const commitCell = r.commit
@@ -719,6 +989,8 @@ ${r.performance ? `<h3>Load test in the same run ${pill(r.performance.status ===
 <tr><td class="num">${r.performance.p95Ms !== undefined ? `${Number(r.performance.p95Ms.toFixed(1))} ms` : '—'}</td><td class="num">${r.performance.errorRate !== undefined ? esc(fmtPct(r.performance.errorRate * 100)) : '—'}</td><td class="num">${r.performance.rps !== undefined ? `${Number(r.performance.rps.toFixed(1))} req/s` : '—'}</td><td class="num">${r.performance.thresholdP95Ms !== undefined ? `p95 &lt; ${r.performance.thresholdP95Ms} ms` : '—'}</td></tr>
 </tbody></table>${r.performance.detail ? `<p class="note">${esc(r.performance.detail)}</p>` : ''}` : ''}
 </section>
+
+${metricsSection(r)}
 
 ${h.previous || h.previousCommit ? `<section>
 <h2>Compared with earlier runs</h2>

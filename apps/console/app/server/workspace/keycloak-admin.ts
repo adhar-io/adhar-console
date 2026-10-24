@@ -17,7 +17,7 @@ import { env } from '@adhar/utils'
  * the result as a `keycloakSynced` flag so the UI can show "console-only" vs
  * "synced to RBAC".
  *
- * TLS: Deno trusts `DENO_CERT` process-wide, so in-cluster HTTPS endpoints
+ * TLS: Deno trusts `DENO_CERT` process-wide, so adhar-controlplane HTTPS endpoints
  * with a private CA work without extra plumbing.
  */
 

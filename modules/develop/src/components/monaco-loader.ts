@@ -47,7 +47,15 @@ export function loadMonaco(): Promise<MonacoApi> {
     return Promise.reject(new Error('Monaco requires a browser'))
   }
   ensureMonacoCss()
-  if (globalThis.__adharMonaco) return globalThis.__adharMonaco
+  // Shared runtime, one theme registry per page: define this module's themes on
+  // every call (idempotent), or an editor here asks for a theme another module
+  // never defined and Monaco silently keeps the light default.
+  if (globalThis.__adharMonaco) {
+    return globalThis.__adharMonaco.then((m) => {
+      defineThemes(m)
+      return m
+    })
+  }
 
   globalThis.__adharMonaco = Promise.all([
     import('monaco-editor/esm/vs/editor/editor.api'),
@@ -55,7 +63,11 @@ export function loadMonaco(): Promise<MonacoApi> {
     // itself exports nothing we call.
     import('monaco-editor/esm/vs/basic-languages/monaco.contribution'),
   ])
-    .then(([api]) => api as unknown as MonacoApi)
+    .then(([api]) => {
+      const m = api as unknown as MonacoApi
+      defineThemes(m)
+      return m
+    })
     .catch((err) => {
       // Do not cache the failure — let the next mount try again.
       globalThis.__adharMonaco = undefined
@@ -71,4 +83,29 @@ function ensureMonacoCss(): void {
   el.id = 'adhar-monaco-css'
   el.textContent = monacoCss
   document.head.appendChild(el)
+}
+
+/**
+ * The console's two editor themes. `adhar-light` was referenced by the editor
+ * but never defined, so Monaco silently fell back to its default; dark used
+ * stock `vs-dark`, a grey that sat visibly apart from the console's blue-black
+ * cards. Both now sit on the card surface.
+ */
+function defineThemes(m: MonacoApi): void {
+  try {
+    m.editor.defineTheme('adhar-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [],
+      colors: { 'editor.background': '#ffffff', 'editorLineNumber.foreground': '#9aa1ad', 'editorGutter.background': '#ffffff' },
+    })
+    m.editor.defineTheme('adhar-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: { 'editor.background': '#131925', 'editorGutter.background': '#131925', 'editorLineNumber.foreground': '#5b6477', 'editor.lineHighlightBackground': '#1b2232' },
+    })
+  } catch {
+    /* an older Monaco without defineTheme — the stock themes still work */
+  }
 }

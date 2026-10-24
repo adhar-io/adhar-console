@@ -19,7 +19,7 @@ export const Route = createFileRoute('/help')({
   validateSearch: (s: Record<string, unknown>): { pattern?: string } =>
     typeof s.pattern === 'string' && /^[a-z0-9-]+$/.test(s.pattern) ? { pattern: s.pattern } : {},
   loader: () => getLayoutData(),
-  head: () => ({ meta: [{ title: 'Help · Adhar Console' }] }),
+  head: () => ({ meta: [{ title: 'Help & Docs · Adhar Console' }] }),
   component: HelpPage,
 })
 
@@ -173,9 +173,9 @@ function HelpPage() {
       tenants={tenants}
       activeTenantId={activeTenant.id}
       onTenantChange={() => {}}
-      crumbs={[{ label: 'Home', to: '/' }, { label: 'Help' }]}
+      crumbs={[{ label: 'Home', to: '/' }, { label: 'Help & Docs' }]}
     >
-      <PageHeader title="Help" />
+      <PageHeader title="Help & Docs" />
 
       {/* Hero: one question, one search box that filters everything below. */}
       <section className="relative mb-8 overflow-hidden rounded-2xl bg-gradient-to-br from-brand-600 via-indigo-600 to-accent-600 px-6 py-8 text-white shadow-lg sm:px-10 sm:py-10">
@@ -263,7 +263,7 @@ function HelpPage() {
       ) : null}
 
       {patterns.length || pattern ? (
-        <Section title="Architecture patterns" subtitle="Byte-sized guides to the patterns Adhar is built on — scale, resilience, delivery, data, security, tenancy and operations — and how to use them here.">
+        <Section title="Architecture patterns" subtitle="Byte-sized guides to the patterns Adhar is built on — platform engineering, scale, resilience, delivery, data, security, tenancy, operations, and AI & MCP — and how to use them here.">
           <ArchitecturePatterns needle={needle} openSlug={pattern} onOpen={openPattern} />
         </Section>
       ) : null}

@@ -17,7 +17,7 @@ import { usePollingInterval } from '@adhar/shell-ui'
  * Two sources, and the page is explicit about which is which:
  *
  *  **Argo CD** (`/api/svc/argocd/api/v1/clusters`) is the registry of clusters.
- *  It works for *every* registered cluster — in-cluster, another cloud, or an
+ *  It works for *every* registered cluster — adhar-controlplane, another cloud, or an
  *  on-prem box — because Argo CD holds the credentials and reports what it can
  *  see: connection state, Kubernetes version, cached resource/API counts, and
  *  how many Applications target it. This is the only source available for a
@@ -64,8 +64,8 @@ export interface ArgoCluster {
 /**
  * Clusters registered in Argo CD.
  *
- * `in-cluster` is always present even when it has never been explicitly added,
- * and its server is the in-cluster DNS name rather than a routable address —
+ * `adhar-controlplane` is always present even when it has never been explicitly added,
+ * and its server is the adhar-controlplane DNS name rather than a routable address —
  * the view resolves that to the console's own cluster rather than showing
  * `kubernetes.default.svc` as if it were an endpoint someone could reach.
  */

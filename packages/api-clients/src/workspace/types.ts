@@ -95,7 +95,7 @@ export const IntegrationSchema = z.object({
   status: z.enum(['connected', 'degraded', 'disconnected', 'pending']),
   url: z.string().url(),
   connectedAt: z.string(),
-  mode: z.enum(['in-cluster', 'external']),
+  mode: z.enum(['adhar-controlplane', 'external']),
   version: z.string().optional(),
 })
 export type Integration = z.infer<typeof IntegrationSchema>

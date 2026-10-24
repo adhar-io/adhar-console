@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertThrows } from 'jsr:@std/assert'
+import { assert, assertEquals, assertThrows } from 'jsr:@std/assert@1'
 import { buildGateJob, dnsSafe, gateJobName, runFromJob, validateRunRequest } from './resilience-runs.ts'
 
 /**
@@ -104,4 +104,12 @@ Deno.test('a Kargo-started gate is read from its env when it has no namespace la
   assertEquals(run?.triggeredBy, undefined)
   assertEquals(run?.startTime, '2026-10-20T00:00:00Z')
   assertEquals(runFromJob({ metadata: { name: 'x' } }), undefined)
+})
+
+import { logSearch } from './resilience-runs.ts'
+
+Deno.test('the log tail is plain by default and timestamped (longer) on request', () => {
+  assertEquals(logSearch(new URLSearchParams('job=x')), '?tailLines=300')
+  assertEquals(logSearch(new URLSearchParams('job=x&timestamps=1')), '?timestamps=true&tailLines=2000')
+  assertEquals(logSearch(new URLSearchParams('job=x&timestamps=yes')), '?tailLines=300')
 })

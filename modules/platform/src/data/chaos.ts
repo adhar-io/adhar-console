@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { k8s } from '@adhar/api-clients'
 import { kube, type KubeObject } from '@adhar/api-clients/k8s'
+import { clusterParam, useActiveCluster } from './client.ts'
 import {
   CHAOS_FAULTS,
   CHAOS_NAMESPACE,
@@ -12,6 +12,7 @@ import {
   RESULTS_GVR,
   faultById,
   isLive,
+  phaseOf,
   podsAffected,
   type ChaosEngine,
   type ChaosFault,
@@ -38,7 +39,17 @@ import {
  * operator's own supported path back.
  */
 
-const client = k8s.K8sClient.auto()
+/**
+ * Every read and write here goes to the cluster selected in the top bar —
+ * the chaos objects of one cluster must never be shown (or stopped!) as if
+ * they were another's. `cluster` is the gateway's `?cluster=` value
+ * (undefined for the default cluster); the query keys carry the selection so
+ * switching clusters never shows the previous cluster's cached runs.
+ */
+export function useChaosCluster(): { cluster: string | undefined; key: string } {
+  const { cluster } = useActiveCluster()
+  return { cluster: clusterParam(cluster), key: cluster }
+}
 
 export function isNotFound(error: unknown): boolean {
   return (error as { status?: number } | null)?.status === 404
@@ -61,24 +72,65 @@ const byNewest = (a: { metadata: { creationTimestamp?: string } }, b: { metadata
  * the faults pointed at it, wherever the engine sits.
  */
 export function useChaosEngines(namespace?: string) {
+  const { cluster, key } = useChaosCluster()
   const query = useQuery({
-    queryKey: ['chaos', 'engines'] as const,
+    queryKey: ['chaos', 'engines', key] as const,
     queryFn: async (): Promise<ChaosEngine[]> => {
-      const res = await kube.list<ChaosEngine>(ENGINES_GVR, { limit: 500 })
+      const res = await kube.list<ChaosEngine>(ENGINES_GVR, { limit: 500, cluster })
       return (res.items ?? []).sort(byNewest)
     },
     retry: false,
-    refetchInterval: 10_000,
+    // A fault being applied is watched closely; a quiet cluster is not.
+    refetchInterval: (q) => ((q.state.data ?? []).some((e) => isLive(e) || phaseOf(e) === 'injecting') ? 4_000 : 15_000),
   })
   const all = query.data ?? []
   const engines = namespace ? all.filter((e) => e.spec?.appinfo?.appns === namespace) : all
   return {
     engines,
+    all,
     isLoading: query.isLoading,
     installed: !isNotFound(query.error),
     error: query.error && !isNotFound(query.error) ? query.error : undefined,
     refetch: () => void query.refetch(),
   }
+}
+
+/** One engine, polled quickly while it is not finished. A deleted engine reads as `gone`. */
+export function useChaosEngine(namespace: string | undefined, name: string | null) {
+  const { cluster, key } = useChaosCluster()
+  const enabled = Boolean(namespace && name)
+  const query = useQuery({
+    queryKey: ['chaos', 'engine', key, namespace, name] as const,
+    queryFn: () => kube.get<ChaosEngine>(ENGINES_GVR, namespace!, name!, { cluster }),
+    enabled,
+    retry: false,
+    refetchInterval: (q) => {
+      const e = q.state.data
+      if (!e || q.state.error) return false
+      const p = phaseOf(e)
+      return p === 'passed' || p === 'failed' || p === 'stopped' ? 15_000 : 3_000
+    },
+  })
+  return { ...query, gone: isNotFound(query.error) }
+}
+
+/** One ChaosResult (`<engine>-<fault>`), polled with its engine. Absent until the runner writes it. */
+export function useChaosResult(namespace: string | undefined, name: string | undefined, live: boolean) {
+  const { cluster, key } = useChaosCluster()
+  return useQuery({
+    queryKey: ['chaos', 'result', key, namespace, name] as const,
+    queryFn: async () => {
+      try {
+        return await kube.get<ChaosResult>(RESULTS_GVR, namespace!, name!, { cluster })
+      } catch (e) {
+        if (isNotFound(e)) return null
+        throw e
+      }
+    },
+    enabled: Boolean(namespace && name),
+    retry: false,
+    refetchInterval: live ? 3_000 : false,
+  })
 }
 
 /**
@@ -89,10 +141,11 @@ export function useChaosEngines(namespace?: string) {
  * catalogue entry is what makes it explainable.
  */
 export function useInstalledFaults() {
+  const { cluster, key } = useChaosCluster()
   const query = useQuery({
-    queryKey: ['chaos', 'experiments', CHAOS_NAMESPACE] as const,
+    queryKey: ['chaos', 'experiments', key, CHAOS_NAMESPACE] as const,
     queryFn: async () => {
-      const res = await kube.list<{ metadata: { name: string } }>(EXPERIMENTS_GVR, { namespace: CHAOS_NAMESPACE, limit: 200 })
+      const res = await kube.list<{ metadata: { name: string } }>(EXPERIMENTS_GVR, { namespace: CHAOS_NAMESPACE, limit: 200, cluster })
       return new Set((res.items ?? []).map((i) => i.metadata.name))
     },
     retry: false,
@@ -104,26 +157,43 @@ export function useInstalledFaults() {
 }
 
 /** The verdicts of every run, keyed by ChaosResult name (`<engine>-<fault>`). */
-export function useChaosResults() {
+export function useChaosResults(fast = false) {
+  const { cluster, key } = useChaosCluster()
   const query = useQuery({
-    queryKey: ['chaos', 'results'] as const,
+    queryKey: ['chaos', 'results', key] as const,
     queryFn: async () => {
-      const res = await kube.list<ChaosResult>(RESULTS_GVR, { namespace: CHAOS_NAMESPACE, limit: 500 })
+      const res = await kube.list<ChaosResult>(RESULTS_GVR, { namespace: CHAOS_NAMESPACE, limit: 500, cluster })
       const out = new Map<string, ChaosResult>()
       for (const r of res.items ?? []) out.set(r.metadata.name, r)
       return out
     },
     retry: false,
-    refetchInterval: 10_000,
+    refetchInterval: fast ? 4_000 : 15_000,
   })
-  return query.data ?? new Map<string, ChaosResult>()
+  return query.data ?? EMPTY_RESULTS
 }
 
+const EMPTY_RESULTS = new Map<string, ChaosResult>()
+
+export interface TargetNamespace {
+  name: string
+  labels: Record<string, string>
+}
+
+/** Namespaces chaos may be pointed at (with their labels, for the production rail). */
 export function useTargetNamespaces() {
+  const { cluster, key } = useChaosCluster()
   return useQuery({
-    queryKey: ['namespaces', 'chaos-targets'],
-    queryFn: async () => (await client.listNamespaces()).map((n) => n.metadata.name).sort(),
+    queryKey: ['chaos', 'target-namespaces', key],
+    queryFn: async (): Promise<TargetNamespace[]> => {
+      const res = await kube.list<{ metadata: { name: string; labels?: Record<string, string> } }>(
+        { group: '', version: 'v1', resource: 'namespaces', namespaced: false },
+        { cluster },
+      )
+      return (res.items ?? []).map((n) => ({ name: n.metadata.name, labels: n.metadata.labels ?? {} })).sort((a, b) => a.name.localeCompare(b.name))
+    },
     staleTime: 60_000,
+    retry: false,
   })
 }
 
@@ -137,8 +207,8 @@ export function useTargetNamespaces() {
  * instead would skip that recovery. There is no resume — a stopped run is
  * over, and running the fault again is a new run with its own verdict.
  */
-export function stopChaosEngine(namespace: string, name: string): Promise<unknown> {
-  return kube.patch(ENGINES_GVR, namespace, name, { spec: { engineState: 'stop' } }, 'merge')
+export function stopChaosEngine(namespace: string, name: string, cluster?: string): Promise<unknown> {
+  return kube.patch(ENGINES_GVR, namespace, name, { spec: { engineState: 'stop' } }, 'merge', { cluster })
 }
 
 /**
@@ -147,16 +217,21 @@ export function stopChaosEngine(namespace: string, name: string): Promise<unknow
  * Offered only for runs that are not currently injecting — the view gates on
  * that, and the reason is in `stopChaosEngine` above.
  */
-export async function deleteChaosEngine(engine: ChaosEngine): Promise<unknown> {
+export async function deleteChaosEngine(engine: ChaosEngine, cluster?: string): Promise<unknown> {
   if (isLive(engine)) throw new Error('Stop the run first — deleting it now could leave the fault applied')
   const ns = engine.metadata.namespace ?? CHAOS_NAMESPACE
   const fault = engine.spec?.experiments?.[0]?.name
-  await kube.delete(ENGINES_GVR, ns, engine.metadata.name)
+  await kube.delete(ENGINES_GVR, ns, engine.metadata.name, { cluster })
   if (fault) {
     // Best effort: the result is history, not a lock.
-    await kube.delete(RESULTS_GVR, ns, `${engine.metadata.name}-${fault}`).catch(() => undefined)
+    await kube.delete(RESULTS_GVR, ns, `${engine.metadata.name}-${fault}`, { cluster }).catch(() => undefined)
   }
   return undefined
+}
+
+/** Create an engine from a full manifest (a re-run). */
+export function applyChaosEngine(manifest: ChaosEngine, cluster?: string): Promise<ChaosEngine> {
+  return kube.apply<ChaosEngine>(manifest as unknown as KubeObject, { cluster })
 }
 
 export interface SteadyStateProbe {
@@ -266,8 +341,8 @@ export function engineManifest(input: NewChaosEngine): ChaosEngine {
   }
 }
 
-export function createChaosEngine(input: NewChaosEngine): Promise<ChaosEngine> {
-  return kube.apply<ChaosEngine>(engineManifest(input) as unknown as KubeObject)
+export function createChaosEngine(input: NewChaosEngine, cluster?: string): Promise<ChaosEngine> {
+  return kube.apply<ChaosEngine>(engineManifest(input) as unknown as KubeObject, { cluster })
 }
 
 /* ─────────────────────────── game days ─────────────────────────── */
@@ -320,37 +395,71 @@ export interface ChaosWorkflow {
 
 export const LABEL_GAMEDAY = 'adhar.io/chaos-gameday'
 
+const wfRunning = (w: ChaosWorkflow) => !w.status?.finishedAt && w.status?.phase !== 'Succeeded' && w.status?.phase !== 'Failed' && w.status?.phase !== 'Error'
+
 export function useChaosWorkflows(namespace?: string) {
-  return useQuery({
-    queryKey: ['chaos', 'workflows', namespace ?? 'all'],
+  const { cluster, key } = useChaosCluster()
+  const query = useQuery({
+    queryKey: ['chaos', 'workflows', key],
     queryFn: async () => {
       const res = await kube.list<ChaosWorkflow>(WORKFLOWS_GVR, {
         namespace: CHAOS_NAMESPACE,
         labelSelector: LABEL_GAMEDAY,
         limit: 200,
+        cluster,
       })
-      const all = (res.items ?? []).sort(byNewest)
-      return namespace ? all.filter((w) => w.metadata.labels?.['adhar.io/chaos-target'] === namespace) : all
+      return (res.items ?? []).sort(byNewest)
     },
-    refetchInterval: 10_000,
+    refetchInterval: (q) => ((q.state.data ?? []).some(wfRunning) ? 5_000 : 20_000),
     retry: false,
   })
+  const all = query.data ?? []
+  return {
+    ...query,
+    data: namespace ? all.filter((w) => w.metadata.labels?.['adhar.io/chaos-target'] === namespace) : query.data,
+    /** Argo Workflows' CRD is absent: game days need the optional package. */
+    notInstalled: isNotFound(query.error),
+  }
 }
 
 export function useChaosWorkflow(namespace: string | undefined, name: string | null) {
+  const { cluster, key } = useChaosCluster()
   const enabled = Boolean(namespace && name)
-  return useQuery({
-    queryKey: ['chaos', 'workflow', namespace, name],
-    queryFn: () => kube.get<ChaosWorkflow>(WORKFLOWS_GVR, namespace, name!),
-    // A game day is minutes long and people watch it; poll faster than the list.
-    refetchInterval: enabled ? 5_000 : false,
+  const query = useQuery({
+    queryKey: ['chaos', 'workflow', key, namespace, name],
+    queryFn: () => kube.get<ChaosWorkflow>(WORKFLOWS_GVR, namespace, name!, { cluster }),
+    // A game day is minutes long and people watch it; poll fast while it runs.
+    refetchInterval: (q) => (!enabled || q.state.error ? false : q.state.data && !wfRunning(q.state.data) ? 30_000 : 4_000),
     enabled,
     retry: false,
   })
+  return { ...query, gone: isNotFound(query.error) }
 }
 
-export function createGameDay(manifest: Record<string, unknown>): Promise<ChaosWorkflow> {
-  return kube.apply<ChaosWorkflow>(manifest as unknown as KubeObject)
+/** The engines a game day created (labelled with its name), for the live target view. */
+export function useGameDayEngines(name: string | null, live: boolean) {
+  const { cluster, key } = useChaosCluster()
+  return useQuery({
+    queryKey: ['chaos', 'gameday-engines', key, name],
+    queryFn: async () => (await kube.list<ChaosEngine>(ENGINES_GVR, { namespace: CHAOS_NAMESPACE, labelSelector: `${LABEL_GAMEDAY}=${name}`, cluster })).items ?? [],
+    enabled: !!name,
+    retry: false,
+    refetchInterval: live ? 4_000 : false,
+  })
+}
+
+export function createGameDay(manifest: Record<string, unknown>, cluster?: string): Promise<ChaosWorkflow> {
+  return kube.apply<ChaosWorkflow>(manifest as unknown as KubeObject, { cluster })
+}
+
+/**
+ * Abort a running game day. `spec.shutdown: Stop` is Argo's graceful stop: no
+ * new step starts and the exit handler — the `revert` step that stops and
+ * removes every engine the game day made — still runs. (`Terminate` would
+ * skip it and could strand a fault.)
+ */
+export function stopGameDay(namespace: string, name: string, cluster?: string): Promise<unknown> {
+  return kube.patch(WORKFLOWS_GVR, namespace, name, { spec: { shutdown: 'Stop' } }, 'merge', { cluster })
 }
 
 /**
@@ -358,6 +467,6 @@ export function createGameDay(manifest: Record<string, unknown>): Promise<ChaosW
  * them, and the workflow owns nothing else), so removing the workflow is safe
  * once it is no longer running — the view gates on that.
  */
-export function deleteGameDay(namespace: string, name: string): Promise<unknown> {
-  return kube.delete(WORKFLOWS_GVR, namespace, name)
+export function deleteGameDay(namespace: string, name: string, cluster?: string): Promise<unknown> {
+  return kube.delete(WORKFLOWS_GVR, namespace, name, { cluster })
 }

@@ -1,11 +1,16 @@
-import { env } from '@adhar/utils'
+import { env, parseRunnerTimeline, type RunnerTimeline } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
 import { apiServerFetch, canI, type K8sIdentity, resolveIdentity } from './k8s/gateway.ts'
-import { getK8sServiceToken } from './tool-registry.ts'
+import { getK8sServiceToken, getTool } from './tool-registry.ts'
 import { openStore, type Store } from './workspace/store.ts'
 import {
   type ArgoAppLike,
+  assembleMetrics,
   buildReport,
+  metricsDue,
+  metricsEmpty,
+  metricsPlan,
+  type QueryAnswer,
   type ChaosRunReport,
   type FreightLike,
   type JobLike,
@@ -34,6 +39,18 @@ import {
  * Job that ran it and the commit of the image under test (see
  * `resilience-reports-model.ts`). Reports go to the console database in the
  * platform's shared space, at most `MAX_REPORTS_PER_APP` per application.
+ *
+ * Two more things are captured per run, both real and both optional:
+ *
+ *   • PHASES — the runner Job's log, read with timestamps, gives the wall-clock
+ *     window of the load test and of each fault and its recovery
+ *     (`parseRunnerTimeline`). Read at record time, while the Job's pod exists.
+ *   • METRICS — once the run's padded window has closed, the target's request
+ *     rate, error rate, p95, ready pods, restarts, CPU and memory are
+ *     range-queried from Prometheus (the console's `prometheus` tool) and
+ *     stored, compacted and bounded, in the report (`assembleMetrics`). An
+ *     application that exports no HTTP metrics gets the series it has and a
+ *     note for the rest; no Prometheus at all leaves the report without them.
  *
  * What it cannot see it does not invent: a run that started and finished
  * between two ticks while the console was down is lost (the runner keeps only
@@ -80,6 +97,117 @@ async function readResults(id: K8sIdentity | string): Promise<Record<string, unk
   }
 }
 
+/**
+ * The runner Job's log with timestamps → this app's phases. Best effort: a
+ * Job whose pod was garbage-collected simply has no phases.
+ */
+async function readTimeline(id: K8sIdentity | string, job: string | undefined, app: string): Promise<RunnerTimeline | undefined> {
+  if (!job || !/^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/.test(job)) return undefined
+  const pods = await getJson<{ items?: Array<{ metadata?: { name?: string; creationTimestamp?: string } }> }>(
+    id,
+    `/api/v1/namespaces/${RESULTS_NAMESPACE}/pods`,
+    `?labelSelector=${encodeURIComponent(`job-name=${job}`)}`,
+  )
+  const pod = (pods?.items ?? []).filter((p) => p.metadata?.name)
+    .sort((a, b) => (b.metadata?.creationTimestamp ?? '').localeCompare(a.metadata?.creationTimestamp ?? ''))[0]
+  if (!pod) return undefined
+  const r = await apiServerFetch(id, `/api/v1/namespaces/${RESULTS_NAMESPACE}/pods/${encodeURIComponent(pod.metadata!.name!)}/log`, {
+    search: '?timestamps=true&tailLines=5000&limitBytes=2000000',
+  })
+  if (!r.ok) {
+    await r.body?.cancel()
+    return undefined
+  }
+  const t = parseRunnerTimeline(await r.text(), app)
+  return t.phases.length ? t : undefined
+}
+
+/* ─────────────────────────── metrics ─────────────────────────── */
+
+/** Range-query the console's Prometheus (or Mimir) tool. */
+async function promRange(query: string, w: { start: number; end: number; stepSeconds: number }): Promise<QueryAnswer> {
+  const t = getTool('prometheus')
+  if (!t?.baseUrl) return { error: 'not configured' }
+  const qs = new URLSearchParams({ query, start: String(w.start / 1000), end: String(w.end / 1000), step: String(w.stepSeconds) })
+  try {
+    const res = await fetch(`${t.baseUrl.replace(/\/$/, '')}/api/v1/query_range?${qs}`, {
+      headers: {
+        accept: 'application/json',
+        ...(t.headers ?? {}),
+        ...(t.authMode === 'service' && t.serviceToken ? { authorization: `Bearer ${t.serviceToken}` } : {}),
+      },
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) {
+      const body = (await res.text().catch(() => '')).slice(0, 160)
+      return { error: `HTTP ${res.status}${body ? ` ${body}` : ''}` }
+    }
+    const body = (await res.json()) as { status?: string; error?: string; data?: { result?: Array<{ values?: Array<[number, string]> }> } }
+    if (body.status !== 'success') return { error: body.error ?? 'query failed' }
+    return body.data?.result ?? []
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Reports whose metrics are still to be captured (ids), filled at record time and by the first scan. */
+const metricsPending = new Set<string>()
+let metricsScanned = false
+
+/**
+ * Capture metrics for every report whose window has closed. Runs inside the
+ * recorder tick; a report is attempted once — a failure is recorded as its
+ * note rather than retried every minute.
+ */
+async function enrichMetrics(store: Store, now = Date.now()): Promise<void> {
+  if (!getTool('prometheus')?.baseUrl) {
+    // Nothing to capture with; a report recorded now simply has no metrics.
+    metricsScanned = true
+    metricsPending.clear()
+    return
+  }
+  if (!metricsScanned) {
+    metricsScanned = true
+    const recent = await store.query<ChaosRunReport>(REPORT_KIND, { sort: { path: 'finishedAt', direction: 'desc' }, limit: 100, offset: 0 })
+    for (const d of recent.items) if (metricsDue(d.data, now + 3600_000)) metricsPending.add(d.data.id)
+  }
+  for (const rid of [...metricsPending]) {
+    const doc = await store.get<ChaosRunReport>(REPORT_KIND, rid)
+    if (!doc) {
+      metricsPending.delete(rid)
+      continue
+    }
+    const r = doc.data
+    if (r.metrics || r.metricsNote) {
+      metricsPending.delete(rid)
+      continue
+    }
+    if (!metricsDue(r, now)) {
+      // Not closed yet (keep waiting) or too old (give up quietly).
+      if (now - Date.parse(r.finishedAt) > 6 * 3600_000) metricsPending.delete(rid)
+      continue
+    }
+    metricsPending.delete(rid)
+    const plan = metricsPlan(r)
+    if (!plan) continue
+    const answers: Record<string, QueryAnswer> = {}
+    await Promise.all(plan.queries.map(async (q) => {
+      answers[q.id] = await promRange(q.query, plan.window)
+    }))
+    const metrics = assembleMetrics(plan, answers, r.phases ?? [], now)
+    const failed = Object.values(answers).every((a) => !Array.isArray(a))
+    const next: ChaosRunReport = failed
+      ? { ...r, metricsNote: `Prometheus could not be queried when the run was recorded (${(Object.values(answers)[0] as { error: string }).error}).` }
+      : metricsEmpty(metrics)
+      ? { ...r, metrics, metricsNote: `Prometheus holds no samples for the pods of ${r.app} in ${r.namespace} over the run window.` }
+      : { ...r, metrics }
+    await store.put(REPORT_KIND, rid, next, RECORDER_USER)
+    try {
+      console.log(JSON.stringify({ ts: new Date().toISOString(), kind: 'resilience.report.metrics', id: rid, series: metrics.series.length, missing: metrics.missing?.length ?? 0 }))
+    } catch { /* never let logging break the recorder */ }
+  }
+}
+
 /** The context a report needs beyond the record — read once per tick, only when something is new. */
 async function readContext(id: K8sIdentity | string) {
   const [jobs, freights, apps, scorer] = await Promise.all([
@@ -113,14 +241,21 @@ async function prune(store: Store, app: string): Promise<void> {
 async function tick(id: K8sIdentity | string): Promise<void> {
   lastTick = Date.now()
   const results = await readResults(id)
-  if (!results) return
-  const fresh = Object.entries(results).filter(([app, rec]) => {
+  const fresh = Object.entries(results ?? {}).filter(([app, rec]) => {
     const r = rec as { namespace?: unknown; testedAt?: unknown } | null
     return typeof r?.namespace === 'string' && typeof r?.testedAt === 'string' && !stored.has(reportId(app, r.namespace, r.testedAt))
   })
-  if (!fresh.length) return
+  if (!fresh.length && (metricsScanned && !metricsPending.size)) return
   const store = await openStore(REPORTS_TENANT)
   if (!store) return // no database: reports are durable or not kept at all
+  try {
+    await recordFresh(id, store, fresh)
+  } finally {
+    await enrichMetrics(store).catch((e) => console.warn('[resilience-reports] metrics:', e instanceof Error ? e.message : e))
+  }
+}
+
+async function recordFresh(id: K8sIdentity | string, store: Store, fresh: Array<[string, unknown]>): Promise<void> {
   let ctx: Awaited<ReturnType<typeof readContext>> | undefined
   for (const [app, record] of fresh) {
     const r = record as { namespace: string; testedAt: string }
@@ -130,10 +265,13 @@ async function tick(id: K8sIdentity | string): Promise<void> {
       continue
     }
     ctx ??= await readContext(id)
-    const report = buildReport({ app, record, ...ctx })
-    if (!report) continue
+    const draft = buildReport({ app, record, ...ctx })
+    if (!draft) continue
+    const timeline = await readTimeline(id, draft.runId, app).catch(() => undefined)
+    const report = timeline ? buildReport({ app, record, ...ctx, timeline }) ?? draft : draft
     await store.put(REPORT_KIND, report.id, report, RECORDER_USER)
     stored.add(report.id)
+    metricsPending.add(report.id)
     await prune(store, app).catch((e) => console.warn(`[resilience-reports] prune ${app}:`, e))
     try {
       console.log(JSON.stringify({ ts: new Date().toISOString(), kind: 'resilience.report', id: report.id, app, commit: report.commit ?? null, trigger: report.trigger }))

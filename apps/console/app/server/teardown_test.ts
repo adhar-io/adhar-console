@@ -9,7 +9,7 @@ Deno.test('giteaRepoOf: repository on the platform Gitea by public host', () => 
   assertEquals(giteaRepoOf('https://gitea.platform.example.com/acme/cart/src/branch/main/docs', HOSTS), { owner: 'acme', repo: 'cart' })
 })
 
-Deno.test('giteaRepoOf: in-cluster service hosts count as Gitea', () => {
+Deno.test('giteaRepoOf: adhar-controlplane service hosts count as Gitea', () => {
   assertEquals(giteaRepoOf('http://gitea-http.gitea.svc.cluster.local:3000/acme/cart.git', []), { owner: 'acme', repo: 'cart' })
   assertEquals(giteaRepoOf('http://gitea.adhar-system.svc/acme/cart', []), { owner: 'acme', repo: 'cart' })
 })

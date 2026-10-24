@@ -26,7 +26,7 @@ order: 10
 | Key | Required | What it is |
 | --- | --- | --- |
 | `title` | yes | Card and reader heading. Short, noun-first. |
-| `category` | yes | One of `Scale`, `Resilience`, `Delivery`, `Data`, `Security`, `Tenancy`, `Operations`. |
+| `category` | yes | One of `Platform engineering`, `Scale`, `Resilience`, `Delivery`, `Data`, `Security`, `Tenancy`, `Operations`, `AI & MCP`. |
 | `summary` | yes | One sentence on the card. Say the outcome, not the mechanism. |
 | `tools` | no | Platform components it uses — shown as chips, searchable. |
 | `order` | no | Position inside its category (lower first; default 100). |

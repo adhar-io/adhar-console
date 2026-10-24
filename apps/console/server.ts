@@ -162,7 +162,7 @@ async function readyz(): Promise<Response> {
   // OIDC discovery is a REPORTED, non-fatal readiness signal — never a hard gate.
   // It's fetched lazily and cached on first login, and the console serves the SPA
   // + /healthz + BFF without it, so a transient Keycloak/gateway unavailability
-  // (or in-cluster split-horizon DNS at startup) must NOT keep the pod out of its
+  // (or adhar-controlplane split-horizon DNS at startup) must NOT keep the pod out of its
   // Service — that would remove all endpoints and black-hole routing. We probe it
   // with a short timeout and report reachability, but stay ready regardless.
   let keycloak: 'ok' | 'unreachable' = 'ok'
@@ -206,7 +206,7 @@ function apiConfig(): Promise<Response> {
  * Anonymous callers get the statuses and hints only. The endpoint has to work
  * before sign-in does (it is how a broken login is debugged), but the internal
  * backchannel URL, the apiserver address and raw upstream error text (which
- * names in-cluster hosts) are a map of the cluster for anyone who can reach
+ * names adhar-controlplane hosts) are a map of the cluster for anyone who can reach
  * the console — so they are shown to signed-in users only.
  */
 async function diagnostics(req: Request): Promise<Response> {
@@ -406,7 +406,7 @@ async function route(req: Request): Promise<Response> {
   // Software templates for Catalog → Create New — discovered from Gitea.
   if (path === '/api/templates') return handleListTemplates(req)
 
-  // Production-readiness scorecards published by the platform's in-cluster
+  // Production-readiness scorecards published by the platform's adhar-controlplane
   // scorer (the `scorecards` package) — `configured: false` when it isn't installed.
   if (path === '/api/scorecards') return handleScorecards(req)
   // The scorer's rolling series, so a score can be read as a trend.

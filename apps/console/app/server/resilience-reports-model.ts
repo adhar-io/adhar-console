@@ -27,6 +27,29 @@
  * verification, and a Job owned by the runner CronJob is the hourly schedule.
  */
 
+import {
+  captureWindow,
+  closePhases,
+  compactPoints,
+  deltaFromFirst,
+  type MetricQuery,
+  type MetricSeries,
+  METRIC_DEFS,
+  metricDef,
+  missingReason,
+  type MissingMetric,
+  type PhaseWindow,
+  pointsFromMatrix,
+  probeSeries,
+  rateFor,
+  type RunMetrics,
+  type RunnerTimeline,
+  runMetricQueries,
+  stepFor,
+  podRegexForApp,
+  WINDOW_PAD_MS,
+} from '@adhar/utils'
+
 export const REPORT_KIND = 'resilience.report'
 /**
  * Reports describe the cluster, not a tenant, so they live in the platform's
@@ -107,7 +130,7 @@ export interface ChaosRunReport {
   commitNote?: string
   digest?: string
   freight?: { name: string; alias?: string; project?: string }
-  /** The application's source repository (in-cluster URL), for the commit link. */
+  /** The application's source repository (adhar-controlplane URL), for the commit link. */
   repoUrl?: string
   trigger: ReportTrigger
   triggeredByUser?: string
@@ -123,6 +146,16 @@ export interface ChaosRunReport {
   checks?: DesignCheck[]
   /** The environment the scorer graded the checks on. */
   checksEnvironment?: string
+  /**
+   * The run's phases on the wall clock (load test, each fault, recovery), read
+   * from the runner Job's timestamped log. Absent on reports recorded before
+   * phases were kept, or when the Job's pod was already gone.
+   */
+  phases?: PhaseWindow[]
+  /** Target metrics over the run window, captured from Prometheus after the run. */
+  metrics?: RunMetrics
+  /** Why `metrics` is absent: Prometheus unreachable, nothing scraped, … */
+  metricsNote?: string
   recordedAt: string
   [k: string]: unknown
 }
@@ -405,6 +438,8 @@ export interface BuildInput {
   argoApps: ArgoAppLike[]
   /** `summary.json`'s `services`, when the scorer is installed. */
   scorerServices?: unknown[]
+  /** The run's phases, parsed from the runner Job's log (`parseRunnerTimeline`). */
+  timeline?: RunnerTimeline
   now?: number
 }
 
@@ -433,6 +468,7 @@ export function buildReport(input: BuildInput): ChaosRunReport | undefined {
   const trigger = resolveTrigger(app, namespace, testedAt, input.jobs, input.now)
   const place = placementOf(app, namespace, input.argoApps)
   const design = input.scorerServices ? designChecks(app, input.scorerServices) : { checks: [] }
+  const phases = phasesForRun(input.timeline, testedAt)
 
   // The gate verdict belongs to this run only when it judged this image, at
   // the time of this test (the runner writes both in the same pass).
@@ -466,7 +502,7 @@ export function buildReport(input: BuildInput): ChaosRunReport | undefined {
     trigger: trigger.trigger,
     triggeredByUser: trigger.triggeredByUser,
     runId: trigger.runId,
-    startedAt: trigger.startedAt,
+    startedAt: trigger.startedAt ?? (phases.length ? new Date(Math.min(...phases.map((p) => p.start))).toISOString() : undefined),
     finishedAt: testedAt,
     target: str(record.target),
     experiments,
@@ -474,9 +510,118 @@ export function buildReport(input: BuildInput): ChaosRunReport | undefined {
     gate,
     checks: design.checks.length ? design.checks : undefined,
     checksEnvironment: design.checks.length ? design.environment : undefined,
+    phases: phases.length ? phases : undefined,
     recordedAt: new Date(input.now ?? Date.now()).toISOString(),
   })
 }
+
+/* ─────────────────────────── phases ─────────────────────────── */
+
+/**
+ * The phases of THIS run: the hourly pass logs several applications and a
+ * Job's log can hold more than one run of one, so only phases from the run's
+ * own load test (the latest before the record's `testedAt`, within the hour)
+ * up to `testedAt` are kept, closed at `testedAt` if the log ended mid-phase.
+ */
+export function phasesForRun(timeline: RunnerTimeline | undefined, testedAt: string): PhaseWindow[] {
+  const end = Date.parse(testedAt)
+  if (!timeline || !Number.isFinite(end)) return []
+  const slack = 60_000
+  // Every run of an application starts with its load test: the latest one
+  // before the record is where this run began.
+  const loads = timeline.phases.filter((p) => p.kind === 'load' && p.start <= end).map((p) => p.start)
+  const from = loads.length ? Math.max(...loads) : end - 3600_000
+  const kept = timeline.phases.filter((p) => p.start <= end + slack && p.start >= Math.max(from, end - 3600_000))
+  return closePhases(kept, end).map((p) => ({ ...p, end: Math.min(p.end ?? end, end + slack) }))
+}
+
+/* ─────────────────────────── metrics ─────────────────────────── */
+
+/** Reports older than this are not enriched any more: the series may be gone. */
+export const METRICS_MAX_AGE_MS = 6 * 3600_000
+
+/**
+ * True when a report should have its metrics captured now: it has none yet,
+ * its padded window has closed (with a scrape interval of slack), and it is
+ * recent enough that Prometheus still holds the samples.
+ */
+export function metricsDue(r: Pick<ChaosRunReport, 'finishedAt' | 'metrics' | 'metricsNote'>, now = Date.now()): boolean {
+  if (r.metrics || r.metricsNote) return false
+  const end = Date.parse(r.finishedAt)
+  if (!Number.isFinite(end)) return false
+  return now >= end + WINDOW_PAD_MS + 30_000 && now - end <= METRICS_MAX_AGE_MS
+}
+
+export interface MetricsPlan {
+  window: { start: number; end: number; stepSeconds: number }
+  selector: string
+  queries: MetricQuery[]
+}
+
+/** What to ask Prometheus for one report: the padded window, a bounded step, the target's queries. */
+export function metricsPlan(r: Pick<ChaosRunReport, 'app' | 'namespace' | 'startedAt' | 'finishedAt' | 'phases'>): MetricsPlan | undefined {
+  const w = captureWindow({ startedAt: r.startedAt, finishedAt: r.finishedAt, phases: r.phases })
+  if (!w) return undefined
+  // A runaway start (a Job that lived for days) must not blow the budget.
+  const start = Math.max(w.start, w.end - 3 * 3600_000)
+  const step = stepFor(start, w.end)
+  const podRegex = podRegexForApp(r.app)
+  return {
+    window: { start, end: w.end, stepSeconds: step },
+    selector: `namespace="${r.namespace}",pod=~"${podRegex}"`,
+    queries: runMetricQueries({ namespace: r.namespace, podRegex, rate: rateFor(step) }),
+  }
+}
+
+/** One query's answer: Prometheus matrix results, or why it failed. */
+export type QueryAnswer = Array<{ values?: Array<[number, string]> }> | { error: string }
+
+/**
+ * The stored metrics block from the plan and Prometheus's answers: each series
+ * compacted (≤ MAX_POINTS samples, 4 significant figures), restarts turned
+ * into "since the window opened", the probe series derived from the faults,
+ * and every empty or failed query listed as missing with its reason.
+ */
+export function assembleMetrics(plan: MetricsPlan, answers: Record<string, QueryAnswer>, phases: PhaseWindow[] = [], now = Date.now()): RunMetrics {
+  const series: MetricSeries[] = []
+  const missing: MissingMetric[] = []
+  for (const def of METRIC_DEFS) {
+    if (def.id === 'probe') {
+      const pts = probeSeries(phases)
+      if (pts.length) series.push({ id: 'probe', label: def.label, unit: def.unit, points: compactPoints(pts) })
+      else missing.push({ id: 'probe', label: def.label, reason: missingReason('probe') })
+      continue
+    }
+    const a = answers[def.id]
+    if (!a) continue
+    if (!Array.isArray(a)) {
+      missing.push({ id: def.id, label: def.label, reason: `Prometheus query failed: ${a.error}` })
+      continue
+    }
+    let pts = pointsFromMatrix(a[0]?.values)
+    if (def.id === 'restarts') pts = deltaFromFirst(pts)
+    if (pts.length < 2) {
+      missing.push({ id: def.id, label: def.label, reason: missingReason(def.id) })
+      continue
+    }
+    series.push({ id: def.id, label: def.label, unit: def.unit, points: compactPoints(pts) })
+  }
+  return {
+    window: plan.window,
+    series,
+    ...(missing.length ? { missing } : {}),
+    selector: plan.selector,
+    capturedAt: new Date(now).toISOString(),
+    source: 'prometheus',
+  }
+}
+
+/** True when nothing at all came back — the note is then the honest result. */
+export function metricsEmpty(m: RunMetrics): boolean {
+  return !m.series.some((s) => s.id !== 'probe')
+}
+
+export const metricLabel = (id: string): string => metricDef(id)?.label ?? id
 
 /* ─────────────────────────── reading ─────────────────────────── */
 

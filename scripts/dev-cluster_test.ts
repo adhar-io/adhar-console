@@ -17,7 +17,7 @@ import {
  * neither script.
  */
 
-Deno.test('an in-cluster Service URL is parsed into namespace, service and port', () => {
+Deno.test('an adhar-controlplane Service URL is parsed into namespace, service and port', () => {
   assertEquals(
     parseClusterService('http://gitea-http.adhar-system.svc.cluster.local:3000'),
     { service: 'gitea-http', namespace: 'adhar-system', port: 3000, path: '' },

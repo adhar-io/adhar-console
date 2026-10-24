@@ -20,6 +20,7 @@
  */
 
 export const CATEGORIES = [
+  'Platform engineering',
   'Scale',
   'Resilience',
   'Delivery',
@@ -27,10 +28,12 @@ export const CATEGORIES = [
   'Security',
   'Tenancy',
   'Operations',
+  'AI & MCP',
 ] as const
 export type Category = (typeof CATEGORIES)[number]
 
 export const CATEGORY_BLURB: Record<Category, string> = {
+  'Platform engineering': 'Run the platform as a product that makes delivery easier for every team.',
   Scale: 'Grow capacity with demand — and shrink it when demand goes away.',
   Resilience: 'Keep serving while things fail, change or restart.',
   Delivery: 'Get changes from a commit to production safely and repeatably.',
@@ -38,6 +41,7 @@ export const CATEGORY_BLURB: Record<Category, string> = {
   Security: 'Trust nothing by default and make the safe path the easy one.',
   Tenancy: 'Share one platform between many teams without them colliding.',
   Operations: 'See, run and pay for the platform with confidence.',
+  'AI & MCP': 'Give models and agents tools, knowledge and budgets without giving them the keys.',
 }
 
 export interface Pattern {

@@ -123,7 +123,7 @@ Order I'd recommend:
 2. **Keycloak** — replace the stub session (see
    [docs/architecture/auth.md](./architecture/auth.md)).
 3. **Kubernetes** — the Platform view gets real data the moment you point at
-   an in-cluster SA or a kubeconfig.
+   an adhar-controlplane SA or a kubeconfig.
 4. **ArgoCD / Kargo / Harbor / Kyverno** — one per PR, same pattern.
 5. **LGTM** — Grafana dashboard IDs are the main config here.
 6. **Plane.so / Argo Workflows / Rollouts** — lowest priority; stubs are fine

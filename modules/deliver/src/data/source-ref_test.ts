@@ -2,11 +2,11 @@ import { assertEquals } from 'jsr:@std/assert@^1'
 import { shortRepo, sourceRef } from './source-ref.ts'
 
 /**
- * Every Application on this platform points at the same in-cluster Gitea, so
+ * Every Application on this platform points at the same adhar-controlplane Gitea, so
  * the host is the part the cards had in common and the repository is the part
  * that got truncated away.
  */
-Deno.test('an in-cluster Gitea URL names its repository', () => {
+Deno.test('an adhar-controlplane Gitea URL names its repository', () => {
   assertEquals(
     shortRepo('http://gitea-http.adhar-system.svc.cluster.local:3000/adhar/manifests'),
     'adhar/manifests',

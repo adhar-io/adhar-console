@@ -35,18 +35,26 @@ const SECTIONS: Record<string, string[]> = {
   '/discover': ['dashboard', 'metrics', 'logs', 'traces', 'servicemap', 'alerts', 'slos', 'dashboards', 'analytics'],
   '/decide': ['dashboard', 'dashboards', 'questions', 'sql', 'databases', 'pulses', 'dora', 'spend'],
   '/develop': ['dashboard', 'repos', 'branches', 'commits', 'prs', 'issues', 'environments', 'builds', 'pipelines', 'content'],
-  '/settings': ['organization'],
+  '/settings': ['organization', 'teams'],
+  '/design': ['adrs'],
+  '/define': ['roadmap'],
+  '/catalog': ['browse', 'create'],
   '/platform': [
     'catalog', 'scaling', 'caches', 'queues', 'topics', 'databases', 'tables', 'buckets', 'backup-policies', 'restores',
     'secret-stores', 'secret-rotations', 'compliance-policies', 'teams', 'projects', 'environments', 'cost-trackers', 'xr-clusters',
+    'applications', 'agent-workloads', 'vector-stores', 'marketplace', 'quotas',
   ],
 }
-const ROUTES = new Set(['/catalog', '/scorecards', '/decide', '/help', '/status'])
+const ROUTES = new Set(['/catalog', '/scorecards', '/decide', '/help', '/status', '/ai'])
 
 Deno.test('console links point at real pages', async () => {
-  for (const p of loadFromFiles(await readAll())) {
+  const list = loadFromFiles(await readAll())
+  const slugs = new Set(list.map((p) => p.slug))
+  for (const p of list) {
     for (const m of p.body.matchAll(/\]\((\/[^)\s]*)\)/g)) {
       const url = new URL(m[1], 'http://x')
+      const linked = url.pathname === '/help' ? url.searchParams.get('pattern') : null
+      if (linked) assert(slugs.has(linked), `${p.slug}: links to unknown pattern "${linked}"`)
       const section = url.searchParams.get('section')
       if (!section) {
         assert(ROUTES.has(url.pathname) || SECTIONS[url.pathname], `${p.slug}: unknown page ${m[1]}`)

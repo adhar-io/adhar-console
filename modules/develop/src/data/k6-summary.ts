@@ -22,6 +22,8 @@ export interface K6Threshold {
   /** e.g. `p(95)<500` */
   expression: string
   passed: boolean
+  /** The value k6 measured, as printed (`p(95)=10.69ms`) — k6 v1 prints it. */
+  actual?: string
 }
 
 export interface K6Summary {
@@ -38,6 +40,13 @@ const KV = /([a-z0-9()._%]+)=([^\s]+)/gi
 // Thresholds print the metric on one line and the expression indented below.
 const THRESHOLD_HEAD = /^\s*([✓✗×√])\s+([a-z0-9_]+)\s*$/i
 const THRESHOLD_EXPR = /^\s{4,}([a-z0-9()._]+\s*[<>=!]+\s*[0-9.]+.*)$/i
+// k6 v1 prints a THRESHOLDS section: the metric on its own line, then one
+// line per rule — `✗ 'rate<0.01' rate=100.00%`.
+const V1_SECTION = /^\s*█\s+([A-Z][A-Z ]+?)\s*$/
+const V1_THRESHOLD_METRIC = /^\s*([a-z0-9_]+(?:\{[^}]*\})?)\s*$/i
+const V1_THRESHOLD_RULE = /^\s*([✓✗×√])\s+'([^']+)'\s*(.*)$/
+// `checks_succeeded...: 100.00% 1658 out of 1658`
+const V1_CHECKS = /^(\d+(?:\.\d+)?)%\s+(\d+)\s+out of\s+(\d+)/
 
 /**
  * Pull k6's end-of-test summary out of runner stdout.
@@ -58,8 +67,38 @@ export function parseK6Summary(text: string): K6Summary {
   let checks: K6Summary['checks']
 
   const lines = text.split('\n')
+  let section: string | undefined
+  let thresholdMetric: string | undefined
+  let v1Passed: number | undefined
+  let v1Failed: number | undefined
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+
+    const sec = line.match(V1_SECTION)
+    if (sec) {
+      section = sec[1].trim().toUpperCase()
+      thresholdMetric = undefined
+      continue
+    }
+    if (section === 'THRESHOLDS') {
+      const rule = line.match(V1_THRESHOLD_RULE)
+      if (rule && thresholdMetric) {
+        thresholds.push({
+          metric: thresholdMetric,
+          expression: rule[2].trim(),
+          passed: rule[1] === '✓' || rule[1] === '√',
+          ...(rule[3].trim() ? { actual: rule[3].trim() } : {}),
+        })
+        continue
+      }
+      const head = line.match(V1_THRESHOLD_METRIC)
+      if (head) {
+        thresholdMetric = head[1]
+        continue
+      }
+      if (line.trim()) thresholdMetric = undefined
+      continue
+    }
 
     const metric = line.match(METRIC_LINE)
     if (metric) {
@@ -72,6 +111,18 @@ export function parseK6Summary(text: string): K6Summary {
         const pass = raw.match(/[✓√]\s*(\d+)/)
         const fail = raw.match(/[✗×]\s*(\d+)/)
         if (pass || fail) checks = { passed: Number(pass?.[1] ?? 0), failed: Number(fail?.[1] ?? 0) }
+      }
+      if (name === 'checks_succeeded' || name === 'checks_failed') {
+        const m = raw.match(V1_CHECKS)
+        if (m) {
+          if (name === 'checks_succeeded') {
+            v1Passed = Number(m[2])
+            v1Failed ??= Number(m[3]) - Number(m[2])
+          } else {
+            v1Failed = Number(m[2])
+            v1Passed ??= Number(m[3]) - Number(m[2])
+          }
+        }
       }
       metrics.push({ name, raw, values })
       continue
@@ -91,6 +142,9 @@ export function parseK6Summary(text: string): K6Summary {
     }
   }
 
+  if (!checks && (v1Passed !== undefined || v1Failed !== undefined)) {
+    checks = { passed: v1Passed ?? 0, failed: v1Failed ?? 0 }
+  }
   return { metrics, thresholds, checks, complete: metrics.length > 0 }
 }
 

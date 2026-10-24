@@ -218,7 +218,7 @@ export function SpendSummary() {
         ? (
           <SourceNote tone="warn">
             OpenCost is {notFound ? 'not configured' : 'unreachable'} ({errText(current.error)}). Spend reads{' '}
-            <code>/api/svc/opencost/allocation/compute</code>; set <code>OPENCOST_URL</code> on the console (in-cluster:
+            <code>/api/svc/opencost/allocation/compute</code>; set <code>OPENCOST_URL</code> on the console (adhar-controlplane:
             <code> http://opencost.adhar-system.svc:9003</code>) to enable it. No figures are shown until it answers.
           </SourceNote>
         )

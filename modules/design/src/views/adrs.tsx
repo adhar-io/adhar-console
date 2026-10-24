@@ -1427,7 +1427,7 @@ function CreateAdrModal({
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="Use Tekton for in-cluster CI"
+            placeholder="Use Tekton for adhar-controlplane CI"
             className={INPUT}
           />
         </FieldLabel>

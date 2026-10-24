@@ -112,7 +112,7 @@ export function KnowledgeGraph({ namespace }: { namespace?: string }) {
         title="The knowledge graph is not running"
         description={
           status.data?.reason === 'no ServiceAccount token'
-            ? 'The console has no ServiceAccount token, so it cannot watch the cluster. Set K8S_SA_TOKEN, or run the console in-cluster.'
+            ? 'The console has no ServiceAccount token, so it cannot watch the cluster. Set K8S_SA_TOKEN, or run the console adhar-controlplane.'
             : `The graph is unavailable: ${status.data?.reason ?? 'unknown reason'}.`
         }
       />

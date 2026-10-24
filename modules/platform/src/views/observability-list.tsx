@@ -34,7 +34,7 @@ export function ObservabilityView() {
           state={promStatus}
           count={prom.data?.length ?? 0}
           docsHref="https://prometheus-operator.dev/docs/getting-started/installation/"
-          description="Defines Prometheus / Alertmanager / ServiceMonitor CRDs. Required for in-cluster metrics scraping."
+          description="Defines Prometheus / Alertmanager / ServiceMonitor CRDs. Required for adhar-controlplane metrics scraping."
           rows={(prom.data ?? []).map((p) => ({
             name: p.metadata.name,
             ns: p.metadata.namespace ?? '—',

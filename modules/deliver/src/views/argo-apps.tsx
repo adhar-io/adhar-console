@@ -674,7 +674,7 @@ function AppCard({
               {a.spec.destination.namespace || '—'}
               <span className="px-1 text-edge-strong">/</span>
               {a.spec.project}
-              {a.spec.destination.server && !/kubernetes\.default|in-cluster/.test(a.spec.destination.server) ? <><span className="px-1 text-edge-strong">@</span>{a.spec.destination.name ?? a.spec.destination.server}</> : null}
+              {a.spec.destination.server && !/kubernetes\.default|adhar-controlplane/.test(a.spec.destination.server) ? <><span className="px-1 text-edge-strong">@</span>{a.spec.destination.name ?? a.spec.destination.server}</> : null}
             </span>
           </button>
           <div className="relative -mr-1 -mt-1 shrink-0">

@@ -273,6 +273,17 @@ export class PdfDocument {
     this.cur.ops.push(`q ${rgb(color)} RG ${f(lineWidth)} w ${f(x1)} ${f(this.y(top1))} m ${f(x2)} ${f(this.y(top2))} l S Q`)
   }
 
+  /**
+   * An open polyline through `points` (x, top) — one path, so a 160-sample
+   * series is one drawing operation. `dash` is `[on, off]` in points.
+   */
+  polyline(points: Array<[number, number]>, color: Rgb, lineWidth = 1, dash?: [number, number]): void {
+    if (points.length < 2) return
+    const path = points.map(([x, top], i) => `${f(x)} ${f(this.y(top))} ${i === 0 ? 'm' : 'l'}`).join(' ')
+    const d = dash ? `[${f(dash[0])} ${f(dash[1])}] 0 d ` : ''
+    this.cur.ops.push(`q ${rgb(color)} RG ${f(lineWidth)} w 1 J 1 j ${d}${path} S Q`)
+  }
+
   /** A clickable area opening `url`. */
   link(x: number, top: number, w: number, h: number, url: string): void {
     if (!/^https?:\/\//.test(url)) return

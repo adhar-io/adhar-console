@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
  * Most panels read the Kubernetes API, but several signals only exist as
  * metrics — Hubble's L7 golden signals, Cilium's policy-enforcement counts,
  * Falco and Kyverno result totals. Those come from the console's `prometheus`
- * tool (the in-cluster kube-prometheus Prometheus, or Mimir as a fallback).
+ * tool (the adhar-controlplane kube-prometheus Prometheus, or Mimir as a fallback).
  *
  * A panel asks for a named set of queries at once, so one panel is one
  * request round and one loading state. Every query may legitimately return

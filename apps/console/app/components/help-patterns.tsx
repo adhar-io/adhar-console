@@ -17,6 +17,7 @@ import { PATTERNS } from '~/data/patterns-content.ts'
  */
 
 const CAT_STYLE: Record<Category, { chip: string; dot: string; ring: string; icon: string }> = {
+  'Platform engineering': { chip: 'bg-lime-100 text-lime-900 dark:bg-lime-500/15 dark:text-lime-300', dot: 'bg-lime-500', ring: 'hover:border-lime-300 dark:hover:border-lime-500/40', icon: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z' },
   Scale: { chip: 'bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300', dot: 'bg-sky-500', ring: 'hover:border-sky-300 dark:hover:border-sky-500/40', icon: 'M3 17l6-6 4 4 8-8M15 7h6v6' },
   Resilience: { chip: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300', dot: 'bg-emerald-500', ring: 'hover:border-emerald-300 dark:hover:border-emerald-500/40', icon: 'M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z' },
   Delivery: { chip: 'bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300', dot: 'bg-violet-500', ring: 'hover:border-violet-300 dark:hover:border-violet-500/40', icon: 'M5 12h14M13 6l6 6-6 6' },
@@ -24,6 +25,7 @@ const CAT_STYLE: Record<Category, { chip: string; dot: string; ring: string; ico
   Security: { chip: 'bg-rose-100 text-rose-800 dark:bg-rose-500/15 dark:text-rose-300', dot: 'bg-rose-500', ring: 'hover:border-rose-300 dark:hover:border-rose-500/40', icon: 'M6 10V7a6 6 0 0 1 12 0v3M5 10h14v11H5z' },
   Tenancy: { chip: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300', dot: 'bg-indigo-500', ring: 'hover:border-indigo-300 dark:hover:border-indigo-500/40', icon: 'M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6' },
   Operations: { chip: 'bg-teal-100 text-teal-800 dark:bg-teal-500/15 dark:text-teal-300', dot: 'bg-teal-500', ring: 'hover:border-teal-300 dark:hover:border-teal-500/40', icon: 'M22 12h-4l-3 9L9 3l-3 9H2' },
+  'AI & MCP': { chip: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-500/15 dark:text-fuchsia-300', dot: 'bg-fuchsia-500', ring: 'hover:border-fuchsia-300 dark:hover:border-fuchsia-500/40', icon: 'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z' },
 }
 
 function CatIcon({ category, size = 14 }: { category: Category; size?: number }) {

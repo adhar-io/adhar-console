@@ -480,7 +480,7 @@ export function CostTrendPanel() {
   if (q.isLoading || q.isError || series.length === 0) {
     return (
       <PanelCard>
-        <PanelHead title="Cloud spend · 30 days" subtitle="OpenCost in-cluster allocation · USD" to="/settings?section=allocation" />
+        <PanelHead title="Cloud spend · 30 days" subtitle="OpenCost adhar-controlplane allocation · USD" to="/settings?section=allocation" />
         {q.isLoading ? (
           <PanelLoading />
         ) : q.isError ? (
@@ -505,7 +505,7 @@ export function CostTrendPanel() {
   const share = (v: number) => Math.round((v / categoryTotal) * 100)
   return (
     <PanelCard>
-      <PanelHead title="Cloud spend · 30 days" subtitle="OpenCost in-cluster allocation · USD" to="/settings?section=allocation" />
+      <PanelHead title="Cloud spend · 30 days" subtitle="OpenCost adhar-controlplane allocation · USD" to="/settings?section=allocation" />
       <div className="flex items-baseline justify-between gap-4">
         <div>
           <div className="text-2xl font-semibold tabular-nums tracking-tight text-content">

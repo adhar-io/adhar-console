@@ -10,7 +10,7 @@ import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
  *
  * The Adhar platform ships an `application/scorecards` package: a read-only
  * CronJob (`adhar-scorecard-scorer`, every 30 min) that grades every ArgoCD
- * Application 0–100 (A–F) from signals only an in-cluster job can see —
+ * Application 0–100 (A–F) from signals only an adhar-controlplane job can see —
  * ArgoCD health/sync, container probes + requests/limits, image not `:latest`,
  * Kyverno PolicyReport pass rate, HTTPRoute exposure, and backup coverage
  * (Velero Schedule / CNPG `.spec.backup`) for stateful services. It publishes

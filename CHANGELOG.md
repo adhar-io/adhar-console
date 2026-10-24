@@ -884,7 +884,7 @@ _Maintenance release — no user-facing changes._
 - **Healthy tools reported as unavailable.** The BFF refused to send a request
   at all when a tool was declared `service` auth mode with no token, answering
   503 Service Unavailable before contacting it. Most of the platform's own
-  services need no credential in-cluster — Prometheus, Loki, Mimir, Tempo, the
+  services need no credential adhar-controlplane — Prometheus, Loki, Mimir, Tempo, the
   Tekton dashboard, Falco — so Metrics, Traces, Grafana boards and the service
   detail panels all reported backends as down that were running and would have
   answered. Fourteen tools were affected. A missing service token now forwards
@@ -988,7 +988,7 @@ _Maintenance release — no user-facing changes._
   proxy could not express at all. Tools that need no token now degrade to
   `none`, Metabase authenticates with an API key or a session minted from the
   admin credentials, and login mode can send its token in any header. The
-  missing in-cluster URLs for Metabase, OpenCost, Kargo, Coder, Airbyte, Falco
+  missing adhar-controlplane URLs for Metabase, OpenCost, Kargo, Coder, Airbyte, Falco
   and Nexus are set, so these no longer resolve to a public hostname sitting
   behind an OAuth proxy.
 - **Deliver and Platform disagreed about policy findings.** Deliver read only
@@ -1022,7 +1022,7 @@ _Maintenance release — no user-facing changes._
   returns, with per-step durations.
 - **Scaffolded repositories recorded an uncloneable address.** Gitea builds its
   own URLs from the host of the request it receives, and the console reaches it
-  over in-cluster Service DNS, so every new component reported itself at
+  over adhar-controlplane Service DNS, so every new component reported itself at
   `gitea-http.<ns>.svc.cluster.local`. The response, the catalog annotation,
   the Argo CD `repoURL` and the kpack source now use the public origin.
 - **The SQL editor was a dead end when Metabase was unreachable.** It now leads
@@ -1224,7 +1224,7 @@ _Maintenance release — no user-facing changes._
   null `author` for unmatched emails, which left the Commits page blank;
   base64 file contents were decoded as Latin-1 (mojibake for emoji and
   box-drawing). All three are normalised in the client. Self-reported
-  `html_url` / `clone_url` values (built from the in-cluster service host the
+  `html_url` / `clone_url` values (built from the adhar-controlplane service host the
   BFF uses) are rewritten to the public Gitea URL.
 
 - **Image Registry is a full Harbor console.** Stats strip (projects,
@@ -1424,7 +1424,7 @@ _Maintenance release — no user-facing changes._
   BFF distinguishes a missing session from one that aged out mid-flow
   (`session_expired`), and onboarding offers a one-click reconnect that returns
   to the wizard instead of a dead error.
-- **Service catalog opened in-cluster Gitea URLs.** Repository links are
+- **Service catalog opened adhar-controlplane Gitea URLs.** Repository links are
   rewritten from the Service address the BFF used to the public host
   (`toPublicUrl` / `useToolPublicUrl`).
 - Deliver dashboard crashed with *Cannot read properties of undefined (reading
@@ -1639,7 +1639,7 @@ _Maintenance release — no user-facing changes._
   are derived from a real base domain instead of the hardcoded `localtest.me`
   dev hosts: the BFF reports `publicBaseDomain` (from `ADHAR_BASE_DOMAIN`, else
   derived from `AUTH_PUBLIC_URL`), the client falls back to its own origin, then
-  to any tool with a public URL. Configured tools that only have in-cluster URLs
+  to any tool with a public URL. Configured tools that only have adhar-controlplane URLs
   (`url: ''`) are no longer dropped from dynamic discovery — their public host is
   derived too. ToolJet, Penpot and OpenSearch are now registered so the launcher
   can discover them.
@@ -2263,7 +2263,7 @@ _Maintenance release — no user-facing changes._
   Tekton: a Gitea push webhook posts to the `adhar-ci` EventListener, which starts
   a PipelineRun. The Create-New scaffold step now registers a per-repo push
   webhook → the Tekton EventListener (`TEKTON_EVENTLISTENER_URL`, default the
-  in-cluster `el-adhar-ci` service) instead of checking for `.gitea/workflows` +
+  adhar-controlplane `el-adhar-ci` service) instead of checking for `.gitea/workflows` +
   a Gitea Actions runner. Idempotent, and reported truthfully in the run log
   (`ci-tekton`). Pairs with the platform's generic `scaffold-ci` Tekton pipeline
   (clone → test → build image → push to Harbor → GitOps) so a scaffolded repo
@@ -2402,7 +2402,7 @@ _Maintenance release — no user-facing changes._
 - **App launcher marks all deployed tools as enabled.** Harbor, MinIO, Argo
   Rollouts, Kyverno, Crossplane (and Trivy, via Harbor) were shown as "not set
   up" only because their `<TOOL>_URL` env vars were never wired into the console
-  deployment. Their in-cluster Service URLs are now set, so the launcher reports
+  deployment. Their adhar-controlplane Service URLs are now set, so the launcher reports
   them enabled (Kyverno/Crossplane have no web UI — their data flows via k8s
   CRDs; the URLs just mark the tiles enabled). Tools genuinely not deployed
   (Falco, Kargo, OpenCost, …) still show honestly as "not set up".
@@ -2483,7 +2483,7 @@ _Maintenance release — no user-facing changes._
   public `*.localtest.me` hosts resolve to loopback inside the cluster). Wired
   the tools actually deployed in the platform — Argo CD, Gitea, Grafana,
   Prometheus, Loki, Mimir, Tempo, Vault, Tekton (plus Argo Workflows / Keycloak
-  already). `publicToolInfo()` hides in-cluster URLs from the browser and marks
+  already). `publicToolInfo()` hides adhar-controlplane URLs from the browser and marks
   the tool configured; the app launcher derives the public browser link from the
   cluster base domain. Tools not deployed stay honestly "not set up."
 
@@ -2709,9 +2709,9 @@ _Maintenance release — no user-facing changes._
 
 ### Notes
 
-- The companion in-cluster login / kube-apiserver auth fix lives in the platform
+- The companion adhar-controlplane login / kube-apiserver auth fix lives in the platform
   repo: Keycloak's `hostname-strict-backchannel` is set to `true` so it emits a
-  stable **https** issuer over the in-cluster http backchannel (the http issuer
+  stable **https** issuer over the adhar-controlplane http backchannel (the http issuer
   was being rejected by both the console's id-token check and the apiserver's
   strict `--oidc-issuer-url`). Requires a Keycloak pod restart to take effect.
 
@@ -2726,7 +2726,7 @@ _Maintenance release — no user-facing changes._
   gateway port), breaking the redirect to the login page. `discovery.ts` now pins
   each endpoint to the correct origin: browser-facing (issuer / authorization /
   end-session) → the public HTTPS issuer; server-to-server (token / JWKS /
-  userinfo) → the internal Service. Completes the in-cluster sign-in round-trip.
+  userinfo) → the internal Service. Completes the adhar-controlplane sign-in round-trip.
 
 ## [0.1.3] - 2026-08-09
 
@@ -2736,7 +2736,7 @@ _Maintenance release — no user-facing changes._
   discovery was calling Keycloak at the public `KEYCLOAK_URL`, which isn't
   routable from inside the cluster (split-horizon DNS behind the gateway). Added
   an optional **`KEYCLOAK_INTERNAL_URL`** backchannel — discovery / token / JWKS
-  use the in-cluster Keycloak Service, while the token issuer + browser redirects
+  use the adhar-controlplane Keycloak Service, while the token issuer + browser redirects
   stay the public URL. Wired into `.env.example`, the configmap, and the platform
   deployment.
 - **Dark mode.** Components using raw light-only colors (the non-inverted `gray`
@@ -2874,7 +2874,7 @@ First tagged release — published to `ghcr.io/adhar-io/adhar-console`.
   session cookie and injects the upstream credential (user-token impersonation
   or service token) per tool. Backing-tool clients now use `.auto({ tool })` —
   real (proxy-backed) in production, stub fixtures in dev.
-- **Container/K8s**: in-cluster SA-token auto-read + `DENO_CERT` CA trust for
+- **Container/K8s**: adhar-controlplane SA-token auto-read + `DENO_CERT` CA trust for
   the kube-apiserver, hardened ConfigMap/Secret templates (`AUTH_CLIENT_SECRET`,
   `AUTH_COOKIE_SECRET`, per-tool service tokens), SSO setup guide in
   `deploy/README.md`.

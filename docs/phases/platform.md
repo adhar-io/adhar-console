@@ -2,7 +2,7 @@
 
 A full-featured Kubernetes dashboard, scoped to the Adhar platform's own CRDs.
 
-- **Primary backer:** Kubernetes API (in-cluster) + Adhar-stack CRDs.
+- **Primary backer:** Kubernetes API (adhar-controlplane) + Adhar-stack CRDs.
 - **Module:** `modules/platform` → exposes `./Home`, `./ClusterList`,
   `./WorkloadList`, `./CrdBrowser`.
 - **Port in dev:** 5107.
@@ -56,7 +56,7 @@ add / remove components.
 ## Multi-cluster
 
 `k8sClient.listClusters()` returns the cluster registry; each cluster has
-a `source` of `in-cluster` / `kubeconfig` / `crossplane-managed`. The
+a `source` of `adhar-controlplane` / `kubeconfig` / `crossplane-managed`. The
 currently-selected cluster drives every downstream call. Switching cluster
 re-keys the TanStack Query cache.
 

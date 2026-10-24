@@ -1,7 +1,7 @@
 /**
  * Naming an Argo CD Application's source so a card can show it.
  *
- * A card had the raw `repoURL`, which on this platform is an in-cluster
+ * A card had the raw `repoURL`, which on this platform is an adhar-controlplane
  * service address: `http://gitea-http.adhar-system.svc.cluster.local:3000/
  * adhar/manifests`. In a card-width box that truncates to
  * `gitea-http.adhar-system.svc.cluster.local:3000/a…` — forty characters of

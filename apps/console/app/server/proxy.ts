@@ -262,7 +262,7 @@ async function resolveToken(
       // No token configured: forward the request unauthenticated rather than
       // refusing to make it.
       //
-      // Most of the platform's own services need no credential in-cluster —
+      // Most of the platform's own services need no credential adhar-controlplane —
       // Prometheus, Loki, Mimir, Tempo, the Tekton dashboard, Falco — and
       // `service` is simply the mode that lets an *optional* token through when
       // one is set. Failing closed here meant the console answered 503 Service

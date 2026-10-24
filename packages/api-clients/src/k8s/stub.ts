@@ -18,7 +18,7 @@ export const STUB_CLUSTERS: Cluster[] = [
     platform: 'linux/amd64',
     nodeCount: 12,
     healthy: true,
-    source: 'in-cluster',
+    source: 'adhar-controlplane',
   },
   {
     name: 'adhar-staging',

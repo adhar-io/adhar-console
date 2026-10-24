@@ -327,7 +327,7 @@ function ClusterPanel({
             </div>
             <div className='mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-muted'>
               <span className='font-mono'>
-                {cluster.local ? 'in-cluster' : endpointOf(cluster.server)}
+                {cluster.local ? 'adhar-controlplane' : endpointOf(cluster.server)}
               </span>
               {cluster.version ? <Dotsep>Kubernetes {cluster.version}</Dotsep> : null}
               <Dotsep>{cluster.provider.label}</Dotsep>
@@ -518,7 +518,7 @@ function EnvDrawer({
               <ProviderMark id={cluster.provider.id} size={16} />
               <span className='truncate'>{cluster.name}</span>
               <span>·</span>
-              <span className='font-mono'>{cluster.local ? 'in-cluster' : endpointOf(cluster.server)}</span>
+              <span className='font-mono'>{cluster.local ? 'adhar-controlplane' : endpointOf(cluster.server)}</span>
             </div>
             <h2 className='mt-1 truncate text-lg font-semibold tracking-tight text-content'>
               {env.namespace}

@@ -25,7 +25,7 @@ Deno.test('scheduled and CI runs label their result with the application', () =>
   assertEquals(cm.data['gate.env'].includes("TARGET_APP='checkout'"), true)
   const run = JSON.parse(cm.data['testrun.json'])
   assertEquals(run.metadata.labels[LABEL_APPLICATION], 'checkout')
-  // The in-cluster runner stamps it on the result it creates.
+  // The adhar-controlplane runner stamps it on the result it creates.
   assertEquals(RUN_SCRIPT.includes('${TARGET_APP:+"adhar.io/application=$TARGET_APP"}'), true)
   // And sets it empty before sourcing, so an older gate.env cannot leak one.
   assertEquals(RUN_SCRIPT.includes("TARGET_APP=''"), true)

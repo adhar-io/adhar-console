@@ -63,7 +63,7 @@ interface PromMatrix {
  * six-hour soak both come back with a readable number of points rather than
  * two or twenty thousand.
  */
-async function queryRange(query: string, startMs: number, endMs: number, points = 120): Promise<PanelData> {
+export async function queryRange(query: string, startMs: number, endMs: number, points = 120): Promise<PanelData> {
   const start = Math.floor(startMs / 1000)
   const end = Math.ceil(endMs / 1000)
   const step = Math.max(1, Math.floor((end - start) / points))

@@ -173,7 +173,7 @@ export function normalizeApplication(raw: RawApplication): Application {
       source: sources[0] ?? EMPTY_SOURCE,
       sources,
       destination: {
-        server: dest.server ?? dest.name ?? 'in-cluster',
+        server: dest.server ?? dest.name ?? 'adhar-controlplane',
         name: dest.name,
         namespace: dest.namespace ?? '',
       },

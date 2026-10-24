@@ -245,7 +245,7 @@ async function loadOrg(ctx: Ctx): Promise<StoredDoc<OrgDoc>> {
   const doc: OrgDoc = {
     slug: ctx.tenant,
     name: ctx.tenant.charAt(0).toUpperCase() + ctx.tenant.slice(1),
-    region: 'in-cluster',
+    region: 'adhar-controlplane',
     plan: 'team',
     createdAt: new Date().toISOString(),
     ssoEnforced: false,

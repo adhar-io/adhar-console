@@ -10,7 +10,7 @@
  * Pure: returns bytes, no DOM.
  */
 
-import { REPORT_GRADE_COLOR, REPORT_PRIORITY_COLOR, type ReportTone as Tone, scoreTone } from '@adhar/utils'
+import { clockUtc, METRIC_DEFS, yMaxFor, type MetricPoint, PHASE_COLOR, REPORT_GRADE_COLOR, REPORT_PRIORITY_COLOR, type ReportTone as Tone, scoreTone } from '@adhar/utils'
 import {
   chaosFindings,
   type ChaosRunReport,
@@ -19,7 +19,14 @@ import {
   type ExperimentRecord,
   experimentTone,
   faultTitle,
+  FINDING_AREAS,
   headline,
+  metricCaption,
+  reportBands,
+  reportMetrics,
+  type ReportMetric,
+  runDomain,
+  timelineRows,
   type History,
   recommendations,
   type ReportMeta,
@@ -34,8 +41,8 @@ import {
   VERDICT_TONE,
 } from './chaos-report.ts'
 import {
-  coverBand, facts, findingCard, findingCardHeight, fitText, footers, hex, INK, kpis, Layout, LINE, M, MUTED, PdfDocument, type Rgb,
-  recommendationList, table, textWidth, tone, utc, WHITE, wrapText, fmtPct,
+  coverBand, facts, findingCard, findingCardHeight, fitText, footers, hex, INK, kpis, Layout, legend, LINE, lineCharts, M, MUTED, type PdfChart,
+  PdfDocument, type Rgb, recommendationList, table, textWidth, timelineChart, tone, utc, WHITE, wrapText, fmtPct,
 } from '@adhar/utils/pdf'
 
 /* ─────────────────────────── blocks ─────────────────────────── */
@@ -134,6 +141,69 @@ function compareBlock(L: Layout, cur: ChaosRunReport, other: ChaosRunReport, cap
   ]))
 }
 
+/** The run timeline and the target's metrics — what the HTML report draws as SVG. */
+function metricsBlock(L: Layout, r: ChaosRunReport): void {
+  const domain = runDomain(r)
+  const phases = r.phases ?? []
+  if (!domain) {
+    L.section('Target metrics during the run')
+    L.para(r.metricsNote ?? 'This run was recorded without target metrics or a phase timeline — it predates their capture, or the runner\'s log and Prometheus were not reachable when it was recorded.', { size: 8.5 })
+    return
+  }
+  L.section('Run timeline')
+  if (phases.length) {
+    L.para('When each phase ran, from the resilience runner\'s own log. A fault\'s bar is the injection; the lighter bar after it is the recovery.', { size: 8.5 })
+    const rows = timelineRows(phases)
+    const barColor = (k: string) => (k === 'recovery' ? hex('#f5c27a') : hex(PHASE_COLOR[k as keyof typeof PHASE_COLOR] ?? '#94a3b8'))
+    timelineChart(L, rows.map((row) => ({
+      label: row.label,
+      start: row.parts[0].start,
+      end: row.parts[0].end ?? domain[1],
+      color: barColor(row.parts[0].kind),
+      more: row.parts.slice(1).map((p) => ({ start: p.start, end: p.end ?? domain[1], color: barColor(p.kind) })),
+      ...(row.note ? { note: row.note } : {}),
+    })), { domain, formatX: clockUtc })
+  } else {
+    L.para('The runner\'s log was not available when this run was recorded, so the phase windows are not known.', { size: 8.5 })
+  }
+
+  L.section('Target metrics during the run')
+  L.para(r.metrics
+    ? `The target's own series from Prometheus over the run window (${clockUtc(domain[0])}–${clockUtc(domain[1])} UTC, one sample every ${r.metrics.window.stepSeconds}s), selected by ${r.metrics.selector ?? 'the application pods'}. Shaded bands are the phases above.`
+    : r.metricsNote ?? 'Prometheus series were not captured for this run; the probe chart is drawn from the faults\' recorded results.', { size: 8.5 })
+  const bands = reportBands(r, domain)
+  const kinds = [...new Set(bands.map((b) => b.kind))]
+  if (kinds.length) legend(L, kinds.map((k) => ({ label: k === 'fault' ? 'Fault injected' : k === 'recovery' ? 'Recovering' : 'Load test', color: hex(PHASE_COLOR[k]) })))
+  const list: ReportMetric[] = reportMetrics(r)
+  if (!list.some((m) => m.def.id === 'probe') && phases.some((p) => p.probeSuccessPercentage !== undefined)) {
+    const def = METRIC_DEFS.find((d) => d.id === 'probe')!
+    const pts = phases.filter((p) => p.kind === 'fault' && p.probeSuccessPercentage !== undefined && p.end !== undefined)
+      .flatMap((p) => [[p.start, p.probeSuccessPercentage!], [p.end!, p.probeSuccessPercentage!]] as MetricPoint[])
+    list.unshift({ def, series: { id: 'probe', label: def.label, unit: def.unit, points: pts } })
+  }
+  const charts: PdfChart[] = list.map((m) => ({
+    title: m.def.label,
+    caption: metricCaption(m, phases),
+    series: m.series ? [{ points: m.series.points, color: hex(m.def.color), pairs: m.def.id === 'probe' }] : [],
+    bands: bands.map((b) => ({ start: b.start, end: b.end, color: hex(PHASE_COLOR[b.kind]) })),
+    domain,
+    ...(m.series ? { yMax: yMaxFor(m.def.id, m.def.unit, m.series.points) } : {}),
+    formatY: (v: number) => formatMetricShort(v, m.def.unit),
+    formatX: clockUtc,
+    emptyText: m.missing?.reason ?? 'No samples in the run window.',
+  }))
+  if (charts.length) lineCharts(L, charts, { cols: 2, height: 118 })
+}
+
+/** Axis labels: the metric's unit, kept short enough for a 30 pt gutter. */
+function formatMetricShort(v: number, unit: ReportMetric['def']['unit']): string {
+  if (unit === 'bytes') return v >= 1024 ** 3 ? `${Number((v / 1024 ** 3).toFixed(1))}G` : `${Math.round(v / 1024 ** 2)}M`
+  if (unit === 'ms') return v >= 1000 ? `${Number((v / 1000).toFixed(1))}s` : `${Math.round(v)}`
+  if (unit === 'percent') return `${Number(v.toFixed(v < 10 && v % 1 ? 1 : 0))}%`
+  if (unit === 'cores') return v >= 1 ? `${Number(v.toFixed(1))}` : `${Math.round(v * 1000)}m`
+  return `${Number(v.toFixed(v < 10 && v % 1 ? 1 : 0))}`
+}
+
 /* ─────────────────────────── document ─────────────────────────── */
 
 /** The report as PDF bytes. */
@@ -204,6 +274,8 @@ export function chaosReportPdf(r: ChaosRunReport, h: History, meta: ReportMeta):
     if (p.detail) L.para(p.detail, { size: 8 })
   }
 
+  metricsBlock(L, r)
+
   if (h.previous || h.previousCommit) {
     L.section('Compared with earlier runs')
     if (h.previous) compareBlock(L, r, h.previous, 'Previous run')
@@ -211,7 +283,7 @@ export function chaosReportPdf(r: ChaosRunReport, h: History, meta: ReportMeta):
   }
 
   L.section('Observations')
-  for (const area of ['Experiments', 'Recovery', 'Workload design', 'Change over time'] as const) {
+  for (const area of FINDING_AREAS) {
     const list = findings.filter((f) => f.area === area)
     if (!list.length) continue
     L.h3(area, findingCardHeight(L, list[0]))

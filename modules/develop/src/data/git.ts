@@ -53,7 +53,7 @@ export function setStoredBranch(repo: string, branch: string) {
 
 /**
  * Gitea builds `html_url` / `clone_url` from the request host. The BFF talks
- * to it over the in-cluster service DNS, so every self-reported link points
+ * to it over the adhar-controlplane service DNS, so every self-reported link points
  * at `gitea-http.<ns>.svc.cluster.local` — unusable in a browser. Swap the
  * origin for the tool's public URL (`/api/config.tools.gitea`) or
  * `gitea.<publicBaseDomain>`; already-public URLs pass through untouched.

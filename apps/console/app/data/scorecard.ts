@@ -47,7 +47,7 @@ export type {
  * signal up — the engine never fabricates readiness.
  *
  * ── Two scorers, one authoritative ──────────────────────────────────────────
- * The platform's `application/scorecards` package runs an in-cluster CronJob
+ * The platform's `application/scorecards` package runs an adhar-controlplane CronJob
  * that grades services from signals the browser simply cannot see (Argo CD
  * health/sync, container probes + requests/limits, image not `:latest`, Kyverno
  * PolicyReport pass rate, HTTPRoute exposure, Velero/CNPG backup coverage) and
@@ -121,7 +121,7 @@ export interface Scorecard {
   entity: Entity
   /** Where `score` / `grade` came from. */
   source: ScoreSource
-  /** The in-cluster scorer's record, when it graded this service. */
+  /** The adhar-controlplane scorer's record, when it graded this service. */
   platform?: PlatformService
   /**
    * The console's own catalog derivation — kept alongside the platform score so
@@ -561,7 +561,7 @@ export function useScorecards(): ScorecardsResult {
   }
 }
 
-/* ─────────── platform scorer (authoritative, in-cluster) ─────────── */
+/* ─────────── platform scorer (authoritative, adhar-controlplane) ─────────── */
 
 export const PLATFORM_CATEGORIES: readonly PlatformCategory[] = [
   'reliability',

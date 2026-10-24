@@ -18,7 +18,7 @@ import { derivedUrl, env, subdomainUrl } from '@adhar/utils'
  * The scheme (and any port) is inherited from whichever URL was used, so
  * `https://…:8443` installs derive `https://gitea.<domain>:8443`.
  *
- * An explicit `<TOOL>_URL` ALWAYS wins — in-cluster Service addresses stay the
+ * An explicit `<TOOL>_URL` ALWAYS wins — adhar-controlplane Service addresses stay the
  * right answer for server-side calls when the platform sets them.
  */
 
@@ -45,7 +45,7 @@ const INTERNAL_HOST = /(\.svc\.cluster\.local|\.svc|\.cluster\.local)$|^localhos
 /**
  * Whether a URL's host is only reachable from inside the cluster.
  *
- * `toolUrl()` deliberately prefers an explicit in-cluster Service address,
+ * `toolUrl()` deliberately prefers an explicit adhar-controlplane Service address,
  * because that is the right answer for a server-side call. It is the wrong
  * answer for anything a person is going to click, clone or paste.
  */
@@ -64,7 +64,7 @@ export function isInternalUrl(raw: string | undefined): boolean {
  * `repoURL`.
  *
  * Gitea is the case that matters. It builds `html_url` and `clone_url` from the
- * host of the request it received, and the console reaches it over in-cluster
+ * host of the request it received, and the console reaches it over adhar-controlplane
  * Service DNS — so a freshly scaffolded repository reported itself as living at
  * `http://gitea-http.adhar-system.svc.cluster.local:3000/...`, an address no
  * developer can clone and no browser can open.
@@ -72,7 +72,7 @@ export function isInternalUrl(raw: string | undefined): boolean {
  * An explicit `<TOOL>_PUBLIC_URL` wins, then the tool's configured URL when it
  * is already public, then the derived `https://<sub>.<domain>`. If nothing
  * public can be determined the internal URL is returned unchanged — a working
- * in-cluster address beats a fabricated public one.
+ * adhar-controlplane address beats a fabricated public one.
  */
 export function toolPublicUrl(sub: string, ...envKeys: string[]): string {
   const explicit = env(`${sub.toUpperCase().replace(/-/g, '_')}_PUBLIC_URL`)

@@ -25,7 +25,7 @@ export function useCoderInfo() {
     select: (info: coder.BuildInfo) => ({
       ...info,
       // Coder reports CODER_ACCESS_URL; fall back to the public tool URL when
-      // that is an in-cluster host.
+      // that is an adhar-controlplane host.
       dashboard_url: toPublicUrl(info.dashboard_url, { toolUrl, tool: 'coder', baseDomain }) || toolUrl,
     }),
     staleTime: 5 * 60_000,

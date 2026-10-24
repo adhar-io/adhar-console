@@ -82,7 +82,7 @@ Deno.test("an unrelated service never gets another application's stages", () => 
   const plain = {
     ...base,
     metadata: { name: 'grafana', namespace: 'adhar-system', labels: {} },
-    spec: { ...base.spec, destination: { namespace: 'adhar-system', server: 'in-cluster' } },
+    spec: { ...base.spec, destination: { namespace: 'adhar-system', server: 'adhar-controlplane' } },
     status: { ...base.status, resourceList: [{ kind: 'Deployment', name: 'grafana', namespace: 'adhar-system' }] },
   } as unknown as argocd.Application
   const d = deriveDeployment(entity('grafana'), [plain], { isLoading: false, isError: false })

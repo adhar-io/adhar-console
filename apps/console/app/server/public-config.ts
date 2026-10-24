@@ -80,6 +80,28 @@ async function selfRegistrationAllowed(): Promise<boolean> {
   return selfRegistrationCache.value
 }
 
+/**
+ * Whether a tool's reported URL was deliberately set, rather than derived.
+ *
+ * `toolUrl()` falls back to `https://<tool>.<base>` for every registry tool, so
+ * a URL on the platform's own base domain is not evidence the tool exists —
+ * MLflow kept a live tile in the apps drawer after it was uninstalled
+ * (2026-10-24) because its derived URL read as "configured". On the base
+ * domain only a gateway route proves an app is there (`discoveredApps`); a URL
+ * on any other host is an operator pointing at an external service.
+ */
+export function isExplicitToolUrl(url: string, base: string): boolean {
+  if (!url) return false
+  if (!base) return true
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    const b = base.toLowerCase().replace(/^\./, '')
+    return host !== b && !host.endsWith(`.${b}`)
+  } catch {
+    return false
+  }
+}
+
 export async function buildPublicConfig(): Promise<Record<string, unknown>> {
   const base = publicBaseDomain()
   // Start from the env-driven registry, then overlay what the cluster's
@@ -87,10 +109,11 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
   // registry only knows in-cluster `.svc` URLs, reported as ''), and apps the
   // registry never heard of are added as configured. Discovery is best-effort
   // and can only add — it never marks a configured tool unavailable.
-  const tools = publicToolInfo()
+  const tools: Record<string, { configured: boolean; url: string; explicit?: boolean }> = publicToolInfo()
+  for (const t of Object.values(tools)) t.explicit = isExplicitToolUrl(t.url, base)
   const discovered = await discoverRoutedApps(base, publicProtocol())
   for (const app of discovered) {
-    tools[app.id] = { configured: true, url: app.url }
+    tools[app.id] = { configured: true, url: app.url, explicit: false }
   }
   return {
     authConfigured: isServerAuthConfigured(),

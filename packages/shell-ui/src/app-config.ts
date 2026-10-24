@@ -18,7 +18,9 @@ export interface AppConfig {
    * that leads to an identity-provider error.
    */
   selfRegistration: boolean
-  tools: Record<string, { configured: boolean; url: string }>
+  tools: Record<string, { configured: boolean; url: string; explicit?: boolean }>
+  /** What the cluster's gateway actually routes under the base domain (empty when unknown). */
+  discoveredApps?: Array<{ id: string; url: string; route?: string }>
   version: string
   /** Gitea org that owns the platform's repos (single-tenant per install). */
   giteaOrg: string
@@ -252,9 +254,33 @@ function isInternalHost(host: string): boolean {
 export function useToolPublicUrl(tool: string): string {
   const cfg = useAppConfig().data
   const base = usePublicBaseDomain()
+  // Once the cluster has reported its routes, a tool with neither a route nor
+  // an operator-set URL is not installed: its `<tool>.<base>` address would be
+  // a dead link (Metabase, Strapi, PostHog… after being disabled — the same bug
+  // that kept MLflow in the apps drawer, 2026-10-24). Callers treat '' as
+  // "unknown" and hide the link.
+  if (!toolInstalled(cfg, tool)) return ''
   const reported = cfg?.tools?.[tool]?.url ?? ''
   if (reported && !isInternalHost(safeHost(reported))) return reported.replace(/\/$/, '')
   return base ? `${typeof location !== 'undefined' ? location.protocol : 'https:'}//${tool}.${base}` : ''
+}
+
+/**
+ * Whether a tool runs on this cluster, as far as the console can tell: routed
+ * by the gateway, or pointed at by an operator-set URL. With no route evidence
+ * at all (no cluster access, an older BFF), every tool is assumed present —
+ * never hide what can't be disproved.
+ */
+export function toolInstalled(cfg: Pick<AppConfig, 'tools' | 'discoveredApps'> | undefined, tool: string): boolean {
+  const routes = cfg?.discoveredApps ?? []
+  if (!cfg || routes.length === 0) return true
+  if (routes.some((r) => r.id === tool)) return true
+  return cfg.tools?.[tool]?.explicit === true
+}
+
+/** Reactive {@link toolInstalled}: true while the config loads. */
+export function useToolInstalled(tool: string): boolean {
+  return toolInstalled(useAppConfig().data, tool)
 }
 
 function safeHost(u: string): string {

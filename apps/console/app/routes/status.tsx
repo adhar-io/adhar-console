@@ -152,11 +152,6 @@ function StatusPage() {
           <Dependencies deps={d.dependencies} />
           <Components d={d} />
           <Changes d={d} now={now} />
-          <p className="mt-8 text-xs text-content-subtle">
-            Read live from the cluster{' '}
-            {d.readAs === 'service-account' ? "with the console's service account" : d.readAs === 'viewer' ? 'with your own access' : '(no cluster credentials available)'}.
-            Refreshes every {POLL_MS / 1000}s; history covers the last hour this console has been running.
-          </p>
         </>
       )}
     </AppShell>

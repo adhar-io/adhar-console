@@ -34,6 +34,9 @@ export interface AppLink {
   sub?: string
   /** Deep-link through another tool's UI — e.g. Loki opens Grafana Explore. */
   via?: { tool: string; path: string }
+  /** Path appended to the app's own resolved origin (not used with `via`) —
+   *  e.g. OpenBao's click-free Keycloak sign-in page. */
+  path?: string
 }
 
 /** A launcher tile's official bundled logo (28px, inside the tile's own box). */
@@ -138,11 +141,14 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
   {
     id: 'prometheus',
     name: 'Prometheus',
-    description: 'Metrics — Mimir-backed',
-    url: `${GRAFANA_DEV}${exploreLeft('prometheus')}`,
+    description: 'Metrics, targets, alerts and rules',
+    // Opens Prometheus's OWN UI at prometheus.<base>, which sits behind an
+    // oauth2-proxy that signs a Keycloak-session user straight in. It used to
+    // deep-link into Grafana Explore (`via: grafana`), so the tile never opened
+    // Prometheus (2026-10-24). Loki and Tempo keep the Grafana route: they
+    // have no UI of their own.
+    url: 'https://prometheus.adhar.localtest.me:8443',
     category: 'Observe',
-    tools: ['grafana', 'prometheus', 'mimir'],
-    via: { tool: 'grafana', path: exploreLeft('prometheus') },
     icon: logo('prometheus'),
   },
   {
@@ -223,6 +229,12 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     description: 'Secrets management',
     sub: 'openbao',
     url: 'https://openbao.adhar.localtest.me:8443',
+    // Opens OpenBao's click-free sign-in page, not the bare UI (2026-10-24):
+    // OpenBao's own sign-in page needs a click (its OIDC runs in a popup) and
+    // used to open on ?with=token. The page signs the user in through their
+    // existing Keycloak session and hands the UI its token (platform repo:
+    // security/keycloak/manifests/sso-start.yaml, openbao.html).
+    path: '/adhar-sso/openbao.html',
     category: 'Security',
     icon: logo('openbao'),
   },
@@ -500,6 +512,8 @@ export interface ResolvedApp extends AppLink {
 interface ToolInfo {
   configured: boolean
   url: string
+  /** The URL was set by an operator, not derived from the base domain (see public-config.ts). */
+  explicit?: boolean
 }
 
 /**
@@ -658,7 +672,11 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
       const routeIds = [a.id, a.sub, a.via?.tool, ...(a.tools ?? [])]
         .filter((id): id is string => Boolean(id))
       const hasRoute = routeIds.some((id) => routed.has(id))
-      const explicitUrl = infos.some((i) => i.configured && Boolean(i.url))
+      // Only an operator-set URL off the platform's base domain counts here: the
+      // BFF also reports DERIVED `<tool>.<base>` URLs for every registry tool,
+      // which kept uninstalled apps (MLflow, 2026-10-24) in the drawer. Older
+      // BFFs don't send `explicit`; for them the route is the only evidence.
+      const explicitUrl = infos.some((i) => i.configured && Boolean(i.url) && i.explicit === true)
       const configured = hasRouteEvidence
         ? hasRoute || explicitUrl
         : infos.length
@@ -675,6 +693,7 @@ function useResolvedApps(apps: AppLink[]): { apps: ResolvedApp[]; loading: boole
         else if (base) url = `${base.protocol}//${a.sub ?? a.id}.${base.host}`
       }
       if (!url) url = a.url
+      if (a.path && !a.via) url = url.replace(/\/+$/, '') + a.path
       return { ...a, url, configured }
     })
 

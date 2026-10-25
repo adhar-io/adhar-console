@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.160",
+    "date": "2026-10-25",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Perf center and chaos fixes"
+      }
+    ]
+  },
+  {
     "version": "0.1.159",
     "date": "2026-10-25",
     "changes": [
@@ -611,17 +621,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "cloud shell",
         "text": "No white inside the terminal in a light console"
-      }
-    ]
-  },
-  {
-    "version": "0.1.120",
-    "date": "2026-10-11",
-    "changes": [
-      {
-        "type": "fix",
-        "scope": "ci",
-        "text": "Move a misplaced import out of an import block in organizations.ts"
       }
     ]
   }

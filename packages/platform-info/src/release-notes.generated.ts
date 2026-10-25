@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.159",
+    "date": "2026-10-25",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Functions support added for adhar platform"
+      }
+    ]
+  },
+  {
     "version": "0.1.158",
     "date": "2026-10-24",
     "changes": [
@@ -612,60 +622,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "fix",
         "scope": "ci",
         "text": "Move a misplaced import out of an import block in organizations.ts"
-      }
-    ]
-  },
-  {
-    "version": "0.1.119",
-    "date": "2026-10-11",
-    "changes": [
-      {
-        "type": "improvement",
-        "text": "Enhancement for controlplane usage"
-      },
-      {
-        "type": "change",
-        "scope": "cloud shell",
-        "text": "Restore the prompt, and make the shell pleasant to use"
-      },
-      {
-        "type": "change",
-        "scope": "status",
-        "text": "Live platform status with real versions"
-      },
-      {
-        "type": "change",
-        "scope": "catalog",
-        "text": "Deploy tab shows Kargo environments, not 'default'"
-      },
-      {
-        "type": "change",
-        "scope": "help",
-        "text": "Accurate links, real shortcuts, troubleshooting, support"
-      },
-      {
-        "type": "change",
-        "text": "What's new: real version, real release notes, current capabilities"
-      },
-      {
-        "type": "change",
-        "scope": "platform logs",
-        "text": "Edge-to-edge console, no rounded frame or padding"
-      },
-      {
-        "type": "fix",
-        "scope": "platform logs",
-        "text": "Pin Container and Since right; fixed-width pod select"
-      },
-      {
-        "type": "change",
-        "scope": "release",
-        "text": "Generate release notes from git; backfill the CHANGELOG"
-      },
-      {
-        "type": "improvement",
-        "scope": "notifications",
-        "text": "Keep the list surface white"
       }
     ]
   }

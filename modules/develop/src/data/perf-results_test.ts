@@ -55,6 +55,17 @@ Deno.test('headline metrics come out of the summary as numbers', () => {
   assertEquals('p99Ms' in m, false)
 })
 
+Deno.test('p99 is parsed even when k6 prints percentile keys with decimal precision', () => {
+  const summary = parseK6Summary(`
+     http_req_duration..............: avg=99.42ms min=21.1ms med=88.3ms max=1.02s p(95.0)=241ms p(99.00)=990ms
+     http_req_failed................: 0.20%  ✓ 1        ✗ 499
+     http_reqs......................: 500   25.00/s
+  `)
+  const m = metricsFromSummary(summary)
+  assertEquals(m.p95Ms, 241)
+  assertEquals(m.p99Ms, 990)
+})
+
 Deno.test('the summary is what follows the last progress line', () => {
   const s = extractSummary(RUNNER_LOG)
   assertEquals(s.includes('running ('), false)

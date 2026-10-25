@@ -37,6 +37,7 @@ import { ChaosHome } from './chaos-home.tsx'
 import { ChaosLibrary } from './chaos-library.tsx'
 import { LaunchWizard } from './chaos-launch.tsx'
 import { ExperimentRunDrawer, SuiteRunDrawer } from './chaos-run-canvas.tsx'
+import { shouldShowGlobalNewExperimentAction, type ChaosTab } from './chaos-actions.ts'
 import { readChaosParams, useChaosReports, writeChaosParams, type ChaosParams } from '../data/chaos-report-hooks.ts'
 import { useApplicationSuites, useResilienceRuns } from '../data/chaos-suite-hooks.ts'
 import { useScorerResilience } from '../data/chaos-live-hooks.ts'
@@ -77,7 +78,6 @@ import {
  * `?job=<suite run>` · `?report=<id>` · `?compare=<id>~<id>` ·
  * `?commit=&app=` (reports filter).
  */
-type ChaosTab = 'overview' | 'experiments' | 'suites' | 'gamedays' | 'reports' | 'library'
 const CHAOS_TABS: ChaosTab[] = ['overview', 'experiments', 'suites', 'gamedays', 'reports', 'library']
 
 export function ChaosView({ namespace }: { namespace?: string }) {
@@ -125,7 +125,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
   const actions = (
     <div className="flex flex-wrap gap-2">
       {canGameDay && !workflows.notInstalled ? <Button size="sm" onClick={() => setBuilding({})}>New game day</Button> : null}
-      {canLaunch && installed ? <Button size="sm" variant="primary" onClick={() => setLaunching({})}>New experiment</Button> : null}
+      {shouldShowGlobalNewExperimentAction({ tab, canLaunch, installed }) ? <Button size="sm" variant="primary" onClick={() => setLaunching({})}>New experiment</Button> : null}
     </div>
   )
 

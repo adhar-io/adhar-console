@@ -161,7 +161,6 @@ export function ResultsView({
       key,
       header: METRIC_DEFS.find((d) => d.key === key)!.label.replace(' latency', ''),
       numeric: true,
-      defaultHidden: key === 'p99Ms',
       value: (r) => (r.metrics?.[key] as number | undefined) ?? -1,
       cell: (r) => <span className="tabular-nums text-[12px]">{fmtMetric(key, r.metrics?.[key] as number | undefined)}</span>,
     })),

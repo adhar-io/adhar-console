@@ -193,6 +193,24 @@ function Report({ report: r }: { report: ReadinessReport }) {
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Section
+          title="Test results"
+          subtitle="The latest outcomes that feed the final readiness grade"
+        >
+          <div className="space-y-3 text-[12px]">
+            {r.testResults.map((t) => (
+              <EvidenceLine
+                key={`${t.name}:${t.source}`}
+                tone={t.tone}
+                title={t.name}
+                status={t.status}
+                detail={`${t.source}${t.detail ? ` · ${t.detail}` : ''}`}
+                at={t.at}
+              />
+            ))}
+          </div>
+        </Section>
+
+        <Section
           title="Automated load test"
           subtitle={r.testedIn ? `k6 against ${r.target ?? 'the application Service'}` : 'runs hourly in the test environment'}
           badge={<StatusPill tone={r.loadTone} text={r.loadStatus} />}

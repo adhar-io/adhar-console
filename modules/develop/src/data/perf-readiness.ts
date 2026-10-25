@@ -156,6 +156,7 @@ export interface ReadinessReport {
   chaos: ChaosRow[]
   perfCenter?: { verdict: string; tone: Tone; test: string; trigger?: string; at?: string; reasons?: string; count: number; tests: string[] }
   gameDay?: { verdict: string; tone: Tone; experiment: string; at?: string; probe?: string; count: number; experiments: string[] }
+  testResults: Array<{ name: string; source: string; status: string; tone: Tone; detail: string; at?: string }>
   signals: Array<ReadinessSignal & { label: string; passed: boolean }>
 }
 
@@ -284,6 +285,47 @@ export function readinessReport(app: ScorerApplication): ReadinessReport {
 
   const pc = app.perfCenter ?? undefined
   const gd = app.gameDays ?? undefined
+  const testResults: ReadinessReport['testResults'] = []
+  testResults.push({
+    name: 'Automated load test',
+    source: 'k6 resilience runner',
+    status: perf.status ?? (ev.pending ? 'pending' : 'not run'),
+    tone: statusTone(perf.status),
+    detail: [
+      num(perf.p95Ms) !== undefined ? `p95 ${Math.round(num(perf.p95Ms)!)}ms` : undefined,
+      num(perf.p99Ms) !== undefined ? `p99 ${Math.round(num(perf.p99Ms)!)}ms` : undefined,
+      num(perf.errorRate) !== undefined ? `error ${(num(perf.errorRate)! * 100).toFixed(2)}%` : undefined,
+      num(perf.rps) !== undefined ? `${Math.round(num(perf.rps)!)} req/s` : undefined,
+      ev.pending && !perf.status ? `pending: ${ev.pending}` : undefined,
+    ].filter(Boolean).join(' · ') || 'No automated load result recorded yet.',
+    at: ev.testedAt,
+  })
+  if (pc) {
+    testResults.push({
+      name: `Performance Center · ${pc.latest?.test ?? pc.tests?.[0] ?? 'test'}`,
+      source: 'Team-owned performance tests',
+      status: pc.latest?.verdict || 'no verdict',
+      tone: statusTone(pc.latest?.verdict),
+      detail:
+        `${pc.count} result${pc.count === 1 ? '' : 's'} across ${pc.tests.join(', ')}` +
+        (pc.latest?.trigger ? ` · trigger ${pc.latest.trigger}` : '') +
+        (pc.latest?.reasons ? ` · ${pc.latest.reasons}` : pc.latest ? '' : ' · recorded without a verdict'),
+      at: pc.latest?.at,
+    })
+  }
+  if (gd) {
+    testResults.push({
+      name: `Game day · ${gd.latest?.experiment ?? gd.experiments?.[0] ?? 'experiment'}`,
+      source: 'Chaos Engineering game day',
+      status: gd.latest?.verdict || 'no verdict',
+      tone: statusTone(gd.latest?.verdict),
+      detail:
+        `${gd.count} run${gd.count === 1 ? '' : 's'}: ${gd.experiments.join(', ')}` +
+        (gd.latest?.probe ? ` · probe ${gd.latest.probe}%` : ''),
+      at: gd.latest?.at,
+    })
+  }
+
   return {
     app: app.name,
     grade: app.grade,
@@ -303,6 +345,7 @@ export function readinessReport(app: ScorerApplication): ReadinessReport {
     slo: sloGauges,
     sloEnvironment: slo?.environment,
     chaos,
+    testResults,
     ...(pc
       ? {
         perfCenter: {

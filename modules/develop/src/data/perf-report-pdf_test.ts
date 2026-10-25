@@ -26,7 +26,7 @@ Deno.test('the PDF is a real PDF with every section and page numbers', () => {
   const out = Array.from(bytes, (c) => String.fromCharCode(c)).join('')
   assert(out.startsWith('%PDF-1.4'))
   assert(out.trimEnd().endsWith('%%EOF'))
-  for (const s of ['EXECUTIVE SUMMARY', 'KEY MEASUREMENTS', 'OBSERVATIONS', 'RECOMMENDATIONS', 'ALL READINESS CHECKS', 'Page 1 of', 'p95 latency is over target under load', 'by Ana']) {
+  for (const s of ['EXECUTIVE SUMMARY', 'TEST RESULTS', 'KEY MEASUREMENTS', 'OBSERVATIONS', 'RECOMMENDATIONS', 'ALL READINESS CHECKS', 'Page 1 of', 'p95 latency is over target under load', 'by Ana']) {
     assertStringIncludes(out, s)
   }
   assert(bytes.length < 200_000)

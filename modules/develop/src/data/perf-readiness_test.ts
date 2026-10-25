@@ -51,6 +51,8 @@ Deno.test('the verdict names what holds the grade back and ignores other categor
   assertStringIncludes(r.verdict, 'automated load test meets its targets')
   assertEquals(r.perfCenter?.tone, 'bad')
   assertEquals(r.gameDay, undefined)
+  assertEquals(r.testResults[0]?.name, 'Automated load test')
+  assertEquals(r.testResults.some((t) => t.name.startsWith('Performance Center ·')), true)
 })
 
 Deno.test('a missing measurement is reported as missing, never as zero', () => {
@@ -81,4 +83,5 @@ Deno.test('a Performance Center history with no judged run renders as not judged
   assertEquals([r.perfCenter?.verdict, r.perfCenter?.tone, r.perfCenter?.test], ['no verdict', 'none', 'shop-load'])
   assertStringIncludes(r.perfCenter?.reasons ?? '', 'without a verdict')
   assertEquals([r.gameDay?.verdict, r.gameDay?.experiment], ['no verdict', 'pod-delete'])
+  assertEquals(r.testResults.some((t) => t.name.startsWith('Game day ·')), true)
 })

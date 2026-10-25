@@ -181,11 +181,22 @@ export function metricsFromSummary(summary: K6Summary): RunMetrics {
     thresholdsFailed: summary.thresholds.filter((t) => !t.passed).length,
   }
   if (dur) {
+    const pct = (target: number): string | undefined => {
+      const exact = dur.values[`p(${target})`]
+      if (exact) return exact
+      for (const [k, v] of Object.entries(dur.values)) {
+        const m = /^p\((\d+(?:\.\d+)?)\)$/i.exec(k)
+        if (!m) continue
+        const n = Number(m[1])
+        if (Number.isFinite(n) && Math.abs(n - target) < 0.0001) return v
+      }
+      return undefined
+    }
     out.avgMs = parseDurationMs(dur.values['avg'])
     out.medMs = parseDurationMs(dur.values['med'])
-    out.p90Ms = parseDurationMs(dur.values['p(90)'])
-    out.p95Ms = parseDurationMs(dur.values['p(95)'])
-    out.p99Ms = parseDurationMs(dur.values['p(99)'])
+    out.p90Ms = parseDurationMs(pct(90))
+    out.p95Ms = parseDurationMs(pct(95))
+    out.p99Ms = parseDurationMs(pct(99))
     out.maxMs = parseDurationMs(dur.values['max'])
   }
   if (failed) out.errorRatePct = parsePercent(failed.raw.split(/\s+/)[0])

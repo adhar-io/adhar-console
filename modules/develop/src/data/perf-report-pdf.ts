@@ -131,6 +131,25 @@ export function perfReportPdf(r: ReadinessReport, meta: ReportMeta): Uint8Array 
     ...(r.target ? [{ label: 'Load target', value: r.target, mono: true }] : []),
   ])
 
+  L.section('Test results')
+  table(
+    L,
+    [
+      { title: 'Test', width: 2.2 },
+      { title: 'Source', width: 2.2 },
+      { title: 'Status', width: 1.1 },
+      { title: 'Details', width: 2.9 },
+      { title: 'When', width: 1.4 },
+    ],
+    r.testResults.map((t) => [
+      { text: t.name },
+      { text: t.source },
+      { text: '', pill: { tone: t.tone, label: t.status } },
+      { text: t.detail },
+      { text: utc(t.at) || '—', size: 7.5 },
+    ]),
+  )
+
   L.section('Key measurements')
   L.ensure(KEEP_WITH_TABLE)
   L.h3(`Automated load test: ${r.loadStatus}`)

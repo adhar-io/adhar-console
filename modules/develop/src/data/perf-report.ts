@@ -524,6 +524,13 @@ ${r.image ? `<br>Image <code>${esc(r.image)}</code>` : ''}
 </section>
 
 <section>
+<h2>Test results</h2>
+<table><thead><tr><th>Test</th><th>Source</th><th>Status</th><th>Details</th><th>When</th></tr></thead><tbody>
+${r.testResults.map((t) => `<tr><td>${esc(t.name)}</td><td>${esc(t.source)}</td><td>${pill(t.tone, t.status)}</td><td>${esc(t.detail)}</td><td class="num">${t.at ? esc(t.at.slice(0, 16).replace('T', ' ')) + ' UTC' : '—'}</td></tr>`).join('\n')}
+</tbody></table>
+</section>
+
+<section>
 <h2>Key measurements</h2>
 <h3>Automated load test ${pill(r.loadTone, r.loadStatus)}</h3>
 <p class="note">k6 against ${esc(r.target ?? 'the application Service')}${r.testedIn ? ` in ${esc(r.testedIn)}` : ''}, run hourly by the platform's resilience runner. The marker on each bar is the target.</p>

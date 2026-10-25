@@ -48,6 +48,7 @@ Deno.test('the HTML is standalone and escapes data', () => {
   assert(!html.includes('cart<script>'))
   assert(!/<link|<script/i.test(html))
   assertStringIncludes(html, 'Executive summary')
+  assertStringIncludes(html, 'Test results')
   assertStringIncludes(html, 'Recommendations')
 })
 
@@ -60,5 +61,7 @@ Deno.test('a passing app gets a clean bill and no actions', () => {
   })
   const recs = recommendations(reportFindings(r))
   assertEquals(recs.filter((x) => x.priority === 'high').length, 0)
-  assertStringIncludes(reportHtml(r, { generatedAt: '2026-10-22T10:00:00Z' }), 'is production-ready')
+  const html = reportHtml(r, { generatedAt: '2026-10-22T10:00:00Z' })
+  assertStringIncludes(html, 'is production-ready')
+  assertStringIncludes(html, 'Performance Center · checkout')
 })

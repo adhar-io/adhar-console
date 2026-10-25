@@ -9,6 +9,7 @@ import { Environments } from './views/environments.tsx'
 import { Pipelines } from './views/pipelines.tsx'
 import { Performance } from './views/performance.tsx'
 import { Content } from './views/content.tsx'
+import { Functions } from './views/functions.tsx'
 
 type Section =
   | 'dashboard'
@@ -21,6 +22,7 @@ type Section =
   | 'pipelines'
   | 'performance'
   | 'content'
+  | 'functions'
 
 const SECTIONS: Record<Section, { label: string; description: string }> = {
   dashboard: {
@@ -64,6 +66,10 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     label: 'Content',
     description: 'Strapi headless CMS — content types, entries, drafts and publishing, media, and the API services read.',
   },
+  functions: {
+    label: 'Functions',
+    description: 'Create and manage serverless Function resources with scale-to-zero and on-demand scaling.',
+  },
 }
 
 /** Views that render their own PageHeader — they put a repo picker or actions in it. */
@@ -85,6 +91,7 @@ export default function DevelopHome({ section }: { section?: string } = {}) {
       {active === 'pipelines' && <Pipelines />}
       {active === 'performance' && <Performance />}
       {active === 'content' && <Content />}
+      {active === 'functions' && <Functions />}
     </div>
   )
 }

@@ -30,7 +30,8 @@ export type DevelopSection =
   | 'environments'
   | 'pipelines'
   | 'performance'
-  | 'content';
+  | 'content'
+  | 'functions';
 
 export interface DevelopParams {
   /** Repository name (bare, within the configured org). */

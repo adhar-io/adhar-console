@@ -42,6 +42,7 @@ export const XR_SECTIONS: XrSection[] = [
   { id: 'release-flows', plural: 'releases', label: 'Releases', family: 'compute', description: 'Kargo promotion flows — warehouses, stages and freight for a service.' },
   { id: 'repositories', plural: 'repositories', label: 'Repositories', family: 'compute', description: 'A Gitea repository with its Harbor project and package repositories.' },
   { id: 'scaling', plural: 'scales', label: 'Scaling', family: 'compute', description: 'Autoscaling policies — HPA-backed scaling for workloads.' },
+  { id: 'functions', plural: 'functions', label: 'Functions', family: 'compute', description: 'Serverless functions with Knative scale-to-zero and on-demand autoscaling.' },
   { id: 'webhooks', plural: 'webhooks', label: 'Webhooks', family: 'compute', description: 'Webhook endpoints — the events they receive, authentication and retry policy.' },
   // Data
   { id: 'databases', plural: 'databases', label: 'Databases', family: 'data', description: 'Relational databases — CloudNativePG locally, RDS, Cloud SQL or Azure SQL in the cloud.' },

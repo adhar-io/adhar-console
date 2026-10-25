@@ -10,6 +10,7 @@ import { Registry } from './views/registry.tsx'
 import { Scans } from './views/scans.tsx'
 import { Runtime } from './views/runtime.tsx'
 import { Policy } from './views/policy.tsx'
+import { Functions } from './views/functions.tsx'
 
 type Section =
   | 'dashboard'
@@ -23,6 +24,7 @@ type Section =
   | 'scans'
   | 'runtime'
   | 'policy'
+  | 'functions'
   | 'scan-review'
   | 'waivers'
   | 'licenses'
@@ -94,6 +96,10 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     label: 'Policy',
     description: 'Kyverno policy reports — pass / fail / warn aggregates.',
   },
+  functions: {
+    label: 'Functions',
+    description: 'Function lifecycle operations with runtime health and quick access to performance and chaos workflows.',
+  },
 }
 
 export default function DeliverHome({ section }: { section?: string } = {}) {
@@ -117,6 +123,7 @@ export default function DeliverHome({ section }: { section?: string } = {}) {
       {active === 'scan-policy' && <Scans defaultTab="policy" />}
       {active === 'runtime' && <Runtime />}
       {active === 'policy' && <Policy />}
+      {active === 'functions' && <Functions />}
     </div>
   )
 }

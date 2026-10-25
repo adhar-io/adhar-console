@@ -1329,6 +1329,9 @@ function LangDot({ lang }: { lang: TemplateLanguage }) {
 const RECENT_KEY = 'adhar.catalog.recent-templates'
 const RECENT_MAX = 6
 const EMPTY_RECENTS: readonly string[] = Object.freeze([])
+const RECENT_TEMPLATE_RENAMES: Record<string, string> = {
+  'function-service': 'function-java-service',
+}
 
 const recentListeners = new Set<() => void>()
 let cachedRaw: string | null = '__init__'
@@ -1341,6 +1344,7 @@ function notifyRecents() {
 
 function pushRecent(id: string) {
   if (typeof localStorage === 'undefined') return
+  const canonical = RECENT_TEMPLATE_RENAMES[id] ?? id
   let cur: string[] = []
   try {
     const raw = localStorage.getItem(RECENT_KEY)
@@ -1351,7 +1355,8 @@ function pushRecent(id: string) {
   } catch {
     /* ignore */
   }
-  const next = [id, ...cur.filter((x) => x !== id)].slice(0, RECENT_MAX)
+  const remapped = cur.map((x) => RECENT_TEMPLATE_RENAMES[x] ?? x)
+  const next = [canonical, ...remapped.filter((x) => x !== canonical)].slice(0, RECENT_MAX)
   localStorage.setItem(RECENT_KEY, JSON.stringify(next))
   notifyRecents()
 }
@@ -1386,9 +1391,14 @@ function getRecentsSnapshot(): readonly string[] {
   }
   try {
     const parsed = JSON.parse(raw)
-    cachedSnapshot = Array.isArray(parsed)
-      ? Object.freeze(parsed.filter((x): x is string => typeof x === 'string'))
-      : EMPTY_RECENTS
+    if (Array.isArray(parsed)) {
+      const remapped = parsed
+        .filter((x): x is string => typeof x === 'string')
+        .map((x) => RECENT_TEMPLATE_RENAMES[x] ?? x)
+      cachedSnapshot = Object.freeze(Array.from(new Set(remapped)).slice(0, RECENT_MAX))
+    } else {
+      cachedSnapshot = EMPTY_RECENTS
+    }
   } catch {
     cachedSnapshot = EMPTY_RECENTS
   }

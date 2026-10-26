@@ -6,7 +6,6 @@ import {
   Input,
   Select,
   Spinner,
-  TeamScopeBar,
   useClickOutside,
   useTeamProjects,
   useToast,
@@ -377,13 +376,6 @@ export function DeliveryFlow() {
 
   return (
     <div className='min-w-0 space-y-5'>
-      <TeamScopeBar
-        team={team.filtering ? team.team : ''}
-        shown={apps.length}
-        total={allApps.length}
-        noun='applications'
-      />
-
       <div className='flex flex-wrap items-center justify-between gap-x-4 gap-y-2'>
         <div className='flex min-w-0 flex-wrap items-center gap-2'>
           {app

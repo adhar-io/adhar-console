@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Button, Modal, TeamScopeBar } from '@adhar/shell-ui'
+import { Button, Modal } from '@adhar/shell-ui'
 import type { DesignScope } from '../data/platform.ts'
 import { ownerTeam, type Scoped } from '../data/scope.ts'
 
 /**
- * Tenancy UI for design artifacts: a project / team picker, an owner chip,
- * and the shell's scope banner that states what the active-team lens hides.
+ * Tenancy UI for design artifacts: a project / team picker and an owner chip.
  */
 
 const SELECT =
@@ -56,11 +55,6 @@ export function ScopeChip({ item, scope, className }: { item: Scoped; scope: Des
       <span className="truncate">{[scope.teamName(team), item.project ? scope.projectName(item.project) : undefined].filter(Boolean).join(' · ')}</span>
     </span>
   )
-}
-
-/** The shell's banner for the active-team lens. Renders nothing when nothing is hidden. */
-export function DesignScopeBar({ scope, shown, total, noun }: { scope: DesignScope; shown: number; total: number; noun: string }) {
-  return <TeamScopeBar team={scope.lens.team} shown={shown} total={total} noun={noun} />
 }
 
 /** Edit an artifact's project and owner team. */

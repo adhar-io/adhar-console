@@ -2,6 +2,18 @@ import { useMemo, useRef, useState } from 'react'
 import { cn } from '@adhar/utils'
 import { colorTone, formatUnit, type GrafanaPanel, grafanaColor, legacyCalc, reduce, type ThresholdTone } from '../data/grafana-board.ts'
 import { type DisplayItem, displayItems, displayValue, type ResolvedField } from '../data/grafana-fields.ts'
+import {
+  arcPath,
+  GAUGE_GAP,
+  GAUGE_NAME_H,
+  GAUGE_SWEEP,
+  gaugeFraction,
+  gaugeGeometry,
+  gaugeGrid,
+  polar,
+  splitValueText,
+  thresholdBands,
+} from '../data/grafana-gauge.ts'
 import { contrastText, HoverTip, Legend, Swatch, useBox } from './grafana-viz.tsx'
 import { seriesColor } from './viz.tsx'
 
@@ -135,35 +147,35 @@ function NoValue({ panel }: { panel: GrafanaPanel }) {
 
 /* ─────────── gauge ─────────── */
 
-const SWEEP = 240
-
-function polar(cx: number, cy: number, r: number, deg: number) {
-  const a = ((deg - 90) * Math.PI) / 180
-  return [cx + r * Math.cos(a), cy + r * Math.sin(a)]
-}
-
-function arc(cx: number, cy: number, r: number, a0: number, a1: number) {
-  const [x0, y0] = polar(cx, cy, r, a0)
-  const [x1, y1] = polar(cx, cy, r, a1)
-  return `M${x0.toFixed(2)},${y0.toFixed(2)}A${r},${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`
-}
-
 export function GaugeViz({ panel, frames }: { panel: GrafanaPanel; frames: Frames }) {
   const list = useMemo(() => items(panel, frames).slice(0, 24), [panel, frames])
   const o = (panel.options ?? {}) as { showThresholdMarkers?: boolean; showThresholdLabels?: boolean }
   const ref = useRef<HTMLDivElement>(null)
   const box = useBox(ref)
   if (!list.length) return <NoValue panel={panel} />
-  const n = list.length
-  const cols = box.w > box.h ? Math.min(n, Math.max(1, Math.round(Math.sqrt((n * box.w) / Math.max(1, box.h))))) : Math.max(1, Math.round(Math.sqrt((n * box.w) / Math.max(1, box.h))))
-  const rows = Math.ceil(n / Math.max(1, cols))
-  const cellW = box.w / Math.max(1, cols)
-  const cellH = box.h / Math.max(1, rows)
+  const named = list.length > 1
+  const grid = gaugeGrid(list.length, box.w, box.h, named)
   return (
-    <div ref={ref} className="grid h-full min-h-0" style={{ gridTemplateColumns: `repeat(${Math.max(1, cols)}, minmax(0, 1fr))` }}>
-      {box.w > 0
+    <div
+      ref={ref}
+      className={cn('grid h-full min-h-0 min-w-0', grid.scroll ? 'overflow-y-auto overflow-x-hidden' : 'overflow-hidden')}
+      style={{
+        gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
+        gridAutoRows: grid.scroll ? `${grid.cellH}px` : `minmax(0, 1fr)`,
+        gap: GAUGE_GAP,
+      }}
+    >
+      {box.w > 0 && box.h > 0
         ? list.map((it) => (
-          <Gauge key={it.key} item={it} w={cellW} h={cellH} markers={o.showThresholdMarkers !== false} labels={!!o.showThresholdLabels} named={n > 1} />
+          <Gauge
+            key={it.key}
+            item={it}
+            w={grid.cellW}
+            h={grid.cellH - (named ? GAUGE_NAME_H : 0)}
+            markers={o.showThresholdMarkers !== false}
+            labels={!!o.showThresholdLabels}
+            named={named}
+          />
         ))
         : null}
     </div>
@@ -175,44 +187,102 @@ function Gauge({ item, w, h, markers, labels, named }: { item: DisplayItem; w: n
   const min = cfg.min ?? 0
   const max = cfg.max ?? (cfg.unit === 'percentunit' ? 1 : 100)
   const d = show(item, { min, max })
-  const nameH = named ? 14 : 0
-  const size = Math.max(40, Math.min(w - 8, (h - nameH - 4) * 1.25))
-  const cx = size / 2
-  const cy = size / 2
-  const r = size / 2 - (markers ? 9 : 4) - (labels ? 14 : 0)
-  const thick = Math.max(6, r * 0.22)
-  const start = -SWEEP / 2
-  const pct = item.value == null ? 0 : Math.max(0, Math.min(1, (item.value - min) / Math.max(1e-12, max - min)))
   const steps = cfg.thresholds?.steps ?? []
-  const pctOf = (v: number) => (cfg.thresholds?.mode === 'percentage' ? v / 100 : (v - min) / Math.max(1e-12, max - min))
-  const band = steps.map((s, i) => {
-    const a = s.value == null ? 0 : Math.max(0, Math.min(1, pctOf(s.value)))
-    const b = steps[i + 1]?.value == null ? 1 : Math.max(0, Math.min(1, pctOf(steps[i + 1].value!)))
-    return { a, b, color: grafanaColor(s.color) }
-  }).filter((x) => x.b > x.a)
+  const fracOf = (v: number) => (cfg.thresholds?.mode === 'percentage' ? v / 100 : (v - min) / Math.max(1e-12, max - min))
+  const labelTexts = steps.filter((s) => s.value != null).map((s) => formatUnit(s.value!, cfg.unit, cfg.decimals))
+  const g = gaugeGeometry(w, h, {
+    markers,
+    labels,
+    valueChars: d.text.length,
+    labelChars: Math.max(0, ...labelTexts.map((t) => t.length)),
+  })
+  const pct = gaugeFraction(item.value, min, max)
   const color = d.color ?? 'var(--color-brand-500)'
-  const fontSize = Math.max(11, Math.min(r * 0.5, (r * 1.6) / Math.max(2, d.text.length * 0.62)))
+  // Threshold colours are tuned for arcs, not text: yellow on white is
+  // unreadable. Pull the value text toward the content colour so it reads in
+  // both themes while still carrying the status hue.
+  const textColor = color === 'var(--color-content)' ? color : `color-mix(in oklab, ${color} 70%, var(--color-content))`
+  const warn = d.tone === 'warn' || d.tone === 'bad'
+  const label = `${item.name}: ${d.text}${warn ? ` (${TONE_LABEL[d.tone]})` : ''}`
+  const name = named ? <span className="block h-4 max-w-full truncate text-center text-[10.5px] leading-4 text-content-muted" title={item.name}>{item.name}</span> : null
+
+  if (g.compact) {
+    // Too small for a dial: value, then a thin bar carrying the same fill.
+    return (
+      <div className="flex min-h-0 min-w-0 flex-col items-stretch justify-center gap-1 px-1" role="meter" aria-valuenow={item.value ?? undefined} aria-valuemin={min} aria-valuemax={max} aria-label={label}>
+        <span className="truncate text-center text-[13px] font-semibold tabular-nums" style={{ color: textColor }}>{d.text}</span>
+        <span className="relative h-1.5 overflow-hidden rounded-full bg-surface-sunken">
+          <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct * 100}%`, background: color }} />
+        </span>
+        {name}
+      </div>
+    )
+  }
+
+  const start = -GAUGE_SWEEP / 2
+  const end = start + GAUGE_SWEEP
+  const bands = thresholdBands(steps.map((s) => ({ value: s.value, color: grafanaColor(s.color) })), fracOf)
+  const split = splitValueText(d.text)
+  const sep = 0.8 // degrees between threshold segments
   return (
-    <div className="flex min-h-0 min-w-0 flex-col items-center justify-center">
-      <svg width={size} height={size * 0.82} viewBox={`0 0 ${size} ${size * 0.82}`} role="meter" aria-valuenow={item.value ?? undefined} aria-valuemin={min} aria-valuemax={max} aria-label={`${item.name}: ${d.text}`}>
-        <path d={arc(cx, cy, r, start, start + SWEEP)} fill="none" stroke="var(--color-surface-sunken)" strokeWidth={thick} />
-        {pct > 0 ? <path d={arc(cx, cy, r, start, start + SWEEP * Math.max(0.002, pct))} fill="none" stroke={color} strokeWidth={thick} /> : null}
-        {markers
-          ? band.map((b, i) => (
-            <path key={i} d={arc(cx, cy, r + thick / 2 + 4, start + SWEEP * b.a, start + SWEEP * b.b - (i < band.length - 1 ? 0.6 : 0))} fill="none" stroke={b.color} strokeWidth="3" />
+    <div className="flex min-h-0 min-w-0 flex-col items-center justify-center overflow-hidden">
+      <svg
+        width="100%"
+        height="100%"
+        viewBox={`0 0 ${g.w.toFixed(2)} ${g.h.toFixed(2)}`}
+        preserveAspectRatio="xMidYMid meet"
+        className="block min-h-0 flex-1"
+        role="meter"
+        aria-valuenow={item.value ?? undefined}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        aria-label={label}
+      >
+        <path d={arcPath(g.cx, g.cy, g.r, start, end)} fill="none" stroke="var(--color-surface-sunken)" strokeWidth={g.thick} />
+        {pct > 0 ? <path d={arcPath(g.cx, g.cy, g.r, start, start + GAUGE_SWEEP * Math.max(0.004, pct))} fill="none" stroke={color} strokeWidth={g.thick} /> : null}
+        {g.markers
+          ? bands.map((b, i) => (
+            <path
+              key={i}
+              d={arcPath(g.cx, g.cy, g.markerR, start + GAUGE_SWEEP * b.a + (i ? sep / 2 : 0), start + GAUGE_SWEEP * b.b - (i < bands.length - 1 ? sep / 2 : 0))}
+              fill="none"
+              stroke={b.color ?? 'var(--color-edge-strong)'}
+              strokeWidth={g.markerW}
+            />
           ))
           : null}
-        {labels
+        {g.labels
           ? steps.filter((s) => s.value != null).map((s, i) => {
-            const [x, y] = polar(cx, cy, r + thick / 2 + 14, start + SWEEP * Math.max(0, Math.min(1, pctOf(s.value!))))
-            return <text key={i} x={x} y={y + 3} textAnchor="middle" fontSize="9" fill="var(--color-content-subtle)" fontFamily="var(--font-mono)">{formatUnit(s.value!, cfg.unit, cfg.decimals)}</text>
+            const deg = start + GAUGE_SWEEP * Math.max(0, Math.min(1, fracOf(s.value!)))
+            const [x, y] = polar(g.cx, g.cy, g.labelR, deg)
+            const anchor = Math.abs(x - g.cx) < g.labelR * 0.25 ? 'middle' : x < g.cx ? 'end' : 'start'
+            return (
+              <text key={i} x={x} y={y + g.labelFont * 0.35} textAnchor={anchor} fontSize={g.labelFont} fill="var(--color-content-subtle)" fontFamily="var(--font-mono)">
+                {formatUnit(s.value!, cfg.unit, cfg.decimals)}
+              </text>
+            )
           })
           : null}
-        <text x={cx} y={cy + fontSize * 0.35} textAnchor="middle" fontSize={fontSize} fontWeight="600" fill={color === 'var(--color-content)' ? 'var(--color-content)' : color} className="tabular-nums">
-          {d.text}
+        <text x={g.cx} y={g.valueY} textAnchor="middle" fontSize={g.valueFont} fontWeight="600" fill={textColor} style={{ fontVariantNumeric: 'tabular-nums' }}>
+          {split.unit || split.prefix
+            ? (
+              <>
+                {split.prefix ? <tspan fontSize={g.valueFont * 0.6}>{split.prefix}</tspan> : null}
+                <tspan>{split.number}</tspan>
+                {split.unit ? <tspan fontSize={g.valueFont * 0.55} dx={g.valueFont * 0.06} fill="var(--color-content-muted)" fontWeight="500">{split.unit}</tspan> : null}
+              </>
+            )
+            : d.text}
         </text>
+        {warn
+          ? (
+            <text x={g.cx} y={g.statusY} textAnchor="middle" fontSize={g.statusFont} fontWeight="500" fill={textColor}>
+              {TONE_ICON[d.tone]} {TONE_LABEL[d.tone]}
+            </text>
+          )
+          : null}
       </svg>
-      {named ? <span className="-mt-1 max-w-full truncate text-[10px] text-content-subtle" title={item.name}>{item.name}</span> : null}
+      {name}
     </div>
   )
 }
@@ -348,7 +418,7 @@ export function PieViz({ panel, frames }: { panel: GrafanaPanel; frames: Frames 
   return (
     <div ref={ref} className={cn('flex h-full min-h-0 gap-2', legendRight ? 'flex-row items-center' : 'flex-col items-center')}>
       {box.w > 0 ? (
-        <svg width={size} height={size} viewBox={`${-r} ${-r} ${size} ${size}`} className="shrink-0" role="img" aria-label={`${panel.title ?? 'Pie'}: ${rows.map((x) => `${x.name} ${x.values.percent}`).join(', ')}`} onMouseLeave={() => setTip(null)}>
+        <svg width={size} height={size} viewBox={`${-r - 1} ${-r - 1} ${size + 2} ${size + 2}`} className="shrink-0" role="img" aria-label={`${panel.title ?? 'Pie'}: ${rows.map((x) => `${x.name} ${x.values.percent}`).join(', ')}`} onMouseLeave={() => setTip(null)}>
           {slices.map((s) => {
             const full = s.a1 - s.a0 >= 359.99
             const p = (deg: number, rad: number) => polar(0, 0, rad, deg)

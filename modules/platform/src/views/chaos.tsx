@@ -19,10 +19,13 @@ import {
   CHAOS_NAMESPACE,
   durationOf,
   ENGINES_GVR,
+  errorReason,
   FAMILY_LABEL,
   faultById,
   faultOf,
   isLive,
+  isOver,
+  measuredProbe,
   phaseOf,
   resultNameFor,
   targetSummary,
@@ -32,12 +35,13 @@ import {
 } from '../data/chaos-kinds.ts'
 import { ChaosGameDays, GameDayBuilder, GameDayDrawer } from './chaos-gameday.tsx'
 import { ApplicationSuites, RunLog } from './chaos-suites.tsx'
+import { ChaosDrawer } from './chaos-run-canvas.tsx'
 import { ChaosReports, CompareDrawer, ReportDrawer } from './chaos-reports.tsx'
 import { ChaosHome } from './chaos-home.tsx'
 import { ChaosLibrary } from './chaos-library.tsx'
 import { LaunchWizard } from './chaos-launch.tsx'
 import { ExperimentRunDrawer, SuiteRunDrawer } from './chaos-run-canvas.tsx'
-import { shouldShowGlobalNewExperimentAction, type ChaosTab } from './chaos-actions.ts'
+import type { ChaosTab } from './chaos-actions.ts'
 import { readChaosParams, useChaosReports, writeChaosParams, type ChaosParams } from '../data/chaos-report-hooks.ts'
 import { useApplicationSuites, useResilienceRuns } from '../data/chaos-suite-hooks.ts'
 import { useScorerResilience } from '../data/chaos-live-hooks.ts'
@@ -122,12 +126,12 @@ export function ChaosView({ namespace }: { namespace?: string }) {
   const openReport = (id: string) => patch({ report: id, compare: undefined })
   const openCompare = (a: string, b: string) => patch({ compare: `${a}~${b}`, report: undefined })
 
-  const actions = (
-    <div className="flex flex-wrap gap-2">
-      {canGameDay && !workflows.notInstalled ? <Button size="sm" onClick={() => setBuilding({})}>New game day</Button> : null}
-      {shouldShowGlobalNewExperimentAction({ tab, canLaunch, installed }) ? <Button size="sm" variant="primary" onClick={() => setLaunching({})}>New experiment</Button> : null}
-    </div>
-  )
+  // No page-wide "New experiment": experiments start where the context is —
+  // the overview's quick actions, a fault's Run in the library, or the empty
+  // Experiments tab. Game days are created from their own tab.
+  const actions = tab === 'gamedays' && canGameDay && !workflows.notInstalled
+    ? <Button size="sm" variant="primary" onClick={() => setBuilding({})}>New game day</Button>
+    : null
 
   const remote = activeCluster !== undefined
   const tabs = [
@@ -145,7 +149,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
           phone, where the tab strip needs the whole row to scroll. */}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1"><Tabs tabs={tabs} value={tab} onChange={setTab} ariaLabel="Chaos Engineering" /></div>
-        <div className="flex justify-end">{actions}</div>
+        {actions ? <div className="flex justify-end">{actions}</div> : null}
       </div>
 
       {/* The overview's "Running now" already leads with them. */}
@@ -178,6 +182,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
         <ChaosHome
           engines={installed ? engines : []}
           results={results}
+          namespace={namespace}
           enginesLoading={isLoading}
           workflows={workflows.data ?? []}
           runs={runs.data?.runs.filter((r) => !namespace || r.namespace === namespace) ?? []}
@@ -205,7 +210,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
       ) : tab === 'reports' ? (
         <ChaosReports namespace={namespace} commit={params.commit ?? ''} app={params.app ?? ''} onFilter={(f) => patch(f)} onRunSuites={() => setTab('suites')} onOpen={openReport} onCompare={openCompare} />
       ) : tab === 'library' && installed ? (
-        <ChaosLibrary installed={faults.installed} canLaunch={canLaunch} canGameDay={canGameDay && !workflows.notInstalled} onRunFault={(id) => setLaunching({ fault: id })} onGameDay={(s) => setBuilding({ scenarios: s })} />
+        <ChaosLibrary installed={faults.installed} canLaunch={canLaunch} canGameDay={canGameDay && !workflows.notInstalled} gameDaysMissing={workflows.notInstalled} onRunFault={(id) => setLaunching({ fault: id })} onGameDay={(s) => setBuilding({ scenarios: s })} />
       ) : null}
 
       {launching && canLaunch ? (
@@ -224,14 +229,34 @@ export function ChaosView({ namespace }: { namespace?: string }) {
         <GameDayBuilder initialScenarios={building.scenarios} taken={(workflows.data ?? []).map((w) => w.metadata.name)} onClose={() => setBuilding(null)} onCreated={(o) => patch({ gameday: o.name, tab: tab === 'overview' ? undefined : 'gamedays' })} />
       ) : null}
 
-      {params.run ? <ExperimentRunDrawer name={params.run} onClose={() => patch({ run: undefined })} onOpenRun={(n) => patch({ run: n })} /> : null}
+      {/* Keyed by the run: a re-run opens in place, and what the canvas
+          observed of the previous run (its recovery, its probe strip) must
+          not carry over to the new one. */}
+      {params.run ? <ExperimentRunDrawer key={params.run} name={params.run} onClose={() => patch({ run: undefined })} onOpenRun={(n) => patch({ run: n })} /> : null}
       {params.gameday ? (
-        <GameDayDrawer namespace={CHAOS_NAMESPACE} name={params.gameday} taken={(workflows.data ?? []).map((w) => w.metadata.name)} onClose={() => patch({ gameday: undefined })} onOpen={(o) => patch({ gameday: o.name })} />
+        <GameDayDrawer key={params.gameday} namespace={CHAOS_NAMESPACE} name={params.gameday} notInstalled={workflows.notInstalled} taken={(workflows.data ?? []).map((w) => w.metadata.name)} onClose={() => patch({ gameday: undefined })} onOpen={(o) => patch({ gameday: o.name })} />
       ) : null}
       {params.job && suiteRun ? (
-        <SuiteRunDrawer run={suiteRun} faults={suiteFaults} onClose={() => patch({ job: undefined })} onViewLog={() => setLogJob(suiteRun.job)} />
+        <SuiteRunDrawer key={suiteRun.job} run={suiteRun} faults={suiteFaults} onClose={() => patch({ job: undefined })} onViewLog={() => setLogJob(suiteRun.job)} />
+      ) : params.job ? (
+        // A run just started may not be listed yet (the watch brings it in a
+        // moment later); a link to a run whose Job was cleaned up must still
+        // say so rather than open nothing.
+        <ChaosDrawer widthKey="platform.chaos-suite-run" eyebrow="Resilience suite" title={params.job} onClose={() => patch({ job: undefined })}>
+          <div className="p-5">
+            {runs.isLoading || runs.isFetching ? (
+              <EmptyState compact title="Reading the suite run…" description="Waiting for the runner's Job to be listed." />
+            ) : (
+              <EmptyState
+                title="This suite run is not on the cluster any more"
+                description={runs.error ? (runs.error as Error).message : 'Its Job was cleaned up (the runner keeps only recent ones). Its result lives on in Run reports.'}
+                action={<Button variant="primary" onClick={() => patch({ job: undefined, tab: 'reports' })}>Go to run reports</Button>}
+              />
+            )}
+          </div>
+        </ChaosDrawer>
       ) : null}
-      {params.report ? <ReportDrawer id={params.report} onClose={() => patch({ report: undefined })} onCompare={openCompare} /> : null}
+      {params.report ? <ReportDrawer key={params.report} id={params.report} onClose={() => patch({ report: undefined })} onCompare={openCompare} /> : null}
       {cmpA && cmpB ? <CompareDrawer a={cmpA} b={cmpB} onClose={() => patch({ compare: undefined })} onPick={openCompare} /> : null}
       {logJob ? <RunLog job={logJob} live={!!suiteRun && !suiteRun.completionTime} onClose={() => setLogJob(null)} /> : null}
     </div>
@@ -278,6 +303,7 @@ const PHASE_KIND: Record<ChaosPhase, StatusKind> = {
   stopped: 'paused',
   passed: 'healthy',
   failed: 'failed',
+  error: 'degraded',
   unknown: 'unknown',
 }
 
@@ -288,6 +314,7 @@ const PHASE_LABEL: Record<ChaosPhase, string> = {
   stopped: 'stopped',
   passed: 'passed',
   failed: 'failed',
+  error: 'no verdict',
   unknown: 'unknown',
 }
 
@@ -312,6 +339,7 @@ function ExperimentsTab({ engines, results, loading, canLaunch, faultCount, defi
       key: 'name',
       header: 'Run',
       pinned: true,
+      width: 220,
       cell: (e) => (
         <div className="min-w-0">
           <div className="truncate font-medium text-content">{e.metadata.name}</div>
@@ -328,7 +356,7 @@ function ExperimentsTab({ engines, results, loading, canLaunch, faultCount, defi
       cell: (e) => {
         const fault = faultById(faultOf(e))
         return (
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-col items-start gap-0.5 whitespace-nowrap">
             <Badge>{fault ? FAMILY_LABEL[fault.family] : 'fault'}</Badge>
             <span className="font-mono text-[11px] text-content-muted">{faultOf(e)}</span>
           </div>
@@ -342,16 +370,22 @@ function ExperimentsTab({ engines, results, loading, canLaunch, faultCount, defi
       cell: (e) => {
         const phase = phaseOf(e)
         const r = resultOf(e)
-        // Litmus writes "Awaited" until the run ends; only a number is a result.
-        const raw = r?.status?.experimentStatus?.probeSuccessPercentage
-        const probe = raw !== undefined && raw !== '' && Number.isFinite(Number(raw)) ? Number(raw) : undefined
+        // Only a Pass or Fail carries a probe measurement: Litmus writes
+        // "Awaited" until the end, and 0 on a run that errored before probing.
+        const probe = measuredProbe(r)
+        const why = phase === 'error' ? errorReason(r) : undefined
         return (
-          <div className="flex items-center gap-1.5">
-            <StatusBadge kind={PHASE_KIND[phase]} pulse={isLive(e)}>{PHASE_LABEL[phase]}</StatusBadge>
+          // The reason sits under the badge, capped: a long Litmus message
+          // must not widen the column until the row actions scroll away.
+          <div className="flex min-w-0 max-w-[13rem] flex-col items-start gap-0.5">
+            <span className="flex items-center gap-1.5">
+              <StatusBadge kind={PHASE_KIND[phase]} pulse={isLive(e)}>{PHASE_LABEL[phase]}</StatusBadge>
+              {probe !== undefined && phase !== 'failed' ? <span className="text-[11px] tabular-nums text-content-subtle">probes {Number(probe.toFixed(1))}%</span> : null}
+            </span>
             {phase === 'failed' && r?.status?.experimentStatus?.failStep ? (
-              <span className="truncate text-[11px] text-rose-700 dark:text-rose-400" title={r.status.experimentStatus.failStep}>{r.status.experimentStatus.failStep}</span>
-            ) : probe !== undefined ? (
-              <span className="text-[11px] tabular-nums text-content-subtle">probes {Number(probe.toFixed(1))}%</span>
+              <span className="block w-full truncate text-[11px] text-rose-700 dark:text-rose-400" title={r.status.experimentStatus.failStep}>{r.status.experimentStatus.failStep}</span>
+            ) : why ? (
+              <span className="block w-full truncate text-[11px] text-amber-700 dark:text-amber-400" title={why}>{why}</span>
             ) : null}
           </div>
         )
@@ -361,15 +395,17 @@ function ExperimentsTab({ engines, results, loading, canLaunch, faultCount, defi
       key: 'target',
       header: 'Blast radius',
       // The whole point of the page — never truncated away behind a tooltip.
-      cell: (e) => <span className="text-[12px] text-content-muted">{targetSummary(e)}</span>,
-    },
-    {
-      key: 'duration',
-      header: 'Duration',
-      value: (e) => durationOf(e) ?? 0,
+      // The fault's length rides along: a separate column pushed the row's
+      // Stop / Re-run / Delete off the side of a laptop screen.
+      value: (e) => targetSummary(e),
       cell: (e) => {
         const d = durationOf(e)
-        return <span className="text-[12px] text-content-muted">{d !== undefined ? `${d}s` : '—'}</span>
+        return (
+          <div className="text-[12px] text-content-muted">
+            <div>{targetSummary(e)}</div>
+            {d !== undefined ? <div className="text-[11px] text-content-subtle">for {d}s</div> : null}
+          </div>
+        )
       },
     },
     {
@@ -450,7 +486,7 @@ function RowActions({ engine, allNames, onOpen }: { engine: ChaosEngine; allName
     }
   }
 
-  const over = phase === 'passed' || phase === 'failed' || phase === 'stopped'
+  const over = isOver(engine)
   return (
     <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
       {/* A finished run has already recovered; there is nothing to stop. */}

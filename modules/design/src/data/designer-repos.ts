@@ -1,8 +1,8 @@
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { gitea, k8s } from '@adhar/api-clients'
 import { useGiteaOrg } from '@adhar/shell-ui'
-import { detectFramework, type Framework, type RepoApi } from '@adhar/builder/code'
-import { appProjectSlug, appRepo, matchApps, scopedApps, type CatalogApp } from './designer-catalog.ts'
+import type { Framework, RepoApi } from '@adhar/builder/code'
+import { appProjectSlug, appRepo, matchApps, repoFramework, type RepoFiles, scopedApps, type CatalogApp } from './designer-catalog.ts'
 
 /**
  * Data for the repo-first Visual Designer: the org's repositories (Gitea, via
@@ -34,13 +34,24 @@ export function useCatalogApps() {
       try {
         const items = await k8sClient.listGeneric(undefined, APPLICATIONS, TENANCY_NAMESPACE)
         return items.map((x) => {
-          const p = (x.spec?.parameters ?? {}) as { displayName?: string; description?: string; type?: string; project?: string; source?: { repoURL?: string } }
+          const p = (x.spec?.parameters ?? {}) as {
+            displayName?: string
+            description?: string
+            type?: string
+            dashboard?: { type?: string }
+            project?: string
+            source?: { repoURL?: string }
+          }
           const labels = x.metadata.labels ?? {}
           return {
             name: p.displayName || x.metadata.name,
             id: x.metadata.name,
             description: p.description,
             type: p.type,
+            // What kind of app it is is in its labels too (adhar.io/dashboard-type,
+            // adhar.io/frontend) — the Visual Designer's UI filter reads them.
+            dashboard: p.dashboard?.type,
+            labels,
             project: p.project ?? labels['adhar.io/project'],
             team: labels['adhar.io/team'],
             repoUrl: p.source?.repoURL ?? '',
@@ -57,30 +68,34 @@ export function useCatalogApps() {
 
 export { appProjectSlug, appRepo, matchApps, scopedApps }
 
+/** A repository's files through the Gitea client, for `repoFramework`. A missing file reads as null. */
+function giteaFiles(org: string, repo: string, ref: string): RepoFiles {
+  return {
+    read: async (path) => {
+      try {
+        const f = await giteaClient.getFile(org, repo, ref, path)
+        return typeof f?.content === 'string' ? decode(f.content, f.encoding) : null
+      } catch {
+        return null
+      }
+    },
+    paths: async () => {
+      try {
+        return (await giteaClient.getTreeRecursive(org, repo, ref)).entries.map((e) => e.path)
+      } catch {
+        return []
+      }
+    },
+  }
+}
+
 /**
- * The framework a repo declares at its root — package.json, else an Angular
- * workspace (`angular.json`) or a static site (`index.html`). Null when it's
- * none of those. (Card badge + library filter; a full detection runs on open.)
+ * The framework a repo declares (`repoFramework`: its root, or — with no root
+ * package.json — the app package opening it would pick). Null when it's none.
+ * (Card badge + library filter; a full detection runs on open.)
  */
-async function rootFramework(org: string, repo: string, ref: string): Promise<Framework | null> {
-  let pkg: string | null = null
-  try {
-    const f = await giteaClient.getFile(org, repo, ref, 'package.json')
-    pkg = decode(f.content, f.encoding)
-  } catch {
-    pkg = null
-  }
-  const fw = pkg !== null ? detectFramework(pkg, []) : null
-  if (fw && fw.id !== 'unknown') return fw
-  for (const file of ['angular.json', 'index.html']) {
-    try {
-      await giteaClient.getFile(org, repo, ref, file)
-      return detectFramework(pkg, [file])
-    } catch {
-      // not there — try the next marker
-    }
-  }
-  return fw
+function rootFramework(org: string, repo: string, ref: string): Promise<Framework | null> {
+  return repoFramework(giteaFiles(org, repo, ref))
 }
 
 /** The framework a repo's root declares (card badge; a full detection runs on open). */

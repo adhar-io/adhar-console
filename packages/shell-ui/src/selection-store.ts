@@ -27,7 +27,6 @@ const CLUSTER_KEY = 'adhar.platform.active-cluster'
 const NAMESPACE_KEY = 'adhar.platform.active-namespace'
 const SCOPE_KEY = 'adhar.platform.ns-scope'
 const TEAM_KEY = 'adhar.platform.active-team'
-const TEAM_ALL_KEY = 'adhar.platform.team-show-all'
 const SELECTION_EVENT = 'adhar:selection-change'
 
 export interface Selection {
@@ -53,8 +52,6 @@ export interface Selection {
    * legitimately need.
    */
   team: string
-  /** True when the user has asked to see everything regardless of team. */
-  teamShowAll: boolean
 }
 
 function read(key: string): string {
@@ -80,7 +77,6 @@ function fresh(): Selection {
     namespace: read(NAMESPACE_KEY),
     namespaceScope: read(SCOPE_KEY),
     team: read(TEAM_KEY),
-    teamShowAll: read(TEAM_ALL_KEY) === '1',
   }
 }
 
@@ -100,8 +96,7 @@ function rebuild(): void {
     next.cluster === snapshot.cluster &&
     next.namespace === snapshot.namespace &&
     next.namespaceScope === snapshot.namespaceScope &&
-    next.team === snapshot.team &&
-    next.teamShowAll === snapshot.teamShowAll
+    next.team === snapshot.team
   ) {
     return
   }
@@ -113,7 +108,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e: StorageEvent) => {
     if (
       e.key === null || e.key === CLUSTER_KEY || e.key === NAMESPACE_KEY ||
-      e.key === SCOPE_KEY || e.key === TEAM_KEY || e.key === TEAM_ALL_KEY
+      e.key === SCOPE_KEY || e.key === TEAM_KEY
     ) {
       rebuild()
     }
@@ -192,13 +187,6 @@ export function setActiveTeam(slug?: string): void {
   broadcast()
 }
 
-export function setTeamShowAll(on: boolean): void {
-  if (on === snapshot.teamShowAll) return
-  snapshot = { ...snapshot, teamShowAll: on }
-  write(TEAM_ALL_KEY, on ? '1' : '')
-  broadcast()
-}
-
 export function subscribeSelection(listener: () => void): () => void {
   return subscribe(listener)
 }
@@ -232,23 +220,22 @@ export function useNamespaceScope(): string {
 /**
  * Reactive team lens.
  *
- * `active` is the team slug being worked in; `showAll` overrides the filter.
- * `filtering` is the question every view actually asks — "should I narrow what
- * I show?" — so callers do not each re-derive it and drift apart.
+ * `active` is the team slug being worked in. `filtering` is the question every
+ * view actually asks — "should I narrow what I show?" — so callers do not each
+ * re-derive it and drift apart.
+ *
+ * There is no "show all" switch: views fall back to the organization on their
+ * own when the team owns nothing there (see `team-lens.ts`).
  */
 export function useTeamScope(): {
   team: string
-  showAll: boolean
   filtering: boolean
   setTeam: (slug?: string) => void
-  setShowAll: (on: boolean) => void
 } {
-  const { team, teamShowAll } = useSelection()
+  const { team } = useSelection()
   return {
     team,
-    showAll: teamShowAll,
-    filtering: Boolean(team) && !teamShowAll,
+    filtering: Boolean(team),
     setTeam: setActiveTeam,
-    setShowAll: setTeamShowAll,
   }
 }

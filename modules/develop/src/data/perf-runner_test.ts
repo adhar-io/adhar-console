@@ -86,6 +86,7 @@ async function runScript(opts: {
   stage?: string
   env?: Record<string, string>
   noArtefact?: boolean
+  log?: string
 }): Promise<Outcome> {
   const dir = await Deno.makeTempDir({ prefix: 'perf-runner-test-' })
   try {
@@ -97,7 +98,7 @@ async function runScript(opts: {
       await write('gate.env', gateEnv({ test: 'checkout', namespace: 'perf', commit: 'abc1234', gate: opts.gate, baseline: opts.baseline }))
     }
     await write('testrun.json', JSON.stringify(testRunTemplate({ test: 'checkout', config, commit: 'abc1234' })))
-    await write('runner.log', RUNNER_LOG)
+    await write('runner.log', opts.log ?? RUNNER_LOG)
     await write('exit2', `${opts.exit2 ?? '0'}\n`)
     await write('stage', `${opts.stage ?? 'finished'}\n`)
 
@@ -167,6 +168,18 @@ Deno.test('runner: a run inside its budget passes and is recorded', async () => 
   assertStringIncludes(r.deleted, 'testrun checkout-')
   assertStringIncludes(r.deleted, 'configmap/k6-result-old1')
   assertEquals(r.deleted.includes('old2'), false)
+})
+
+Deno.test('runner: p(99) — now that every run asks for it — is gated like p95', async () => {
+  const log = RUNNER_LOG.replace('p(95)=241ms', 'p(95)=241ms  p(99)=612ms')
+  const r = await runScript({ gate: { ...gate, p99Ms: 500 }, log })
+  assertEquals(r.code, 1, r.stdout)
+  assertStringIncludes(r.stdout, 'p99=612ms')
+  assertStringIncludes(r.annotations, 'p99_ms 612 > 500')
+  assertEquals(readStoredSummary(r.summary).metrics?.p99Ms, 612)
+  // Without it in the summary the limit fails as "not reported", never as a pass.
+  const old = await runScript({ gate: { ...gate, p99Ms: 500 } })
+  assertStringIncludes(old.annotations, 'p99_ms not reported')
 })
 
 Deno.test('runner: a breached budget fails the step, with the reason', async () => {
@@ -250,7 +263,8 @@ Deno.test('the artefact carries script, template, gate and runner', () => {
   assertEquals(tr.spec.parallelism, 2)
   assertEquals(tr.spec.paused, 'false')
   assertEquals(tr.spec.arguments, '--vus 10')
-  assertEquals(tr.spec.runner.env, [{ name: 'BASE_URL', value: 'http://checkout' }])
+  // The script sets no summaryTrendStats, so the template asks for p(99) itself.
+  assertEquals(tr.spec.runner.env, [{ name: 'BASE_URL', value: 'http://checkout' }, { name: 'K6_SUMMARY_TREND_STATS', value: 'avg,min,med,max,p(90),p(95),p(99)' }])
   // No cleanup: 'post' — the operator would delete the TestRun before its result was harvested.
   assertEquals('cleanup' in tr.spec, false)
 })

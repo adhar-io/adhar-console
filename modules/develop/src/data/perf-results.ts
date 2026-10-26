@@ -121,7 +121,8 @@ function perSecond(raw: string): number | undefined {
 /**
  * The numbers a performance verdict is made of. Every field is optional: a
  * test that makes no HTTP calls has no latency, and k6 only prints `p(99)`
- * when the script asks for it in `summaryTrendStats`. Absent means "not
+ * when asked for it in `summaryTrendStats` — every run the console starts
+ * asks (k6-trend-stats.ts), runs from before that did not. Absent means "not
  * measured", never zero.
  */
 export interface RunMetrics {
@@ -371,6 +372,8 @@ export interface RunRecord {
   metrics?: RunMetrics
   summary?: K6Summary
   runners: number
+  /** Error lines k6 logged with its summary (kept by the harvest), for a failed run's report. */
+  logExcerpt?: string[]
 }
 
 interface ConfigMapLike {
@@ -392,7 +395,9 @@ export function recordFromConfigMap(cm: ConfigMapLike): RunRecord | null {
   const test = labels[LABEL_TEST]
   if (!test || labels[LABEL_RESULT] !== 'true') return null
   const trigger = TRIGGERS.includes(labels[LABEL_TRIGGER] as Trigger) ? labels[LABEL_TRIGGER] as Trigger : 'console'
-  const stored = readStoredSummary(cm.data?.[SUMMARY_KEY] ?? '')
+  const text = cm.data?.[SUMMARY_KEY] ?? ''
+  const stored = readStoredSummary(text)
+  const logExcerpt = errorLines(text)
   const exit = Number(ann[ANN_EXIT])
   const par = Number(ann[ANN_PARALLELISM])
   const verdict = ann[ANN_VERDICT]
@@ -416,7 +421,26 @@ export function recordFromConfigMap(cm: ConfigMapLike): RunRecord | null {
     metrics: stored.metrics,
     summary: stored.summary,
     runners: stored.runners,
+    ...(logExcerpt.length ? { logExcerpt } : {}),
   }
+}
+
+/**
+ * The error lines in a stored summary — `extractSummary` keeps k6's
+ * `level=error` lines (thresholds crossed, script exceptions) — each reduced
+ * to its message, deduplicated, at most `max`.
+ */
+export function errorLines(text: string, max = 12): string[] {
+  const out: string[] = []
+  for (const line of text.split('\n')) {
+    if (!/level=(error|fatal)/.test(line)) continue
+    const msg = line.match(/msg="((?:[^"\\]|\\.)*)"/)?.[1]?.replace(/\\"/g, '"') ?? line.trim()
+    const err = line.match(/error="((?:[^"\\]|\\.)*)"/)?.[1]?.replace(/\\"/g, '"')
+    const text = err && err !== msg ? `${msg} — ${err}` : msg
+    if (!out.includes(text)) out.push(text)
+    if (out.length >= max) break
+  }
+  return out
 }
 
 /** Newest first, by when the run started. */
@@ -477,6 +501,26 @@ export function fmtMetric(key: MetricKey, v: number | undefined): string {
   if (unit === 'ms') return fmtMs(v)
   if (unit === '%') return `${v < 10 ? v.toFixed(2) : v.toFixed(1)}%`
   return `${v < 100 ? v.toFixed(1) : Math.round(v).toLocaleString()}/s`
+}
+
+/** The tooltip on a p99 a run never recorded. */
+export const P99_MISSING_NOTE =
+  'k6 reports p99 only when asked for it (summaryTrendStats). Every run the console starts now asks; this run predates that, so it has none. Run the test again to record it.'
+
+/**
+ * Why a run has no value for `key` when it measured latency otherwise — or
+ * undefined when the value is there, or when nothing was measured at all (a
+ * run with no summary is "—", not a missing percentile).
+ */
+export function missingNote(key: MetricKey, m: Partial<Record<MetricKey, number>> | undefined): string | undefined {
+  if (!m || m[key] !== undefined) return undefined
+  if (key === 'p99Ms' && (m.p95Ms !== undefined || m.avgMs !== undefined || m.medMs !== undefined)) return P99_MISSING_NOTE
+  return undefined
+}
+
+/** `fmtMetric`, but an unrecorded p99 reads "not recorded" instead of a bare dash. */
+export function fmtMetricOf(key: MetricKey, m: Partial<Record<MetricKey, number>> | undefined): string {
+  return missingNote(key, m) ? 'not recorded' : fmtMetric(key, m?.[key])
 }
 
 export function fmtMs(v: number): string {

@@ -31,7 +31,7 @@ import {
   tektonTask,
 } from '../data/perf-runner.ts'
 import { canAuthorPerf, type PerfTest } from '../data/perf-suite.ts'
-import { fmtDay, RegressionBadge, Snippet, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
+import { fmtDay, MetricValue, RegressionBadge, Snippet, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
 
 /**
  * The automation half of a test's workbench: how it has trended, what it
@@ -332,7 +332,7 @@ export function GatePanel({
           <NumberField
             label="p99 latency"
             unit="ms"
-            hint="k6 prints p(99) only if the script lists it in summaryTrendStats."
+            hint="Every run the console starts asks k6 for p(99). Runs from before that have none, and fail a p99 limit as not recorded."
             value={gate.p99Ms}
             readOnly={readOnly}
             onChange={(v) => set({ p99Ms: v })}
@@ -387,7 +387,7 @@ export function GatePanel({
                   {(['p95Ms', 'p99Ms', 'avgMs', 'errorRatePct', 'rps'] as MetricKey[]).map((k) => (
                     <div key={k}>
                       <div className="text-[10px] text-content-subtle">{k === 'rps' ? 'throughput' : k.replace('Ms', '').replace('errorRatePct', 'errors')}</div>
-                      <div className="font-mono text-content">{fmtMetric(k, base.metrics[k as keyof typeof base.metrics])}</div>
+                      <MetricValue k={k} m={base.metrics} className="font-mono text-content" />
                     </div>
                   ))}
                 </div>

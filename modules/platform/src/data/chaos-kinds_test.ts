@@ -1,6 +1,12 @@
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
+  appKindOfPods,
   CHAOS_FAULTS,
+  type ChaosResult,
+  errorReason,
+  isOver,
+  measuredProbe,
+  verdictTally,
   durationOf,
   faultById,
   faultOf,
@@ -104,4 +110,78 @@ Deno.test('the target summary never implies a narrower blast radius than the spe
   assertEquals(targetSummary(all), 'payments · every pod · 100% of pods')
   const node = engine({ spec: { engineState: 'active', experiments: [{ name: 'node-drain', spec: { components: { env: [{ name: 'TARGET_NODES', value: 'w-2' }] } } }] } })
   assertEquals(targetSummary(node), 'node w-2')
+})
+
+Deno.test('a run Litmus ended with Error is "error" — an infrastructure result, not a failed hypothesis', () => {
+  const e = withStatus('completed', 'Completed', 'Error')
+  assertEquals(phaseOf(e), 'error')
+  assertEquals(isLive(e), false)
+  assertEquals(isOver(e), true)
+})
+
+Deno.test('isOver: finished, stopped and verdict-less completed runs are over; running ones are not', () => {
+  assertEquals(isOver(withStatus('completed', 'Completed', 'Pass')), true)
+  assertEquals(isOver(withStatus('completed', 'Completed', 'Fail')), true)
+  assertEquals(isOver(withStatus('stopped', 'Chaos Injection Stopped', 'Stopped', 'stop')), true)
+  // Completed with no verdict written: nothing more will happen to it.
+  assertEquals(isOver(withStatus('completed', 'Completed', '')), true)
+  assertEquals(isOver(withStatus('running', 'Running')), false)
+  assertEquals(isOver(withStatus('running', 'Running', 'Awaited', 'stop')), false)
+  assertEquals(isOver(engine()), false)
+})
+
+const result = (name: string, verdict: string, pct?: string, labels: Record<string, string> = {}, engineName?: string): ChaosResult => ({
+  metadata: { name, namespace: 'adhar-system', labels },
+  spec: { engine: engineName ?? name.replace(/-pod-.*$/, ''), experiment: 'pod-delete' },
+  status: { experimentStatus: { verdict, ...(pct !== undefined ? { probeSuccessPercentage: pct } : {}) } },
+})
+
+Deno.test('measuredProbe: only a Pass or Fail verdict carries a probe measurement', () => {
+  assertEquals(measuredProbe(result('a-pod-delete', 'Pass', '100')), 100)
+  assertEquals(measuredProbe(result('a-pod-delete', 'Fail', '62.5')), 62.5)
+  // Litmus writes 0 on a run that errored before its probes ran.
+  assertEquals(measuredProbe(result('a-pod-delete', 'Error', '0')), undefined)
+  assertEquals(measuredProbe(result('a-pod-delete', 'Awaited', 'Awaited')), undefined)
+  assertEquals(measuredProbe(result('a-pod-delete', 'Pass', '')), undefined)
+  assertEquals(measuredProbe(undefined), undefined)
+})
+
+Deno.test('verdictTally counts results — including ones whose engine is gone — and keeps errors apart', () => {
+  // The resilience runner's results outlive its engines; these are what the
+  // cluster really has on record.
+  const results = [
+    result('adhar-chaos-reactapp-pod-delete', 'Pass', '100', { 'adhar.io/chaos-target': 'test' }, 'adhar-chaos-reactapp'),
+    result('adhar-chaos-reactapp-pod-network-latency', 'Error', '0', { 'adhar.io/chaos-target': 'test' }, 'adhar-chaos-reactapp'),
+    result('kill-checkout-pod-delete', 'Fail', '40', {}, 'kill-checkout'),
+  ]
+  assertEquals(verdictTally(results, [engine()]), { held: 1, judged: 2, errored: 1 })
+  // Namespace scope: the live engine says `payments`, the orphan results say `test`.
+  assertEquals(verdictTally(results, [engine()], 'payments'), { held: 0, judged: 1, errored: 0 })
+  assertEquals(verdictTally(results, [engine()], 'test'), { held: 1, judged: 1, errored: 1 })
+})
+
+Deno.test('appKindOfPods names the owner Litmus will look for', () => {
+  const rollout = { metadata: { labels: { app: 'reactapp', 'rollouts-pod-template-hash': '6f5cccffb9' }, ownerReferences: [{ kind: 'ReplicaSet' }] } }
+  const deploy = { metadata: { labels: { app: 'cache', 'pod-template-hash': '68d6bd4df5' }, ownerReferences: [{ kind: 'ReplicaSet' }] } }
+  const sts = { metadata: { labels: { app: 'db' }, ownerReferences: [{ kind: 'StatefulSet' }] } }
+  assertEquals(appKindOfPods([rollout, rollout]), 'rollout')
+  assertEquals(appKindOfPods([deploy]), 'deployment')
+  assertEquals(appKindOfPods([sts]), 'statefulset')
+  assertEquals(appKindOfPods([{ metadata: { ownerReferences: [{ kind: 'DaemonSet' }] } }]), 'daemonset')
+  // Mixed owners or bare pods: no single answer, so none is guessed.
+  assertEquals(appKindOfPods([rollout, deploy]), undefined)
+  assertEquals(appKindOfPods([{ metadata: {} }]), undefined)
+  assertEquals(appKindOfPods([]), undefined)
+})
+
+Deno.test('errorReason unwraps the JSON reason Litmus nests in errorOutput', () => {
+  const r = (reason?: string, errorCode?: string): ChaosResult => ({ metadata: { name: 'x' }, status: { experimentStatus: { verdict: 'Error', errorOutput: { ...(reason !== undefined ? { reason } : {}), ...(errorCode ? { errorCode } : {}) } } } })
+  // Verbatim from a ChaosResult on the cluster.
+  assertEquals(
+    errorReason(r('{"errorCode":"STATUS_CHECKS_ERROR","phase":"ChaosInject","reason":"helper pod is in Pending state","target":"{podName: pod-network-latency-helper-eda2bo, namespace: adhar-system}"}', 'STATUS_CHECKS_ERROR')),
+    'helper pod is in Pending state (ChaosInject)',
+  )
+  assertEquals(errorReason(r('target not found')), 'target not found')
+  assertEquals(errorReason(r('', 'TARGET_SELECTION_ERROR')), 'TARGET_SELECTION_ERROR')
+  assertEquals(errorReason(undefined), undefined)
 })

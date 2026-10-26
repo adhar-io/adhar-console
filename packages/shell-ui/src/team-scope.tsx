@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { cn } from '@adhar/utils'
 import { useTeamScope } from './selection-store.ts'
+import { teamProjectLens } from './team-lens.ts'
 
 /**
  * Applying the active team as a lens over what a view shows.
@@ -12,8 +12,9 @@ import { useTeamScope } from './selection-store.ts'
  * cluster read is impersonated) and by the Keycloak groups behind it. A console
  * filter that looked like an access boundary would be security theatre — it
  * would suggest a guarantee it cannot make, while hiding things people
- * legitimately need and have permission to see. So the filter is honest about
- * being a filter: it says what it is hiding, and how to stop.
+ * legitimately need and have permission to see. So the filter never empties a
+ * view: when the active team owns nothing there, the organization's items show
+ * instead (see `team-lens.ts`).
  *
  * The chain it relies on already exists in the data model:
  *
@@ -33,10 +34,10 @@ export interface TeamProject {
 }
 
 export interface TeamProjects {
-  /** True when a team is selected and the user has not asked to see everything. */
+  /** True when a team is selected and owns at least one project (else the org's show). */
   filtering: boolean
   team: string
-  /** Projects owned by the active team (all projects when not filtering). */
+  /** Projects owned by the active team (all projects when not filtering, or when it owns none). */
   projects: TeamProject[]
   /** Argo CD AppProject names for those projects — the link from team to app. */
   argoProjects: Set<string>
@@ -78,86 +79,16 @@ export function useTeamProjects(): TeamProjects {
     }
   }, [])
 
-  const scoped = filtering ? all.filter((p) => (p.teams ?? []).includes(team)) : all
+  // A team that owns no projects would narrow every dependent view to nothing;
+  // the organization's projects show instead (and `filtering` says so).
+  const lens = teamProjectLens(all, team, filtering)
+  const scoped = lens.projects
   return {
-    filtering,
+    filtering: lens.filtering,
     team,
     projects: scoped,
     argoProjects: new Set(scoped.map((p) => p.argoProject).filter((v): v is string => Boolean(v))),
     total: all.length,
     ready,
   }
-}
-
-/**
- * The banner that makes the lens visible.
- *
- * A view that silently shows a subset is worse than one that shows everything:
- * the missing rows look like missing data. This states the scope, the counts,
- * and the way out — and renders nothing at all when no filtering is happening,
- * so an unscoped view keeps its full height.
- */
-export function TeamScopeBar({
-  team,
-  shown,
-  total,
-  noun = 'items',
-  className,
-}: {
-  /** Active team slug; the bar hides itself when empty. */
-  team: string
-  shown: number
-  total: number
-  /** Plural noun for the copy — "projects", "applications". */
-  noun?: string
-  className?: string
-}) {
-  const { showAll, setShowAll } = useTeamScope()
-  if (!team) return null
-  // Nothing is being hidden — saying so would be noise.
-  if (!showAll && shown === total) return null
-
-  return (
-    <div
-      className={cn(
-        'flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-edge-default bg-surface-sunken px-3 py-2 text-[11px] text-content-muted',
-        className,
-      )}
-    >
-      <span
-        aria-hidden
-        className={cn('h-1.5 w-1.5 shrink-0 rounded-full', showAll ? 'bg-edge-strong' : 'bg-brand-500')}
-      />
-      {showAll
-        ? (
-          <>
-            <span>
-              Showing all {total.toLocaleString()} {noun} in the organization.
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowAll(false)}
-              className="font-medium text-brand-700 underline-offset-2 hover:underline dark:text-brand-300"
-            >
-              Scope to {team}
-            </button>
-          </>
-        )
-        : (
-          <>
-            <span>
-              Showing {shown.toLocaleString()} of {total.toLocaleString()} {noun} — scoped to{' '}
-              <strong className="font-medium text-content">{team}</strong>.
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowAll(true)}
-              className="font-medium text-brand-700 underline-offset-2 hover:underline dark:text-brand-300"
-            >
-              Show all
-            </button>
-          </>
-        )}
-    </div>
-  )
 }

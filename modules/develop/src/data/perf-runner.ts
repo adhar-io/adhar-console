@@ -1,5 +1,6 @@
 import { gateEnv } from './perf-gate.ts'
 import { withPinnedImages } from './k6-images.ts'
+import { withTrendStats } from './k6-trend-stats.ts'
 import {
   LABEL_COMMIT,
   LABEL_APPLICATION,
@@ -294,7 +295,7 @@ exit 0
  * The TestRun a runner creates. `__RUN_NAME__` and `__TRIGGER__` are filled
  * in by the script; everything else comes from the committed config.
  */
-export function testRunTemplate(input: { test: string; config: PerfTestConfig; commit?: string; application?: string }) {
+export function testRunTemplate(input: { test: string; config: PerfTestConfig; commit?: string; application?: string; script?: string }) {
   const { test, config } = input
   const commit = (input.commit ?? '').slice(0, 40)
   // The repo the test lives in names the app; the selector is the fallback
@@ -317,14 +318,15 @@ export function testRunTemplate(input: { test: string; config: PerfTestConfig; c
         ...(application ? { [LABEL_APPLICATION]: application } : {}),
       },
     },
-    spec: withPinnedImages({
+    // Scheduled and CI runs ask for p(99) too (k6-trend-stats.ts).
+    spec: withTrendStats(withPinnedImages({
       parallelism: config.parallelism,
       script: { configMap: { name: artefactName(test), file: SCRIPT_FILE } },
       // The CRD defaults `paused` to the STRING "true".
       paused: 'false',
       ...(config.arguments ? { arguments: config.arguments } : {}),
       ...(env.length ? { runner: { env: env.map(([name, value]) => ({ name, value })) } } : {}),
-    }),
+    }), { script: input.script }),
   }
 }
 
@@ -350,7 +352,7 @@ export function artefactConfigMap(
     },
     data: {
       [SCRIPT_FILE]: input.script,
-      [TESTRUN_KEY]: `${JSON.stringify(testRunTemplate({ test, config, commit, application }), null, 2)}\n`,
+      [TESTRUN_KEY]: `${JSON.stringify(testRunTemplate({ test, config, commit, application, script: input.script }), null, 2)}\n`,
       [GATE_KEY]: gateEnv({
         test,
         namespace: ns,

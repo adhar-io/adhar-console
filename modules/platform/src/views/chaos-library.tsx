@@ -28,10 +28,12 @@ const SIMULATES: Partial<Record<FaultFamily, string>> = {
   node: 'Upgrades, drains and lost machines',
 }
 
-export function ChaosLibrary({ installed, canLaunch, canGameDay, onRunFault, onGameDay }: {
+export function ChaosLibrary({ installed, canLaunch, canGameDay, gameDaysMissing, onRunFault, onGameDay }: {
   installed: ChaosFault[]
   canLaunch: boolean
   canGameDay: boolean
+  /** Argo Workflows is not installed, so no scenario can be run as a game day here. */
+  gameDaysMissing?: boolean
   onRunFault(id: string): void
   onGameDay(scenarios: string[]): void
 }) {
@@ -104,6 +106,11 @@ export function ChaosLibrary({ installed, canLaunch, canGameDay, onRunFault, onG
         ) : <EmptyState compact title="No fault matches" description="Clear the search or the filters to see every fault." />
       ) : scenarios.length ? (
         <div className="space-y-4">
+          {gameDaysMissing ? (
+            <p className="text-[12px] text-content-muted">
+              Game days run as Argo Workflows, an optional package that is not installed on this cluster — these scenarios can be read here, and started once argo-workflows is enabled. Each one&apos;s fault can still be run on its own from Faults.
+            </p>
+          ) : null}
           {categories.map((c) => (
             <div key={c}>
               <div className="mb-1.5 flex flex-wrap items-baseline gap-x-2">

@@ -23,3 +23,13 @@ Deno.test('new artifacts default to the active team and its only project', () =>
   assertEquals(defaultScope({ filtering: true, team: 'payments', projects }), { team: 'payments' })
   assertEquals(defaultScope({ filtering: false, team: '', projects }), {})
 })
+
+Deno.test('a team lens that would hide every artifact shows the organization’s instead', () => {
+  const lens = { filtering: true, team: 'research', projects }
+  const items = [{ id: 1, team: 'platform' }, { id: 2, project: 'ops' }]
+  const r = scopeFilter(items, lens)
+  assertEquals(r.shown.map((i) => i.id), [1, 2])
+  assertEquals(r.fallback, true)
+  assertEquals(scopeFilter([], lens).fallback, false)
+  assertEquals(scopeFilter(items, { ...lens, team: 'platform' }).fallback, false)
+})

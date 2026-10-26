@@ -181,3 +181,21 @@ Deno.test('error rates read as percentages', () => {
   assertEquals(formatRate(0), '0%')
   assertEquals(formatRate(0.0025), '0.25%')
 })
+
+Deno.test('an errored fault keeps its recovery but not the 0% probe Litmus wrote for probes that never ran', () => {
+  // The shape the runner wrote for reactapp's pod-network-latency on the cluster.
+  const { results } = parseResults(JSON.stringify({
+    reactapp: {
+      namespace: 'test',
+      testedAt: '2026-10-26T09:38:27Z',
+      chaosSuite: {
+        'pod-delete': { status: 'passed', verdict: 'Pass', probeSuccessPercentage: 100, recoverySeconds: 1 },
+        'pod-network-latency': { status: 'error', verdict: 'Error', probeSuccessPercentage: 0, recoverySeconds: 22, detail: 'experiment did not finish (phase Error, verdict Error)' },
+      },
+    },
+  }))
+  const suite = results.get('reactapp')!.chaosSuite
+  assertEquals(suite['pod-delete'].probeSuccessPercentage, 100)
+  assertEquals(suite['pod-network-latency'].probeSuccessPercentage, undefined)
+  assertEquals(suite['pod-network-latency'].recoverySeconds, 22)
+})

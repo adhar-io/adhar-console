@@ -48,7 +48,7 @@ const withMetrics: ChaosRunReport = {
   phases,
   metrics: {
     window: { start: T0, end: T0 + 63 * 15_000, stepSeconds: 15 },
-    selector: 'namespace="shop-test",pod=~"cart-[a-z0-9]+-[a-z0-9]+"',
+    selector: 'namespace="shop-test",pod=~"cart-[a-z0-9]{1,10}-[a-z0-9]{5}"',
     capturedAt: '2026-10-22T09:57:00Z',
     source: 'prometheus',
     series: [

@@ -36,6 +36,8 @@ import {
   faultById,
   faultOf,
   isLive,
+  isOver,
+  measuredProbe,
   phaseOf,
   resultNameFor,
   targetSummary,
@@ -132,14 +134,14 @@ export function ChaosDrawer({
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
       <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-app shadow-2xl outline-none', width.className)}>
         <header className="flex shrink-0 flex-wrap items-start gap-x-3 gap-y-2 border-b border-edge-default bg-surface-raised px-4 py-3 sm:px-5">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[12rem] flex-1">
             {eyebrow ? <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">{eyebrow}</div> : null}
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h2 className="min-w-0 truncate text-[15px] font-semibold text-content">{title}</h2>
               {badge}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {actions}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
             <button type="button" onClick={onClose} aria-label="Close" className="rounded-md px-2 py-1 text-content-subtle hover:bg-surface-sunken hover:text-content">
@@ -239,7 +241,10 @@ function headlineOf(run: LiveRun, target: { ready?: number; total?: number }): s
 export function RunHero({ run, now, target, recovery }: { run: LiveRun; now: number; target?: { ready?: number; total?: number }; recovery?: { since?: number; tookSeconds?: number } }) {
   const cur = run.steps.find((s) => s.status === 'running')
   const pct = cur ? stepProgress(cur, now) : undefined
-  const elapsed = run.startedAt ? (run.finishedAt ?? now) - run.startedAt : undefined
+  // A finished run with no known end has no honest duration: "now − start"
+  // read as a nine-hour run for one opened nine hours later.
+  const until = run.finishedAt ?? (run.active ? now : undefined)
+  const elapsed = run.startedAt && until !== undefined ? until - run.startedAt : undefined
   const tone = run.stage === 'injecting' ? 'border-rose-300/70 bg-rose-50/70 dark:border-rose-500/30 dark:bg-rose-500/10' : run.stage === 'recovering' ? 'border-amber-300/70 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10' : run.verdict === 'passed' ? 'border-emerald-300/70 bg-emerald-50/60 dark:border-emerald-500/30 dark:bg-emerald-500/10' : run.verdict === 'failed' ? 'border-rose-300/70 bg-rose-50/60 dark:border-rose-500/30 dark:bg-rose-500/10' : 'border-edge-default bg-surface-raised'
   return (
     <div className={cn('rounded-xl border p-4', tone)}>
@@ -430,6 +435,7 @@ export function ProbePanel({ samples, url, finalPct, active, now, hint }: { samp
             <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-emerald-500" />passing</span>
             <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-rose-500" />failing</span>
             <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-brand-400/60" />awaiting a result</span>
+            {samples.some((x) => Object.values(x.probes).includes('na')) ? <span className="inline-flex items-center gap-1"><span className="size-2 rounded-full bg-surface-sunken ring-1 ring-edge-default" />not run</span> : null}
           </div>
         </div>
       )}
@@ -520,13 +526,21 @@ export function ExperimentRunDrawer({ namespace = CHAOS_NAMESPACE, name, onClose
   const { cluster } = useChaosCluster()
   const eq = useChaosEngine(namespace, name)
   const engine = eq.data
-  const live = engine ? !['passed', 'failed', 'stopped'].includes(phaseOf(engine)) : false
+  const over = engine ? isOver(engine) : false
+  const live = engine ? !over : false
   const rq = useChaosResult(namespace, engine ? resultNameFor(engine) : undefined, live)
   const result = rq.data ?? undefined
+  // The result is only watched while the run is live; Litmus can write the
+  // final verdict a moment after the engine reads completed, so read it once
+  // more as the run ends rather than leaving "awaiting" on screen.
+  const wasLive = useRef(live)
+  useEffect(() => {
+    if (wasLive.current && !live) void rq.refetch()
+    wasLive.current = live
+  }, [live, rq])
   const fault = engine ? faultById(faultOf(engine)) : undefined
   const app = engine?.spec?.appinfo
   const [observed, setObserved] = useState<Observed>({})
-  const over = engine ? ['passed', 'failed', 'stopped'].includes(phaseOf(engine)) || (engine.status?.engineStatus ?? '').toLowerCase() === 'completed' : false
   // Pods are watched closely until the target is whole again after the fault.
   const pods = useTargetPods({ namespace: app?.appns, selector: app?.applabel, live: !over || observed.recoveredAt === undefined, enabled: !!engine && !fault?.node })
   const all = useChaosEngines().all
@@ -571,7 +585,7 @@ export function ExperimentRunDrawer({ namespace = CHAOS_NAMESPACE, name, onClose
   }
   const probe = engine?.spec?.experiments?.[0]?.spec?.probe?.[0] as { 'httpProbe/inputs'?: { url?: string } } | undefined
   const probeUrl = probe?.['httpProbe/inputs']?.url
-  const pct = Number(result?.status?.experimentStatus?.probeSuccessPercentage)
+  const pct = measuredProbe(result)
   const env = engine ? envOf(engine) : {}
 
   const actions = engine ? (
@@ -653,7 +667,7 @@ export function ExperimentRunDrawer({ namespace = CHAOS_NAMESPACE, name, onClose
                 error={pods.error as Error | null}
                 note={fault?.node ? `A node fault: it targets ${targetSummary(engine)}, so every pod on that node is affected, whichever team owns it.` : undefined}
               />
-              <ProbePanel samples={probes} url={probeUrl} finalPct={Number.isFinite(pct) && result?.status?.experimentStatus?.probeSuccessPercentage !== '' ? pct : undefined} active={run.active} now={now} />
+              <ProbePanel samples={probes} url={probeUrl} finalPct={pct} active={run.active} now={now} />
             </div>
           </div>
           <LiveMetricsPanel

@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Button, type Column, DataTable, EmptyState, Field, Input, Modal, StatusBadge, TeamScopeBar, useTeamProjects, useToast } from '@adhar/shell-ui'
+import { Button, type Column, DataTable, EmptyState, Field, Input, Modal, StatusBadge, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, rolePill, useDeleteInvitation, useInvitations, useMembers, usePlaneLink, useProjects } from '../data/plane.ts'
 import { toWorkItem, usePortfolio } from '../data/planning-plane.ts'
-import { KIND, type MemberMeta, storeError, useMemberMetas, usePatchMemberMeta, useProjectMetas, useStoreList } from '../data/planning-store.ts'
+import { KIND, type MemberMeta, storeError, useMemberMetas, usePatchMemberMeta, useStoreList } from '../data/planning-store.ts'
 import { type Absence, dayKey, workload, type WorkloadRow } from '../data/planning-model.ts'
 import { usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
 import { InviteMemberModal } from '../components/create-forms.tsx'
@@ -50,22 +50,12 @@ export function Members() {
 
 function Workload() {
   const projects = useProjects()
-  const metas = useProjectMetas()
-  const team = useTeamProjects()
   const memberMetas = useMemberMetas()
   const { people, list, loading } = usePeople()
   const [editing, setEditing] = useState<string | null>(null)
 
-  const all = useMemo(() => (projects.data ?? []).filter((p) => !p.archived_at), [projects.data])
-  const scoped = useMemo(() => {
-    if (!team.filtering) return all
-    const slugs = new Set(team.projects.map((p) => p.slug))
-    const metaBy = new Map((metas.data ?? []).map((d) => [d.id, d.data]))
-    return all.filter((p) => {
-      const m = metaBy.get(p.id)
-      return (m?.adharProject && slugs.has(m.adharProject)) || (m?.teams ?? []).includes(team.team)
-    })
-  }, [all, team.filtering, team.projects, team.team, metas.data])
+  // Every Plane project, always — Define never narrows Plane by console team.
+  const scoped = useMemo(() => (projects.data ?? []).filter((p) => !p.archived_at), [projects.data])
   const ids = useMemo(() => scoped.map((p) => p.id), [scoped])
   const portfolio = usePortfolio(ids)
   const mm = useMemo(() => new Map((memberMetas.data ?? []).map((d) => [d.id, d.data])), [memberMetas.data])
@@ -82,7 +72,7 @@ function Workload() {
     for (const p of list) if (!seen.has(p.id)) loads.push({ member: p.id, open: 0, inProgress: 0, points: 0, overdue: 0, projects: [], capacity: capacity[p.id] ?? null, over: false })
     return loads
   }, [portfolio.issues, mm, list, points])
-  const projectName = new Map(all.map((p) => [p.id, p.identifier]))
+  const projectName = new Map(scoped.map((p) => [p.id, p.identifier]))
   const today = dayKey(Date.now())
   const awayNow = (id: string) => (mm.get(id)?.absences ?? []).find((a) => a.from <= today && today <= a.to)
 
@@ -138,7 +128,6 @@ function Workload() {
 
   return (
     <div className="space-y-3">
-      <TeamScopeBar team={team.team} shown={scoped.length} total={all.length} noun="Plane projects" />
       <p className="text-[12px] text-content-muted">
         Open work items per person across {scoped.length} project{scoped.length === 1 ? '' : 's'}; shared items count for each assignee (points split). Over-allocated: points above weekly capacity, or more than five items in progress when no capacity is set.
       </p>

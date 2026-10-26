@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, EmptyState, SearchInput, useClickOutside } from '@adhar/shell-ui'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Button, EmptyState } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { KIND, type Listed, useCollection } from '../data/store.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
@@ -15,7 +15,7 @@ import { usePlaneIssueIndex, usePlaneItemUrl } from '../data/plane.ts'
 import { type IssueStatus, statusCounts } from '../data/plane-map.ts'
 import { IssueStateChip, PrBadge, ReviewBadge } from '../components/integrations.tsx'
 import { coverageHints, shortPersonaName } from '../data/ux-lib.ts'
-import { IconArrowRight, IconChevron, IconInfo, IconPlus, IconWarning } from '../components/ux-kit.tsx'
+import { IconArrowRight, IconInfo, IconPlus, IconWarning } from '../components/ux-kit.tsx'
 import { Icon } from '../components/ui-bits.tsx'
 
 type Kind = 'adr' | 'diagram' | 'board' | 'persona' | 'journey' | 'wireframe' | 'spec'
@@ -62,7 +62,7 @@ const ADR_STATUS: Array<{ status: Adr['status']; label: string; color: string }>
 export function Dashboard() {
   const scope = useDesignScope()
   // Every collection narrowed to the active Org → Team → Project scope.
-  const scoped = <T extends ScopeTag>(q: { items: Listed<T>[] }) => q.items.filter((x) => scope.matches(x))
+  const scoped = <T extends ScopeTag>(q: { items: Listed<T>[] }) => scope.pick(q.items)
   const adrsQ = useCollection<Adr & ScopeTag>(KIND.adr)
   const diagramsQ = useCollection<Diagram & ScopeTag>(KIND.diagram)
   const boardsQ = useCollection<WhiteboardBoard & ScopeTag>(KIND.board)
@@ -76,7 +76,6 @@ export function Dashboard() {
   const catalog = useCatalogApps()
   const go = useGoDesign()
 
-  const [q, setQ] = useState('')
   const [kindFilter, setKindFilter] = useState<Kind | null>(null)
 
   const all = [adrsQ, diagramsQ, boardsQ, personasQ, journeysQ, wireframesQ, specsQ]
@@ -138,11 +137,7 @@ export function Dashboard() {
   // Keep hook order stable: everything below is plain derivation.
   if (anyLoading) return <LoadingBlock label="Loading design workspace…" />
 
-  const searching = q.trim().length > 0
-  const needle = q.trim().toLowerCase()
-  const listed = rows
-    .filter((r) => (!kindFilter || r.kind === kindFilter) && (!searching || needle.split(/\s+/).every((w) => r.hay.includes(w))))
-    .slice(0, searching || kindFilter ? 50 : 12)
+  const listed = rows.filter((r) => !kindFilter || r.kind === kindFilter).slice(0, kindFilter ? 50 : 12)
 
   const proposed = adrs
     .filter((a) => a.status === 'proposed')
@@ -166,13 +161,6 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-2">
-        <SearchInput value={q} onChange={setQ} placeholder="Search every design artifact…" className="h-8 w-full sm:w-96" />
-        <div className="ml-auto">
-          <CreateMenu onPick={(section) => go(section, { new: '1' })} />
-        </div>
-      </div>
-
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="ADRs" value={adrs.length} hint={adrs.length ? `${adrs.filter((a) => a.status === 'accepted').length} accepted · ${proposed.length} proposed` : 'Record decisions'} dot={KIND_META.adr.dot} onClick={() => go('adrs')} />
         <Tile label="Diagrams" value={diagrams.length} hint={diagrams.length ? `${new Set(diagrams.map((d) => d.type)).size} diagram types` : 'Draw the system'} dot={KIND_META.diagram.dot} onClick={() => go('diagrams')} />
@@ -189,8 +177,8 @@ export function Dashboard() {
         <AppCoverageTable rows={coverage} loading={catalog.isLoading} scopeLabel={scope.label} personas={personas} go={go} />
         <section className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold text-content">{searching ? `Results for “${q.trim()}”` : 'Recently edited'}</h2>
-            <span className="text-xs text-content-subtle">{searching || kindFilter ? `${listed.length} of ${total}` : `${total} artifacts`}</span>
+            <h2 className="text-sm font-semibold text-content">Recently edited</h2>
+            <span className="text-xs text-content-subtle">{kindFilter ? `${listed.length} of ${total}` : `${total} artifacts`}</span>
             <div className="ml-auto flex flex-wrap gap-1">
               <FilterChip on={!kindFilter} onClick={() => setKindFilter(null)}>All</FilterChip>
               {(Object.keys(KIND_META) as Kind[]).map((k) => (
@@ -453,47 +441,6 @@ function DecisionBar({ adrs }: { adrs: Listed<Adr>[] }) {
           </li>
         ))}
       </ul>
-    </div>
-  )
-}
-
-const CREATE: Array<{ label: string; section: DesignSection }> = [
-  { label: 'Persona', section: 'personas' },
-  { label: 'Journey map', section: 'journeys' },
-  { label: 'ADR', section: 'adrs' },
-  { label: 'Diagram', section: 'diagrams' },
-  { label: 'Whiteboard', section: 'whiteboard' },
-  { label: 'Wireframe', section: 'wireframes' },
-  { label: 'API spec', section: 'api-schemas' },
-]
-
-function CreateMenu({ onPick }: { onPick(s: DesignSection): void }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  useClickOutside(ref, () => setOpen(false), open)
-  return (
-    <div ref={ref} className="relative">
-      <Button size="sm" variant="primary" onClick={() => setOpen((o) => !o)} leading={<IconPlus size={12} />} trailing={<IconChevron dir="down" size={11} />} aria-expanded={open}>
-        New
-      </Button>
-      {open ? (
-        <div className="absolute right-0 top-full z-30 mt-1 w-48 rounded-lg border border-edge-default bg-surface-raised p-1 shadow-xl" role="menu">
-          {CREATE.map((c) => (
-            <button
-              key={c.section}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false)
-                onPick(c.section)
-              }}
-              className="block w-full rounded px-2.5 py-1.5 text-left text-sm text-content hover:bg-surface-sunken"
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
     </div>
   )
 }

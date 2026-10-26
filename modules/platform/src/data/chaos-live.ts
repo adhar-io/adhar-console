@@ -17,7 +17,7 @@
  */
 
 import type { PhaseWindow, RunnerTimeline } from '@adhar/utils'
-import { durationOf, faultById, faultOf, isLive, phaseOf, type ChaosEngine, type ChaosResult } from './chaos-kinds.ts'
+import { durationOf, errorReason, faultById, faultOf, isLive, isOver, measuredProbe, phaseOf, type ChaosEngine, type ChaosResult } from './chaos-kinds.ts'
 import type { ChaosWorkflow, ChaosWorkflowNode } from './chaos.ts'
 import { type GameDayInput, LABEL_SCENARIO, scenarioById, type Scenario } from './chaos-scenarios.ts'
 import { LABEL_GAMEDAY } from './chaos.ts'
@@ -76,9 +76,18 @@ const ts = (iso?: string) => {
   return Number.isFinite(t) ? t : undefined
 }
 
-/** When the fault started being applied: the ChaosResult is created as the experiment pod starts. */
+/**
+ * When the fault started being applied: the ChaosResult is created as the
+ * experiment pod starts. Litmus REUSES a result across runs of the same
+ * engine and fault (it only bumps `history`), so a result older than the
+ * engine belongs to an earlier run of that name and says nothing about this
+ * one's start — reading it gave a finished run a negative duration.
+ */
 export function injectionStart(engine: ChaosEngine, result?: ChaosResult): number | undefined {
-  return ts(result?.metadata.creationTimestamp) ?? (isLive(engine) ? ts(engine.status?.experiments?.[0]?.lastUpdateTime) : undefined)
+  const created = ts(engine.metadata.creationTimestamp)
+  const fromResult = ts(result?.metadata.creationTimestamp)
+  const own = fromResult !== undefined && (created === undefined || fromResult >= created) ? fromResult : undefined
+  return own ?? (isLive(engine) ? ts(engine.status?.experiments?.[0]?.lastUpdateTime) : undefined)
 }
 
 export interface Observed {
@@ -104,7 +113,7 @@ export function engineRun(engine: ChaosEngine, result: ChaosResult | undefined, 
   const start = injectionStart(engine, result)
   const exp = result?.status?.experimentStatus
   const verdictRaw = (exp?.verdict ?? engine.status?.experiments?.[0]?.verdict ?? '').toLowerCase()
-  const over = phase === 'passed' || phase === 'failed' || phase === 'stopped' || phase === 'unknown' && (engine.status?.engineStatus ?? '').toLowerCase() === 'completed'
+  const over = isOver(engine)
   const faultEnd = opts.observed?.faultEndedAt ?? (over && start && seconds ? Math.min(opts.now, start + seconds * 1000) : undefined)
   const recovering = phase === 'recovering' || (over && opts.targetReady === false)
 
@@ -127,7 +136,7 @@ export function engineRun(engine: ChaosEngine, result: ChaosResult | undefined, 
     ? 'error'
     : undefined
 
-  const pct = Number(exp?.probeSuccessPercentage)
+  const pct = measuredProbe(result)
   const recoveredIn = opts.observed?.recoveredAt && faultEnd ? Math.max(0, Math.round((opts.observed.recoveredAt - faultEnd) / 1000)) : undefined
   const def = faultById(fault)
   const status: StepStatus = stage === 'injecting' || stage === 'recovering' ? 'running' : verdict === 'passed' ? 'passed' : verdict === 'failed' ? 'failed' : verdict === 'stopped' ? 'stopped' : verdict === 'error' ? 'error' : 'pending'
@@ -142,21 +151,26 @@ export function engineRun(engine: ChaosEngine, result: ChaosResult | undefined, 
       start,
       end: faultEnd,
       seconds,
-      ...(Number.isFinite(pct) && exp?.probeSuccessPercentage !== '' ? { probeSuccessPercentage: pct } : {}),
+      ...(pct !== undefined ? { probeSuccessPercentage: pct } : {}),
       ...(recoveredIn !== undefined ? { recoverySeconds: recoveredIn } : {}),
-      ...(exp?.failStep ? { detail: exp.failStep } : {}),
+      ...(verdict === 'error' && errorReason(result) ? { detail: errorReason(result) } : exp?.failStep ? { detail: exp.failStep } : {}),
     },
   ]
   const windows: PhaseWindow[] = []
   if (start) windows.push({ kind: 'fault', name: fault, start, ...(faultEnd ? { end: faultEnd } : {}) })
   if (faultEnd && (recovering || opts.observed?.recoveredAt)) windows.push({ kind: 'recovery', name: fault, start: faultEnd, ...(opts.observed?.recoveredAt ? { end: opts.observed.recoveredAt } : {}) })
+  // A finished run's end: what this page saw, else the fault's end, else the
+  // moment Litmus last updated the experiment (it does so as it completes).
+  // Never before the engine existed — that would be another run's time.
+  const lastUpdate = ts(engine.status?.experiments?.[0]?.lastUpdateTime)
+  const end = opts.observed?.recoveredAt ?? faultEnd ?? (over && lastUpdate !== undefined && (created === undefined || lastUpdate >= created) ? lastUpdate : undefined)
   return {
     stage,
     ...(verdict && stage === 'verdict' ? { verdict } : {}),
     steps,
     windows,
     ...(created ? { startedAt: created } : {}),
-    ...(stage === 'verdict' && (opts.observed?.recoveredAt ?? faultEnd) ? { finishedAt: opts.observed?.recoveredAt ?? faultEnd } : {}),
+    ...(stage === 'verdict' && end ? { finishedAt: end } : {}),
     active: stage !== 'verdict',
   }
 }
@@ -452,9 +466,11 @@ export function stepProgress(step: RunStep, now: number): number | undefined {
   return Math.max(0, Math.min(1, (now - step.start) / (step.seconds * 1000)))
 }
 
-/** `1m 05s` */
+/** `1m 05s`; `2h 05m` past an hour (a run opened long after it started). */
 export function clock(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(s / 3600)
+  if (h) return `${h}h ${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`
   const m = Math.floor(s / 60)
   const r = s % 60
   return m ? `${m}m ${String(r).padStart(2, '0')}s` : `${r}s`
@@ -556,7 +572,7 @@ export function gameDayInputFrom(wf: ChaosWorkflow, name: string): GameDayInput 
 
 /** The slice of a Pod the canvas reads. */
 export interface PodLike {
-  metadata: { name: string; creationTimestamp?: string; deletionTimestamp?: string; labels?: Record<string, string> }
+  metadata: { name: string; creationTimestamp?: string; deletionTimestamp?: string; labels?: Record<string, string>; ownerReferences?: Array<{ kind: string; name?: string }> }
   spec?: { nodeName?: string }
   status?: {
     phase?: string

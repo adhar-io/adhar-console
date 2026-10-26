@@ -2,9 +2,25 @@ import { type ReactNode } from 'react'
 import { Badge, Button, StatusBadge, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { GateVerdict, MetricDelta } from '../data/perf-gate.ts'
-import { fmtMetric, type Trigger } from '../data/perf-results.ts'
+import { fmtMetric, type MetricKey, missingNote, type Trigger } from '../data/perf-results.ts'
 
 /** Small pieces the Performance Center's automation views share. */
+
+/**
+ * One metric of a run, formatted the way every table formats it — and an
+ * unrecorded p99 as "not recorded" with the reason on hover, never a bare dash.
+ */
+export function MetricValue({ k, m, className }: { k: MetricKey; m: Partial<Record<MetricKey, number>> | undefined; className?: string }) {
+  const note = missingNote(k, m)
+  if (note) {
+    return (
+      <span title={note} className={cn('cursor-help border-b border-dotted border-content-subtle text-content-subtle', className)}>
+        not recorded
+      </span>
+    )
+  }
+  return <span className={className}>{fmtMetric(k, m?.[k])}</span>
+}
 
 export function VerdictBadge({ verdict, compact }: { verdict: GateVerdict; compact?: boolean }) {
   const title = verdict.failures.length

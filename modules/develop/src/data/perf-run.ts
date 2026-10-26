@@ -7,6 +7,8 @@ import { isRunning, type TestRun } from './k6.ts'
 import { queryRange } from './perf-metrics.ts'
 import { type LiveQuery, stepFor } from './perf-live.ts'
 import { type PodDetail, podDetail, type PodLike, sortPods } from './perf-run-model.ts'
+import { chartsFromAnswers, type ReportChartInput, reportChartQueries, reportWindow } from './perf-report-charts.ts'
+import type { ReportCharts } from './perf-run-report.ts'
 
 /**
  * The run drawer's reads — pods, the script behind the run, and the live
@@ -150,4 +152,41 @@ export async function fetchAllLogs(namespace: string, pods: PodDetail[]): Promis
     parts.push(`===== ${p.name} (${p.role}${p.index ? ` ${p.index}` : ''}, ${p.state}${p.exitCode !== undefined ? `, exit ${p.exitCode}` : ''}) =====\n${text.replace(/\s+$/, '')}\n`)
   }
   return parts.join('\n')
+}
+
+/* ─────────────────────────── report charts ─────────────────────────── */
+
+/** The query key of a run report's charts — shared by the Report tab and the downloads. */
+export function reportChartsKey(i: ReportChartInput | null) {
+  return ['perf', 'report-charts', i?.namespace, i?.run, i?.application, i?.targetNamespace, i?.startMs, i?.endMs] as const
+}
+
+/**
+ * Read every chart of a run report from Prometheus. One failed query is one
+ * missing chart (with its reason), never a failed report; Prometheus not being
+ * configured at all is one honest error.
+ */
+export async function fetchReportCharts(i: ReportChartInput): Promise<ReportCharts> {
+  const queries = reportChartQueries(i)
+  const { start, end, step } = reportWindow(i.startMs, i.endMs)
+  const points = Math.max(2, Math.ceil((end - start) / 1000 / step))
+  const answers = await Promise.allSettled(queries.map((q) => queryRange(q.query, start, end, points)))
+  const notConfigured = answers.find((a) => a.status === 'rejected' && /not configured/.test(String((a.reason as Error)?.message)))
+  if (notConfigured) throw (notConfigured as PromiseRejectedResult).reason
+  return chartsFromAnswers(
+    i,
+    queries,
+    answers.map((a) => (a.status === 'fulfilled' ? (a.value.series[0]?.points ?? []).map((p): [number, number] => [p.t, p.v]) : undefined)),
+  )
+}
+
+/** A finished run's report charts, read once and held (its window never moves). */
+export function useReportCharts(i: ReportChartInput | null, enabled = true) {
+  return useQuery({
+    queryKey: reportChartsKey(i),
+    queryFn: () => fetchReportCharts(i!),
+    enabled: enabled && Boolean(i && i.endMs > i.startMs),
+    staleTime: Infinity,
+    retry: false,
+  })
 }

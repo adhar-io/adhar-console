@@ -185,6 +185,7 @@ Deno.test('re-runs copy the spec, reset state, leave the game day and get a fres
   assert(rerunName('x'.repeat(63)).length <= 63)
   assertEquals(clock(65_000), '1m 05s')
   assertEquals(clock(4_000), '4s')
+  assertEquals(clock(9 * 3_600_000 + 5 * 60_000 + 30_000), '9h 05m')
 })
 
 import { targetPods } from './chaos-live.ts'
@@ -202,4 +203,34 @@ Deno.test('target pods: readiness, terminating, restarts and the last reason', (
   assertEquals(t.rows.map((r) => r.state), ['Terminating', 'ContainerCreating', 'Running'])
   assertEquals(t.rows[2].lastReason, 'OOMKilled')
   assertEquals(targetPods([]).whole, false)
+})
+
+Deno.test('an Error verdict is "no verdict", and its 0% probe is not reported as a measurement', () => {
+  const e = engine({ engineStatus: 'completed', experiments: [{ name: 'pod-delete', status: 'Completed', verdict: 'Error' }] })
+  const r = result({ experimentStatus: { verdict: 'Error', probeSuccessPercentage: '0' } })
+  const run = engineRun(e, r, { now: NOW })
+  assertEquals(run.stage, 'verdict')
+  assertEquals(run.verdict, 'error')
+  assertEquals(run.steps[1].status, 'error')
+  assertEquals(run.steps[1].probeSuccessPercentage, undefined)
+  assertEquals(run.active, false)
+})
+
+Deno.test('a result left over from an earlier run of the same name does not date this run', () => {
+  // Litmus reuses `<engine>-<fault>` across runs: the result predates the engine.
+  const e = engine({ engineStatus: 'completed', experiments: [{ name: 'pod-delete', status: 'Completed', verdict: 'Pass', lastUpdateTime: iso(-10_000) }] })
+  const stale: ChaosResult = { ...result({ experimentStatus: { verdict: 'Pass', probeSuccessPercentage: '100' } }), metadata: { name: 'cart-pod-delete-pod-delete', creationTimestamp: iso(-3_600_000) } }
+  const run = engineRun(e, stale, { now: NOW })
+  assertEquals(run.steps[1].start, undefined)
+  // No invented window, and never a finish before the start.
+  assertEquals(run.windows, [])
+  assert(run.finishedAt === undefined || run.finishedAt >= (run.startedAt ?? 0))
+})
+
+Deno.test('a finished run opened later ends when Litmus last updated it, not now', () => {
+  const e = engine({ engineStatus: 'completed', experiments: [{ name: 'pod-delete', status: 'Completed', verdict: 'Error', lastUpdateTime: iso(-20_000) }] })
+  const run = engineRun(e, undefined, { now: NOW + 9 * 3_600_000 })
+  assertEquals(run.active, false)
+  assertEquals(run.startedAt, NOW - 60_000)
+  assertEquals(run.finishedAt, NOW - 20_000)
 })

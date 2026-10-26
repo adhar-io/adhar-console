@@ -226,10 +226,14 @@ const FAULT_STATUSES: FaultStatus[] = ['passed', 'failed', 'error', 'unavailable
 function faultResult(v: unknown): FaultResult | undefined {
   if (!isObj(v)) return undefined
   const s = str(v.status)
+  const status: FaultStatus = s && (FAULT_STATUSES as string[]).includes(s) ? (s as FaultStatus) : 'unknown'
+  // Only a verdict carries a measured probe: an errored fault's "0" is
+  // Litmus's placeholder for probes that never ran.
+  const judged = status === 'passed' || status === 'failed'
   return {
-    status: s && (FAULT_STATUSES as string[]).includes(s) ? (s as FaultStatus) : 'unknown',
+    status,
     ...(str(v.verdict) ? { verdict: str(v.verdict) } : {}),
-    ...(num(v.probeSuccessPercentage) !== undefined ? { probeSuccessPercentage: num(v.probeSuccessPercentage) } : {}),
+    ...(judged && num(v.probeSuccessPercentage) !== undefined ? { probeSuccessPercentage: num(v.probeSuccessPercentage) } : {}),
     ...(num(v.recoverySeconds) !== undefined ? { recoverySeconds: num(v.recoverySeconds) } : {}),
     ...(str(v.hypothesis) ? { hypothesis: str(v.hypothesis) } : {}),
     ...(str(v.detail) ? { detail: str(v.detail) } : {}),

@@ -201,7 +201,7 @@ Deno.test('the plan pads the run, bounds the step and selects the app pods in it
   assertEquals(plan.window.end, Date.parse('2026-10-22T10:02:00Z'))
   assertEquals(plan.window.stepSeconds, 15)
   assertEquals(plan.queries.length, 7)
-  assert(plan.selector.includes('pod=~"cart-[a-z0-9]+-[a-z0-9]+"'))
+  assert(plan.selector.includes('pod=~"cart-[a-z0-9]{1,10}-[a-z0-9]{5}"'))
   // A Job that ran for days is capped to the last three hours.
   const long = metricsPlan({ app: 'cart', namespace: 'n', startedAt: '2026-10-19T10:00:00Z', finishedAt: '2026-10-22T10:00:00Z' })!
   assertEquals(long.window.end - long.window.start, 3 * 3600_000)

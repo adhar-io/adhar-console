@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import { type TeamProject, useTeamProjects } from '@adhar/shell-ui'
+import { lensOrAll, type TeamProject, useTeamProjects } from '@adhar/shell-ui'
 import { useDesignParams, useSetDesignParams } from './nav.ts'
 import { scopeMatcher } from './scope-match.ts'
 import type { ScopeTag } from './types.ts'
@@ -49,6 +49,13 @@ export interface DesignScope {
   inScope: Set<string> | null
   /** Is an artifact with this tag visible in the current scope? */
   matches(tag: ScopeTag | undefined): boolean
+  /**
+   * The items in scope. With only the team lens narrowing (no project picked),
+   * a lens that would hide every item shows them all instead — there is no
+   * banner to explain an empty list. A picked project stays strict: the
+   * project picker on the page already says what is shown.
+   */
+  pick<T extends ScopeTag>(items: readonly T[]): T[]
   /** The tag a new artifact should carry. */
   tag(): ScopeTag
   setProject(slug: string | undefined): void
@@ -86,6 +93,7 @@ export function useDesignScope(): DesignScope {
       activeProject,
       inScope,
       matches,
+      pick: <T extends ScopeTag>(items: readonly T[]) => (project ? items.filter(matches) : lensOrAll(items, matches, tp.filtering)),
       tag: () => ({ ...(project ? { project } : {}), ...(tp.team ? { team: tp.team } : {}) }),
       setProject,
       label,

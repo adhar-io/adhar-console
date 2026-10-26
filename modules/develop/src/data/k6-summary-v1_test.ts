@@ -1,7 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert@^1'
 import { parseK6Summary } from './k6-summary.ts'
-import { extractSummary, metricsFromSummary } from './perf-results.ts'
-import { V1_FAILING_LOG, V1_PASSING_LOG } from './testdata/k6-v1-runner-log.ts'
+import { extractSummary, metricsFromSummary, readStoredSummary } from './perf-results.ts'
+import { STORED_NO_P99, V1_FAILING_LOG, V1_PASSING_LOG, V1_WITH_P99_LOG } from './testdata/k6-v1-runner-log.ts'
 
 Deno.test('k6 v1: thresholds are read from the THRESHOLDS section, with the measured value', () => {
   const s = parseK6Summary(V1_FAILING_LOG)
@@ -40,4 +40,26 @@ Deno.test('a quiet runner log is cut to the summary, not kept whole', () => {
   assertEquals(s.includes('have been crossed'), true)
   // And it still parses to the same summary.
   assertEquals(parseK6Summary(s).thresholds.length, 3)
+})
+
+Deno.test('k6 v1: p(99) is read when the console asks for it, from the right line', () => {
+  const s = parseK6Summary(V1_WITH_P99_LOG)
+  const m = metricsFromSummary(s)
+  assertEquals(m.p99Ms, 61.2)
+  assertEquals(m.p95Ms, 30.71)
+  assertEquals(m.p90Ms, 18.71)
+  assertEquals(m.medMs, 8.14)
+  assertEquals(m.maxMs, 224.98)
+  // The `{ expected_response:true }` sub-metric is not mistaken for a metric.
+  assertEquals(s.metrics.filter((x) => x.name === 'http_req_duration').length, 1)
+  assertEquals(s.thresholds[1], { metric: 'http_req_duration', expression: 'p(99)<40', passed: false, actual: 'p(99)=61.2ms' })
+})
+
+Deno.test('k6 v1: a stored result from before the console asked has no p99 — absent, never zero', () => {
+  const stored = readStoredSummary(STORED_NO_P99)
+  assertEquals(stored.runners, 1)
+  assertEquals(stored.metrics?.p95Ms, 30.71)
+  assertEquals('p99Ms' in (stored.metrics ?? {}), false)
+  assertEquals(stored.metrics?.rps, 15.43533)
+  assertEquals(stored.metrics?.checksPct, 100)
 })

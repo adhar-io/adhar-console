@@ -126,9 +126,23 @@ export function dashboardTypeOf(templateDoc: unknown): DashboardType | undefined
   return typeof v === 'string' && (DASHBOARD_TYPES as readonly string[]).includes(v) ? (v as DashboardType) : undefined
 }
 
+/**
+ * The application `type` (apps.xrd.yaml) a template's dashboard type implies:
+ * a browser app — a SPA (`frontend`) or TanStack Start (`fullstack`, a browser
+ * app with a server of its own) — is `web`; anything else keeps the XRD's
+ * default, `service`. `web` runs exactly like `service` (only `ai` changes
+ * placement): it is the platform's word for "this has pages", read by the
+ * composition's dashboard inference and by the Visual Designer's list of apps
+ * to open. Until 2026-10-27 every console-scaffolded React app was a `service`.
+ */
+export function applicationTypeOf(dashboardType: DashboardType | undefined): 'web' | undefined {
+  return dashboardType === 'frontend' || dashboardType === 'fullstack' ? 'web' : undefined
+}
+
 export function applicationManifest(
   app: { name: string; project: string; repoUrl: string; path?: string; dashboardType?: DashboardType },
 ): XrManifest {
+  const type = applicationTypeOf(app.dashboardType)
   return {
     apiVersion: PLATFORM_API_VERSION,
     kind: 'Application',
@@ -149,10 +163,26 @@ export function applicationManifest(
       parameters: {
         project: app.project,
         displayName: app.name,
+        ...(type ? { type } : {}),
         source: { repoURL: app.repoUrl, path: app.path ?? 'deploy', targetRevision: 'main' },
       },
     },
   }
+}
+
+/**
+ * Apply an Application XR. `spec.parameters.type` reached the XRD on
+ * 2026-10-07; a control plane older than that refuses the whole object
+ * (server-side apply: "failed to create typed patch object …
+ * .spec.parameters.type: field not declared in schema", HTTP 500) and the app
+ * would get no Application at all. So that one refusal is retried without the
+ * field — the adhar.io/dashboard-type label still says what the app is.
+ */
+export async function applyApplication(m: XrManifest, token: string | undefined = getK8sServiceToken()): Promise<ApplyOutcome> {
+  const out = await applyXr(m, token)
+  if (out.ok || !('type' in m.spec.parameters) || !/parameters\.type\b/.test(out.detail)) return out
+  const { type: _type, ...parameters } = m.spec.parameters
+  return applyXr({ ...m, spec: { ...m.spec, parameters } }, token)
 }
 
 export function xrPath(m: XrManifest): string {

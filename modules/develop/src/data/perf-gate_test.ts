@@ -108,7 +108,7 @@ Deno.test('a limit on a metric the run did not report fails, with the reason', (
   const v = evaluateGate({ metrics: m({ p95Ms: 100 }), stage: 'finished', gate: { ...gate, p99Ms: 500 } })
   const p99 = v.checks.find((c) => c.id === 'p99')!
   assertEquals(p99.passed, false)
-  assertStringIncludes(p99.detail, 'summaryTrendStats')
+  assertStringIncludes(p99.detail, 'not recorded')
 })
 
 Deno.test('regressions are reported even when they do not gate', () => {

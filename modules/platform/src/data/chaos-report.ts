@@ -117,6 +117,27 @@ export interface ChaosRunReport {
   recordedAt: string
 }
 
+/**
+ * A report as the page reads it. The runner records the probe percentage
+ * Litmus wrote even for a fault that produced no verdict, and Litmus writes 0
+ * when an experiment errored before its probes ran — so a "0%" that was never
+ * measured landed in the report's worst-probe ring, its table and every
+ * comparison. Only a passed or failed fault keeps its probe.
+ */
+export function normalizeReport(r: ChaosRunReport): ChaosRunReport {
+  const unmeasured = (e: ExperimentRecord) => e.probeSuccessPercentage !== undefined && e.status !== 'passed' && e.status !== 'failed'
+  if (!Array.isArray(r.experiments)) return { ...r, experiments: [] }
+  if (!r.experiments.some(unmeasured)) return r
+  return {
+    ...r,
+    experiments: r.experiments.map((e) => {
+      if (!unmeasured(e)) return e
+      const { probeSuccessPercentage: _drop, ...rest } = e
+      return rest
+    }),
+  }
+}
+
 /* ─────────────────────────── commits ─────────────────────────── */
 
 export const shortSha = (sha: string | undefined): string => (sha ? sha.slice(0, 7) : '')
@@ -744,7 +765,11 @@ export function headline(r: ChaosRunReport): string {
   const ran = r.experiments.filter((e) => e.status === 'passed' || e.status === 'failed').length
   if (v === 'survived') return `${r.app} survived all ${ran} injected fault${ran === 1 ? '' : 's'} in ${r.environment}.`
   if (v === 'failed') return `${r.app} did not survive ${failed.join(', ')} in ${r.environment}${ran > failed.length ? `; it survived the other ${ran - failed.length}` : ''}.`
-  return `This run of ${r.app} in ${r.environment} is inconclusive: no fault produced a verdict about the application.`
+  const silent = r.experiments.length - ran
+  if (!ran) return `This run of ${r.app} in ${r.environment} is inconclusive: no fault produced a verdict about the application.`
+  // Some faults were judged — say so; "no fault produced a verdict" next to
+  // "2/2 faults survived" contradicted itself.
+  return `${r.app} survived ${ran === 1 ? 'the one fault' : `all ${ran} faults`} that produced a verdict in ${r.environment}, but ${silent} ${silent === 1 ? 'fault' : 'faults'} produced none, so the run is inconclusive.`
 }
 
 /* ─────────────────────────── HTML ─────────────────────────── */

@@ -44,7 +44,6 @@ export {
   setActiveNamespace,
   setActiveTeam,
   setNamespaceScope,
-  setTeamShowAll,
   subscribeSelection,
   useActiveCluster,
   useActiveNamespace,
@@ -276,7 +275,8 @@ export { useOverlayDismiss } from './overlay.ts'
 export { useClickOutside } from './use-click-outside.ts'
 export { autofocusSearch, useIsWide, useMediaQuery } from './use-media-query.ts'
 export { useElementWidth } from './use-element-size.ts'
-export { TeamScopeBar, type TeamProject, type TeamProjects, useTeamProjects } from './team-scope.tsx'
+export { type TeamProject, type TeamProjects, useTeamProjects } from './team-scope.tsx'
+export { lensOrAll, teamProjectLens } from './team-lens.ts'
 export { type TeamAction, type TeamSummary, useTeams, type UseTeams } from './use-teams.ts'
 export {
   buildMatcher,

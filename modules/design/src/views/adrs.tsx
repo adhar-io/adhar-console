@@ -47,7 +47,7 @@ import { AdrSyncModal, importFields, RequestReviewModal, ReviewPanel, VerdictMod
 import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
 import { EntityChips, EntityPickerModal } from '../components/catalog-bits.tsx'
 import { CreateWorkItemsModal, PrBadge, WorkItems } from '../components/work-bits.tsx'
-import { DesignScopeBar, ScopeChip, ScopeFields, ScopeModal } from '../components/scope-bits.tsx'
+import { ScopeChip, ScopeFields, ScopeModal } from '../components/scope-bits.tsx'
 
 /**
  * Architecture Decision Records — MADR-style decisions with a real lifecycle.
@@ -430,7 +430,6 @@ export function Adrs() {
   return (
     <div className="space-y-4">
       {toolbar}
-      <DesignScopeBar scope={scope} shown={scoped.length} total={adrs.length} noun="decisions" />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
         <aside className={`${selected ? 'hidden lg:block' : ''} min-w-0`}>
           <div className="mb-2 flex items-center gap-2">

@@ -80,8 +80,7 @@ export function Personas() {
   const all = useCollection<Persona>(KIND.persona)
   const { isLoading, error, refetch } = all
   // Personas in the active Org → Team → Project scope (workspace-wide ones always).
-  const items = useMemo(() => all.items.filter((p) => scope.matches(p)), [all.items, scope])
-  const hidden = all.items.length - items.length
+  const items = useMemo(() => scope.pick(all.items), [all.items, scope])
   const { items: journeys } = useCollection<Journey>(KIND.journey)
   const create = useCreate<Persona>(KIND.persona)
   const remove = useRemove(KIND.persona)
@@ -232,16 +231,6 @@ export function Personas() {
           </Button>
         </div>
       </div>
-      {hidden > 0 ? (
-        <p className="text-[11px] text-content-subtle">
-          Showing {items.length} of {all.items.length} personas — {scope.label}.{' '}
-          {scope.project ? (
-            <button type="button" className="text-brand-700 hover:underline dark:text-brand-300" onClick={() => scope.setProject(undefined)}>
-              Show all projects
-            </button>
-          ) : null}
-        </p>
-      ) : null}
 
       {tags.length ? (
         <div className="flex flex-wrap items-center gap-1.5">

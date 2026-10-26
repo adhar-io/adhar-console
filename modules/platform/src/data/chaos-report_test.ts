@@ -5,8 +5,10 @@ import {
   type ChaosRunReport,
   commitUrl,
   compareRuns,
+  headline,
   historyOf,
   matchesCommit,
+  normalizeReport,
   recommendations,
   reportFileName,
   resilienceScore,
@@ -111,4 +113,26 @@ Deno.test('the HTML is standalone, escapes data and states an unknown commit hon
   const unknown = chaosReportHtml(run({ commit: undefined, commitSource: 'unknown', commitNote: 'The image is pinned by digest and no Kargo freight carries that digest.' }), {}, { generatedAt: '2026-10-22T10:00:00Z' })
   assertStringIncludes(unknown, 'no Kargo freight carries that digest')
   assertEquals(reportFileName(run(), 'pdf'), 'cart-test-chaos-3f9c2a1-2026-10-22.pdf')
+})
+
+Deno.test('an errored fault\'s unmeasured 0% probe is dropped, and the headline counts what WAS judged', () => {
+  // transaction-service in test, as the runner recorded it on the cluster.
+  const r = normalizeReport(run({
+    app: 'transaction-service',
+    experiments: [
+      { name: 'pod-delete', status: 'error', verdict: 'Error', probeSuccessPercentage: 0, recoverySeconds: 90 },
+      { name: 'pod-memory-hog', status: 'passed', verdict: 'Pass', probeSuccessPercentage: 100, recoverySeconds: 1 },
+      { name: 'pod-network-latency', status: 'passed', verdict: 'Pass', probeSuccessPercentage: 100, recoverySeconds: 1 },
+    ],
+  }))
+  assertEquals(r.experiments.map((e) => e.probeSuccessPercentage), [undefined, 100, 100])
+  assertEquals(r.experiments[0].recoverySeconds, 90)
+  assertEquals(runVerdict(r), 'inconclusive')
+  const h = headline(r)
+  assertStringIncludes(h, 'survived all 2 faults that produced a verdict')
+  assertStringIncludes(h, '1 fault produced none')
+  // Nothing judged at all keeps the plain wording; a clean report is returned as is.
+  assertStringIncludes(headline(run({ experiments: [{ name: 'pod-delete', status: 'error' }] })), 'no fault produced a verdict')
+  const clean = run()
+  assertEquals(normalizeReport(clean), clean)
 })

@@ -267,7 +267,7 @@ export function envOf(engine: ChaosEngine): Record<string, string> {
  * the page claim a fault is live before it is — the single most misleading
  * thing a chaos console can do.
  */
-export type ChaosPhase = 'injected' | 'injecting' | 'recovering' | 'stopped' | 'passed' | 'failed' | 'unknown'
+export type ChaosPhase = 'injected' | 'injecting' | 'recovering' | 'stopped' | 'passed' | 'failed' | 'error' | 'unknown'
 
 const exp0 = (e: ChaosEngine) => e.status?.experiments?.[0]
 
@@ -294,12 +294,96 @@ export function phaseOf(e: ChaosEngine): ChaosPhase {
   if (engine === 'stopped' || (isStopRequested(e) && engine !== 'completed')) return 'stopped'
   if (engine === 'completed') {
     if (verdict === 'pass') return 'passed'
-    if (verdict === 'fail' || verdict === 'error') return 'failed'
+    if (verdict === 'fail') return 'failed'
+    // Litmus's `Error`: the experiment never got as far as testing anything
+    // (a helper pod stuck Pending, a target not running). That is a result
+    // about the cluster, not the application — never a failed hypothesis.
+    if (verdict === 'error') return 'error'
     if (verdict === 'stopped') return 'stopped'
     return 'unknown'
   }
   if (e.spec?.engineState === 'active') return 'injecting'
   return 'unknown'
+}
+
+/**
+ * The run is over: Litmus has finished with it (whatever the verdict) or it
+ * was stopped. A completed engine with no readable verdict is over too —
+ * nothing will happen to it any more, so it must not be offered a Stop or
+ * held back from a re-run as if it were still going.
+ */
+export function isOver(e: ChaosEngine): boolean {
+  const phase = phaseOf(e)
+  return phase === 'passed' || phase === 'failed' || phase === 'error' || phase === 'stopped' ||
+    (phase === 'unknown' && (e.status?.engineStatus ?? '').toLowerCase() === 'completed')
+}
+
+/**
+ * The probe success a result actually measured. Litmus writes
+ * `probeSuccessPercentage: "0"` on a run that errored before its probes ran,
+ * and "Awaited" until the end — neither is a measurement, so neither is a
+ * number here.
+ */
+export function measuredProbe(r: ChaosResult | null | undefined): number | undefined {
+  const exp = r?.status?.experimentStatus
+  const raw = exp?.probeSuccessPercentage
+  if (raw === undefined || raw === '') return undefined
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return undefined
+  const verdict = (exp?.verdict ?? '').toLowerCase()
+  return verdict === 'pass' || verdict === 'fail' ? n : undefined
+}
+
+/**
+ * Why a run ended in Error, in Litmus's words: `errorOutput.reason` is often
+ * itself JSON (`{"errorCode":…,"phase":"ChaosInject","reason":"helper pod is
+ * in Pending state",…}`) — its inner reason, with the phase, is what helps.
+ */
+export function errorReason(r: ChaosResult | null | undefined): string | undefined {
+  const out = r?.status?.experimentStatus?.errorOutput
+  const raw = out?.reason?.trim()
+  if (!raw) return out?.errorCode || undefined
+  try {
+    const j = JSON.parse(raw) as { reason?: unknown; phase?: unknown }
+    if (typeof j?.reason === 'string' && j.reason) return typeof j.phase === 'string' && j.phase ? `${j.reason} (${j.phase})` : j.reason
+  } catch { /* plain text */ }
+  return raw
+}
+
+export interface VerdictTally {
+  /** Results whose latest verdict was Pass. */
+  held: number
+  /** Results with a Pass or Fail verdict — a hypothesis was actually tested. */
+  judged: number
+  /** Results that ended in Error: the experiment never tested anything. */
+  errored: number
+}
+
+/**
+ * How the hypotheses fared, read from the ChaosResults — the verdict record
+ * Litmus keeps per engine and fault, which outlives the engine (the
+ * resilience runner deletes its engines after each run but keeps the
+ * results). With `namespace`, only results whose run targeted it: through
+ * the engine when it still exists, else the result's `adhar.io/chaos-target`
+ * label.
+ */
+export function verdictTally(results: Iterable<ChaosResult>, engines: ChaosEngine[], namespace?: string): VerdictTally {
+  const byName = new Map(engines.map((e) => [e.metadata.name, e]))
+  const out: VerdictTally = { held: 0, judged: 0, errored: 0 }
+  for (const r of results) {
+    if (namespace) {
+      const engine = r.spec?.engine ? byName.get(r.spec.engine) : undefined
+      const target = engine?.spec?.appinfo?.appns ?? r.metadata.labels?.['adhar.io/chaos-target']
+      if (target !== namespace) continue
+    }
+    const v = (r.status?.experimentStatus?.verdict ?? '').toLowerCase()
+    if (v === 'pass') {
+      out.held++
+      out.judged++
+    } else if (v === 'fail') out.judged++
+    else if (v === 'error') out.errored++
+  }
+  return out
 }
 
 /** True when a fault is currently applied to at least one target. */
@@ -329,6 +413,34 @@ export function targetSummary(e: ChaosEngine): string {
   const pct = env.PODS_AFFECTED_PERC
   const share = pct && pct !== '' ? `${pct}% of pods` : 'one pod'
   return [scope, label, share].join(' · ')
+}
+
+/** The workload kinds Litmus can target by label (`appinfo.appkind`). */
+export type AppKind = 'deployment' | 'statefulset' | 'daemonset' | 'rollout'
+
+/** The slice of a Pod that says what controls it. */
+export interface PodOwnerLike {
+  metadata: { labels?: Record<string, string>; ownerReferences?: Array<{ kind: string }> }
+}
+
+/**
+ * The kind of workload that owns `pods`, as Litmus's `appkind` names it —
+ * undefined when the pods disagree or say nothing. Litmus selects targets by
+ * label AND owner kind, so an Argo Rollout's pods are not found under
+ * `deployment`: the experiment then ends with no target, which reads as an
+ * error about the cluster rather than the launcher's choice.
+ */
+export function appKindOfPods(pods: PodOwnerLike[]): AppKind | undefined {
+  const kinds = new Set<AppKind>()
+  for (const p of pods) {
+    const labels = p.metadata.labels ?? {}
+    const owner = p.metadata.ownerReferences?.[0]?.kind
+    if (labels['rollouts-pod-template-hash']) kinds.add('rollout')
+    else if (owner === 'StatefulSet') kinds.add('statefulset')
+    else if (owner === 'DaemonSet') kinds.add('daemonset')
+    else if (owner === 'ReplicaSet' || labels['pod-template-hash']) kinds.add('deployment')
+  }
+  return kinds.size === 1 ? [...kinds][0] : undefined
 }
 
 /** Litmus's `PODS_AFFECTED_PERC` from a mode the launcher understands. */

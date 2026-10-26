@@ -365,8 +365,16 @@ function ScenarioCard({ scenario, order, onToggle }: { scenario: Scenario; order
 
 /* ─────────────────────────── drawer ─────────────────────────── */
 
-export function GameDayDrawer({ namespace, name, taken = [], onClose, onOpen }: { namespace: string; name: string; taken?: string[]; onClose(): void; onOpen(o: { namespace: string; name: string }): void }) {
-  const wfq = useChaosWorkflow(namespace, name)
+export function GameDayDrawer({ namespace, name, taken = [], notInstalled, onClose, onOpen }: {
+  namespace: string
+  name: string
+  taken?: string[]
+  /** Argo Workflows' CRD is absent, so no game day can exist — not "it was deleted". */
+  notInstalled?: boolean
+  onClose(): void
+  onOpen(o: { namespace: string; name: string }): void
+}) {
+  const wfq = useChaosWorkflow(namespace, notInstalled ? null : name)
   const wf = wfq.data
   const toast = useToast()
   const qc = useQueryClient()
@@ -446,8 +454,10 @@ export function GameDayDrawer({ namespace, name, taken = [], onClose, onOpen }: 
   ) : null
 
   return (
-    <ChaosDrawer widthKey="platform.gameday" eyebrow={`Game day · targets ${targetNs ?? '—'}`} title={name} badge={run ? runBadge(run) : null} actions={actions} onClose={onClose}>
-      {wfq.isLoading ? (
+    <ChaosDrawer widthKey="platform.gameday" eyebrow={targetNs ? `Game day · targets ${targetNs}` : 'Game day'} title={name} badge={run ? runBadge(run) : null} actions={actions} onClose={onClose}>
+      {notInstalled ? (
+        <div className="p-5"><EmptyState title="Game days need Argo Workflows" description="A game day runs as an Argo Workflow, and Argo Workflows is not installed on this cluster, so this link cannot open one. Enable the argo-workflows package to build and run game days." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
+      ) : wfq.isLoading ? (
         <div className="space-y-3 p-5"><Skeleton height={120} /><Skeleton height={200} /></div>
       ) : wfq.gone ? (
         <div className="p-5"><EmptyState title="This game day no longer exists" description="Its workflow was deleted. The engines it created were removed by its revert step." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>

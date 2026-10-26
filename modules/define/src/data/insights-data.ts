@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { plane } from '@adhar/api-clients'
-import { docStore, DocStoreError, useOptionalUser, usePlaneWorkspace, useTeamProjects } from '@adhar/shell-ui'
+import { docStore, DocStoreError, useOptionalUser, usePlaneWorkspace } from '@adhar/shell-ui'
 import { planeClient, planeError, useMembers, useProjects } from './plane.ts'
 import { dayKey, DAY, type Group, toWorkItems, type WorkItem } from './insights-math.ts'
 import { type DayState, monthKey, monthsBetween, readDays, recordDay, SNAPSHOT_KIND, type SnapshotMonth, snapshotId } from './insights-snapshot.ts'
@@ -78,50 +78,33 @@ export function useMe(): Me {
 
 /* ───── scope ───── */
 
-export type Scope = 'project' | 'team' | 'all'
-
-const norm = (s: string | undefined) => (s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+/** `project` = the active project; `all` = every Plane project (never team-filtered). */
+export type Scope = 'project' | 'all'
 
 export interface ScopeResult {
   projects: plane.Project[]
   /** Projects in scope before the cap. */
   total: number
   capped: boolean
-  team: string
-  /** Team lens active but no Plane project matched it. */
-  teamUnmatched: boolean
   ready: boolean
 }
 
 /**
- * Plane projects in scope. `team` follows the console's team lens: a Plane
- * project is the team's when its name or identifier matches one of the
- * team's console projects (slug or name). A lens, not an access boundary.
+ * Plane projects in scope. Define always works over every Plane project in
+ * the workspace — the console's team lens never narrows Plane.
  */
 export function useScopeProjects(scope: Scope, activeProjectId?: string): ScopeResult {
   const projects = useProjects()
-  const team = useTeamProjects()
-  const teamKey = team.projects.map((p) => `${p.slug}:${p.name}`).join(',')
   return useMemo(() => {
     const all = (projects.data ?? []).filter((p) => !p.archived_at)
-    let list: plane.Project[]
-    let teamUnmatched = false
-    if (scope === 'project') list = all.filter((p) => p.id === activeProjectId).slice(0, 1)
-    else if (scope === 'team' && team.filtering) {
-      const names = new Set(team.projects.flatMap((p) => [norm(p.slug), norm(p.name)]))
-      list = all.filter((p) => names.has(norm(p.name)) || names.has(norm(p.identifier)))
-      teamUnmatched = list.length === 0
-    } else list = all
+    const list = scope === 'project' ? all.filter((p) => p.id === activeProjectId).slice(0, 1) : all
     return {
       projects: list.slice(0, MAX_SCOPE_PROJECTS),
       total: list.length,
       capped: list.length > MAX_SCOPE_PROJECTS,
-      team: team.filtering ? team.team : '',
-      teamUnmatched,
       ready: !!projects.data,
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, scope, activeProjectId, team.filtering, team.team, teamKey])
+  }, [projects.data, scope, activeProjectId])
 }
 
 /* ───── issues + states for many projects ───── */

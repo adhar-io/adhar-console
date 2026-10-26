@@ -3,9 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
   consoleCheck,
   CONSOLE_PERMISSIONS,
   EmptyState,
@@ -64,16 +61,15 @@ export function ApplicationSuites({ namespace, onWatch }: { namespace?: string; 
   const runs = useResilienceRuns()
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="text-sm font-semibold text-content">Application suites</div>
-        <div className="text-[12px] text-content-muted">
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-content">Application suites</h2>
+        <p className="text-[12px] text-content-muted">
           Each application&apos;s own resilience suite — the faults it must survive, in order, and the load it must
           carry. The platform runs them hourly and as the promotion gate before prod.
-        </div>
+        </p>
         <RunnerNotice state={runs.data} error={runs.error as Error | null} />
-      </CardHeader>
-      <CardBody className="space-y-3">
+      </div>
         {suitesError ? (
           <div className="text-[12px] text-rose-600 dark:text-rose-400">
             Suites could not be read: {suitesError.message}.
@@ -107,8 +103,7 @@ export function ApplicationSuites({ namespace, onWatch }: { namespace?: string; 
         ) : (
           apps.map((a) => <ApplicationCard key={a.app} entry={a} runs={runs.data} onWatch={onWatch} />)
         )}
-      </CardBody>
-    </Card>
+    </section>
   )
 }
 
@@ -146,15 +141,19 @@ const GATE_LABEL: Record<GateVerdictKind, string> = {
 
 function ApplicationCard({ entry, runs, onWatch }: { entry: AppSuites; runs?: ResilienceRunsState; onWatch(job: string): void }) {
   // Open on the environment the runner last tested, so the results are visible
-  // without a click; otherwise the first.
+  // without a click; otherwise the first. Derived on every render until the
+  // person picks one: the suites often load before the runner's results, and
+  // a choice frozen at first render stuck on the first environment — "No
+  // results for this environment" — while the tested one sat a tab away.
   const initial = entry.environments.find((r) => r.namespace === entry.last?.namespace)?.namespace ??
     entry.environments[0]?.namespace
-  const [selected, setSelected] = useState(initial)
+  const [picked, setSelected] = useState<string | undefined>(undefined)
+  const selected = picked ?? initial
   const row = entry.environments.find((r) => r.namespace === selected) ?? entry.environments[0]
   const last = entry.last
 
   return (
-    <div className="rounded-lg border border-edge-default">
+    <div className="rounded-xl border border-edge-default bg-surface-raised">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge-default px-3 py-2">
         <span className="text-[13px] font-semibold text-content">{entry.app}</span>
         {entry.environments.map((r) => (
@@ -245,7 +244,7 @@ function EnvironmentDetail(
         <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-[12px] text-content-muted">
           <PerfLine perf={result.performance} />
           {result.image ? (
-            <span className="min-w-0 truncate" title={result.image}>
+            <span className="min-w-0 max-w-full truncate" title={result.image}>
               image <code className="text-[11px]">{result.image}</code>
             </span>
           ) : null}

@@ -118,3 +118,78 @@ export default function () {
   sleep(0.5)
 }
 `
+
+/**
+ * The result ConfigMap the console stored on the cluster for a real run
+ * (test/k6-result-transaction-service-load-20261025-162828, 2026-10-25):
+ * k6 1.3 with its DEFAULT summaryTrendStats — no p(99) anywhere.
+ */
+export const STORED_NO_P99 = `=== adhar-perf runner transaction-service-load-20261025-162828-1-9kgh4 ===
+  █ THRESHOLDS 
+
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+
+    http_req_duration
+    ✓ 'p(95)<500' p(95)=30.71ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 1625    15.43533/s
+    checks_succeeded...: 100.00% 1625 out of 1625
+    checks_failed......: 0.00%   0 out of 1625
+
+    ✓ status is 2xx
+
+    HTTP
+    http_req_duration..............: avg=11.98ms  min=3.31ms   med=8.14ms   max=224.98ms p(90)=18.71ms p(95)=30.71ms 
+      { expected_response:true }...: avg=11.98ms  min=3.31ms   med=8.14ms   max=224.98ms p(90)=18.71ms p(95)=30.71ms 
+    http_req_failed................: 0.00%  0 out of 1625
+    http_reqs......................: 1625   15.43533/s
+
+    EXECUTION
+    iteration_duration.............: avg=513.62ms min=504.07ms med=509.59ms max=730.72ms p(90)=521.7ms p(95)=534.28ms
+    iterations.....................: 1625   15.43533/s
+    vus............................: 1      min=1         max=10
+    vus_max........................: 10     min=10        max=10
+
+    NETWORK
+    data_received..................: 723 kB 6.9 kB/s
+    data_sent......................: 200 kB 1.9 kB/s
+`
+
+/**
+ * The same layout with the console's K6_SUMMARY_TREND_STATS
+ * (avg,min,med,max,p(90),p(95),p(99)) — k6 1.3 appends `p(99)=` to every
+ * trend line and may also judge a p(99) threshold. Shape verified with
+ * `docker run -e K6_SUMMARY_TREND_STATS=… grafana/k6:1.3.0` (2026-10-27).
+ */
+export const V1_WITH_P99_LOG = `
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<500' p(95)=30.71ms
+    ✗ 'p(99)<40' p(99)=61.2ms
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 1625    15.43533/s
+    checks_succeeded...: 100.00% 1625 out of 1625
+    checks_failed......: 0.00%   0 out of 1625
+
+    HTTP
+    http_req_duration..............: avg=11.98ms  min=3.31ms   med=8.14ms   max=224.98ms p(90)=18.71ms p(95)=30.71ms p(99)=61.2ms
+      { expected_response:true }...: avg=11.98ms  min=3.31ms   med=8.14ms   max=224.98ms p(90)=18.71ms p(95)=30.71ms p(99)=61.2ms
+    http_req_failed................: 0.00%  0 out of 1625
+    http_reqs......................: 1625   15.43533/s
+
+    EXECUTION
+    iteration_duration.............: avg=513.62ms min=504.07ms med=509.59ms max=730.72ms p(90)=521.7ms p(95)=534.28ms p(99)=601.4ms
+    iterations.....................: 1625   15.43533/s
+    vus_max........................: 10     min=10        max=10
+`

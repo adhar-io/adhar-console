@@ -22,7 +22,7 @@ import { RunDrawer } from './perf-run-drawer.tsx'
 import { PerfOverview } from './perf-overview.tsx'
 import { PerfDashboard } from './perf-dashboard.tsx'
 import { QuickTestModal } from './perf-quick.tsx'
-import { TriggerBadge } from './perf-bits.tsx'
+import { MetricValue, TriggerBadge } from './perf-bits.tsx'
 import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts'
 import { ResultsView } from './perf-results.tsx'
 import { PerfReadiness } from './perf-readiness.tsx'
@@ -30,7 +30,7 @@ import { SchedulesView } from './perf-schedules.tsx'
 import { harvestedRuns, type PerfInsights, useHarvester, usePerfInsights } from '../data/perf-automation.ts'
 import { runPerfTestChecks, startTestRunChecks, testRunCheck, useAllowedNamespaces } from '../data/access.ts'
 import { LABEL_APPLICATION, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
-import { ANN_HARVESTED, fmtMetric, LABEL_SCHEDULE, LABEL_TRIGGER, type RunRecord, type Trigger } from '../data/perf-results.ts'
+import { ANN_HARVESTED, LABEL_SCHEDULE, LABEL_TRIGGER, type RunRecord, type Trigger } from '../data/perf-results.ts'
 import {
   createTestRun,
   deleteTestRun,
@@ -103,13 +103,17 @@ export function Performance() {
   const setTab = (t: PerfTab) => setParams({ view: t === 'overview' ? undefined : t })
   const runs = useTestRuns()
   const insights = usePerfInsights()
+  // `?run=ns/name` opens a run; `?report=ns/name` opens it on its final
+  // report — which works for a kept result whose TestRun is gone, too.
   const selected = useMemo(() => {
-    const i = params.run?.indexOf('/') ?? -1
-    return params.run && i > 0 ? { namespace: params.run.slice(0, i), name: params.run.slice(i + 1) } : null
-  }, [params.run])
+    const ref = params.report ?? params.run
+    const i = ref?.indexOf('/') ?? -1
+    return ref && i > 0 ? { namespace: ref.slice(0, i), name: ref.slice(i + 1), report: Boolean(params.report) } : null
+  }, [params.run, params.report])
   // Opening a run keeps the page where it is — the drawer sits over any tab,
   // and `?run=` deep-links it from anywhere.
-  const openRun = (namespace: string, name: string) => setParams({ run: `${namespace}/${name}` })
+  const openRun = (namespace: string, name: string) => setParams({ run: `${namespace}/${name}`, report: undefined })
+  const openReport = (namespace: string, name: string) => setParams({ report: `${namespace}/${name}`, run: undefined })
   const [creating, setCreating] = useState<false | Partial<NewRunInit>>(false)
   const [quick, setQuick] = useState(false)
   const [newTestToken, setNewTestToken] = useState(0)
@@ -198,9 +202,12 @@ export function Performance() {
         name={selected.name}
         record={selectedRecord}
         verdict={selectedRecord ? insights.verdictOf(selectedRecord) : undefined}
-        onClose={() => setParams({ run: undefined })}
+        records={insights.records}
+        recordsLoading={insights.loading}
+        initialTab={selected.report ? 'report' : undefined}
+        onClose={() => setParams({ run: undefined, report: undefined })}
         onOpenRun={openRun}
-        onOpenTest={(t) => setParams({ view: 'tests', suite: t, run: undefined })}
+        onOpenTest={(t) => setParams({ view: 'tests', suite: t, run: undefined, report: undefined })}
         onDuplicate={(r) =>
           setCreating({
             namespace: r.metadata.namespace,
@@ -262,7 +269,7 @@ export function Performance() {
           />
         )
         : tab === 'results'
-        ? <ResultsView key={resultsFor ?? 'all'} insights={insights} initialTest={resultsFor} />
+        ? <ResultsView key={resultsFor ?? 'all'} insights={insights} initialTest={resultsFor} onOpenReport={(r) => openReport(r.namespace, r.run)} />
         : tab === 'schedules'
         ? <SchedulesView key={scheduleFor ?? 'list'} insights={insights} presetTest={scheduleFor} />
         : tab === 'readiness'
@@ -291,6 +298,7 @@ export function Performance() {
               records={recordsByRun}
               verdictOf={insights.verdictOf}
               onSelect={(r) => openRun(r.namespace, r.name)}
+              onReport={(r) => openReport(r.namespace, r.name)}
             />
           </div>
         )}
@@ -401,12 +409,14 @@ function RunTable({
   records,
   verdictOf,
   onSelect,
+  onReport,
 }: {
   runs: TestRun[]
   loading: boolean
   records: Map<string, RunRecord>
   verdictOf: PerfInsights['verdictOf']
   onSelect(sel: { namespace: string; name: string }): void
+  onReport(sel: { namespace: string; name: string }): void
 }) {
   const toast = useToast()
   const qc = useQueryClient()
@@ -435,16 +445,13 @@ function RunTable({
     }
   }
 
-  const metric = (key: 'p95Ms' | 'rps' | 'errorRatePct', header: string, hidden = false): Column<TestRun> => ({
+  const metric = (key: 'p95Ms' | 'p99Ms' | 'rps' | 'errorRatePct', header: string, hidden = false): Column<TestRun> => ({
     key,
     header,
     numeric: true,
     defaultHidden: hidden,
     value: (r) => recordOf(r)?.metrics?.[key] ?? -1,
-    cell: (r) => {
-      const v = recordOf(r)?.metrics?.[key]
-      return <span className="tabular-nums text-[12px] text-content-muted">{v === undefined ? '—' : fmtMetric(key, v)}</span>
-    },
+    cell: (r) => <MetricValue k={key} m={recordOf(r)?.metrics} className="tabular-nums text-[12px] text-content-muted" />,
   })
 
   const columns: Column<TestRun>[] = [
@@ -512,6 +519,7 @@ function RunTable({
       cell: (r) => <span className="tabular-nums">{r.spec?.parallelism ?? 1}</span>,
     },
     metric('p95Ms', 'p95'),
+    metric('p99Ms', 'p99', true),
     metric('rps', 'Req/s'),
     metric('errorRatePct', 'Errors', true),
     {
@@ -536,45 +544,51 @@ function RunTable({
     },
   ]
 
-  if (canManage) {
-    columns.push({
-      key: 'actions',
-      header: '',
-      sortable: false,
-      filter: false,
-      cell: (r) => {
-        const key = `${r.metadata.namespace}/${r.metadata.name}`
-        const running = isRunning(r)
-        const ns = r.metadata.namespace ?? ''
-        const held = running && isPaused(r) && r.status?.stage !== 'started'
-        return (
-          <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-            {held && patchNs.has(ns)
-              ? (
-                <Button size="xs" variant="secondary" disabled={busy === key} onClick={() => act(key, `Resumed ${r.metadata.name}`, () => setTestRunPaused(ns, r.metadata.name, false))}>
-                  Resume
-                </Button>
-              )
-              : null}
-            {!running && startNs.has(ns)
-              ? (
-                <Button size="xs" variant="ghost" disabled={busy === key} onClick={() => act(key, `Started a rerun of ${r.metadata.name}`, () => rerunTestRun(r))}>
-                  Run again
-                </Button>
-              )
-              : null}
-            {deleteNs.has(ns)
-              ? (
-                <Button size="xs" variant="ghost" disabled={busy === key} className="text-rose-700 dark:text-rose-300" onClick={() => setConfirm(r)}>
-                  {running ? 'Stop' : 'Delete'}
-                </Button>
-              )
-              : null}
-          </div>
-        )
-      },
-    })
-  }
+  // Report is for everyone who can read the run; the rest is RBAC-gated per namespace.
+  columns.push({
+    key: 'actions',
+    header: '',
+    sortable: false,
+    filter: false,
+    cell: (r) => {
+      const key = `${r.metadata.namespace}/${r.metadata.name}`
+      const running = isRunning(r)
+      const ns = r.metadata.namespace ?? ''
+      const held = running && isPaused(r) && r.status?.stage !== 'started'
+      return (
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          {!running
+            ? (
+              <Button size="xs" variant="ghost" onClick={() => onReport({ namespace: ns, name: r.metadata.name })}>
+                Report
+              </Button>
+            )
+            : null}
+          {canManage && held && patchNs.has(ns)
+            ? (
+              <Button size="xs" variant="secondary" disabled={busy === key} onClick={() => act(key, `Resumed ${r.metadata.name}`, () => setTestRunPaused(ns, r.metadata.name, false))}>
+                Resume
+              </Button>
+            )
+            : null}
+          {canManage && !running && startNs.has(ns)
+            ? (
+              <Button size="xs" variant="ghost" disabled={busy === key} onClick={() => act(key, `Started a rerun of ${r.metadata.name}`, () => rerunTestRun(r))}>
+                Run again
+              </Button>
+            )
+            : null}
+          {canManage && deleteNs.has(ns)
+            ? (
+              <Button size="xs" variant="ghost" disabled={busy === key} className="text-rose-700 dark:text-rose-300" onClick={() => setConfirm(r)}>
+                {running ? 'Stop' : 'Delete'}
+              </Button>
+            )
+            : null}
+        </div>
+      )
+    },
+  })
 
   const confirmRunning = confirm ? isRunning(confirm) : false
   const confirmKept = confirm ? Boolean(confirm.metadata.annotations?.[ANN_HARVESTED]) : false

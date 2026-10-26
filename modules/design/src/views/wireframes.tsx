@@ -39,7 +39,7 @@ export function Wireframes() {
   const org = useGiteaOrg()
   const all = useCollection<Wireframe>(KIND.wireframe)
   const { isLoading, error, refetch } = all
-  const list = useMemo(() => all.items.filter((w) => scope.matches(w)), [all.items, scope])
+  const list = useMemo(() => scope.pick(all.items), [all.items, scope])
   const createWf = useCreate<Wireframe>(KIND.wireframe)
   const updateWf = useUpdate<Wireframe>(KIND.wireframe)
   const removeWf = useRemove(KIND.wireframe)

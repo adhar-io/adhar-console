@@ -38,10 +38,11 @@ import {
   useTestRun,
 } from '../data/k6.ts'
 import { startTestRunChecks, testRunCheck } from '../data/access.ts'
-import { DEFAULT_CONFIG, LABEL_APPLICATION, LABEL_COMMIT, LABEL_TEST } from '../data/perf-format.ts'
-import { usePerfSuite, usePerfTest } from '../data/perf-suite.ts'
+import { LABEL_TEST } from '../data/perf-format.ts'
+import { canAuthorPerf, usePerfSuite } from '../data/perf-suite.ts'
 import { usePrometheusReachable } from '../data/perf-metrics.ts'
-import { ANN_HARVESTED, extractSummary, fmtMs, metricsFromSummary, type RunMetrics, type RunRecord } from '../data/perf-results.ts'
+import { ANN_HARVESTED, extractSummary, fmtMs, metricsFromSummary, missingNote, P99_MISSING_NOTE, type RunMetrics, type RunRecord } from '../data/perf-results.ts'
+import { usePinBaseline } from '../data/perf-automation.ts'
 import type { GateVerdict } from '../data/perf-gate.ts'
 import { parseProgress } from '../data/perf-progress.ts'
 import { type LoadPlan, parsePlan, plannedVuCurve, planSegments } from '../data/perf-plan.ts'
@@ -70,8 +71,7 @@ import {
   runnerResourceQueries,
 } from '../data/perf-live.ts'
 import { fetchAllLogs, type LiveSeries, useLiveSeries, useRunPods, useRunScript } from '../data/perf-run.ts'
-import { runReportHtml } from '../data/perf-run-report.ts'
-import { PerfReport } from './perf-report.tsx'
+import { download, type FinalReport, reportLink, RunReportView, useFinalReport } from './perf-run-report-view.tsx'
 import { Snippet, VerdictBadge } from './perf-bits.tsx'
 
 /**
@@ -161,17 +161,6 @@ function useMeasuredWidth(): [(el: HTMLElement | null) => void, number] {
   return [ref, width]
 }
 
-function download(filename: string, text: string, type = 'text/plain;charset=utf-8') {
-  const url = URL.createObjectURL(new Blob([text], { type }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 0)
-}
-
 /** The deep link to this run (`?view=runs&run=ns/name`). */
 function runLink(namespace: string, name: string): string {
   const u = new URL(globalThis.location?.href ?? 'http://localhost/')
@@ -213,19 +202,29 @@ export interface RunDrawerProps {
   onOpenRun?(namespace: string, name: string): void
   /** Open the "new run" dialog pre-filled from this run. */
   onDuplicate?(run: TestRun): void
+  /** The tab to open on (`?report=` opens the Report). */
+  initialTab?: RunTab
+  /** Every kept result — the report compares against the previous run of the test. */
+  records?: RunRecord[]
+  /** The kept results are still loading — a missing TestRun may yet have a result. */
+  recordsLoading?: boolean
 }
 
-export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTest, onOpenRun, onDuplicate }: RunDrawerProps) {
+export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTest, onOpenRun, onDuplicate, initialTab, records, recordsLoading }: RunDrawerProps) {
   const runQ = useTestRun(namespace, name)
-  const run = runQ.data
   const gone = runQ.isError && isNotFound(runQ.error)
+  const run = gone ? undefined : runQ.data
+  // A kept result whose TestRun is gone — every scheduled / CI run once its
+  // runner has harvested it, and any cleared run — is still a full report.
+  const recordOnly = gone && Boolean(record)
   const running = run ? isRunning(run) : false
   const podsQ = useRunPods(gone ? undefined : run)
   const pods = useMemo(() => podsQ.data ?? [], [podsQ.data])
   const now = useNow(running)
   const scriptQ = useRunScript(run)
 
-  const [tab, setTab] = useState<RunTab>('overview')
+  const [tabState, setTab] = useState<RunTab>(initialTab ?? 'overview')
+  const tab: RunTab = recordOnly ? 'report' : tabState
   const [logPod, setLogPod] = useState<string>('primary')
   const [logSearch, setLogSearch] = useState('')
   const [logLevel, setLogLevel] = useState<LevelFilter>('all')
@@ -289,6 +288,29 @@ export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTes
 
   const live: LiveData = { remote: probe.any ? remote.byChart : new Map(), resources: resources.byChart, progress, activity, promOk, promReason: prom.data?.reason }
 
+  // The final report: one model for the Report tab and both downloads.
+  const fr = useFinalReport({
+    namespace,
+    name,
+    record,
+    verdict,
+    run,
+    lc,
+    plan,
+    summary,
+    metrics,
+    pods,
+    logGroups: activity.groups,
+    records,
+    charts: tab === 'report',
+  })
+  const toastTop = useToast()
+  const copyReportLink = () =>
+    navigator.clipboard?.writeText(reportLink(namespace, name)).then(
+      () => toastTop.success('Copied the link to this report'),
+      (e: Error) => toastTop.error('Could not copy', { description: e.message }),
+    )
+
   const openLogs = (opts: { search?: string; level?: LevelFilter } = {}) => {
     setLogPod('primary')
     if (opts.search !== undefined) setLogSearch(opts.search)
@@ -313,9 +335,6 @@ export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTes
           plan={plan}
           now={now}
           pods={pods}
-          summary={summary}
-          metrics={metrics}
-          activity={activity}
           window={window}
           onClose={onClose}
           width={width}
@@ -323,12 +342,26 @@ export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTes
           onOpenRun={onOpenRun}
           onDuplicate={onDuplicate}
           harvested={Boolean(record || run?.metadata.annotations?.[ANN_HARVESTED])}
+          record={record}
+          fr={fr}
+          gone={gone}
         />
 
-        <TabBar tab={tab} onTab={setTab} running={running} errors={activity.totals.error + activity.totals.warning} />
+        <TabBar tab={tab} onTab={setTab} running={running} errors={activity.totals.error + activity.totals.warning} only={recordOnly ? ['report'] : undefined} />
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4" role="tabpanel" aria-label={TABS.find(([t]) => t === tab)?.[1]}>
-          {gone
+          {recordOnly
+            ? (
+              <div className="space-y-4">
+                <p className="text-[11px] text-content-subtle">
+                  Built from the kept result — the TestRun and its pods are gone ({record?.trigger === 'schedule' || record?.trigger === 'ci' ? 'the runner deletes them once it has kept the result' : 'cleared after the result was kept'}), so there are no live logs or pod details.
+                </p>
+                <RunReportView fr={fr} onCopyLink={copyReportLink} />
+              </div>
+            )
+            : gone && recordsLoading
+            ? <DrawerSkeleton />
+            : gone
             ? (
               <EmptyState
                 title="This run no longer exists"
@@ -375,7 +408,7 @@ export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTes
               />
             )
             : tab === 'report'
-            ? <ReportTab run={run} lc={lc} summary={summary} window={window} />
+            ? <RunReportView fr={fr} onCopyLink={copyReportLink} />
             : <SpecTab run={run} script={scriptQ.data ?? undefined} scriptLoading={scriptQ.isLoading} plan={plan} />}
         </div>
       </div>
@@ -403,14 +436,15 @@ type SummarySource = { kind: 'kept'; runners: number } | { kind: 'runner'; of: n
 
 /* ─────────────────────────── tabs ─────────────────────────── */
 
-function TabBar({ tab, onTab, running, errors }: { tab: RunTab; onTab(t: RunTab): void; running: boolean; errors: number }) {
+function TabBar({ tab, onTab, running, errors, only }: { tab: RunTab; onTab(t: RunTab): void; running: boolean; errors: number; only?: RunTab[] }) {
+  const tabs = only ? TABS.filter(([id]) => only.includes(id)) : TABS
   const refs = useRef<Array<HTMLButtonElement | null>>([])
   const onKey = (e: ReactKeyboardEvent, i: number) => {
-    const n = TABS.length
+    const n = tabs.length
     const next = e.key === 'ArrowRight' ? (i + 1) % n : e.key === 'ArrowLeft' ? (i - 1 + n) % n : e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : -1
     if (next < 0) return
     e.preventDefault()
-    onTab(TABS[next][0])
+    onTab(tabs[next][0])
     refs.current[next]?.focus()
   }
   return (
@@ -421,7 +455,7 @@ function TabBar({ tab, onTab, running, errors }: { tab: RunTab; onTab(t: RunTab)
       // tabs get squeezed and the subtitle draws over the tab row.
       className="flex shrink-0 gap-1 overflow-x-auto border-b border-edge-default px-4 [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none] sm:[mask-image:none] [&::-webkit-scrollbar]:hidden"
     >
-      {TABS.map(([id, label], i) => (
+      {tabs.map(([id, label], i) => (
         <button
           key={id}
           ref={(el) => {
@@ -462,6 +496,8 @@ function DrawerSkeleton() {
 
 /* ─────────────────────────── header & controls ─────────────────────────── */
 
+const REPORT_BADGE: Record<FinalReport['report']['verdict']['tone'], StatusKind> = { good: 'healthy', bad: 'failed', warn: 'degraded', none: 'unknown' }
+
 const OUTCOME_BADGE: Record<Lifecycle['outcome'], { kind: StatusKind; label: string }> = {
   'in-progress': { kind: 'progressing', label: 'running' },
   passed: { kind: 'healthy', label: 'passed' },
@@ -480,9 +516,6 @@ function DrawerHeader({
   plan,
   now,
   pods,
-  summary,
-  metrics,
-  activity,
   window,
   onClose,
   width,
@@ -490,6 +523,9 @@ function DrawerHeader({
   onOpenRun,
   onDuplicate,
   harvested,
+  record,
+  fr,
+  gone,
 }: {
   run: TestRun | undefined
   name: string
@@ -499,9 +535,6 @@ function DrawerHeader({
   plan: LoadPlan | undefined
   now: number
   pods: PodDetail[]
-  summary?: K6Summary
-  metrics?: RunMetrics
-  activity: LogActivity
   window: { startMs: number; endMs: number } | null
   onClose(): void
   width: ReturnType<typeof useDrawerWidth>
@@ -509,6 +542,9 @@ function DrawerHeader({
   onOpenRun?(namespace: string, name: string): void
   onDuplicate?(run: TestRun): void
   harvested: boolean
+  record?: RunRecord
+  fr: FinalReport
+  gone: boolean
 }) {
   const toast = useToast()
   const qc = useQueryClient()
@@ -523,7 +559,10 @@ function DrawerHeader({
   const [menu, setMenu] = useState(false)
 
   const running = run ? isRunning(run) : false
-  const test = run?.metadata.labels?.[LABEL_TEST]
+  const test = run?.metadata.labels?.[LABEL_TEST] ?? record?.test
+  const suite = usePerfSuite().data
+  const pin = usePinBaseline()
+  const canPin = Boolean(record?.metrics && test && canAuthorPerf(suite, test))
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['k6'] })
 
   const resume = useMutation({
@@ -570,38 +609,6 @@ function DrawerHeader({
       (e: Error) => toast.error('Could not copy', { description: e.message }),
     )
 
-  const report = () => {
-    if (!run || !lc) return ''
-    return runReportHtml({
-      name,
-      namespace,
-      test,
-      commit: run.metadata.labels?.[LABEL_COMMIT],
-      application: run.metadata.labels?.[LABEL_APPLICATION],
-      stage: run.status?.stage ?? 'initialization',
-      parallelism: run.spec?.parallelism ?? 1,
-      lifecycle: lc,
-      plan,
-      summary,
-      metrics,
-      pods,
-      logGroups: activity.groups,
-      link: runLink(namespace, name),
-      generatedAt: new Date(),
-    })
-  }
-  const printReport = () => {
-    const w = globalThis.open('', '_blank')
-    if (!w) {
-      toast.error('The browser blocked the report window', { description: 'Allow pop-ups for the console, or download the HTML report instead.' })
-      return
-    }
-    w.document.write(report())
-    w.document.close()
-    w.focus()
-    setTimeout(() => w.print(), 300)
-  }
-
   const grafanaHref = grafana && window
     ? `${grafana.replace(/\/$/, '')}${k6Board.data?.url ?? '/'}?from=${window.startMs}&to=${window.endMs}${k6Board.data ? `&var-testid=${encodeURIComponent(name)}` : ''}`
     : undefined
@@ -629,9 +636,20 @@ function DrawerHeader({
     ...(run && canRerun && onDuplicate ? [{ label: 'Duplicate with changes…', onSelect: () => onDuplicate(run) }] : []),
     ...(grafanaHref ? [{ label: k6Board.data ? `Open "${k6Board.data.title}" in Grafana` : 'Open this window in Grafana', href: grafanaHref }] : []),
     { divider: true, label: '' },
+    ...(lc || record ? [{ label: 'Copy link to the report', onSelect: () => copy(reportLink(namespace, name), 'the link to this report') }] : []),
+    ...(canPin ? [{
+      label: pin.isPending ? 'Pinning…' : 'Pin as the baseline',
+      disabled: pin.isPending,
+      onSelect: () =>
+        pin.mutate({ record: record! }, {
+          onSuccess: () => toast.success(`Pinned ${name} as the ${test} baseline`, { description: 'Committed to test.json.' }),
+          onError: (e: Error) => toast.error('Could not pin the baseline', { description: e.message }),
+        }),
+    }] : []),
+    { divider: true, label: '' },
     ...(pods.length ? [{ label: bundle.isPending ? 'Downloading logs…' : 'Download all logs', onSelect: () => bundle.mutate(), disabled: bundle.isPending }] : []),
-    ...(lc ? [{ label: 'Download report (HTML)', onSelect: () => download(`${name}-report.html`, report(), 'text/html;charset=utf-8') }] : []),
-    ...(lc ? [{ label: 'Print report / save as PDF', onSelect: printReport }] : []),
+    ...(lc || record ? [{ label: fr.busy === 'html' ? 'Building the report…' : 'Download report (HTML)', disabled: Boolean(fr.busy), onSelect: () => void fr.downloadHtml() }] : []),
+    ...(lc || record ? [{ label: fr.busy === 'pdf' ? 'Building the PDF…' : 'Download report (PDF)', disabled: Boolean(fr.busy), onSelect: () => void fr.downloadPdf() }] : []),
     ...(run && canDelete && !running ? [{ divider: true, label: '' }, { label: 'Delete run…', danger: true, onSelect: () => setConfirm('delete') }] : []),
   ]
 
@@ -640,7 +658,11 @@ function DrawerHeader({
     <div className="flex shrink-0 items-start gap-3 border-b border-edge-default px-4 py-3">
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {outcome ? <StatusBadge kind={outcome.kind} pulse={running}>{lc?.heldPaused ? 'paused' : outcome.label}</StatusBadge> : null}
+          {outcome
+            ? <StatusBadge kind={outcome.kind} pulse={running}>{lc?.heldPaused ? 'paused' : outcome.label}</StatusBadge>
+            : gone && record
+            ? <StatusBadge kind={REPORT_BADGE[fr.report.verdict.tone]}>{fr.report.verdict.label.toLowerCase()}</StatusBadge>
+            : null}
           <span className="min-w-0 truncate font-semibold text-content" title={name}>{test ?? name}</span>
         </div>
         <div className="mt-0.5 flex min-w-0 flex-wrap gap-x-2 text-[11px] text-content-subtle">
@@ -650,8 +672,11 @@ function DrawerHeader({
           {progress?.elapsedSecs !== undefined
             ? <span className="tabular-nums">{fmtSecs(progress.elapsedSecs)}{progress.plannedSecs ? ` of ${progress.plannedIsUpperBound ? '≤' : ''}${fmtSecs(progress.plannedSecs)}` : ''}</span>
             : null}
+          {gone && record?.parallelism ? <span>{record.parallelism} runner{record.parallelism === 1 ? '' : 's'}</span> : null}
           {run?.metadata.creationTimestamp
             ? <span title={formatAbsolute(run.metadata.creationTimestamp)}>{formatRelative(run.metadata.creationTimestamp)}</span>
+            : gone && record?.startedAt
+            ? <span title={formatAbsolute(record.startedAt)}>{formatRelative(record.startedAt)}</span>
             : loading
             ? <span>loading…</span>
             : null}
@@ -1155,6 +1180,8 @@ interface Kpi {
   label: string
   value: string
   hint?: string
+  /** Tooltip on the hint (why a value is missing). */
+  hintTitle?: string
   tone?: 'good' | 'bad'
 }
 
@@ -1176,7 +1203,7 @@ function KpiTiles({ lc, plan, now, metrics, live }: { lc: Lifecycle; plan?: Load
   if (metrics && !lc.running) {
     tiles.push(
       { label: 'Throughput', value: metrics.rps !== undefined ? `${fmtCount(metrics.rps)}/s` : '—', hint: metrics.requests !== undefined ? `${fmtCount(metrics.requests)} requests` : 'no HTTP requests' },
-      { label: 'p95 latency', value: metrics.p95Ms !== undefined ? fmtMs(metrics.p95Ms) : '—', hint: metrics.p99Ms !== undefined ? `p99 ${fmtMs(metrics.p99Ms)}` : metrics.medMs !== undefined ? `median ${fmtMs(metrics.medMs)}` : undefined },
+      { label: 'p95 latency', value: metrics.p95Ms !== undefined ? fmtMs(metrics.p95Ms) : '—', hint: metrics.p99Ms !== undefined ? `p99 ${fmtMs(metrics.p99Ms)}` : missingNote('p99Ms', metrics) ? 'p99 not recorded' : metrics.medMs !== undefined ? `median ${fmtMs(metrics.medMs)}` : undefined, hintTitle: missingNote('p99Ms', metrics) },
       {
         label: 'Failed requests',
         value: metrics.errorRatePct !== undefined ? `${metrics.errorRatePct.toFixed(metrics.errorRatePct < 1 ? 2 : 1)}%` : '—',
@@ -1243,7 +1270,7 @@ function KpiTiles({ lc, plan, now, metrics, live }: { lc: Lifecycle; plan?: Load
           >
             {t.value}
           </div>
-          {t.hint ? <div className="mt-1 truncate text-[10px] text-content-subtle" title={t.hint}>{t.hint}</div> : null}
+          {t.hint ? <div className={cn('mt-1 truncate text-[10px] text-content-subtle', t.hintTitle && 'cursor-help')} title={t.hintTitle ?? t.hint}>{t.hint}</div> : null}
         </div>
       ))}
     </div>
@@ -1467,7 +1494,10 @@ const RW_SNIPPET = `# In the test's arguments (or the TestRun's spec.arguments):
 
 # And in its environment (spec.runner.env):
 K6_PROMETHEUS_RW_SERVER_URL=http://<prometheus>:9090/api/v1/write
-K6_PROMETHEUS_RW_TREND_STATS=p(50),p(90),p(95),p(99),avg,max
+
+# The console adds K6_PROMETHEUS_RW_TREND_STATS (avg, min, med, max, p90,
+# p95, p99) to every run it starts with this output — the output's own
+# default is p(99) alone.
 
 # Prometheus must accept remote writes (enableRemoteWriteReceiver: true).
 # The k6 operator tags every sample with testrun_name, which this drawer
@@ -1626,7 +1656,10 @@ function LatencyBars({ metrics }: { metrics: RunMetrics }) {
   return (
     <div>
       <BarChart bars={bars} height={112} formatY={(v) => fmtMs(v)} />
-      <p className="mt-1 text-[10px] text-content-subtle">Distribution over the whole run, from k6’s end-of-test summary.</p>
+      <p className="mt-1 text-[10px] text-content-subtle">
+        Distribution over the whole run, from k6’s end-of-test summary.
+        {missingNote('p99Ms', metrics) ? <> <span title={P99_MISSING_NOTE} className="cursor-help border-b border-dotted border-content-subtle">p99 not recorded</span> for this run.</> : null}
+      </p>
     </div>
   )
 }
@@ -1814,28 +1847,6 @@ function LogsTab({ run, pods, primary, primaryStream, sel, onSel, search, onSear
 }
 
 /* ─────────────────────────── report ─────────────────────────── */
-
-function ReportTab({ run, lc, summary, window }: { run: TestRun; lc: Lifecycle; summary?: K6Summary; window: { startMs: number; endMs: number } | null }) {
-  const testName = run.metadata.labels?.[LABEL_TEST]
-  const suite = usePerfSuite()
-  const test = usePerfTest(suite.data, testName ?? null)
-  // The report charts the run's own window, frozen once it ends (liveWindow
-  // quantises a live one so the panels do not refetch on every poll).
-  const reportWindow = window ?? (lc.createdMs ? { startMs: lc.createdMs, endMs: lc.createdMs + 60_000 } : null)
-  return (
-    <PerfReport
-      testName={testName ?? run.metadata.name}
-      config={test.data?.config ?? DEFAULT_CONFIG}
-      summary={summary ?? null}
-      window={reportWindow}
-      // Runner pods only (`<run>-<n>-<hash>`): `<run>.*` also matched the
-      // initializer, the starter and any `<run>-r2` rerun.
-      runnerSelector={`${run.metadata.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-[0-9]+-.*`}
-      runnerNamespace={run.metadata.namespace ?? 'default'}
-      commit={run.metadata.labels?.[LABEL_COMMIT]}
-    />
-  )
-}
 
 /* ─────────────────────────── spec ─────────────────────────── */
 

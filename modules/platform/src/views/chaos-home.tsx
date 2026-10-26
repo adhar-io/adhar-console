@@ -1,9 +1,9 @@
 import { useMemo, type ReactNode } from 'react'
 import { Badge, Button, EmptyState, Skeleton, Sparkline, StatusBadge, type StatusKind } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
-import { durationOf, faultById, faultOf, isLive, phaseOf, resultNameFor, targetSummary, type ChaosEngine, type ChaosResult } from '../data/chaos-kinds.ts'
+import { durationOf, faultById, faultOf, isLive, phaseOf, resultNameFor, targetSummary, verdictTally, type ChaosEngine, type ChaosResult } from '../data/chaos-kinds.ts'
 import type { ChaosWorkflow } from '../data/chaos.ts'
-import { clock, orderSteps, workflowPhase } from '../data/chaos-live.ts'
+import { clock, injectionStart, orderSteps, workflowPhase } from '../data/chaos-live.ts'
 import { type ChaosRunReport, resilienceScore, runGrade, runVerdict, type RunVerdict, VERDICT_LABEL } from '../data/chaos-report.ts'
 import type { ResilienceRun } from '../data/chaos-suite-hooks.ts'
 import { runPhase } from '../data/chaos-suites.ts'
@@ -26,6 +26,8 @@ const GRADE_TONE: Record<string, string> = {
 export interface HomeProps {
   engines: ChaosEngine[]
   results: Map<string, ChaosResult>
+  /** The top-bar namespace, when one is selected: everything here is scoped to it. */
+  namespace?: string
   enginesLoading: boolean
   workflows: ChaosWorkflow[]
   runs: ResilienceRun[]
@@ -52,8 +54,10 @@ export function ChaosHome(p: HomeProps) {
   const anything = liveEngines.length + liveGd.length + liveRuns.length > 0
   const now = useNow(anything)
 
-  const judged = p.engines.filter((e) => phaseOf(e) === 'passed' || phaseOf(e) === 'failed')
-  const held = judged.filter((e) => phaseOf(e) === 'passed').length
+  // Verdicts come from the ChaosResults, not the engines: the resilience
+  // runner deletes its engines after every run and keeps their results, so
+  // counting engines said "no verdict yet" with verdicts on the cluster.
+  const tally = useMemo(() => verdictTally(p.results.values(), p.engines, p.namespace), [p.results, p.engines, p.namespace])
   const monthAgo = Date.now() - 30 * 86_400_000
   const recentReports = p.reports.filter((r) => Date.parse(r.finishedAt) >= monthAgo)
   const survived = recentReports.filter((r) => runVerdict(r) === 'survived').length
@@ -85,7 +89,7 @@ export function ChaosHome(p: HomeProps) {
           <ul className="divide-y divide-edge-subtle">
             {liveEngines.map((e) => {
               const r = resultNameFor(e) ? p.results.get(resultNameFor(e)!) : undefined
-              const start = Date.parse(r?.metadata.creationTimestamp ?? '')
+              const start = injectionStart(e, r) ?? NaN
               const dur = durationOf(e)
               const pct = Number.isFinite(start) && dur ? Math.min(1, (now - start) / (dur * 1000)) : undefined
               const phase = phaseOf(e)
@@ -136,8 +140,16 @@ export function ChaosHome(p: HomeProps) {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Tile label="Injecting now" value={p.enginesLoading ? undefined : String(p.engines.filter(isLive).length)} hint="Faults applied to a target this moment" alarm={p.engines.some(isLive)} />
-        <Tile label="Experiments" value={p.enginesLoading ? undefined : String(p.engines.length)} hint="ChaosEngines on this cluster" />
-        <Tile label="Hypotheses held" value={p.enginesLoading ? undefined : judged.length ? `${held}/${judged.length}` : '—'} hint={judged.length ? 'Experiments whose verdict was Pass' : 'No experiment has a verdict yet'} />
+        <Tile label="Experiments" value={p.enginesLoading ? undefined : String(p.engines.length)} hint={p.namespace ? `ChaosEngines targeting ${p.namespace}` : 'ChaosEngines on this cluster'} />
+        <Tile
+          label="Hypotheses held"
+          value={p.enginesLoading ? undefined : tally.judged ? `${tally.held}/${tally.judged}` : '—'}
+          hint={tally.judged
+            ? `Latest verdict per experiment and fault${tally.errored ? ` · ${tally.errored} ended without one` : ''}`
+            : tally.errored
+            ? `${tally.errored} experiment${tally.errored === 1 ? '' : 's'} ended without a verdict`
+            : 'No experiment has a verdict yet'}
+        />
         <Tile label="Suite runs survived · 30d" value={p.reportsLoading ? undefined : recentReports.length ? `${survived}/${recentReports.length}` : '—'} hint={recentReports.length ? 'Recorded resilience runs that survived every fault' : 'No suite run recorded in 30 days'} />
       </div>
 

@@ -5,6 +5,7 @@ import type { gitea } from '@adhar/api-clients'
 import { giteaClient } from './git.ts'
 import { artefactConfigMap, artefactName } from './perf-runner.ts'
 import { withPinnedImages } from './k6-images.ts'
+import { withTrendStats } from './k6-trend-stats.ts'
 import { LABEL_TRIGGER } from './perf-results.ts'
 import {
   DEFAULT_CONFIG,
@@ -401,7 +402,9 @@ export function useRunPerfTest() {
             ...(application ? { [LABEL_APPLICATION]: application } : {}),
           },
         },
-        spec: withPinnedImages({
+        // p(99) is requested on the runner's env (k6-trend-stats.ts): k6's
+        // default summary has none, and the summary is the kept result.
+        spec: withTrendStats(withPinnedImages({
           parallelism: test.config.parallelism,
           script: { configMap: { name: cmName, file: SCRIPT_FILE } },
           // The CRD defaults `paused` to the STRING "true", so a TestRun
@@ -422,7 +425,7 @@ export function useRunPerfTest() {
               },
             }
             : {}),
-        }),
+        }), { script: test.script }),
       })
       return run
     },

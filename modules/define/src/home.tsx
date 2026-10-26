@@ -57,7 +57,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   projects: {
     label: 'Projects',
-    description: 'Portfolio — health, progress, active sprint, open bugs and leads for every project, scoped to your team.',
+    description: 'Portfolio — health, progress, active sprint, open bugs and leads for every Plane project.',
   },
   board: {
     label: 'Board',
@@ -205,7 +205,8 @@ export default function DefineHome({ section }: { section?: string } = {}) {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      {/* The dashboard draws its own header: its project picker and Customize live in the actions. */}
+      {active === 'dashboard' ? null : <PageHeader
         title={
           projectScoped ? (
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -229,7 +230,7 @@ export default function DefineHome({ section }: { section?: string } = {}) {
             <StatusBadge kind="info">{projects.data.length} workspace projects</StatusBadge>
           ) : null
         }
-      />
+      />}
       <Suspense fallback={<div className="flex justify-center py-16 text-content-subtle" aria-busy="true"><Spinner size={16} /></div>}>
         {active === 'dashboard' && (
           <Dashboard projectId={activeProjectId} onOpenProject={(id) => setOpenProjectId(id)} onPickProject={setActiveProjectId} />

@@ -3,7 +3,10 @@ import { useLiveRefetch, useWatchSignal } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
 import { rerunName } from './k6-summary.ts'
+import { LABEL_TEST } from './perf-format.ts'
+import { LABEL_RUNNER, LABEL_SCHEDULE, LABEL_TRIGGER } from './perf-results.ts'
 import { withPinnedImages } from './k6-images.ts'
+import { withTrendStats } from './k6-trend-stats.ts'
 
 // The pure half — parser, naming, formatting — lives next door so it can be
 // tested without React. Re-exported here so views have one import.
@@ -282,16 +285,34 @@ export interface NewTestRun {
   paused?: boolean
 }
 
-export function createTestRun(input: NewTestRun): Promise<TestRun> {
+/**
+ * The k6 source a run points at, best effort — `withTrendStats` reads it to
+ * leave a script that sets its own `summaryTrendStats` alone.
+ */
+async function scriptSource(namespace: string | undefined, cm: { name: string; file?: string } | undefined): Promise<string | undefined> {
+  if (!namespace || !cm?.name) return undefined
+  const obj = await kube.get<{ data?: Record<string, string> }>(CONFIG_MAPS_GVR, namespace, cm.name).catch(() => null)
+  return cm.file ? obj?.data?.[cm.file] : undefined
+}
+
+export async function createTestRun(input: NewTestRun): Promise<TestRun> {
+  const script = await scriptSource(input.namespace, { name: input.configMap, file: input.file })
   return kube.apply<TestRun>({
     apiVersion: 'k6.io/v1alpha1',
     kind: 'TestRun',
     metadata: {
       name: input.name,
       namespace: input.namespace,
-      labels: { 'app.kubernetes.io/managed-by': 'adhar-console' },
+      labels: {
+        'app.kubernetes.io/managed-by': 'adhar-console',
+        // A ConfigMap script has no test.json, so its history is grouped by
+        // the script: without a test label the harvester never kept the
+        // result and the run had no report once its pods were gone.
+        [LABEL_TEST]: scriptTestName(input.configMap),
+        [LABEL_TRIGGER]: 'console',
+      },
     },
-    spec: withPinnedImages({
+    spec: withTrendStats(withPinnedImages({
       parallelism: input.parallelism,
       script: { configMap: { name: input.configMap, file: input.file } },
       ...(input.arguments ? { arguments: input.arguments } : {}),
@@ -299,11 +320,43 @@ export function createTestRun(input: NewTestRun): Promise<TestRun> {
       // "true" — so leaving it out does not mean "start now", it means the run
       // never leaves `initialization`. Always state it.
       paused: input.paused ? 'true' : 'false',
-      // Without this the Jobs and their pods linger after the run, and the
-      // pod list for the next run is full of the last one's corpses.
-      cleanup: 'post',
-    }),
+      // No `cleanup: 'post'`: the operator would delete the TestRun and its
+      // runner pods the moment the run finished — before the harvester could
+      // keep its summary. Harvested runs are cleared from the Runs tab.
+    }), { script }),
   })
+}
+
+/**
+ * A rerun's labels: the original's, but started from the console — so the
+ * console harvests it (a rerun of a scheduled run copied `perf-runner=job`
+ * and nobody kept its result) — and grouped under a test even when the
+ * original predates ConfigMap runs being labelled.
+ */
+function rerunLabels(run: TestRun): Record<string, string> {
+  const labels: Record<string, string> = { ...(run.metadata.labels ?? {}) }
+  delete labels[LABEL_RUNNER]
+  delete labels[LABEL_SCHEDULE]
+  labels[LABEL_TRIGGER] = 'console'
+  const cm = run.spec?.script?.configMap?.name
+  if (!labels[LABEL_TEST] && cm) labels[LABEL_TEST] = scriptTestName(cm)
+  labels['adhar.io/rerun-of'] = run.metadata.name
+  return labels
+}
+
+/**
+ * A rerun's spec: the original's, minus `cleanup: post` — runs created before
+ * the console stopped asking for it were deleted with their pods the moment
+ * they finished, so their result was never kept.
+ */
+function rerunSpec(spec: TestRun['spec']): Record<string, unknown> {
+  const { cleanup, ...rest } = spec ?? {}
+  return cleanup && cleanup !== 'post' ? { ...rest, cleanup } : rest
+}
+
+/** `k6-checkout-load` → `checkout-load`: the test a ConfigMap script's results are kept under. */
+export function scriptTestName(configMap: string): string {
+  return configMap.replace(/^k6-/, '').slice(0, 63).replace(/[^a-z0-9A-Z._-]/g, '-').replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '') || 'script'
 }
 
 export function setTestRunPaused(namespace: string, name: string, paused: boolean): Promise<unknown> {
@@ -318,23 +371,23 @@ export function deleteTestRun(namespace: string, name: string): Promise<unknown>
  * Re-run: a TestRun is immutable once the operator has claimed it, so "run it
  * again" means a new object with the same spec and a fresh name.
  */
-export function rerunTestRun(run: TestRun): Promise<TestRun> {
+export async function rerunTestRun(run: TestRun): Promise<TestRun> {
+  const script = await scriptSource(run.metadata.namespace, run.spec?.script?.configMap)
   return kube.apply<TestRun>({
     apiVersion: 'k6.io/v1alpha1',
     kind: 'TestRun',
     metadata: {
       name: rerunName(run.metadata.name),
       namespace: run.metadata.namespace,
-      labels: {
-        ...(run.metadata.labels ?? {}),
-        'adhar.io/rerun-of': run.metadata.name,
-      },
+      labels: rerunLabels(run),
     },
     // "Run again" means run it, so a rerun of a paused run starts. Copying
     // the spec verbatim reproduced the pause along with everything else.
     // Re-pinned, so a rerun of a run created before images were pinned does
     // not repeat its `:latest` denial (k6-images.ts).
-    spec: withPinnedImages({ ...(run.spec ?? {}), paused: 'false' }),
+    // And asked for p(99) (k6-trend-stats.ts), so a rerun of an old run
+    // records the percentile its original did not.
+    spec: withTrendStats(withPinnedImages({ ...rerunSpec(run.spec), paused: 'false' }), { script }),
   })
 }
 /* ─────────── derivations ─────────── */

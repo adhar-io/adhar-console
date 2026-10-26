@@ -84,7 +84,7 @@ export function Journeys() {
   const scope = useDesignScope()
   const all = useCollection<Journey>(KIND.journey)
   const { isLoading, error, refetch } = all
-  const items = useMemo(() => all.items.filter((j) => scope.matches(j)), [all.items, scope])
+  const items = useMemo(() => scope.pick(all.items), [all.items, scope])
   const { items: personas } = useCollection<Persona>(KIND.persona)
   const catalog = useCatalogApps()
   // Catalog components a stage can be linked to: the applications in scope.

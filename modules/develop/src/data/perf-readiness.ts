@@ -233,7 +233,15 @@ export function readinessReport(app: ScorerApplication): ReadinessReport {
 
   const load: Gauge[] = [
     gauge('p95 latency', num(perf.p95Ms), latencyTarget, 'ms', true),
-    gauge('p99 latency', num(perf.p99Ms), undefined, 'ms', true),
+    gauge(
+      'p99 latency',
+      num(perf.p99Ms),
+      undefined,
+      'ms',
+      true,
+      // k6 prints p(99) only when asked; say why it is blank rather than leave a bare dash.
+      num(perf.p99Ms) === undefined && num(perf.p95Ms) !== undefined ? 'Not recorded: the load test’s k6 summary has no p(99) (k6 reports it only when asked).' : undefined,
+    ),
     gauge('Average latency', num(perf.avgMs), undefined, 'ms', true),
     gauge('Error rate', errPct, errTargetPct, '%', true),
     gauge('Throughput', num(perf.rps), undefined, '/s', false, perf.vus ? `${perf.vus} virtual users` : undefined),

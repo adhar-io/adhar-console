@@ -14,7 +14,7 @@ import { appProjectSlug } from '../data/designer-catalog.ts'
 import { themeFromTokenSet, WORKSPACE_THEME_ID } from '../data/builder-theme.ts'
 import { useUrlParams } from '../data/builder-nav.ts'
 import { matchApps, repoApi, useCatalogApps, useDesignerRepos, useLastCommit, useRepoBranches, useRepoFramework, useRepoFrameworks } from '../data/designer-repos.ts'
-import { uiVerdict, type CatalogApp } from '../data/designer-catalog.ts'
+import { isUiRepo, judgeRepos, notEditableReason, type CatalogApp } from '../data/designer-catalog.ts'
 import { ErrorBlock } from '../components/async-states.tsx'
 import { Icon } from '../components/ui-bits.tsx'
 import { ReviewChanges } from '../components/review-changes.tsx'
@@ -93,25 +93,17 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
   const [query, setQuery] = useState('')
   const [scope, setScope] = useState<'apps' | 'all'>('all')
   // Only UI applications by default: the designer edits pages, so services,
-  // workers, data/AI apps, mirrors and archived repos are noise here.
+  // functions, workers and data/AI apps are noise here.
   const [showAll, setShowAll] = useState(false)
   // Opening reads the repo tree and parses pages — give the click instant feedback.
   const [opening, setOpening] = useState<string | null>(null)
 
-  const judged = useMemo(
-    () => (repos.data ?? []).map((r) => {
-      const matched = matchApps(apps.data ?? [], { name: r.name, owner: r.owner?.login })
-      return { repo: r, apps: matched, verdict: uiVerdict(r as { language?: string; mirror?: boolean; archived?: boolean; empty?: boolean }, matched) }
-    }),
-    [repos.data, apps.data],
-  )
+  // Mirrors, archived / empty repos and the platform's own repositories are
+  // never listed, not even under "Show all": a change made there is refused
+  // or overwritten (designer-catalog.ts `notEditableReason`).
+  const judged = useMemo(() => judgeRepos(repos.data ?? [], apps.data ?? []), [repos.data, apps.data])
   const frameworks = useRepoFrameworks(judged.filter((x) => x.verdict === 'check').map((x) => x.repo))
-  const isUi = (x: (typeof judged)[number]) => {
-    if (x.verdict !== 'check') return x.verdict === 'ui'
-    const fw = frameworks.get(x.repo.name)
-    // Still reading package.json: keep it listed (its badge shows a skeleton).
-    return fw === undefined ? true : !!fw && isEditable(fw)
-  }
+  const isUi = (x: (typeof judged)[number]) => isUiRepo(x.verdict, frameworks.get(x.repo.name))
   const hiddenCount = judged.filter((x) => !isUi(x)).length
 
   const rows = useMemo(() => {
@@ -162,7 +154,7 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
               title={query || scope === 'apps' ? 'Nothing matches' : 'No UI applications yet'}
               description={query || scope === 'apps'
                 ? 'Try another name, team or project.'
-                : `The Visual Designer edits ${SUPPORTED_FRAMEWORKS} apps. Create one from a golden path in Service Catalog → Create New, or show all repositories.`}
+                : `The Visual Designer edits ${SUPPORTED_FRAMEWORKS} apps. Create one from a golden path in Service Catalog → Create New${hiddenCount > 0 ? ', or show all repositories' : ''}.`}
             />
           ) : (
             <ul className='divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised'>
@@ -189,7 +181,7 @@ function RepoLibrary({ onOpen }: { onOpen(fullName: string, branch?: string): vo
 }
 
 function RepoRow({ repo, apps, onOpen, opening = false }: {
-  repo: { name: string; full_name: string; description?: string; default_branch: string; archived?: boolean; mirror?: boolean; updated_at: string }
+  repo: { name: string; full_name: string; description?: string; default_branch: string; updated_at: string }
   apps: CatalogApp[]
   onOpen(): void
   opening?: boolean
@@ -217,8 +209,6 @@ function RepoRow({ repo, apps, onOpen, opening = false }: {
           {apps.slice(0, 1).map((a) => (
             <span key={a.name} className='text-xs text-content-muted'>{[a.team, a.project].filter(Boolean).join(' · ')}</span>
           ))}
-          {repo.archived && <Chip tone='slate'>archived</Chip>}
-          {repo.mirror && <Chip tone='slate'>mirror</Chip>}
         </div>
         <div className='mt-0.5 truncate text-xs text-content-muted'>
           {last.data ? <>{last.data.message.split('\n')[0]} · {formatRelative(last.data.created)}</> : repo.description || `Updated ${formatRelative(repo.updated_at)}`}
@@ -281,6 +271,9 @@ function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWire
   const [owner, name] = fullName.includes('/') ? fullName.split('/', 2) : [org, fullName]
   const repos = useDesignerRepos()
   const repo = repos.data?.find((r) => r.full_name === `${owner}/${name}` || r.name === name)
+  // A link can still name a repository the library never offers (a mirror, the
+  // platform's own repos): it is not opened — a change there would not stick.
+  const locked = repo ? notEditableReason(repo) : null
   const branches = useRepoBranches(name)
   const branch = branchParam ?? repo?.default_branch
   const head = branches.data?.find((b) => b.name === branch)?.commit.id
@@ -312,7 +305,7 @@ function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWire
       }
       return { session, project, parse, canvasCss, newPage: undefined as string | undefined }
     },
-    enabled: !!branch && !!branches.data && !waitingForWf,
+    enabled: !!branch && !!branches.data && !waitingForWf && !locked,
     staleTime: Infinity,
     gcTime: 0,
     retry: false,
@@ -355,6 +348,15 @@ function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWire
     </span>
   )
 
+  if (locked) {
+    return (
+      <div className='space-y-6'>
+        <PageHeader title={<span className='flex items-center gap-2'><BackButton onClick={onBack} />{name}</span>} />
+        <EmptyState title={`${name} can’t be edited here`} description={locked}
+          action={<Button variant='primary' onClick={onBack}>Back to apps</Button>} />
+      </div>
+    )
+  }
   if (repos.isLoading || branches.isLoading || waitingForWf || (opened.isLoading && !!branch)) {
     return (
       <div className='space-y-4'>

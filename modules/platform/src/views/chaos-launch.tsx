@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Badge, Button, Field, Input, Modal, Select, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import {
+  type AppKind,
+  appKindOfPods,
   CHAOS_FAULTS,
   type ChaosFault,
   FAMILY_LABEL,
@@ -12,6 +14,7 @@ import {
   type TargetMode,
 } from '../data/chaos-kinds.ts'
 import { createChaosEngine, useChaosCluster, useTargetNamespaces } from '../data/chaos.ts'
+import { useTargetPods } from '../data/chaos-live-hooks.ts'
 import { type Guard, isProtectedNamespace, launchAllowed, MAX_FAULT_SECONDS, reviewLaunch } from '../data/chaos-safety.ts'
 
 /**
@@ -28,7 +31,10 @@ import { type Guard, isProtectedNamespace, launchAllowed, MAX_FAULT_SECONDS, rev
  */
 
 const MODES: TargetMode[] = ['one', 'percent', 'all']
-const APP_KINDS = ['deployment', 'statefulset', 'daemonset', 'rollout'] as const
+const APP_KINDS: AppKind[] = ['deployment', 'statefulset', 'daemonset', 'rollout']
+const KIND_TEXT: Record<AppKind, string> = { deployment: 'a Deployment', statefulset: 'a StatefulSet', daemonset: 'a DaemonSet', rollout: 'an Argo Rollout' }
+/** `app=checkout` or a bare key — the one-label selector Litmus takes. */
+const SELECTOR = /^[A-Za-z0-9]([A-Za-z0-9._/-]*[A-Za-z0-9])?(=[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)?$/
 type Step = 'fault' | 'target' | 'review'
 const STEPS: Array<[Step, string]> = [['fault', 'Fault'], ['target', 'Target'], ['review', 'Review & launch']]
 
@@ -58,7 +64,7 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
   const [nameTouched, setNameTouched] = useState(false)
   const [targetNs, setTargetNs] = useState('')
   const [label, setLabel] = useState('')
-  const [appKind, setAppKind] = useState<typeof APP_KINDS[number]>('deployment')
+  const [appKindPicked, setAppKind] = useState<AppKind | undefined>(undefined)
   const [node, setNode] = useState('')
   const [mode, setMode] = useState<TargetMode>('one')
   const [percent, setPercent] = useState('50')
@@ -72,6 +78,24 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
     setFaultId(id)
     setEnv({})
   }
+  // What the label actually selects, read (debounced) while it is typed: the
+  // count is the real blast radius, and the pods' owner is the `appkind`
+  // Litmus needs — it matches targets by label AND owner kind, so an Argo
+  // Rollout's pods are never found under the old default of `deployment`.
+  const [probeSel, setProbeSel] = useState({ ns: '', label: '' })
+  useEffect(() => {
+    const t = setTimeout(() => setProbeSel({ ns: targetNs, label: label.trim() }), 400)
+    return () => clearTimeout(t)
+  }, [targetNs, label])
+  const selectorOk = probeSel.label === '' || SELECTOR.test(probeSel.label)
+  const matched = useTargetPods({
+    namespace: probeSel.ns || undefined,
+    selector: probeSel.label || undefined,
+    live: false,
+    enabled: !fault?.node && !!probeSel.ns && selectorOk && !isProtectedNamespace(probeSel.ns),
+  })
+  const detectedKind = matched.data ? appKindOfPods(matched.data.raw) : undefined
+  const appKind: AppKind = appKindPicked ?? detectedKind ?? 'deployment'
   const knob = (key: string, fallback: string) => env[key] ?? fallback
   const durationDefault = fault?.knobs.find((k) => k.env === 'TOTAL_CHAOS_DURATION')?.value ?? '60'
   const duration = knob('TOTAL_CHAOS_DURATION', durationDefault)
@@ -99,7 +123,7 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
   const blastSentence = fault?.node
     ? `${fault.label} on ${node.trim() ? `node ${node.trim()}` : 'a node the runner picks'} for ${duration}s`
     : targetNs
-    ? `${fault?.label ?? faultId} on ${modeLabel(mode, percent)} in ${targetNs}${label.trim() ? ` matching ${label.trim()}` : ' (any pod)'} for ${duration}s`
+    ? `${fault?.label ?? faultId} on ${modeLabel(mode, percent)} in ${targetNs}${label.trim() ? ` matching ${label.trim()}` : ' (any pod)'}${matched.data && probeSel.ns === targetNs && probeSel.label === label.trim() ? ` — ${matched.data.total} pod${matched.data.total === 1 ? '' : 's'} match now` : ''} for ${duration}s`
     : 'Choose a target namespace.'
 
   const launch = async () => {
@@ -233,10 +257,11 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
                 <Field label="App label" hint="One label, e.g. app=checkout. Strongly advised.">
                   <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="app=checkout" />
                 </Field>
-                <Field label="App kind">
-                  <Select value={appKind} onChange={(e) => setAppKind(e.target.value as typeof APP_KINDS[number])} options={APP_KINDS.map((k) => ({ value: k, label: k }))} />
+                <Field label="App kind" hint={detectedKind && !appKindPicked ? 'Read from the matching pods.' : undefined}>
+                  <Select value={appKind} onChange={(e) => setAppKind(e.target.value as AppKind)} options={APP_KINDS.map((k) => ({ value: k, label: k }))} />
                 </Field>
               </div>
+              {targetNs ? <TargetMatch namespace={targetNs} label={label.trim()} settled={probeSel.ns === targetNs && probeSel.label === label.trim()} selectorOk={selectorOk} pods={matched.data?.total} loading={matched.isLoading} error={matched.error as Error | null} detected={detectedKind} kind={appKind} /> : null}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="How much of it">
                   <Select value={mode} onChange={(e) => setMode(e.target.value as TargetMode)} options={MODES.map((m) => ({ value: m, label: modeLabel(m, percent) }))} />
@@ -283,6 +308,34 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
         </div>
       ) : null}
     </Modal>
+  )
+}
+
+/** What the target selector matches right now — a count, the owner, or why nothing would be hit. */
+function TargetMatch({ namespace, label, settled, selectorOk, pods, loading, error, detected, kind }: {
+  namespace: string
+  label: string
+  settled: boolean
+  selectorOk: boolean
+  pods?: number
+  loading: boolean
+  error: Error | null
+  detected?: AppKind
+  kind: AppKind
+}) {
+  const where = `${namespace}${label ? ` matching ${label}` : ''}`
+  if (!selectorOk) return <p className="text-[12px] text-amber-700 dark:text-amber-400">One label as key=value, e.g. app=checkout.</p>
+  if (!settled || loading) return <p className="text-[12px] text-content-subtle">Looking for pods in {where}…</p>
+  if (error) return <p className="text-[12px] text-content-subtle">The pods in {namespace} could not be listed ({error.message}); the run will select its own targets.</p>
+  if (pods === 0) {
+    return <p className="text-[12px] text-amber-700 dark:text-amber-400">No pod in {where} right now — the experiment would find no target and end without a verdict.</p>
+  }
+  return (
+    <p className="text-[12px] text-content-muted">
+      Matches <span className="font-semibold text-content">{pods} pod{pods === 1 ? '' : 's'}</span> in {where}
+      {detected ? `, owned by ${KIND_TEXT[detected]}` : ''}.
+      {detected && detected !== kind ? <span className="text-amber-700 dark:text-amber-400"> Litmus looks for {KIND_TEXT[kind]}&apos;s pods, so it will not find these.</span> : null}
+    </p>
   )
 }
 

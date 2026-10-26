@@ -1,20 +1,22 @@
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { EmptyIcon } from '../components/empty-icon.tsx'
-import { Button, EmptyState, Select, useToast } from '@adhar/shell-ui'
+import { Button, EmptyState, PageHeader, StatusBadge, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import {
   addWidget,
-  type DashboardScope,
+  type DashboardLayout,
   defaultLayout,
-  moveWidget,
+  packLayout,
   removeWidget,
   resizeWidget,
-  SIZE_CLASS,
+  SIZE_LABEL,
+  SIZES,
+  sizeOfSpan,
+  spanClass,
   WIDGET_BY_TYPE,
   type WidgetInstance,
   type WidgetSize,
-  WIDGETS,
   type WidgetType,
 } from '../data/dashboard-layout.ts'
 import { useDashboardLayout } from '../data/dashboard-store.ts'
@@ -50,23 +52,26 @@ import {
 import { OPEN_CATEGORIES } from '../data/insights-nav.ts'
 import { currentQuarter, objectiveProgress, paceStatus, statusMeta, useAllObjectives } from '../data/okrs.ts'
 import { useLinkResolver } from '../data/okrs-links.ts'
-import { ItemRow, Loading, Panel, SourceNote, Stat, UpdatedAgo, useGroupColor } from '../components/insights-ui.tsx'
+import { ItemRow, Loading, Panel, SourceNote, Stat, useGroupColor } from '../components/insights-ui.tsx'
 import { LineChart, Meter, MiniBurn, RankBars, SegmentBar, useSeriesColor } from '../components/insights-viz.tsx'
 import { StickyNotes } from '../components/sticky-notes.tsx'
+import { ProjectPicker } from '../components/project-picker.tsx'
+import { SortableGrid } from '../components/dashboard-grid.tsx'
+import { WidgetPicker } from '../components/widget-picker.tsx'
 
 /**
  * Define dashboard — a configurable widget grid over live Plane data.
  *
- * Each person arranges their own (add / remove / drag to reorder / resize;
- * saved per user in docStore `define.dashboard`) and picks a scope: the
- * active project, the projects of their console team, or every project
- * (capped at MAX_SCOPE_PROJECTS reads). Every number drills into Issues with
- * the JQL-like query that produced it.
+ * Each person arranges their own (Customize: add from the widget gallery,
+ * remove, drag or arrow-key to reorder, resize; saved per user in docStore
+ * `define.dashboard`) and picks what it covers from the header: every Plane
+ * project, or one. Widgets always pack into full rows (see `packLayout`).
+ * Every number drills into Issues with the JQL-like query that produced it.
  */
 export function Dashboard({
   projectId,
   onOpenProject: _onOpenProject,
-  onPickProject: _onPickProject,
+  onPickProject,
 }: {
   projectId?: string
   onOpenProject?(id: string): void
@@ -74,73 +79,84 @@ export function Dashboard({
 }) {
   const { layout, update, persistence, error } = useDashboardLayout()
   const [editing, setEditing] = useState(false)
-  const [dragId, setDragId] = useState<string | null>(null)
+  const [picker, setPicker] = useState(false)
   const toast = useToast()
   const scope = useScopeProjects(layout.scope, projectId)
   const has = (t: WidgetType) => layout.widgets.some((w) => w.type === t)
   const data = useProjectsData(scope.projects, { labels: has('bug-trend') || has('blocked') })
   const me = useMe()
   const now = useMemo(() => Date.now(), [data.updatedAt])
-
-  const setScope = (s: DashboardScope) => update({ ...layout, scope: s })
   const ctx: WidgetCtx = { data, projects: scope.projects, me, now, has }
-
-  const missing = WIDGETS.filter((w) => !layout.widgets.some((x) => x.type === w.type))
   const err = data.errors[0] ? classifyError(data.errors[0]) : null
+  const present = useMemo(() => new Set(layout.widgets.map((w) => w.type)), [layout.widgets])
+
+  // Saving to the account failed: say so once, as a toast — the layout keeps
+  // working in this browser.
+  useEffect(() => {
+    if (error) toast.error('Layout saved in this browser only', { description: error })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [error])
+
+  const commit = useCallback((next: DashboardLayout, undo?: { title: string; prev: DashboardLayout }) => {
+    update(next)
+    if (undo) toast.success(undo.title, { action: { label: 'Undo', onClick: () => update(undo.prev) } })
+  }, [update, toast])
+
+  const add = (type: WidgetType) => {
+    commit(addWidget(layout, type))
+    toast.success(`Added “${WIDGET_BY_TYPE.get(type)!.title}”`)
+  }
+  const remove = (w: WidgetInstance) => commit(removeWidget(layout, w.id), { title: `Removed “${WIDGET_BY_TYPE.get(w.type)!.title}”`, prev: layout })
+  const resetLayout = () => commit({ ...defaultLayout(), scope: layout.scope }, { title: 'Dashboard reset to the default layout', prev: layout })
+
+  const pickerEl = (
+    <ProjectPicker
+      variant="compact"
+      align="right"
+      value={projectId}
+      allSelected={layout.scope === 'all'}
+      onSelectAll={() => update({ ...layout, scope: 'all' })}
+      onChange={(id) => {
+        onPickProject?.(id)
+        if (layout.scope !== 'project') update({ ...layout, scope: 'project' })
+      }}
+    />
+  )
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-content-muted">
-          <Select
-            aria-label="Dashboard scope"
-            value={layout.scope}
-            onChange={(e) => setScope(e.target.value as DashboardScope)}
-            options={[
-              { value: 'project', label: 'Active project' },
-              { value: 'team', label: scope.team ? `Team ${scope.team}` : 'My team\'s projects' },
-              { value: 'all', label: 'All projects' },
-            ]}
-            className="h-8 py-1 text-[12px]"
-          />
-          <span>
-            {scope.projects.length === 1 ? scope.projects[0].name : `${scope.projects.length} project${scope.projects.length === 1 ? '' : 's'}`}
-            {scope.capped ? ` (first ${MAX_SCOPE_PROJECTS} of ${scope.total} — pick a narrower scope to see the rest)` : ''}
-          </span>
-          {layout.scope === 'team' && !scope.team ? <span className="text-content-subtle">No team selected in the top bar — showing every project.</span> : null}
-          {scope.teamUnmatched ? <span className="text-content-subtle">No Plane project matches team {scope.team}'s projects by name.</span> : null}
-          <UpdatedAgo at={data.updatedAt} fetching={data.isFetching} />
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {editing
-            ? (
-              <>
-                <Select
-                  aria-label="Add widget"
-                  value=""
-                  onChange={(e) => {
-                    if (!e.target.value) return
-                    update(addWidget(layout, e.target.value as WidgetType))
-                    toast.success(`Added “${WIDGET_BY_TYPE.get(e.target.value as WidgetType)!.title}”`)
-                  }}
-                  options={[{ value: '', label: '+ Add widget…' }, ...(missing.length ? missing : WIDGETS).map((w) => ({ value: w.type, label: w.title }))]}
-                  className="h-8 py-1 text-[12px]"
-                />
-                <Button size="sm" onClick={() => update({ ...layout, widgets: [] })} disabled={!layout.widgets.length}>Clear</Button>
-                <Button size="sm" onClick={() => update({ ...defaultLayout(), scope: layout.scope })}>Reset</Button>
-                <Button size="sm" variant="primary" onClick={() => setEditing(false)}>Done</Button>
-              </>
-            )
-            : <Button size="sm" onClick={() => setEditing(true)}>Customize</Button>}
-        </div>
-      </div>
+      <PageHeader
+        compact
+        title="Dashboard"
+        badge={scope.capped
+          ? <span title={`Plane allows the console's API key 60 requests a minute, so the dashboard reads the first ${MAX_SCOPE_PROJECTS} projects. Pick one project to see any other.`}><StatusBadge kind="info">First {MAX_SCOPE_PROJECTS} of {scope.total} projects</StatusBadge></span>
+          : editing
+          ? <StatusBadge kind="info">Editing layout</StatusBadge>
+          : null}
+        actions={editing
+          ? (
+            <>
+              <Button size="sm" leading={<PlusGlyph />} onClick={() => setPicker(true)}>Add widgets</Button>
+              <Button size="sm" variant="ghost" onClick={resetLayout}>Reset to default</Button>
+              <Button size="sm" variant="primary" onClick={() => setEditing(false)}>Done</Button>
+            </>
+          )
+          : (
+            <>
+              {pickerEl}
+              <Button size="sm" leading={<LayoutGlyph />} onClick={() => setEditing(true)}>Customize</Button>
+            </>
+          )}
+      />
 
       {editing
         ? (
-          <p className="text-[11px] text-content-subtle">
-            Drag widgets to reorder, or use the arrows. Layout is saved {persistence === 'account' ? 'to your console account' : 'in this browser only — the console database is not available'}.
-            {error ? ` ${error}` : ''}
-          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-dashed border-brand-300/70 bg-brand-50/50 px-3 py-2 text-[12px] text-content-muted dark:border-brand-500/40 dark:bg-brand-500/10">
+            <span className="font-medium text-content">Drag widgets to rearrange.</span>
+            <span>Keyboard: focus a grip, then use the arrow keys.</span>
+            <span className="hidden md:inline">Pick a width from each widget's toolbar — rows always stay full.</span>
+            {persistence === 'browser' ? <span className="text-content-subtle">Saved in this browser only — the console database isn't available.</span> : null}
+          </div>
         )
         : null}
 
@@ -151,44 +167,59 @@ export function Dashboard({
         ? <Loading label="Loading projects…" />
         : !scope.projects.length
         ? (
-          <EmptyState icon={<EmptyIcon name="folder" />}
-            title={layout.scope === 'project' ? 'Pick a project' : 'No projects in this scope'}
-            description={layout.scope === 'project' ? 'Choose a project on the Projects page, or switch the dashboard to all projects.' : 'Create a project in Define, or widen the scope.'}
+          <EmptyState
+            icon={<EmptyIcon name="folder" />}
+            title={layout.scope === 'project' ? 'Pick a project' : 'No Plane projects yet'}
+            description={layout.scope === 'project' ? 'Choose a project from the picker above, or show every project.' : 'Create a project on the Projects page to start planning work.'}
+            action={layout.scope === 'project' ? <Button size="sm" variant="primary" onClick={() => update({ ...layout, scope: 'all' })}>Show all projects</Button> : undefined}
           />
         )
         : !layout.widgets.length
-        ? <EmptyState icon={<EmptyIcon name="widgets" />} title="No widgets" description="Customize → Add widget to build your dashboard." />
-        : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-            {layout.widgets.map((w, idx) => (
-              <div
-                key={w.id}
-                className={cn('min-w-0 md:col-span-12', SIZE_CLASS[w.size], editing && 'rounded-xl ring-2 ring-dashed ring-brand-300/60', dragId === w.id && 'opacity-50')}
-                draggable={editing}
-                onDragStart={(e) => {
-                  setDragId(w.id)
-                  e.dataTransfer.effectAllowed = 'move'
-                }}
-                onDragEnd={() => setDragId(null)}
-                onDragOver={(e) => editing && dragId && e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  if (dragId && dragId !== w.id) update(moveWidget(layout, dragId, idx))
-                  setDragId(null)
-                }}
-              >
-                <WidgetFrame
-                  w={w}
-                  editing={editing}
-                  onMove={(d) => update(moveWidget(layout, w.id, idx + d))}
-                  onResize={(s) => update(resizeWidget(layout, w.id, s))}
-                  onRemove={() => update(removeWidget(layout, w.id))}
-                  ctx={ctx}
-                />
+        ? (
+          <EmptyState
+            icon={<EmptyIcon name="widgets" />}
+            title="Your dashboard is empty"
+            description="Add widgets from the gallery, or go back to the default layout."
+            action={
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button size="sm" variant="primary" onClick={() => setPicker(true)}>Add widgets</Button>
+                <Button size="sm" onClick={resetLayout}>Use default layout</Button>
               </div>
-            ))}
-          </div>
+            }
+          />
+        )
+        : (
+          <SortableGrid
+            items={layout.widgets}
+            editing={editing}
+            classesFor={(order) => packLayout(order).map(spanClass)}
+            label={(w) => WIDGET_BY_TYPE.get(w.type)!.title}
+            onReorder={(next) => update({ ...layout, widgets: next })}
+            render={(w, st) => (
+              <WidgetFrame
+                w={w}
+                span={packLayout(layout.widgets).find((p) => p.widget.id === w.id)?.span ?? 12}
+                editing={editing}
+                ghost={st.ghost}
+                handle={st.handle}
+                onResize={(s) => update(resizeWidget(layout, w.id, s))}
+                onRemove={() => remove(w)}
+                ctx={ctx}
+              />
+            )}
+          />
         )}
+
+      <WidgetPicker
+        open={picker}
+        onClose={() => setPicker(false)}
+        present={present}
+        onAdd={add}
+        onRemove={(t) => {
+          const w = layout.widgets.find((x) => x.type === t)
+          if (w) remove(w)
+        }}
+      />
     </div>
   )
 }
@@ -201,48 +232,85 @@ interface WidgetCtx {
   has(t: WidgetType): boolean
 }
 
-function WidgetFrame({ w, editing, onMove, onResize, onRemove, ctx }: {
+const SIZE_GLYPH: Record<WidgetSize, string> = { s: '⅓', m: '½', w: '⅔', l: 'Full' }
+
+function WidgetFrame({ w, span, editing, ghost, handle, onResize, onRemove, ctx }: {
   w: WidgetInstance
+  /** Desktop span the packed row gives this widget. */
+  span: number
   editing: boolean
-  onMove(d: number): void
+  ghost: boolean
+  handle: ReactNode
   onResize(s: WidgetSize): void
   onRemove(): void
   ctx: WidgetCtx
 }) {
   const def = WIDGET_BY_TYPE.get(w.type)!
-  const tools = editing
-    ? (
-      <>
-        <span className="cursor-grab px-1 text-content-subtle" title="Drag to reorder" aria-hidden>⠿</span>
-        <IconBtn label="Move earlier" onClick={() => onMove(-1)}>←</IconBtn>
-        <IconBtn label="Move later" onClick={() => onMove(1)}>→</IconBtn>
-        {(['s', 'm', 'l'] as WidgetSize[]).map((s) => (
-          <IconBtn key={s} label={`Size ${s.toUpperCase()}`} active={w.size === s} onClick={() => onResize(s)}>{s.toUpperCase()}</IconBtn>
-        ))}
-        <IconBtn label="Remove widget" onClick={onRemove}>✕</IconBtn>
-      </>
+  const body = w.type === 'notes'
+    ? <StickyNotes />
+    : (
+      <Panel title={def.title} className="h-full">
+        <WidgetBody type={w.type} ctx={ctx} size={sizeOfSpan(span)} />
+      </Panel>
     )
-    : undefined
-  if (w.type === 'notes') {
-    return (
-      <div className="space-y-1">
-        {editing ? <div className="flex justify-end gap-1">{tools}</div> : null}
-        <StickyNotes />
-      </div>
-    )
-  }
+  if (!editing && !ghost) return body
+  const current = sizeOfSpan(span)
   return (
-    <Panel title={def.title} subtitle={editing ? def.description : undefined} actions={tools} className="h-full">
-      <WidgetBody type={w.type} ctx={ctx} size={w.size} />
-    </Panel>
+    <div className={cn('group/w relative h-full rounded-xl transition-shadow', !ghost && 'outline-2 outline-offset-2 outline-dashed outline-brand-300/70 hover:shadow-lg hover:outline-brand-400 dark:outline-brand-500/40 dark:hover:outline-brand-400/70')}>
+      {/* The widget stays live underneath but inert, so the whole card drags. */}
+      <div className="pointer-events-none h-full select-none" aria-hidden inert>{body}</div>
+      <div className="absolute inset-x-0 top-0 z-10 flex h-11 items-center gap-1 rounded-t-xl border-b border-brand-200/80 bg-surface-raised/95 pl-1.5 pr-1.5 backdrop-blur-sm dark:border-brand-500/30">
+        {handle}
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-content">{def.title}</span>
+        {!ghost
+          ? (
+            <>
+              <div role="group" aria-label={`Width of ${def.title}`} className="hidden items-center rounded-md border border-edge-default bg-surface-sunken/60 p-0.5 md:flex">
+                {SIZES.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    aria-pressed={current === s}
+                    aria-label={SIZE_LABEL[s]}
+                    title={SIZE_LABEL[s]}
+                    onClick={() => onResize(s)}
+                    className={cn(
+                      'h-6 min-w-7 rounded px-1.5 text-[11px] font-semibold tabular-nums transition-colors',
+                      current === s ? 'bg-surface-raised text-brand-700 shadow-sm ring-1 ring-edge-default dark:text-brand-200' : 'text-content-muted hover:text-content',
+                    )}
+                  >
+                    {SIZE_GLYPH[s]}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                aria-label={`Remove ${def.title}`}
+                title="Remove widget"
+                onClick={onRemove}
+                className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/40 sm:h-7 sm:w-7 dark:hover:bg-rose-500/15 dark:hover:text-rose-300"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </>
+          )
+          : null}
+      </div>
+    </div>
   )
 }
 
-function IconBtn({ label, onClick, children, active }: { label: string; onClick(): void; children: ReactNode; active?: boolean }) {
+function PlusGlyph() {
+  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
+}
+
+function LayoutGlyph() {
   return (
-    <button type="button" aria-label={label} title={label} onClick={onClick} className={cn('rounded px-1.5 py-0.5 text-[11px] text-content-muted hover:bg-surface-sunken hover:text-content', active && 'bg-surface-sunken font-semibold text-content')}>
-      {children}
-    </button>
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="18" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
   )
 }
 

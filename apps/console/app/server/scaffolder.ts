@@ -12,7 +12,7 @@ import { templatesLocation } from './templates.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 import { platformDomain, toolPublicUrl, toPublicToolUrl } from './domain.ts'
 import { platformRouteHost, routeHostnames, SCAFFOLD_ENVIRONMENT } from './scaffold-hosts.ts'
-import { applicationManifest, applyXr, dashboardTypeOf, type DashboardType, DEFAULT_PROJECT } from './control-plane.ts'
+import { applicationManifest, applyApplication, dashboardTypeOf, type DashboardType, DEFAULT_PROJECT } from './control-plane.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -589,7 +589,8 @@ async function scaffold(
     // was created, so no scaffolded app ever got its Application (2026-10-18).
     const requested = (body.params ?? {}) as Record<string, unknown>
     const project = typeof requested.project === 'string' && requested.project.trim() ? requested.project.trim() : DEFAULT_PROJECT
-    const outcome = await applyXr(applicationManifest({ name, project, repoUrl: cloneUrl, path: manifestPath, dashboardType }))
+    // A frontend / fullstack template's app is `type: web` (applicationTypeOf).
+    const outcome = await applyApplication(applicationManifest({ name, project, repoUrl: cloneUrl, path: manifestPath, dashboardType }))
     appName = outcome.ok ? name : undefined
     step({
       name: 'gitops-app',

@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ResultTrend } from './perf-trends.tsx'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -9,7 +9,6 @@ import {
   EmptyState,
   Modal,
   Select,
-  StatusBadge,
   useToast,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
@@ -17,9 +16,9 @@ import { durationSecs, fmtDuration } from '../data/k6.ts'
 import { deleteRunRecord, type PerfInsights, usePinBaseline } from '../data/perf-automation.ts'
 import { canAuthorPerf } from '../data/perf-suite.ts'
 import { deleteResultCheck, useAllowedNamespaces } from '../data/access.ts'
-import { compareRuns, compareToBaseline, isImprovement } from '../data/perf-gate.ts'
-import { fmtMetric, METRIC_DEFS, type MetricKey, type RunRecord } from '../data/perf-results.ts'
-import { Delta, RegressionBadge, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
+import { compareRuns, isImprovement } from '../data/perf-gate.ts'
+import { METRIC_DEFS, type MetricKey, type RunRecord } from '../data/perf-results.ts'
+import { Delta, MetricValue, RegressionBadge, TriggerBadge, VerdictBadge } from './perf-bits.tsx'
 
 /**
  * Results — every run that has finished and been kept, across every test.
@@ -35,14 +34,16 @@ const KEY = (r: RunRecord) => `${r.namespace}/${r.resultName}`
 export function ResultsView({
   insights,
   initialTest,
+  onOpenReport,
 }: {
   insights: PerfInsights
   initialTest?: string
+  /** Open a kept result's final report (the run drawer, on its Report tab). */
+  onOpenReport(r: RunRecord): void
 }) {
   const { records, configs, verdictOf, loading } = insights
   const [test, setTest] = useState(initialTest ?? '')
   const [selected, setSelected] = useState<string[]>([])
-  const [open, setOpen] = useState<RunRecord | null>(null)
   const [comparing, setComparing] = useState(false)
   // Pinning is a commit to test.json (Gitea decides); deleting a kept result
   // deletes its ConfigMap — RBAC, per namespace the results live in.
@@ -162,7 +163,7 @@ export function ResultsView({
       header: METRIC_DEFS.find((d) => d.key === key)!.label.replace(' latency', ''),
       numeric: true,
       value: (r) => (r.metrics?.[key] as number | undefined) ?? -1,
-      cell: (r) => <span className="tabular-nums text-[12px]">{fmtMetric(key, r.metrics?.[key] as number | undefined)}</span>,
+      cell: (r) => <MetricValue k={key} m={r.metrics} className="tabular-nums text-[12px]" />,
     })),
     {
       key: 'duration',
@@ -204,8 +205,8 @@ export function ResultsView({
         <div className="min-w-0">
           <div className="text-sm font-semibold text-content">Results</div>
           <div className="text-[12px] text-content-muted">
-            Every finished run, kept as a result ConfigMap and judged against the gate and baseline in git. Select two or
-            more to compare.
+            Every finished run, kept as a result ConfigMap and judged against the gate and baseline in git. Click one for its
+            report; select two or more to compare.
           </div>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -227,7 +228,7 @@ export function ResultsView({
         columns={columns}
         rows={rows}
         rowKey={KEY}
-        onRowClick={setOpen}
+        onRowClick={onOpenReport}
         loading={loading}
         tableId="k6-results"
         features={{ search: true, filters: true, columns: true, density: true, export: true }}
@@ -241,7 +242,6 @@ export function ResultsView({
         }
       />
 
-      {open ? <RecordModal record={open} insights={insights} onClose={() => setOpen(null)} onPin={doPin} /> : null}
       {comparing && chosen.length >= 2
         ? <CompareModal records={chosen} insights={insights} onClose={() => setComparing(false)} />
         : null}
@@ -268,180 +268,6 @@ function ConfirmButton({ onConfirm, disabled }: { onConfirm(): void; disabled?: 
     >
       {armed ? 'Confirm delete' : 'Delete'}
     </Button>
-  )
-}
-
-/* ─────────────────────────── one result ─────────────────────────── */
-
-function RecordModal({
-  record: r,
-  insights,
-  onClose,
-  onPin,
-}: {
-  record: RunRecord
-  insights: PerfInsights
-  onClose(): void
-  onPin(r: RunRecord): void
-}) {
-  const config = insights.configs.get(r.test)
-  const verdict = insights.verdictOf(r)
-  const baseline = config?.baseline
-  const isBaseline = baseline?.run === r.run
-  const deltas = baseline && !isBaseline ? compareToBaseline(r.metrics, baseline.metrics, config?.gate?.tolerance) : []
-  const canPin = canAuthorPerf(insights.suite, r.test)
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      width="xl"
-      title={<span className="font-mono text-base font-semibold text-content">{r.run}</span>}
-      description={`${r.test} · ${r.namespace} · ${r.startedAt ? formatAbsolute(r.startedAt) : 'unknown start'}`}
-      footer={
-        <>
-          {canPin && r.metrics && !isBaseline
-            ? <Button variant="ghost" onClick={() => onPin(r)}>Pin as baseline</Button>
-            : null}
-          <Button onClick={onClose}>Close</Button>
-        </>
-      }
-    >
-      <div className="space-y-5">
-        <section>
-          <div className="mb-2 flex items-center gap-2">
-            <h3 className="text-[12px] font-semibold text-content">Gate verdict</h3>
-            <VerdictBadge verdict={verdict} />
-            {r.recordedVerdict && r.recordedVerdict !== (verdict.status === 'pass' ? 'pass' : 'fail')
-              ? (
-                <span className="text-[11px] text-content-subtle" title={r.recordedReasons}>
-                  the runner recorded “{r.recordedVerdict}” with the gate as it was then
-                </span>
-              )
-              : null}
-          </div>
-          {verdict.checks.length
-            ? (
-              <ul className="space-y-1">
-                {verdict.checks.map((c) => (
-                  <li key={c.id} className="flex items-baseline gap-2 text-[12px]">
-                    <span className={cn('font-mono', c.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>
-                      {c.passed ? '✓' : '✗'}
-                    </span>
-                    <span className="font-medium text-content">{c.label}</span>
-                    <span className="text-content-muted">{c.detail}</span>
-                  </li>
-                ))}
-              </ul>
-            )
-            : <p className="text-[12px] text-content-muted">The runner printed no end-of-test summary, so there is nothing to judge.</p>}
-        </section>
-
-        <section>
-          <h3 className="mb-2 text-[12px] font-semibold text-content">
-            {isBaseline ? 'This run is the baseline' : baseline ? `Against the baseline ${baseline.run}` : 'No baseline pinned'}
-          </h3>
-          {deltas.length
-            ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-[12px]">
-                  <thead className="text-left text-[11px] text-content-subtle">
-                    <tr>
-                      <th className="py-1 pr-3 font-medium">Metric</th>
-                      <th className="py-1 pr-3 text-right font-medium">Baseline</th>
-                      <th className="py-1 pr-3 text-right font-medium">This run</th>
-                      <th className="py-1 pr-3 text-right font-medium">Change</th>
-                      <th className="py-1 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-edge-subtle">
-                    {deltas.map((d) => (
-                      <tr key={d.key}>
-                        <td className="py-1.5 pr-3 text-content">{d.label}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums text-content-muted">{fmtMetric(d.key, d.baseline)}</td>
-                        <td className="py-1.5 pr-3 text-right tabular-nums text-content">{fmtMetric(d.key, d.current)}</td>
-                        <td className="py-1.5 pr-3 text-right">
-                          <Delta pct={d.deltaPct} good={d.deltaPct === undefined ? undefined : isImprovement(d.key, d.deltaPct)} />
-                        </td>
-                        <td className="py-1.5">
-                          {d.current === undefined || d.baseline === undefined
-                            ? <span className="text-content-subtle">not comparable</span>
-                            : d.regressed
-                            ? <StatusBadge kind="failed">regressed</StatusBadge>
-                            : d.improved
-                            ? <StatusBadge kind="healthy">improved</StatusBadge>
-                            : <span className="text-content-subtle">within tolerance</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-            : !baseline
-            ? (
-              <p className="text-[12px] text-content-muted">
-                Pin a run you trust as the baseline and every later run is compared against it, with the tolerance set
-                in the test’s gate.
-              </p>
-            )
-            : null}
-        </section>
-
-        <section>
-          <h3 className="mb-2 text-[12px] font-semibold text-content">Results</h3>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {METRIC_DEFS.map((d) => (
-              <div key={d.key} className="rounded-lg border border-edge-default px-3 py-2">
-                <div className="text-[11px] text-content-subtle">{d.label}</div>
-                <div className="font-mono text-[13px] text-content">{fmtMetric(d.key, r.metrics?.[d.key] as number | undefined)}</div>
-              </div>
-            ))}
-          </div>
-          {r.summary?.thresholds.length
-            ? (
-              <div className="mt-3 space-y-1">
-                {r.summary.thresholds.map((t) => (
-                  <div key={`${t.metric}:${t.expression}`} className="flex items-center gap-2 text-[12px]">
-                    <span className={cn('font-mono', t.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>
-                      {t.passed ? '✓' : '✗'}
-                    </span>
-                    <span className="text-content">{t.metric}</span>
-                    <code className="text-[11px] text-content-muted">{t.expression}</code>
-                  </div>
-                ))}
-              </div>
-            )
-            : null}
-          {r.runners > 1
-            ? (
-              <p className="mt-2 text-[11px] text-content-subtle">
-                Combined from {r.runners} runners: throughput is summed, the error rate weighted by requests, and each
-                percentile is the worst runner’s.
-              </p>
-            )
-            : null}
-        </section>
-
-        <section className="grid grid-cols-1 gap-x-6 gap-y-1 text-[12px] sm:grid-cols-2">
-          {([
-            ['Trigger', <TriggerBadge key="t" trigger={r.trigger} schedule={r.schedule} />],
-            ['Schedule', r.schedule ?? '—'],
-            ['Commit', r.commit ? <code key="c" className="font-mono">{r.commit.slice(0, 12)}</code> : '—'],
-            ['Final stage', r.stage ?? '—'],
-            ['Runner exit code', r.exitCode === undefined ? '—' : `${r.exitCode}${r.exitCode === 99 ? ' (thresholds crossed)' : ''}`],
-            ['Duration', fmtDuration(durationSecs(r.startedAt, r.finishedAt))],
-            ['Result object', <code key="o" className="font-mono">{r.namespace}/{r.resultName}</code>],
-            ['Parallelism', String(r.parallelism ?? r.runners ?? 1)],
-          ] as Array<[string, ReactNode]>).map(([k, v]) => (
-            <div key={k} className="flex gap-3">
-              <span className="w-32 shrink-0 text-content-subtle">{k}</span>
-              <span className="min-w-0 flex-1 break-words text-content">{v}</span>
-            </div>
-          ))}
-        </section>
-      </div>
-    </Modal>
   )
 }
 
@@ -515,7 +341,7 @@ export function CompareModal({
               {rows.map((row) => (
                 <tr key={row.key}>
                   <td className="py-1.5 pr-3 text-content">{row.label}</td>
-                  {row.values.map((v, i) => (
+                  {row.values.map((_v, i) => (
                     <td
                       key={KEY(runs[i])}
                       className={cn(
@@ -524,7 +350,7 @@ export function CompareModal({
                         row.worst === i && 'text-rose-700 dark:text-rose-300',
                       )}
                     >
-                      <div>{fmtMetric(row.key, v)}</div>
+                      <MetricValue k={row.key} m={runs[i].metrics} className="block" />
                       <Delta
                         pct={row.deltasPct[i]}
                         good={row.deltasPct[i] === undefined ? undefined : isImprovement(row.key, row.deltasPct[i]!)}

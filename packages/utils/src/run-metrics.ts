@@ -119,12 +119,20 @@ const reEscape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const labelValue = (s: string) => s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 
 /**
+ * A ReplicaSet pod's generated tail: `-<pod-template-hash>-<suffix>`. The
+ * hash is at most 10 characters and the random suffix is exactly 5, which is
+ * what keeps `<app>-db-1` (a database StatefulSet beside the app) or
+ * `<app>-cache-<hash>-<suffix>` out of `<app>`'s pods — a looser `-x+-x+`
+ * pulled the app's database into its target pods, restarts and memory.
+ */
+const RS_TAIL = '-[a-z0-9]{1,10}-[a-z0-9]{5}'
+
+/**
  * The pods of an application named `app`: `<app>-<hash>-<suffix>`, the shape a
- * Deployment's or Rollout's pods take — the same selector the resilience
- * runner itself measures SLOs with, so the report and the runner agree.
+ * Deployment's or Rollout's pods take.
  */
 export function podRegexForApp(app: string): string {
-  return `${reEscape(app)}-[a-z0-9]+-[a-z0-9]+`
+  return `${reEscape(app)}${RS_TAIL}`
 }
 
 /**
@@ -137,10 +145,11 @@ export function podRegexFromPods(pods: Array<{ name: string; templateHash?: stri
   for (const p of pods) {
     if (!p.name) continue
     if (p.templateHash && p.name.includes(`-${p.templateHash}-`)) {
-      prefixes.add(`${reEscape(p.name.slice(0, p.name.indexOf(`-${p.templateHash}-`)))}-[a-z0-9]+-[a-z0-9]+`)
+      prefixes.add(`${reEscape(p.name.slice(0, p.name.indexOf(`-${p.templateHash}-`)))}${RS_TAIL}`)
     } else {
+      // A StatefulSet's `<name>-<ordinal>`; anything else by its last segment.
       const cut = p.name.lastIndexOf('-')
-      prefixes.add(cut > 0 ? `${reEscape(p.name.slice(0, cut))}-[a-z0-9]+` : reEscape(p.name))
+      prefixes.add(cut > 0 ? `${reEscape(p.name.slice(0, cut))}-${/^\d+$/.test(p.name.slice(cut + 1)) ? '[0-9]+' : '[a-z0-9]+'}` : reEscape(p.name))
     }
   }
   if (!prefixes.size) return undefined

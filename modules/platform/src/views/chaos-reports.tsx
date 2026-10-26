@@ -285,7 +285,7 @@ export function ReportDrawer({ id, onClose, onCompare }: { id: string; onClose()
       widthKey="platform.chaos-report"
       base="max-w-4xl"
       eyebrow={r ? `Chaos report · ${r.environment}` : 'Chaos report'}
-      title={r ? <>{r.app}{r.commit ? <span className="font-mono ml-1.5 font-mono text-[13px] text-content-muted">@ {shortSha(r.commit)}</span> : null}</> : id}
+      title={r ? <>{r.app}{r.commit ? <span className="ml-1.5 font-mono text-[13px] text-content-muted">@ {shortSha(r.commit)}</span> : null}</> : id}
       badge={r ? <StatusBadge kind={VERDICT_KIND[runVerdict(r)]}>{VERDICT_LABEL[runVerdict(r)]}</StatusBadge> : null}
       actions={r ? (
         <>
@@ -352,6 +352,17 @@ export function CompareDrawer({ a, b, onClose, onPick }: { a: string; b: string;
         <div className="p-5 text-[12px] text-content-subtle">Loading the reports…</div>
       ) : !then || !nowR ? (
         <div className="p-5"><EmptyState title="One of these runs is not in the history" description="It may have been pruned (the newest 50 runs per application are kept)." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
+      ) : then.app !== nowR.app ? (
+        // A hand-edited or stale link: two applications' runs side by side
+        // would read every fault as "better" or "worse" against the wrong
+        // baseline, and the "then" picker could not even show its run.
+        <div className="p-5">
+          <EmptyState
+            title="These runs are of different applications"
+            description={`${then.app} and ${nowR.app} run different suites, so their faults cannot be compared run against run. Compare a run with an earlier run of the same application.`}
+            action={peers[0] ? <Button variant="primary" onClick={() => onPick(peers[0].id, nowR.id)}>Compare two {nowR.app} runs</Button> : <Button variant="primary" onClick={onClose}>Close</Button>}
+          />
+        </div>
       ) : (
         <div className="space-y-4 p-4 sm:p-5">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

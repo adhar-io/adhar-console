@@ -251,11 +251,7 @@ export interface RepoLite {
 }
 
 /** The platform's own repos in the org are not services (mirrors the host's list). */
-export const PLATFORM_REPOS = new Set(['packages', 'environments', 'templates', 'adhar-templates', 'adhar-ui', 'adhar-kit', 'adhar'])
-
-export function isPlatformRepo(r: RepoLite): boolean {
-  return !!r.mirror || PLATFORM_REPOS.has(r.name.toLowerCase())
-}
+export { isPlatformRepo, PLATFORM_REPOS } from './platform-repos.ts'
 
 export function entityFromRepo(r: RepoLite): PEntity {
   return {

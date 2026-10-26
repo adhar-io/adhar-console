@@ -63,7 +63,7 @@ import { scopeFilter, type Scoped } from '../data/scope.ts'
 import { ideaLines } from '../data/ai.ts'
 import type { Diagram } from '../data/types.ts'
 import { renderToSvg } from '../components/mermaid-render.tsx'
-import { DesignScopeBar, ScopeChip, ScopeModal } from '../components/scope-bits.tsx'
+import { ScopeChip, ScopeModal } from '../components/scope-bits.tsx'
 import { EntityPickerModal } from '../components/catalog-bits.tsx'
 import { CreateWorkItemsModal } from '../components/work-bits.tsx'
 import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
@@ -191,7 +191,6 @@ export function Whiteboard() {
 
   return (
     <>
-      <DesignScopeBar scope={scope} shown={sorted.length} total={boards.length} noun="boards" />
       <BoardCanvas
         key={active.id}
         board={active}

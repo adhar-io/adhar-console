@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Select, Spinner, StatusBadge } from '@adhar/shell-ui'
-import { cn, formatRelative } from '@adhar/utils'
+import { cn } from '@adhar/utils'
 import { type ErrorKind } from '../data/insights-data.ts'
 import { type Group, GROUP_LABEL, isOverdue, type WorkItem } from '../data/insights-math.ts'
 import { MUTED, useSeriesColor } from './insights-viz.tsx'
@@ -157,16 +157,6 @@ export function ItemRow({
       <span className="shrink-0"><StateChip group={item.group} name={stateName} /></span>
       {trailing}
     </li>
-  )
-}
-
-export function UpdatedAgo({ at, fetching }: { at: number; fetching?: boolean }) {
-  if (!at) return null
-  return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-content-subtle">
-      {fetching ? <Spinner size={10} /> : null}
-      Updated {formatRelative(at)}
-    </span>
   )
 }
 

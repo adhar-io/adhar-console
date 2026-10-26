@@ -6,7 +6,7 @@
  * LENS, not an access boundary (see shell-ui `team-scope.tsx`): with a team
  * active, a list shows that team's artifacts — those tagged with the team or
  * with one of its projects — plus workspace-wide ones that name neither, and
- * says how many it is hiding. Pure; tested in `scope_test.ts`.
+ * every artifact when the team has none. Pure; tested in `scope_test.ts`.
  */
 
 export interface Scoped {
@@ -42,9 +42,15 @@ export function inScope(item: Scoped, lens: ScopeLens): boolean {
   return !!p && (p.teams ?? []).includes(lens.team)
 }
 
-export function scopeFilter<T extends Scoped>(items: readonly T[], lens: ScopeLens): { shown: T[]; total: number } {
+/**
+ * The artifacts in the lens — or all of them when the lens would hide every
+ * one. There is no banner saying what the lens hides, so it must never turn a
+ * list into an empty page; `fallback` says the organization's items are shown.
+ */
+export function scopeFilter<T extends Scoped>(items: readonly T[], lens: ScopeLens): { shown: T[]; total: number; fallback: boolean } {
   const shown = items.filter((i) => inScope(i, lens))
-  return { shown, total: items.length }
+  const fallback = shown.length === 0 && items.length > 0 && lens.filtering && !!lens.team
+  return { shown: fallback ? [...items] : shown, total: items.length, fallback }
 }
 
 /** Default scope for something new: the active team, and its only project when it has exactly one. */

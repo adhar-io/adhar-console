@@ -57,7 +57,8 @@ Deno.test('the runner template that schedules and CI apply carries pinned images
     spec: { runner: { image: string; env: unknown[] }; starter: { image: string } };
   };
   assertEquals(t.spec.runner.image, K6_RUNNER_IMAGE);
-  assertEquals(t.spec.runner.env.length, 1);
+  // BASE_URL, plus K6_SUMMARY_TREND_STATS (k6-trend-stats.ts).
+  assertEquals(t.spec.runner.env.length, 2);
   assertEquals(t.spec.starter.image, K6_STARTER_IMAGE);
 });
 
@@ -66,11 +67,12 @@ Deno.test('no TestRun is built without pinned images', async () => {
   for (const f of ['k6.ts', 'perf-runner.ts', 'perf-suite.ts']) {
     const src = await Deno.readTextFile(new URL(`./${f}`, import.meta.url));
     const runs = src.split("kind: 'TestRun'").length - 1;
-    const pinned = src.split('spec: withPinnedImages(').length - 1;
+    const pinned = src.split('spec: withTrendStats(withPinnedImages(').length - 1;
+    // …and asks k6 for p(99) (k6-trend-stats.ts) on the way.
     assertEquals(
       pinned,
       runs,
-      `${f}: ${runs} TestRun(s) built, ${pinned} through withPinnedImages`,
+      `${f}: ${runs} TestRun(s) built, ${pinned} through withTrendStats(withPinnedImages(…))`,
     );
   }
 });

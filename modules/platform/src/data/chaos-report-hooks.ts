@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { liveClient, notifyUnauthorized } from '@adhar/shell-ui'
-import type { ChaosRunReport } from './chaos-report.ts'
+import { type ChaosRunReport, normalizeReport } from './chaos-report.ts'
 import { RESULTS_CONFIGMAP, RESULTS_NAMESPACE } from './chaos-suites.ts'
 import { watchOf } from './live.ts'
 
@@ -59,7 +59,7 @@ export function useChaosReports() {
       if (res.status === 401) notifyUnauthorized()
       const body = (await res.json().catch(() => ({}))) as Partial<ChaosReportsState> & { error?: string; detail?: string }
       if (!res.ok) throw new Error(body.detail || body.error || `reports could not be read (${res.status})`)
-      return { configured: body.configured !== false, ...(body.detail ? { detail: body.detail } : {}), items: body.items ?? [] }
+      return { configured: body.configured !== false, ...(body.detail ? { detail: body.detail } : {}), items: (body.items ?? []).map(normalizeReport) }
     },
     retry: false,
     // No timer: reports only change after a run, which the watch above catches.

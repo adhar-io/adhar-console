@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Button, EmptyState, Field, Modal, Select, Spinner, StatusBadge, type StatusKind, TeamScopeBar, useToast } from '@adhar/shell-ui'
+import { Button, EmptyState, Field, Modal, Select, Spinner, StatusBadge, type StatusKind, useToast } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { kargo } from '@adhar/api-clients'
 import { useAbortPromotion, usePromote } from '../data/delivery.ts'
@@ -147,8 +147,6 @@ export function ProjectEnvironments() {
           </div>
         </div>
       </div>
-
-      <TeamScopeBar team={d.team.filtering ? d.team.team : ''} shown={d.scoped.length} total={d.options.length} noun='projects' />
 
       {d.loading ? (
         <div className='flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-5 text-sm text-content-muted shadow-sm'>

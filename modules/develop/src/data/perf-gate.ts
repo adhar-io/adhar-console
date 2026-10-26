@@ -245,6 +245,12 @@ export function regressions(deltas: MetricDelta[]): MetricDelta[] {
 
 /* ─────────────────────────── the gate ─────────────────────────── */
 
+/**
+ * Why a run has no p99: k6 prints `p(99)` only when asked (summaryTrendStats).
+ * Every run the console starts asks (k6-trend-stats.ts); older ones did not.
+ */
+export const P99_NOT_RECORDED = 'not recorded — k6 reports p99 only when asked, and this run predates the console requesting it; run the test again to record it'
+
 export interface GateCheck {
   id: string
   label: string
@@ -269,8 +275,8 @@ export interface GateVerdict {
  *
  * A limit on a metric the run did not report FAILS: a gate that passes
  * because the number it guards was never measured is not a gate. The UI
- * says why (e.g. p99 needs `summaryTrendStats`), the runner script does
- * the same.
+ * says why (a run from before the console requested p(99) has none), the
+ * runner script does the same.
  */
 export function evaluateGate(input: {
   metrics?: RunMetrics
@@ -321,13 +327,13 @@ export function evaluateGate(input: {
     const v = m[key] as number | undefined
     const label = `${metricDef(key).label} ≤ ${fmtMetric(key, limit)}`
     if (v === undefined) {
-      checks.push({ id, label, passed: false, detail: `not reported by this run${hint ? ` — ${hint}` : ''}` })
+      checks.push({ id, label, passed: false, detail: hint ?? 'not reported by this run' })
       return
     }
     checks.push({ id, label, passed: v <= limit, detail: `${fmtMetric(key, v)} vs ${fmtMetric(key, limit)}` })
   }
   ceiling('p95', 'p95Ms', gate.p95Ms)
-  ceiling('p99', 'p99Ms', gate.p99Ms, 'add "p(99)" to summaryTrendStats in the script options')
+  ceiling('p99', 'p99Ms', gate.p99Ms, P99_NOT_RECORDED)
   ceiling('avg', 'avgMs', gate.avgMs)
   ceiling('errors', 'errorRatePct', gate.errorRatePct)
 

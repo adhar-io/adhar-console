@@ -79,14 +79,27 @@ Deno.test('queries select the app pods, escape label values and cover every metr
   const q = runMetricQueries({ namespace: 'shop-test', podRegex: podRegexForApp('cart.v2') })
   assertEquals(q.map((x) => x.id), ['rps', 'errors', 'p95', 'ready', 'restarts', 'cpu', 'memory'])
   for (const x of q) assert(x.query.includes('namespace="shop-test"'))
-  assert(q[0].query.includes('pod=~"cart\\\\.v2-[a-z0-9]+-[a-z0-9]+"'))
+  assert(q[0].query.includes('pod=~"cart\\\\.v2-[a-z0-9]{1,10}-[a-z0-9]{5}"'))
   assert(runMetricQueries({ namespace: 'a"b', podRegex: 'x' })[0].query.includes('namespace="a\\"b"'))
 })
 
 Deno.test('pod regex from live pods follows the controller, not the pod', () => {
-  assertEquals(podRegexFromPods([{ name: 'cart-7d9f8-abcde', templateHash: '7d9f8' }, { name: 'cart-7d9f8-zzzzz', templateHash: '7d9f8' }]), 'cart-[a-z0-9]+-[a-z0-9]+')
-  assertEquals(podRegexFromPods([{ name: 'db-0' }, { name: 'web-5c-x1', templateHash: '5c' }]), '(db-[a-z0-9]+|web-[a-z0-9]+-[a-z0-9]+)')
+  assertEquals(podRegexFromPods([{ name: 'cart-7d9f8-abcde', templateHash: '7d9f8' }, { name: 'cart-7d9f8-zzzzz', templateHash: '7d9f8' }]), 'cart-[a-z0-9]{1,10}-[a-z0-9]{5}')
+  assertEquals(podRegexFromPods([{ name: 'db-0' }, { name: 'web-5c-x1', templateHash: '5c' }]), '(db-[0-9]+|web-[a-z0-9]{1,10}-[a-z0-9]{5})')
   assertEquals(podRegexFromPods([]), undefined)
+})
+
+Deno.test('an app\'s pod regex matches its ReplicaSet pods and not the database or cache beside it', () => {
+  // Pod names from the cluster's `test` namespace.
+  const re = new RegExp(`^${podRegexForApp('transaction-service')}$`)
+  assert(re.test('transaction-service-768b949dbd-787ph'))
+  assert(re.test('transaction-service-768b949dbd-c29nn'))
+  assert(!re.test('transaction-service-db-1'))
+  assert(!re.test('transaction-service-cache-68d6bd4df5-t7fxc'))
+  assert(!re.test('transaction-service-events-kafka-exporter-dd7b89dd6-r8hxs'))
+  const fromPods = new RegExp(`^${podRegexFromPods([{ name: 'transaction-service-768b949dbd-787ph', templateHash: '768b949dbd' }])}$`)
+  assert(fromPods.test('transaction-service-5f6d7c8b9-abcde'))
+  assert(!fromPods.test('transaction-service-db-1'))
 })
 
 const LOG = [

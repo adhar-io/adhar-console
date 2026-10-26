@@ -36,7 +36,7 @@ import { formatAdrNumber } from '../data/adr.ts'
 import { GenerateDiagramModal, RegenerateModal } from '../components/diagram-platform.tsx'
 import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
 import { EntityChips, EntityPickerModal } from '../components/catalog-bits.tsx'
-import { DesignScopeBar, ScopeChip, ScopeFields } from '../components/scope-bits.tsx'
+import { ScopeChip, ScopeFields } from '../components/scope-bits.tsx'
 import { CommitToRepoModal } from '../components/git-dialogs.tsx'
 import { PrBadge } from '../components/work-bits.tsx'
 
@@ -266,8 +266,6 @@ export function Diagrams() {
           </Button>
         </div>
       </div>
-
-      <DesignScopeBar scope={scope} shown={scoped.length} total={list.length} noun="diagrams" />
       {list.length === 0
         ? (
           <EmptyState

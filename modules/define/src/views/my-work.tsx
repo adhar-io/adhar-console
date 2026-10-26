@@ -10,7 +10,7 @@ import { DAY, endOfDay, isOpen, isOverdue, startOfDay, toMs, type WorkItem } fro
 import { OPEN_CATEGORIES, useDefineParams, useSetDefineParams } from '../data/insights-nav.ts'
 import { MENTION_SCAN_LIMIT, useMentionScan, useRecentlyViewed, useWatchList } from '../data/my-work.ts'
 import { useAllPages } from '../data/pages-store.ts'
-import { ConsoleSideBadge, Loading, PriorityMark, SourceNote, UpdatedAgo } from '../components/insights-ui.tsx'
+import { ConsoleSideBadge, Loading, PriorityMark, SourceNote } from '../components/insights-ui.tsx'
 
 /**
  * My Work — a personal inbox across every project (capped), matched to the
@@ -77,8 +77,7 @@ export function MyWork() {
           {scope.capped ? ` (first ${scope.projects.length} of ${scope.total})` : ''}
         </span>
         <div className="flex items-center gap-2">
-          <UpdatedAgo at={data.updatedAt} fetching={data.isFetching} />
-          {mine.length ? <Button size="sm" onClick={() => drill.issues({ assignee: 'me', statusCategory: OPEN_CATEGORIES })}>Open in Issues</Button> : null}
+            {mine.length ? <Button size="sm" onClick={() => drill.issues({ assignee: 'me', statusCategory: OPEN_CATEGORIES })}>Open in Issues</Button> : null}
         </div>
       </div>
       {err ? <SourceNote kind={err.kind} message={err.message} /> : null}

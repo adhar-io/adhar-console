@@ -42,7 +42,7 @@ import { scopeFilter, type Scoped } from '../data/scope.ts'
 import { CatalogApis, ClientPanel, RepoPanel } from '../components/api-platform.tsx'
 import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
 import { EntityChip } from '../components/catalog-bits.tsx'
-import { DesignScopeBar, ScopeChip, ScopeModal } from '../components/scope-bits.tsx'
+import { ScopeChip, ScopeModal } from '../components/scope-bits.tsx'
 import { designHref } from '../data/deep-link.ts'
 
 /**
@@ -322,7 +322,6 @@ export function ApiSchemas() {
           <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
         </div>
       </div>
-      <DesignScopeBar scope={scope} shown={scoped.length} total={list.length} noun="specs" />
 
       {list.length === 0
         ? (

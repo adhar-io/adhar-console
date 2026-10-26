@@ -44,7 +44,7 @@ import {
 } from '../data/insights-math.ts'
 import { cfd, timelineFromDays } from '../data/insights-snapshot.ts'
 import { defineLink, OPEN_CATEGORIES, useDefineParams, useSetDefineParams } from '../data/insights-nav.ts'
-import { ItemRow, Loading, MiniSelect, Provenance, SourceNote, Stat, StateChip, UpdatedAgo, useGroupColor } from '../components/insights-ui.tsx'
+import { ItemRow, Loading, MiniSelect, Provenance, SourceNote, Stat, StateChip, useGroupColor } from '../components/insights-ui.tsx'
 import { fmtDay, GroupedBars, LineChart, Meter, RankBars, Scatter, StackedArea, useSeriesColor } from '../components/insights-viz.tsx'
 
 /**
@@ -132,7 +132,6 @@ export function Reports({ projectId }: { projectId?: string }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <FilterRow data={data} filters={filters} onChange={setFilters} />
-        <UpdatedAgo at={data.updatedAt} fetching={data.isFetching} />
       </div>
       {err ? <SourceNote kind={err.kind} message={err.message} /> : null}
       <Tabs

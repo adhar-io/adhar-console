@@ -5,9 +5,7 @@ import {
   EmptyState,
   Modal,
   StatusBadge,
-  TeamScopeBar,
   useCan,
-  useTeamScope,
   useToast,
 } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
@@ -42,12 +40,11 @@ export function Projects() {
   const [editing, setEditing] = useState<WsProject | null>(null)
   const [pendingDelete, setPendingDelete] = useState<WsProject | null>(null)
 
-  // The active team is a lens over this list, not a permission boundary — the
-  // bar below says what is hidden and offers the way out. A project belongs to
-  // a team through its own `teams` field, so the filter is a direct read.
-  const { team, filtering } = useTeamScope()
-  const everything = q.data ?? []
-  const all = filtering ? everything.filter((p) => (p.teams ?? []).includes(team)) : everything
+  // This is the organization's project register (an admin settings page titled
+  // "All projects"), so the active-team lens does not narrow it: hiding
+  // projects here, with nothing on the page saying so, would read as missing
+  // data. Each row's Teams column shows ownership.
+  const all = q.data ?? []
 
   const openCreate = () => {
     setEditing(null)
@@ -75,7 +72,6 @@ export function Projects() {
         <StoreErrorState error={q.error} retry={() => q.refetch()} />
       ) : (
         <>
-          <TeamScopeBar team={team} shown={all.length} total={everything.length} noun="projects" />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile label="Projects" value={q.isLoading ? '…' : all.length} />
             <StatTile label="With repo" value={all.filter((p) => p.primaryRepo).length} />

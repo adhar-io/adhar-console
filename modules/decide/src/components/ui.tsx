@@ -1,6 +1,6 @@
 import type { MouseEvent, ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
-import { Select, TeamScopeBar } from '@adhar/shell-ui'
+import { Select } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { type Band, BAND_LABEL } from '../data/dora-model.ts'
 import type { SourceStatus } from '../data/dora.ts'
@@ -273,7 +273,6 @@ export function ScopeRow({ scope, ranges, range, onRange, children }: {
         />
         {children}
       </div>
-      <TeamScopeBar team={scope.team} shown={scope.projects.length} total={scope.total} noun="projects" />
     </div>
   )
 }

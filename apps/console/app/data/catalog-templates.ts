@@ -87,6 +87,8 @@ export type TemplateLanguage =
 
 export type TemplateFamily =
   | 'service'
+  /** A serverless Function (Knative, scale-to-zero) — managed under Develop → Functions. */
+  | 'function'
   | 'website'
   | 'library'
   | 'api'
@@ -1635,6 +1637,7 @@ export interface GiteaTemplateStatus {
 
 const VALID_FAMILIES = new Set<string>([
   'service',
+  'function',
   'website',
   'library',
   'api',

@@ -49,7 +49,7 @@ export interface Organization {
   createdBy?: string
 }
 
-interface Registry {
+export interface Registry {
   orgs: Organization[]
   activeId: string
   /**
@@ -171,8 +171,21 @@ export async function organizationForTenant(
   userId: string,
   tenantId: string,
 ): Promise<Organization | undefined> {
-  const reg = await readRegistry(userId, tenantId).catch(() => null)
-  return reg?.orgs.find((o) => o.id === tenantId)
+  return controlPlaneOrg(await readRegistry(userId, tenantId).catch(() => null), tenantId)
+}
+
+/**
+ * The organisation a tenant's Team XRs may name — never the seed placeholder,
+ * never a reserved slug. The Organisation backfill already refused both; the
+ * TEAM backfill (and team creation) took the slug from here unchecked, so a
+ * console with no registry yet created Team `default-platform` for an
+ * organisation `default` that exists nowhere: its Gitea-team Job failed every
+ * twelve minutes on "organisation default not in Gitea yet" (2026-10-25).
+ */
+export function controlPlaneOrg(reg: Registry | null, tenantId: string): Organization | undefined {
+  if (!reg || reg.seeded) return undefined
+  const org = reg.orgs.find((o) => o.id === tenantId)
+  return org && !RESERVED_ORG_SLUGS.has(org.slug) ? org : undefined
 }
 
 async function readRegistry(userId: string, fallbackActive: string): Promise<Registry | null> {

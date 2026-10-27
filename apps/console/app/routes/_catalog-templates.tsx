@@ -55,6 +55,7 @@ import {
 
 const FAMILY_LABEL: Record<string, string> = {
   service: 'Backend services',
+  function: 'Functions (serverless)',
   website: 'Frontends & websites',
   library: 'Shared libraries',
   api: 'API contracts',
@@ -66,6 +67,7 @@ const FAMILY_LABEL: Record<string, string> = {
 
 const FAMILY_ORDER = [
   'service',
+  'function',
   'website',
   'library',
   'api',
@@ -75,7 +77,12 @@ const FAMILY_ORDER = [
   'infra',
 ] as const
 
-export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
+/**
+ * `initialFamily` pre-filters the list (`/catalog?section=create&family=function`
+ * — Develop → Functions' "New function"). An unknown family falls back to all,
+ * so a stale link never opens on an empty list.
+ */
+export function CatalogTemplates({ onCreated, initialFamily }: { onCreated(): void; initialFamily?: string }) {
   // Reactive snapshot — re-renders when the user registers a new template
   // via the modal (or removes one).
   const templates = useSyncExternalStore(
@@ -88,7 +95,9 @@ export function CatalogTemplates({ onCreated }: { onCreated(): void }) {
   useEffect(() => {
     loadGiteaTemplates()
   }, [])
-  const [familyFilter, setFamilyFilter] = useState<string>('all')
+  const [familyFilter, setFamilyFilter] = useState<string>(() =>
+    initialFamily && (FAMILY_ORDER as readonly string[]).includes(initialFamily) ? initialFamily : 'all'
+  )
   const [langFilter, setLangFilter] = useState<TemplateLanguage | 'all'>('all')
   const [text, setText] = useState<string>('')
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -844,6 +853,7 @@ function TemplateDetail({
                 </div>
                 <div className="mt-1 font-mono text-[11px] text-content-subtle">
                   produces {template.produces.kind.toLowerCase()}:{String(template.produces.type)}
+                  {template.family === 'function' ? ' · serverless Function in every environment (scale-to-zero)' : null}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -1641,6 +1651,7 @@ function ScaffoldWizard({
       description={
         <span className="font-mono text-[11px]">
           produces {template.produces.kind.toLowerCase()}:{String(template.produces.type)}
+          {template.family === 'function' ? ' · a Function (Knative, scale-to-zero) in each environment' : null}
         </span>
       }
       width="xl"
@@ -1682,7 +1693,13 @@ function ScaffoldWizard({
         {stage === 'review' && <ReviewStep template={template} values={values} />}
         {stage === 'run' && run && <RunStep template={template} run={run} />}
         {stage === 'success' && registered && (
-          <SuccessStep entity={registered} onOpenCatalog={onComplete} />
+          <SuccessStep
+            entity={registered}
+            onOpenCatalog={onComplete}
+            functionsHref={template.family === 'function'
+              ? `/develop?section=functions&app=${encodeURIComponent(registered.metadata.name)}`
+              : undefined}
+          />
         )}
       </div>
     </Modal>
@@ -2327,9 +2344,12 @@ function RunStep({ template, run }: { template: CatalogTemplate; run: ScaffoldRu
 function SuccessStep({
   entity,
   onOpenCatalog,
+  functionsHref,
 }: {
   entity: Entity
   onOpenCatalog(): void
+  /** A function template: where its Functions are managed once it deploys. */
+  functionsHref?: string
 }) {
   const ann = entity.metadata.annotations ?? {}
   const repoUrl = ann['adhar.io/git-repo']
@@ -2363,6 +2383,7 @@ function SuccessStep({
             {appName ? (
               <OutputLink href="/deliver?section=apps" label={`GitOps app · ${appName}`} />
             ) : null}
+            {functionsHref ? <OutputLink href={functionsHref} label="Manage in Functions" /> : null}
             <button
               type="button"
               onClick={onOpenCatalog}
@@ -2662,6 +2683,7 @@ function IconTrash() {
 
 const FAMILY_OPTIONS: { value: TemplateFamily; label: string }[] = [
   { value: 'service', label: 'Service' },
+  { value: 'function', label: 'Function (serverless)' },
   { value: 'website', label: 'Website / Frontend' },
   { value: 'library', label: 'Library' },
   { value: 'api', label: 'API' },

@@ -18,20 +18,12 @@
 /** Scaffolds land in the first environment of the promotion chain. */
 export const SCAFFOLD_ENVIRONMENT = 'dev'
 
-/** `<name>.<env>.<base>`; the base is the platform domain with no port. */
-export function platformRouteHost(name: string, environment: string, baseDomain: string): string {
-  const base = baseDomain.replace(/:\d+$/, '').replace(/^\.+|\.+$/g, '')
-  // `<app>.test.test.<zone>` is a name Let's Encrypt refuses (repeated label)
-  // and the Gateway omits that listener; `<app>-test.<zone>` sits under the
-  // host's own wildcard instead, so the environment stays reachable.
-  if (environmentRepeatsHostLabel(environment, base)) return `${name}-${environment}.${base}`
-  return `${name}.${environment}.${base}`
-}
-
-export function environmentRepeatsHostLabel(environment: string, base: string): boolean {
-  const first = base.toLowerCase().split('.')[0]
-  return first !== '' && first === environment.toLowerCase()
-}
+/**
+ * `<name>.<env>.<base>` (or `<name>-<env>.<base>` when `<env>` is the base's
+ * first label). The rule lives in `@adhar/utils` so the browser modules
+ * (Develop → Functions) derive the same host the scaffolder writes.
+ */
+export { environmentRepeatsHostLabel, platformRouteHost } from '@adhar/utils'
 
 /**
  * Parse a `customHostnames` parameter: comma/space/newline separated, or

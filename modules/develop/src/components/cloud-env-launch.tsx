@@ -8,6 +8,7 @@ import {
   coderClient,
   editorOf,
   ensureRepoWorkspace,
+  gitLink,
   ideSessionUrl,
   type IdeKind,
   mainAgent,
@@ -194,6 +195,33 @@ export function CloudEnvLaunch({ repo, cloneUrl, compact = false, className }: C
     const step = (title: string, description?: string) => toast.loading(title, { id: tid, description })
     setBusy(ide)
     try {
+      // Gitea first. A private repository clones only with the person's own
+      // Gitea link; without one the workspace's `git clone` waits on a prompt
+      // nobody sees and the IDE opened on an empty folder. The link is a
+      // redirect chain, not a form: Gitea signs in through Keycloak and skips
+      // its consent page (coder/manifests/gitea-external-auth.yaml).
+      if (cloneUrl) {
+        const link = await gitLink('gitea').catch(() => null)
+        if (link?.configured && !link.authenticated) {
+          if (!tab || tab.closed) {
+            toast.warning('Link your Gitea account first', {
+              id: tid,
+              description: 'Cloud environments clone your repositories with it. Link it, then open the repository again.',
+              action: { label: 'Link Gitea', onClick: () => globalThis.open(link.startUrl, '_blank', 'noopener') },
+            })
+            return
+          }
+          step('Linking your Gitea account', 'Once per person — your environments clone repositories with it.')
+          tab.location.replace(link.startUrl)
+          let linked = false
+          for (let i = 0; i < 60 && !linked; i++) {
+            await sleep(2_000)
+            linked = Boolean((await gitLink('gitea').catch(() => null))?.authenticated)
+          }
+          if (!linked) throw new Error('Gitea is not linked yet. Finish the sign-in in the new tab, then open the repository again.')
+        }
+      }
+
       let w: coder.Workspace | undefined = workspace
       if (!w) {
         if (!cloneUrl) throw new Error('This repository has no clone URL to check out.')

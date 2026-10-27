@@ -8,6 +8,8 @@ import { CatalogTemplates } from './_catalog-templates.tsx'
 
 const SearchSchema = z.object({
   section: z.enum(['browse', 'create']).optional(),
+  /** Create New: open pre-filtered to one template family (`function` from Develop → Functions). */
+  family: z.string().optional(),
   kind: z.string().optional(),
   q: z.string().optional(),
   // Shareable / back-button-friendly browse state.
@@ -76,10 +78,11 @@ function CatalogPage() {
     >
       {isCreate ? (
         <CatalogTemplates
+          initialFamily={search.family}
           onCreated={() =>
             void navigate({
               to: '/catalog',
-              search: (prev) => ({ ...prev, section: undefined }),
+              search: (prev) => ({ ...prev, section: undefined, family: undefined }),
             })
           }
         />

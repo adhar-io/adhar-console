@@ -282,6 +282,92 @@ export async function handleCoderIdentity(req: Request): Promise<Response> {
   }
 }
 
+/* ───────── external auth: the person's Gitea link inside Coder ───────── */
+
+/** What the browser needs to know about one Coder external-auth provider. */
+export interface ExternalAuthStatus {
+  provider: string
+  /** False when this Coder has no such provider — nothing to link, nothing to wait for. */
+  configured: boolean
+  authenticated: boolean
+  displayName?: string
+  /**
+   * Opening this in the person's browser starts the link: Coder's
+   * `/external-auth/<id>/callback` without a `code` redirects to the provider
+   * (and back), signing the person in to Coder first if needed.
+   */
+  startUrl: string
+}
+
+export function externalAuthStatus(
+  provider: string,
+  coderStatus: number,
+  body: { authenticated?: boolean; display_name?: string } | null,
+  publicBase: string,
+): ExternalAuthStatus {
+  const startUrl = `${publicBase}/external-auth/${provider}/callback?redirect=${encodeURIComponent(`/external-auth/${provider}`)}`
+  if (coderStatus === 404) return { provider, configured: false, authenticated: false, startUrl }
+  return { provider, configured: true, authenticated: Boolean(body?.authenticated), displayName: body?.display_name, startUrl }
+}
+
+/** Short-lived keys minted for a person, reused while they last (polling must not mint one per call). */
+const userKeys = new Map<string, { key: string; expires: number }>()
+
+async function userKey(req: Request, owner: string): Promise<string> {
+  const cached = userKeys.get(owner)
+  if (cached && cached.expires - Date.now() > 30_000) return cached.key
+  const minted = await coder<{ key: string }>(req, `/api/v2/users/${encodeURIComponent(owner)}/keys`, {
+    method: 'POST',
+    body: { lifetime: `${KEY_LIFETIME_SECONDS}s` },
+  })
+  if (!minted.key) throw new Error('Coder minted no key')
+  userKeys.set(owner, { key: minted.key, expires: Date.now() + KEY_LIFETIME_SECONDS * 1000 })
+  return minted.key
+}
+
+/**
+ * `GET /api/coder/external-auth?provider=gitea` — has the person linked Gitea
+ * in Coder? Asked AS the person (a key minted for them): the console's own
+ * Coder identity has its own links, and answering with those said "linked" for
+ * everyone. A workspace's first `git clone` of a private repository otherwise
+ * waits on GIT_ASKPASS for a link nobody was shown, and the IDE opened on an
+ * empty folder (2026-10-27).
+ */
+export async function handleCoderExternalAuth(req: Request): Promise<Response> {
+  if (req.method !== 'GET') return new Response('Method Not Allowed', { status: 405 })
+  const auth = await getRequestUser(req)
+  const provider = new URL(req.url).searchParams.get('provider') || 'gitea'
+  if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(provider)) {
+    return withCookie(Response.json({ error: 'invalid_provider' }, { status: 400 }), auth?.refreshedCookie)
+  }
+  let identity: CoderIdentity
+  try {
+    identity = await resolveCoderIdentity(req)
+  } catch (e) {
+    return withCookie(Response.json({ error: 'coder_unreachable', detail: e instanceof Error ? e.message : String(e) }, { status: 502 }), auth?.refreshedCookie)
+  }
+  if (!identity.owner) {
+    return withCookie(Response.json({ error: 'no_coder_account', detail: identity.reason }, { status: 403 }), auth?.refreshedCookie)
+  }
+  const internal = (getTool('coder')?.baseUrl ?? '').replace(/\/$/, '')
+  try {
+    const key = await userKey(req, identity.owner)
+    const res = await fetch(`${internal}/api/v2/external-auth/${provider}`, {
+      headers: { accept: 'application/json', 'Coder-Session-Token': key },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (res.status === 401) userKeys.delete(identity.owner)
+    if (!res.ok) {
+      await res.body?.cancel()
+      if (res.status !== 404) throw new Error(`Coder ${res.status}`)
+    }
+    const body = res.ok ? (await res.json()) as { authenticated?: boolean; display_name?: string } : null
+    return withCookie(Response.json(externalAuthStatus(provider, res.status, body, coderPublicUrl())), auth?.refreshedCookie)
+  } catch (e) {
+    return withCookie(Response.json({ error: 'coder_unreachable', detail: e instanceof Error ? e.message : String(e) }, { status: 502 }), auth?.refreshedCookie)
+  }
+}
+
 interface WorkspaceApp {
   slug: string
   external?: boolean

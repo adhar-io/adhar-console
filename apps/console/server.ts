@@ -38,10 +38,11 @@ import { handleScorecardFix } from './app/server/scorecard-fix.ts'
 import { handleEntityRoutes } from './app/server/entity-routes.ts'
 import { handleTeardown } from './app/server/teardown.ts'
 import { handleAppDelete } from './app/server/app-delete.ts'
+import { handleFunctionInvoke } from './app/server/function-invoke.ts'
 import { handleResilienceRuns } from './app/server/resilience-runs.ts'
 import { handleResilienceReports, startResilienceReports } from './app/server/resilience-reports.ts'
 import { handleScanSecurity } from './app/server/scan-waivers.ts'
-import { handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
+import { handleCoderExternalAuth, handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
 import { handleSupportApi } from './app/server/support/handlers.ts'
 import { handleListTeams } from './app/server/teams.ts'
@@ -376,6 +377,7 @@ async function route(req: Request): Promise<Response> {
   // authenticated URL for opening an IDE in the browser.
   if (path === '/api/coder/identity') return handleCoderIdentity(req)
   if (path === '/api/coder/ide-session') return handleCoderIdeSession(req)
+  if (path === '/api/coder/external-auth') return handleCoderExternalAuth(req)
 
   // Backing-tool proxy: /api/svc/<tool>/<upstream path...>
   const svc = path.match(/^\/api\/svc\/([^/]+)(?:\/(.*))?$/)
@@ -457,6 +459,10 @@ async function route(req: Request): Promise<Response> {
   // (Crossplane removes the Argo CD apps and composed resources), then,
   // optionally, its Gitea repository. RBAC-gated server-side (delete applications.console.adhar.io).
   if (path === '/api/apps/delete') return handleAppDelete(req)
+
+  // Develop → Functions "Invoke": call a Function server-side as the signed-in
+  // user (RBAC: get functions.platform.adhar.io), never from the browser.
+  if (path === '/api/functions/invoke') return handleFunctionInvoke(req)
 
   // Scan waivers (request → review → ConfigMap the CI/runtime enforce), scan
   // policy, and the manual scan gate on paused PipelineRuns. RBAC-gated

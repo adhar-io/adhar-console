@@ -8,11 +8,18 @@ import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 import { defaultImage, generateGoldenPathFiles, isGoldenPathFamily } from './golden-paths.ts'
 import type { GoldenPathFamily } from './golden-paths.ts'
 import { parseYaml } from './yaml-lite.ts'
-import { templatesLocation } from './templates.ts'
+import { inferFamily, templateFamilyOf, templatesLocation } from './templates.ts'
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 import { platformDomain, toolPublicUrl, toPublicToolUrl } from './domain.ts'
 import { platformRouteHost, routeHostnames, SCAFFOLD_ENVIRONMENT } from './scaffold-hosts.ts'
-import { applicationManifest, applyApplication, dashboardTypeOf, type DashboardType, DEFAULT_PROJECT } from './control-plane.ts'
+import {
+  applicationManifest,
+  applyApplication,
+  dashboardTypeOf,
+  type DashboardType,
+  DEFAULT_PROJECT,
+  type Workload,
+} from './control-plane.ts'
 
 /**
  * Component scaffolder — the real GitOps engine behind Catalog → Create.
@@ -349,6 +356,9 @@ async function scaffold(
   // Which per-type Grafana dashboard the Application gets (read from the
   // template below, stamped on the XR at registration).
   let dashboardType: DashboardType | undefined
+  // The template itself, once read: whether it scaffolds a Function is decided
+  // from it (scaffoldWorkload), not from the wizard's copy.
+  let templateDoc: unknown = null
 
   /* ── 2. render + commit the template skeleton ── */
   if (isBackstage) {
@@ -361,6 +371,7 @@ async function scaffold(
       const tplRes = await gitea_api(`${rawBase}/${templatePath}/template.yaml`)
       if (!tplRes.ok) throw new Error(`template.yaml ${tplRes.status}`)
       doc = parseYaml(await tplRes.text())
+      templateDoc = doc
       dashboardType = dashboardTypeOf(doc)
       const dir = skeletonDir(doc)
       skelPrefix = `${templatePath}/${dir}/`
@@ -553,6 +564,7 @@ async function scaffold(
 
   /* ── 3. GitOps: deploy starter + Argo CD Application (as the user) ── */
   let appName: string | undefined
+  let workload: Workload | undefined
   if (sc.gitops) {
     // Seed an empty Kustomization stub only when nothing actually filled deploy/.
     //
@@ -589,14 +601,18 @@ async function scaffold(
     // was created, so no scaffolded app ever got its Application (2026-10-18).
     const requested = (body.params ?? {}) as Record<string, unknown>
     const project = typeof requested.project === 'string' && requested.project.trim() ? requested.project.trim() : DEFAULT_PROJECT
-    // A frontend / fullstack template's app is `type: web` (applicationTypeOf).
-    const outcome = await applyApplication(applicationManifest({ name, project, repoUrl: cloneUrl, path: manifestPath, dashboardType }))
+    // A frontend / fullstack template's app is `type: web`, a function
+    // template's `type: function` + adhar.io/workload (applicationTypeOf).
+    workload = scaffoldWorkload(templateDoc, body)
+    const outcome = await applyApplication(applicationManifest({ name, project, repoUrl: cloneUrl, workload, path: manifestPath, dashboardType }))
     appName = outcome.ok ? name : undefined
     step({
       name: 'gitops-app',
       ok: outcome.ok,
       detail: outcome.ok
-        ? `Application ${name} in project ${project}: dev → test promote automatically, prod on release`
+        ? workload === 'function'
+          ? `Application ${name} (function) in project ${project}: a Function in each environment from ${manifestPath}/envs/<env>, scale-to-zero; dev → test promote automatically, prod on release`
+          : `Application ${name} in project ${project}: dev → test promote automatically, prod on release`
         : `Application ${name}: ${outcome.detail ?? 'control plane refused the write'}`,
     })
   }
@@ -610,10 +626,32 @@ async function scaffold(
       cloneUrl,
       catalogInfoPath,
       appName,
+      ...(workload ? { workload } : {}),
       steps,
     }),
     auth.refreshedCookie,
   )
+}
+
+/* ─────────────── what the scaffold deploys ─────────────── */
+
+/**
+ * The workload a scaffolded app deploys. A function template (tagged
+ * `function`, or named `function-*`) becomes an Application of type
+ * `function`, which the control plane deploys as a Function per environment.
+ *
+ * The template's own `template.yaml` decides. The wizard's copy of it (the
+ * request's templateId + tags) is only consulted when the template could not
+ * be read — before this, every function template was registered as a
+ * `service` and nothing ever composed a Function for it (test-func, 2026-10-26).
+ */
+export function scaffoldWorkload(
+  templateDoc: unknown,
+  request: { templateId?: string; tags?: string[] } = {},
+): Workload | undefined {
+  const family = (templateDoc ? templateFamilyOf(templateDoc) : undefined) ??
+    inferFamily(request.templateId ?? '', Array.isArray(request.tags) ? request.tags.map(String) : [])
+  return family === 'function' ? 'function' : undefined
 }
 
 /* ─────────────── template source resolution ─────────────── */

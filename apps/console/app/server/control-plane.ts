@@ -134,15 +134,34 @@ export function dashboardTypeOf(templateDoc: unknown): DashboardType | undefined
  * placement): it is the platform's word for "this has pages", read by the
  * composition's dashboard inference and by the Visual Designer's list of apps
  * to open. Until 2026-10-27 every console-scaffolded React app was a `service`.
+ *
+ * A function template's app is `function` whatever its dashboard says: the
+ * Application composition then deploys a Function XR per environment from
+ * `deploy/envs/<env>` (Knative, scale-to-zero) instead of a Rollout.
  */
-export function applicationTypeOf(dashboardType: DashboardType | undefined): 'web' | undefined {
+export function applicationTypeOf(
+  dashboardType: DashboardType | undefined,
+  workload?: Workload,
+): 'web' | 'function' | undefined {
+  if (workload === 'function') return 'function'
   return dashboardType === 'frontend' || dashboardType === 'fullstack' ? 'web' : undefined
 }
 
+/** What a scaffolded application deploys, when it is not an ordinary container service. */
+export type Workload = 'function'
+
+/**
+ * Says what an Application deploys (`function`), so lists — Develop →
+ * Functions among them — can tell a function app apart from a service. A
+ * label, like the dashboard type, so it survives a control plane whose XRD
+ * still refuses `type: function` (applyApplication drops `type` there).
+ */
+export const WORKLOAD_LABEL = 'adhar.io/workload'
+
 export function applicationManifest(
-  app: { name: string; project: string; repoUrl: string; path?: string; dashboardType?: DashboardType },
+  app: { name: string; project: string; repoUrl: string; path?: string; dashboardType?: DashboardType; workload?: Workload },
 ): XrManifest {
-  const type = applicationTypeOf(app.dashboardType)
+  const type = applicationTypeOf(app.dashboardType, app.workload)
   return {
     apiVersion: PLATFORM_API_VERSION,
     kind: 'Application',
@@ -157,6 +176,7 @@ export function applicationManifest(
         // A label rather than spec.parameters.dashboard: it is accepted by an
         // older, strict XRD too, and the composition reads it second.
         ...(app.dashboardType ? { 'adhar.io/dashboard-type': app.dashboardType } : {}),
+        ...(app.workload ? { [WORKLOAD_LABEL]: app.workload } : {}),
       },
     },
     spec: {
@@ -177,6 +197,11 @@ export function applicationManifest(
  * .spec.parameters.type: field not declared in schema", HTTP 500) and the app
  * would get no Application at all. So that one refusal is retried without the
  * field — the adhar.io/dashboard-type label still says what the app is.
+ *
+ * The same retry covers a control plane whose `type` enum predates `function`
+ * ("spec.parameters.type: Unsupported value: \"function\"", HTTP 422): the app
+ * is created as a default `service` and the adhar.io/workload label keeps
+ * saying it is a function.
  */
 export async function applyApplication(m: XrManifest, token: string | undefined = getK8sServiceToken()): Promise<ApplyOutcome> {
   const out = await applyXr(m, token)

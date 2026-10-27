@@ -1,361 +1,462 @@
-import { useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
+  type Column,
+  CONSOLE_PERMISSIONS,
+  DataTable,
   EmptyState,
-  Field,
-  Input,
-  Modal,
-  Select,
-  Spinner,
+  type Facet,
+  type FacetValues,
+  FilterBar,
+  matchesFacets,
+  matchesQuery,
+  optionsFromItems,
+  PageHeader,
   StatusBadge,
-  useToast,
+  useAccessReview,
+  useActiveNamespace,
+  usePublicBaseDomain,
+  useWatchSignal,
 } from '@adhar/shell-ui'
-import { formatRelative } from '@adhar/utils'
-import { useCreateFunction, useDeleteFunction, useFunctions, useUpdateFunction, type FunctionXR, type NewFunctionInput, type UpdateFunctionInput } from '../data/functions.ts'
+import { cn, formatRelative } from '@adhar/utils'
+import { useDevelopParams, useSetDevelopParams } from '../data/nav.ts'
+import { StatTile } from '../components/list-kit.tsx'
+import {
+  FUNCTIONS_KEY,
+  type FunctionList,
+  useApplications,
+  useFunctionList,
+  useKnativeIndex,
+  useProjects,
+  watchOf,
+} from '../data/functions.ts'
+import {
+  cellFor,
+  environmentColumns,
+  type FunctionCell,
+  type FunctionGroup,
+  FUNCTIONS_GVR,
+  functionUrl,
+  groupFacets,
+  groupFunctions,
+  groupHealth,
+  groupSearchText,
+  HEALTH_BADGE,
+  isServing,
+  LABEL,
+  lastDeployed,
+  parseFunctionRef,
+  PLATFORM_ENVIRONMENTS,
+  PODS_GVR,
+  REVISIONS_GVR,
+  runtimeLabel,
+  scaleView,
+  STATUS_LABEL,
+  triggerLabel,
+} from '../data/functions-model.ts'
+import { FunctionDrawer, type FunctionTab } from './function-drawer.tsx'
 
-const DEFAULT_NAMESPACE = 'adhar-system'
+/**
+ * Develop → Functions — THE place functions are managed.
+ *
+ * Every Function the signed-in user can see, across namespaces, one row per
+ * function with a column per environment (status, revision, scale, URL, last
+ * deploy), kept live by apiserver watches. A row opens the function's drawer:
+ * revisions and traffic, scale, pods and logs, metrics, events, builds,
+ * delivery, invoke, configuration and delete.
+ *
+ * Functions are not created here. "New function" opens Catalog → Create New
+ * on the function templates: a template scaffolds the repository, app-ci
+ * builds it and the control plane deploys a Function into each environment
+ * from the repository's overlays. A form that applied Function XRs directly
+ * produced objects no repository owned, in the platform namespace, that
+ * Argo CD would never reconcile — the inline create form is gone for that
+ * reason.
+ *
+ * Deliver → Functions renders this same component in `delivery` mode (the
+ * drawer opens on Delivery), so there is one table, not two that disagree.
+ */
 
-const RUNTIME_OPTIONS: Array<{ value: NewFunctionInput['runtime']; label: string }> = [
-  { value: 'node20', label: 'Node.js 20' },
-  { value: 'python312', label: 'Python 3.12' },
-  { value: 'go122', label: 'Go 1.22' },
-  { value: 'custom', label: 'Custom' },
-]
+export type FunctionsMode = 'develop' | 'delivery'
 
-const TRIGGER_OPTIONS: Array<{ value: NewFunctionInput['trigger']; label: string }> = [
-  { value: 'http', label: 'HTTP' },
-  { value: 'cloudevent', label: 'CloudEvent' },
-  { value: 'topic', label: 'Topic' },
-  { value: 'bucket', label: 'Bucket' },
-  { value: 'cron', label: 'Cron' },
-]
+const NEW_FUNCTION_HREF = '/catalog?section=create&family=function'
 
-function readyKind(fn: FunctionXR) {
-  const ready = fn.status?.conditions?.find((c) => c.type === 'Ready')?.status
-  if (ready === 'True') return 'healthy'
-  if (ready === 'False') return 'failed'
-  return 'unknown'
+const FACET_LABEL: Record<string, string> = {
+  project: 'Project',
+  team: 'Team',
+  runtime: 'Runtime',
+  trigger: 'Trigger',
+  status: 'Status',
+  environment: 'Environment',
 }
 
-function slugOk(value: string) {
-  return /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(value)
-}
+export function Functions({ mode = 'develop' }: { mode?: FunctionsMode } = {}) {
+  const params = useDevelopParams()
+  const setParams = useSetDevelopParams()
+  const { namespace: shellNamespace } = useActiveNamespace()
+  const baseDomain = usePublicBaseDomain()
+  const projects = useProjects()
+  const apps = useApplications()
 
-function functionUrl(fn: FunctionXR): string | undefined {
-  const raw = fn.status?.url?.trim()
-  if (!raw) return undefined
-  return raw
-}
+  // Where to look when the caller may not list cluster-wide: every project's
+  // environment namespaces, the platform's own environments, and whatever
+  // namespace the shell has selected.
+  const candidates = useMemo(
+    () => [...projects.envNamespaces, ...PLATFORM_ENVIRONMENTS, ...(shellNamespace ? [shellNamespace] : [])],
+    [projects.envNamespaces, shellNamespace],
+  )
+  const listQ = useFunctionList(candidates)
+  const list = listQ.data
+  const index = useKnativeIndex(list)
 
-function toUpdateInput(fn: FunctionXR, namespace: string): UpdateFunctionInput {
-  const p = fn.spec?.parameters
-  return {
-    name: fn.metadata.name,
-    namespace,
-    runtime: (p?.runtime as UpdateFunctionInput['runtime'] | undefined) ?? 'node20',
-    image: p?.image ?? '',
-    trigger: (p?.trigger as UpdateFunctionInput['trigger'] | undefined) ?? 'http',
-    eventSource: p?.eventSource ?? '',
-    minScale: p?.minScale ?? 0,
-    maxScale: p?.maxScale ?? 10,
-    timeoutSeconds: p?.timeoutSeconds ?? 30,
+  const groups = useMemo(
+    () => groupFunctions(list?.items ?? [], { envByNamespace: projects.envByNamespace, applications: apps.data }),
+    [list?.items, projects.envByNamespace, apps.data],
+  )
+  const columns = useMemo(
+    () => environmentColumns(groups, projects.environments.length ? projects.environments : PLATFORM_ENVIRONMENTS),
+    [groups, projects.environments],
+  )
+
+  const scaleOf = (c: FunctionCell) =>
+    scaleView(c.fn, { pods: index.podsUnknown ? undefined : index.pods, serving: isServing(c.state) })
+  const scaledToZero = (c: FunctionCell) => scaleOf(c).scaledToZero
+
+  // `?app=` (the Create New success link) starts the search on that application.
+  const [query, setQuery] = useState(() => params.app ?? '')
+  useEffect(() => {
+    if (params.app) setQuery(params.app)
+  }, [params.app])
+  const [facetValues, setFacetValues] = useState<FacetValues>({})
+
+  const facets = useMemo((): Facet[] => {
+    const all = groups.map((g) => groupFacets(g, scaledToZero))
+    const opts = (id: keyof (typeof all)[number], label?: (v: string) => string) => optionsFromItems(all, (f) => f[id], { label })
+    return ([
+      ['status', (v: string) => STATUS_LABEL[v as keyof typeof STATUS_LABEL] ?? v],
+      ['environment', undefined],
+      ['project', undefined],
+      ['team', undefined],
+      ['runtime', runtimeLabel],
+      ['trigger', (v: string) => triggerLabel([v])],
+    ] as const)
+      .map(([id, label]) => ({ id, label: FACET_LABEL[id], kind: 'multi' as const, options: opts(id, label) }))
+      .filter((f) => f.options.length > 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, index.pods])
+
+  const filtered = useMemo(() => {
+    const accessors = Object.fromEntries(
+      (['project', 'team', 'runtime', 'trigger', 'status', 'environment'] as const).map((id) => [id, (g: FunctionGroup) => groupFacets(g, scaledToZero)[id]]),
+    )
+    return groups.filter((g) => matchesQuery(query, groupSearchText(g)) && matchesFacets(g, facetValues, accessors))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups, query, facetValues, index.pods])
+
+  // Tiles count environments (cells), the unit a person acts on.
+  const cells = groups.flatMap((g) => g.cells)
+  const count = {
+    ready: cells.filter((c) => c.state.health === 'ready').length,
+    deploying: cells.filter((c) => c.state.health === 'deploying').length,
+    failing: cells.filter((c) => c.state.health === 'failed' || c.state.health === 'degraded').length,
+    zero: cells.filter(scaledToZero).length,
   }
-}
-
-export function Functions() {
-  const toast = useToast()
-  const [namespace, setNamespace] = useState(DEFAULT_NAMESPACE)
-  const [editing, setEditing] = useState<UpdateFunctionInput | null>(null)
-  const [testing, setTesting] = useState<string | null>(null)
-  const [testResult, setTestResult] = useState<string>('')
-  const [form, setForm] = useState<NewFunctionInput>({
-    name: '',
-    namespace: DEFAULT_NAMESPACE,
-    runtime: 'node20',
-    image: '',
-    trigger: 'http',
-    eventSource: '',
-    minScale: 0,
-    maxScale: 10,
-    timeoutSeconds: 30,
-  })
-
-  const listQ = useFunctions(namespace, Boolean(namespace))
-  const createM = useCreateFunction()
-  const updateM = useUpdateFunction()
-  const deleteM = useDeleteFunction(namespace)
-
-  const rows = useMemo(() => listQ.data ?? [], [listQ.data])
-  const canCreate = form.name.trim() !== '' && form.image.trim() !== '' && slugOk(form.name.trim())
-
-  const onCreate = async () => {
-    const name = form.name.trim()
-    if (!slugOk(name)) {
-      toast.error('Function name must be a valid Kubernetes name', {
-        description: 'Use lowercase letters, numbers and dashes only.',
-      })
-      return
-    }
-    try {
-      await createM.mutateAsync({ ...form, name, namespace })
-      toast.success(`Created function ${name}`, { description: `Namespace: ${namespace}` })
-      setForm((prev) => ({ ...prev, name: '', eventSource: '' }))
-    } catch (e) {
-      toast.error('Could not create function', { description: e instanceof Error ? e.message : String(e) })
-    }
-  }
-
-  const onDelete = async (fn: FunctionXR) => {
-    try {
-      await deleteM.mutateAsync(fn.metadata.name)
-      toast.success(`Deleted function ${fn.metadata.name}`)
-    } catch (e) {
-      toast.error(`Could not delete ${fn.metadata.name}`, { description: e instanceof Error ? e.message : String(e) })
-    }
-  }
-
-  const onSave = async () => {
-    if (!editing) return
-    try {
-      await updateM.mutateAsync(editing)
-      toast.success(`Updated function ${editing.name}`)
-      setEditing(null)
-    } catch (e) {
-      toast.error(`Could not update ${editing.name}`, { description: e instanceof Error ? e.message : String(e) })
-    }
+  const toggleStatus = (values: string[]) => {
+    const cur = facetValues.status ?? []
+    const on = values.every((v) => cur.includes(v))
+    setFacetValues({ ...facetValues, status: on ? cur.filter((v) => !values.includes(v)) : [...new Set([...cur, ...values])] })
   }
 
-  const onInvoke = async (fn: FunctionXR) => {
-    const url = functionUrl(fn)
-    if (!url) {
-      toast.error(`Function ${fn.metadata.name} has no route URL yet`)
-      return
-    }
-    setTesting(fn.metadata.name)
-    setTestResult('')
-    const ac = new AbortController()
-    const timer = globalThis.setTimeout(() => ac.abort(), 8000)
-    try {
-      const res = await fetch(url, { method: 'GET', signal: ac.signal })
-      const body = await res.text()
-      const contentType = res.headers.get('content-type') ?? ''
-      if (contentType.includes('application/json')) {
-        try {
-          const parsed = JSON.parse(body)
-          setTestResult(JSON.stringify(parsed, null, 2))
-        } catch {
-          setTestResult(body)
-        }
-      } else {
-        setTestResult(body)
-      }
-      toast.success(`Invoked ${fn.metadata.name}`, { description: `${res.status} ${res.statusText}` })
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      setTestResult(`Request failed: ${message}`)
-      toast.error(`Could not invoke ${fn.metadata.name}`, { description: message })
-    } finally {
-      clearTimeout(timer)
-      setTesting(null)
-    }
+  // The open drawer: `?fn=<namespace>/<name>` (deep-linkable), `?tab=`.
+  const open = parseFunctionRef(params.fn)
+  const openGroup = open
+    ? groups.find((g) => g.cells.some((c) => c.fn.metadata.namespace === open.namespace && c.fn.metadata.name === open.name))
+    : params.fn?.startsWith('app:')
+    ? groups.find((g) => g.pendingApp && g.application === params.fn!.slice(4))
+    : undefined
+  const openFn = (g: FunctionGroup, cell?: FunctionCell) => {
+    const target = cell ?? g.cells[0]
+    setParams({ fn: target ? `${target.fn.metadata.namespace}/${target.fn.metadata.name}` : `app:${g.application}`, tab: params.tab })
   }
+
+  const createAccess = useAccessReview(CONSOLE_PERMISSIONS.applicationsCreate)
+  const newFunction = createAccess.allowed
+    ? <a href={NEW_FUNCTION_HREF} className={BUTTON_PRIMARY}>New function</a>
+    : !createAccess.loading
+    ? (
+      <span
+        className={cn(BUTTON_PRIMARY, 'cursor-not-allowed opacity-50')}
+        aria-disabled='true'
+        title='Creating a function needs `create applications.console.adhar.io` — ask a platform admin.'
+      >
+        New function
+      </span>
+    )
+    : null
+
+  const tableColumns = useMemo((): Column<FunctionGroup>[] => [
+    {
+      key: 'function',
+      header: 'Function',
+      pinned: true,
+      value: (g) => g.name,
+      cell: (g) => <FunctionNameCell g={g} />,
+    },
+    {
+      key: 'runtime',
+      header: 'Runtime · trigger',
+      value: (g) => g.runtime ?? '',
+      cell: (g) => (
+        <div className='min-w-0 text-[12px]'>
+          <div className='text-content'>{runtimeLabel(g.runtime)}</div>
+          <div className='text-content-subtle'>{triggerLabel(g.triggers)}</div>
+        </div>
+      ),
+    },
+    ...columns.map((env): Column<FunctionGroup> => ({
+      key: `env:${env}`,
+      header: <span className='capitalize'>{env}</span>,
+      sortable: false,
+      filter: false,
+      cell: (g) => {
+        const cell = cellFor(g, env)
+        if (!cell) return <span className='text-[12px] text-content-subtle' title={`Not deployed to ${env}`}>—</span>
+        return (
+          <EnvCell
+            cell={cell}
+            scale={scaleOf(cell)}
+            revisions={index.revisions}
+            baseDomain={baseDomain}
+            envByNamespace={projects.envByNamespace}
+            onOpen={() => openFn(g, cell)}
+          />
+        )
+      },
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [columns, index.pods, index.revisions, baseDomain, projects.envByNamespace, params.tab])
+
+  const filtering = Boolean(query) || Object.values(facetValues).some((v) => v.length)
+  const loading = listQ.isLoading && !list
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="text-sm font-semibold text-content">Create function</div>
-        </CardHeader>
-        <CardBody className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Field label="Namespace">
-            <Input value={namespace} onChange={(e) => { const ns = e.target.value.trim(); setNamespace(ns); setForm((p) => ({ ...p, namespace: ns })) }} />
-          </Field>
-          <Field label="Function name">
-            <Input value={form.name} placeholder="orders-handler" onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
-          </Field>
-          <Field label="Runtime">
-            <Select value={form.runtime} onChange={(e) => setForm((p) => ({ ...p, runtime: e.target.value as NewFunctionInput['runtime'] }))}>
-              {RUNTIME_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Trigger">
-            <Select value={form.trigger} onChange={(e) => setForm((p) => ({ ...p, trigger: e.target.value as NewFunctionInput['trigger'] }))}>
-              {TRIGGER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field className="md:col-span-2 xl:col-span-2" label="Image">
-            <Input
-              value={form.image}
-              placeholder="harbor.adhar.io/apps/orders-function:latest"
-              onChange={(e) => setForm((p) => ({ ...p, image: e.target.value }))}
-            />
-          </Field>
-          <Field className="md:col-span-2 xl:col-span-2" label="Event source (optional)">
-            <Input value={form.eventSource} placeholder="kafka://orders-events" onChange={(e) => setForm((p) => ({ ...p, eventSource: e.target.value }))} />
-          </Field>
-          <Field label="Min scale">
-            <Input
-              type="number"
-              min={0}
-              value={String(form.minScale)}
-              onChange={(e) => setForm((p) => ({ ...p, minScale: Number(e.target.value || 0) }))}
-            />
-          </Field>
-          <Field label="Max scale">
-            <Input
-              type="number"
-              min={1}
-              value={String(form.maxScale)}
-              onChange={(e) => setForm((p) => ({ ...p, maxScale: Number(e.target.value || 1) }))}
-            />
-          </Field>
-          <Field label="Timeout (seconds)">
-            <Input
-              type="number"
-              min={1}
-              value={String(form.timeoutSeconds)}
-              onChange={(e) => setForm((p) => ({ ...p, timeoutSeconds: Number(e.target.value || 30) }))}
-            />
-          </Field>
-          <div className="md:col-span-2 xl:col-span-1 flex items-end">
-            <Button onClick={onCreate} disabled={!canCreate || createM.isPending}>
-              {createM.isPending ? <span className="inline-flex items-center gap-1"><Spinner size={12} /> Creating…</span> : 'Create Function'}
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
+    <div className='space-y-4'>
+      <PageHeader title='Functions' actions={newFunction} />
+      {list?.scope === 'namespaces' ? <FunctionsLive list={list} /> : null}
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-content">Functions</div>
-            <StatusBadge kind="info">{rows.length}</StatusBadge>
-          </div>
-        </CardHeader>
-        <CardBody className="p-0!">
-          {listQ.isLoading ? (
-            <div className="flex items-center gap-2 px-4 py-5 text-sm text-content-subtle">
-              <Spinner size={12} />
-              Loading functions…
+      {list && !list.installed
+        ? (
+          <EmptyState
+            title='Functions are not available on this cluster'
+            description='The platform’s Function API (functions.platform.adhar.io) is not served here, so there is nothing to list. It ships with the control plane’s function composition.'
+          />
+        )
+        : listQ.isError && !list
+        ? (
+          <EmptyState
+            title='Could not load functions'
+            description={listQ.error instanceof Error ? listQ.error.message : String(listQ.error)}
+            action={<button type='button' className={BUTTON_SECONDARY} onClick={() => listQ.refetch()}>Retry</button>}
+          />
+        )
+        : !loading && groups.length === 0
+        ? <NoFunctions action={newFunction} />
+        : (
+          <>
+            <div className='grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5'>
+              <StatTile label='Functions' value={groups.length} hint={`${cells.length} deployed across ${columns.length} environments`} />
+              <StatTile label='Ready' value={count.ready} tone='emerald' on={(facetValues.status ?? []).includes('ready')} onClick={() => toggleStatus(['ready'])} />
+              <StatTile label='Deploying' value={count.deploying} tone='info' on={(facetValues.status ?? []).includes('deploying')} onClick={() => toggleStatus(['deploying'])} />
+              <StatTile label='Failing' value={count.failing} tone='amber' hint='failed or degraded' on={['failed', 'degraded'].every((s) => (facetValues.status ?? []).includes(s))} onClick={() => toggleStatus(['failed', 'degraded'])} />
+              <StatTile label='Scaled to zero' value={index.podsUnknown ? '—' : count.zero} tone='violet' hint='next request cold-starts' on={(facetValues.status ?? []).includes('scaled-to-zero')} onClick={() => toggleStatus(['scaled-to-zero'])} />
             </div>
-          ) : listQ.isError ? (
-            <EmptyState
-              compact
-              title="Could not load functions"
-              description={listQ.error instanceof Error ? listQ.error.message : String(listQ.error)}
-              action={<Button size="sm" variant="secondary" onClick={() => listQ.refetch()}>Retry</Button>}
+
+            <FilterBar
+              search={{ value: query, onChange: setQuery, placeholder: 'Search functions, applications, images, URLs…', label: 'Search functions' }}
+              facets={facets}
+              values={facetValues}
+              onValuesChange={setFacetValues}
+              loading={loading}
+              refreshing={listQ.isFetching && !loading}
+              summary={
+                <span aria-live='polite'>
+                  {filtered.length} {filtered.length === 1 ? 'function' : 'functions'}
+                  {filtered.length !== groups.length ? ` of ${groups.length}` : ''}
+                </span>
+              }
             />
-          ) : rows.length === 0 ? (
-            <EmptyState
-              compact
-              title="No functions yet"
-              description="Create your first Function XR to deploy a Knative-backed function with scale-to-zero."
+
+            {list?.scope === 'namespaces' && list.denied.length
+              ? (
+                <p className='text-[11px] text-content-subtle'>
+                  Showing functions in the namespaces you can read
+                  {list.namespaces.length > list.denied.length ? ` (${list.namespaces.filter((n) => !list.denied.includes(n)).join(', ')})` : ''}. Not visible to you:{' '}
+                  <span className='font-mono'>{list.denied.join(', ')}</span>.
+                </p>
+              )
+              : null}
+
+            <DataTable
+              columns={tableColumns}
+              rows={filtered}
+              rowKey={(g) => g.key}
+              onRowClick={(g) => openFn(g)}
+              loading={loading}
+              dense
+              empty={
+                filtering
+                  ? <EmptyState compact title='No functions match' description='Nothing matches the search and filters — clear them to see every function.' />
+                  : <NoFunctions action={newFunction} compact />
+              }
             />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-surface-muted text-content-subtle">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium">Name</th>
-                    <th className="px-3 py-2 text-left font-medium">Runtime</th>
-                    <th className="px-3 py-2 text-left font-medium">Trigger</th>
-                    <th className="px-3 py-2 text-left font-medium">Scale</th>
-                    <th className="px-3 py-2 text-left font-medium">Status</th>
-                    <th className="px-3 py-2 text-left font-medium">Age</th>
-                    <th className="px-3 py-2 text-left font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-edge-subtle">
-                  {rows.map((fn) => {
-                    const params = fn.spec?.parameters
-                    return (
-                      <tr key={fn.metadata.name}>
-                        <td className="px-3 py-2 font-medium">{fn.metadata.name}</td>
-                        <td className="px-3 py-2">{params?.runtime ?? '—'}</td>
-                        <td className="px-3 py-2">{params?.trigger ?? 'http'}</td>
-                        <td className="px-3 py-2">{`${params?.minScale ?? 0}–${params?.maxScale ?? 0}`}</td>
-                        <td className="px-3 py-2"><StatusBadge kind={readyKind(fn)}>{readyKind(fn)}</StatusBadge></td>
-                        <td className="px-3 py-2 text-content-subtle">{formatRelative(fn.metadata.creationTimestamp)}</td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-wrap gap-2">
-                            <Button size="xs" variant="secondary" onClick={() => setEditing(toUpdateInput(fn, namespace))}>
-                              Edit
-                            </Button>
-                            <Button size="xs" variant="ghost" onClick={() => void onInvoke(fn)} disabled={testing === fn.metadata.name}>
-                              {testing === fn.metadata.name ? 'Invoking…' : 'Test invoke'}
-                            </Button>
-                            <Button size="xs" variant="danger" onClick={() => onDelete(fn)} disabled={deleteM.isPending}>
-                              Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardBody>
-      </Card>
-      {editing ? (
-        <Modal
-          open
-          onClose={() => setEditing(null)}
-          title={`Edit ${editing.name}`}
-          footer={(
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
-              <Button variant="primary" onClick={() => void onSave()} loading={updateM.isPending}>Save</Button>
-            </div>
-          )}
-        >
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <Field label="Runtime">
-              <Select value={editing.runtime} onChange={(e) => setEditing((p) => (p ? { ...p, runtime: e.target.value as UpdateFunctionInput['runtime'] } : p))}>
-                {RUNTIME_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </Select>
-            </Field>
-            <Field label="Trigger">
-              <Select value={editing.trigger} onChange={(e) => setEditing((p) => (p ? { ...p, trigger: e.target.value as UpdateFunctionInput['trigger'] } : p))}>
-                {TRIGGER_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </Select>
-            </Field>
-            <Field className="md:col-span-2" label="Image">
-              <Input value={editing.image} onChange={(e) => setEditing((p) => (p ? { ...p, image: e.target.value } : p))} />
-            </Field>
-            <Field className="md:col-span-2" label="Event source (optional)">
-              <Input value={editing.eventSource ?? ''} onChange={(e) => setEditing((p) => (p ? { ...p, eventSource: e.target.value } : p))} />
-            </Field>
-            <Field label="Min scale">
-              <Input type="number" min={0} value={String(editing.minScale)} onChange={(e) => setEditing((p) => (p ? { ...p, minScale: Number(e.target.value || 0) } : p))} />
-            </Field>
-            <Field label="Max scale">
-              <Input type="number" min={1} value={String(editing.maxScale)} onChange={(e) => setEditing((p) => (p ? { ...p, maxScale: Number(e.target.value || 1) } : p))} />
-            </Field>
-            <Field label="Timeout (seconds)">
-              <Input type="number" min={1} value={String(editing.timeoutSeconds)} onChange={(e) => setEditing((p) => (p ? { ...p, timeoutSeconds: Number(e.target.value || 30) } : p))} />
-            </Field>
-          </div>
-        </Modal>
-      ) : null}
-      {testResult ? (
-        <Modal
-          open
-          onClose={() => setTestResult('')}
-          title="Function invoke result"
-          footer={<div className="flex justify-end"><Button variant="primary" onClick={() => setTestResult('')}>Close</Button></div>}
-        >
-          <pre className="max-h-[60vh] overflow-auto rounded-md bg-surface-muted p-3 text-xs">{testResult}</pre>
-        </Modal>
-      ) : null}
+          </>
+        )}
+
+      {openGroup
+        ? (
+          <FunctionDrawer
+            key={openGroup.key}
+            group={openGroup}
+            selected={open ?? undefined}
+            mode={mode}
+            tab={params.tab as FunctionTab | undefined}
+            environments={columns}
+            envByNamespace={projects.envByNamespace}
+            projectEnvironments={openGroup.project ? projects.byProject.get(openGroup.project)?.map((e) => e.name) : undefined}
+            applications={apps.data}
+            onSelect={(cell) => setParams({ fn: `${cell.fn.metadata.namespace}/${cell.fn.metadata.name}` })}
+            onTab={(t) => setParams({ tab: t })}
+            onClose={() => setParams({ fn: '', tab: '' })}
+          />
+        )
+        : null}
     </div>
   )
+}
+
+/* ─────────────────────────── cells ─────────────────────────── */
+
+const BUTTON_PRIMARY =
+  'inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 hover:text-white visited:text-white'
+const BUTTON_SECONDARY =
+  'inline-flex h-8 items-center rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content shadow-sm hover:border-edge-strong'
+
+function FunctionNameCell({ g }: { g: FunctionGroup }) {
+  const health = groupHealth(g)
+  return (
+    <div className='min-w-0'>
+      <div className='flex items-center gap-2'>
+        <span className='truncate font-medium text-content'>{g.name}</span>
+        {health === 'pending' ? <StatusBadge kind='info'>not deployed yet</StatusBadge> : null}
+      </div>
+      <div className='truncate text-[11px] text-content-subtle'>
+        {[g.application !== g.name ? `app ${g.application}` : null, g.project ? `project ${g.project}` : null, g.team ? `team ${g.team}` : null]
+          .filter(Boolean)
+          .join(' · ') || '—'}
+      </div>
+    </div>
+  )
+}
+
+function EnvCell({
+  cell,
+  scale,
+  revisions,
+  baseDomain,
+  envByNamespace,
+  onOpen,
+}: {
+  cell: FunctionCell
+  scale: ReturnType<typeof scaleView>
+  revisions: Parameters<typeof lastDeployed>[1]
+  baseDomain: string
+  envByNamespace: ReadonlyMap<string, string>
+  onOpen(): void
+}) {
+  const fn = cell.fn
+  const { url, clusterOnly, derived } = functionUrl(fn, baseDomain, envByNamespace)
+  const deployed = lastDeployed(fn, revisions)
+  const rev = fn.status?.readyRevision
+  const shortRev = rev ? rev.replace(`${fn.metadata.name}-`, '') : undefined
+  return (
+    <div className='min-w-[9.5rem] space-y-0.5 text-[11px]'>
+      <div className='flex items-center gap-1.5'>
+        <button
+          type='button'
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpen()
+          }}
+          title={cell.state.message ?? cell.state.label}
+          className='rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40'
+        >
+          <StatusBadge kind={HEALTH_BADGE[cell.state.health]}>{cell.state.label}</StatusBadge>
+        </button>
+        {shortRev ? <span className='font-mono text-content-subtle' title={rev}>{shortRev}</span> : null}
+        {url && !clusterOnly && !derived
+          ? (
+            <a
+              href={url}
+              target='_blank'
+              rel='noreferrer'
+              onClick={(e) => e.stopPropagation()}
+              className='text-brand-700 hover:underline dark:text-brand-300'
+              title={url}
+              aria-label={`Open ${url}`}
+            >
+              ↗
+            </a>
+          )
+          : null}
+      </div>
+      <div className='text-content-subtle'>
+        {scale.scaledToZero
+          ? <span className='text-violet-700 dark:text-violet-300' title='No pod is running — the next request cold-starts.'>scaled to zero</span>
+          : scale.actual === undefined
+          ? <span title={`min ${scale.min} · max ${scale.max}`}>{scale.min}–{scale.max} pods</span>
+          : <span title={`min ${scale.min} · max ${scale.max}`}>{scale.actual} {scale.actual === 1 ? 'pod' : 'pods'} ({scale.min}–{scale.max})</span>}
+        {deployed ? <span> · {formatRelative(deployed)}</span> : null}
+      </div>
+    </div>
+  )
+}
+
+function NoFunctions({ action, compact = false }: { action?: ReactNode; compact?: boolean }) {
+  return (
+    <EmptyState
+      compact={compact}
+      title='No functions yet'
+      description={
+        <>
+          Functions are created from templates. Pick a function template in Create New and the platform scaffolds its repository,
+          builds it on every push (app-ci) and deploys a Function to each environment of its project — Knative, scaled to zero
+          when idle. It appears here as soon as its first build is promoted to dev.
+        </>
+      }
+      action={
+        <>
+          {action}
+          <a href='/catalog?section=create' className={BUTTON_SECONDARY}>Browse all templates</a>
+        </>
+      }
+    />
+  )
+}
+
+/* ─────────────────────────── live, per namespace ─────────────────────────── */
+
+/**
+ * The change signal for callers who cannot watch cluster-wide: one watch per
+ * readable namespace for Functions, their pods and their revisions, each
+ * invalidating the page's queries. Renders nothing.
+ */
+function FunctionsLive({ list }: { list: FunctionList }) {
+  const readable = list.namespaces.filter((n) => !list.denied.includes(n))
+  return <>{readable.map((ns) => <NamespaceWatch key={ns} namespace={ns} />)}</>
+}
+
+function NamespaceWatch({ namespace }: { namespace: string }) {
+  useWatchSignal(watchOf(FUNCTIONS_GVR, { namespace }), [[...FUNCTIONS_KEY]], { fallbackMs: 60_000, throttleMs: 2_000 })
+  useWatchSignal(watchOf(PODS_GVR, { namespace, labelSelector: LABEL.ksvc }), [['functions', 'index', 'pods']], { fallbackMs: 60_000, throttleMs: 2_000 })
+  useWatchSignal(watchOf(REVISIONS_GVR, { namespace, labelSelector: LABEL.ksvc }), [['functions', 'index', 'revisions']], { fallbackMs: 60_000, throttleMs: 2_000 })
+  return null
 }

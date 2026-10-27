@@ -213,6 +213,33 @@ export async function ideSessionUrl(
   return { url: body.url, owner: body.owner ?? '', external: Boolean(body.external), matched: Boolean(body.matched) }
 }
 
+/**
+ * The person's link to a Coder external-auth provider (Gitea), asked AS them
+ * by the BFF. A private repository clones only once it is linked; until then
+ * the workspace's `git clone` waits on a prompt nobody sees.
+ */
+export interface GitLink {
+  provider: string
+  /** False when Coder has no such provider: nothing to link. */
+  configured: boolean
+  authenticated: boolean
+  displayName?: string
+  /** Opening this in the browser starts the link (and comes back to Coder). */
+  startUrl: string
+}
+
+export async function gitLink(provider = 'gitea'): Promise<GitLink> {
+  const res = await fetch(`/api/coder/external-auth?provider=${encodeURIComponent(provider)}`, {
+    credentials: 'include',
+    headers: { accept: 'application/json' },
+  })
+  const body = (await res.json().catch(() => ({}))) as Partial<GitLink> & { error?: string; detail?: string }
+  if (!res.ok || typeof body.authenticated !== 'boolean' || !body.startUrl) {
+    throw new Error(body.detail || body.error || `Could not check the Gitea link (${res.status}).`)
+  }
+  return body as GitLink
+}
+
 /* ─────────── mutations ─────────── */
 
 function useInvalidating<V, R>(fn: (v: V) => Promise<R>) {

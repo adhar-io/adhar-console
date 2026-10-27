@@ -63,8 +63,19 @@ function toneOf(key: string): (typeof TONES)[number] {
   return TONES[h % TONES.length]
 }
 
+/**
+ * A template that scaffolds a serverless Function: tagged `function`, or named
+ * `function-*` (the curated collection's `function-nodejs-service` and kin).
+ * Checked before everything else in `inferFamily`, because every one of those
+ * names also says "service" and would otherwise land among the backends.
+ */
+export function isFunctionTemplate(name: string, tags: readonly string[]): boolean {
+  return /^function(-|$)/.test(name.trim().toLowerCase()) || tags.some((t) => t.trim().toLowerCase() === 'function')
+}
+
 /** Infer a template family from its name + tags (all are `spec.type: service`). */
-function inferFamily(name: string, tags: string[]): string {
+export function inferFamily(name: string, tags: string[]): string {
+  if (isFunctionTemplate(name, tags)) return 'function'
   const hay = `${name} ${tags.join(' ')}`.toLowerCase()
   // Backend services FIRST — otherwise "*-web-service" gets mis-caught by the
   // frontend "web" match and lands under Frontends & websites (it shouldn't).
@@ -109,8 +120,33 @@ function defaultActions() {
   ]
 }
 
+/** What a function template's scaffold actually does (display only, like `defaultActions`). */
+function functionActions() {
+  return [
+    { title: 'Create repository', duration: 0.8 },
+    { title: 'Render template skeleton', duration: 0.9 },
+    { title: 'Commit rendered files', duration: 0.7 },
+    { title: 'Register catalog-info.yaml', duration: 0.3 },
+    { title: 'Build the image on push (app-ci: buildpacks → Harbor)', duration: 0.6 },
+    { title: 'Register the Application (type function): a Function per environment, scale-to-zero', duration: 0.6 },
+  ]
+}
+
 const asObj = (v: YamlValue | undefined): Record<string, YamlValue> =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, YamlValue>) : {}
+
+/**
+ * The family of a parsed `template.yaml` (`metadata.name` + `metadata.tags`),
+ * or undefined when the document names no template. The scaffolder reads the
+ * template itself rather than trusting the wizard's copy of it.
+ */
+export function templateFamilyOf(doc: unknown): string | undefined {
+  const metadata = asObj(asObj(doc as YamlValue).metadata)
+  const name = typeof metadata.name === 'string' ? metadata.name : undefined
+  if (!name) return undefined
+  const tags = Array.isArray(metadata.tags) ? metadata.tags.map(String) : []
+  return inferFamily(name, tags)
+}
 
 /** Translate one Backstage parameter property into a wizard field. */
 function buildField(key: string, spec: Record<string, YamlValue>, required: boolean): Record<string, unknown> | null {
@@ -249,7 +285,7 @@ function buildTemplate(
     // wizard-native translation the Create form actually renders.
     parameters: spec.parameters ?? [],
     steps,
-    actions: defaultActions(),
+    actions: family === 'function' ? functionActions() : defaultActions(),
     scaffold: {
       // Backstage templates own their catalog descriptor + deploy/ + GitOps, so
       // GitOps is ON: generate repo → render skeleton → kpack build → Argo CD.

@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
-    "version": "0.1.163",
+    "version": "0.1.164",
     "date": "2026-10-27",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Functions more enhancement"
+      }
+    ]
+  },
+  {
+    "version": "0.1.163",
+    "date": "2026-10-28",
     "changes": [
       {
         "type": "improvement",
@@ -519,32 +529,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "terminal",
         "text": "Real fullscreen for the shell's own button too"
-      }
-    ]
-  },
-  {
-    "version": "0.1.124",
-    "date": "2026-10-12",
-    "changes": [
-      {
-        "type": "change",
-        "scope": "logs",
-        "text": "Stay Live through gateway resets; stop following stopped containers"
-      },
-      {
-        "type": "change",
-        "scope": "cloud shell",
-        "text": "Real fullscreen that covers the console and sizes to the screen"
-      },
-      {
-        "type": "change",
-        "scope": "code editor",
-        "text": "Monaco styled in the console, JSON highlighted, right theme"
-      },
-      {
-        "type": "change",
-        "scope": "readme",
-        "text": "One live version badge instead of CI / Release / Image"
       }
     ]
   }

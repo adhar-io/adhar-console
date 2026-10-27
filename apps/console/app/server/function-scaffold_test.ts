@@ -117,7 +117,7 @@ Deno.test('a control plane whose type enum predates `function` still gets the Ap
   Deno.env.set('K8S_API_URL', 'https://apiserver.test')
   const patches: Array<Record<string, unknown>> = []
   const real = globalThis.fetch
-  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit) => {
     const method = (init?.method ?? 'GET').toUpperCase()
     if (method === 'GET') return Promise.resolve(new Response(JSON.stringify({ items: [] }), { status: 200 }))
     const body = JSON.parse(String(init?.body)) as Record<string, unknown>

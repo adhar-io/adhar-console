@@ -31,7 +31,6 @@ import {
   DataPipelinesView,
   DomainsView,
   EnvironmentsView,
-  FunctionsView,
   LoadBalancersView,
   PipelinesView,
   QueuesView,
@@ -88,7 +87,6 @@ type Section =
   | 'caches'
   | 'buckets'
   | 'topics'
-  | 'functions'
   | 'workflows'
   | 'environments'
   | 'domains'
@@ -309,12 +307,9 @@ const SECTIONS: Record<Section, SectionDef> = {
     description: 'Kafka / NATS / RabbitMQ subjects with retention, partitions, and ACL bindings.',
     kind: 'xr',
   },
-  functions: {
-    id: 'functions',
-    label: 'Functions',
-    description: 'Serverless functions on Knative / OpenFaaS — scale-to-zero with event triggers.',
-    kind: 'xr',
-  },
+  // Functions (`/platform?section=functions`) is served by the generic XR view
+  // from the shared registry (XR_SECTION_BY_ID, above PlatformSection); they
+  // are managed under Develop → Functions.
   workflows: {
     id: 'workflows',
     label: 'Workflows',
@@ -489,8 +484,6 @@ function SectionBody({
       return <BucketsView namespace={namespace} />
     case 'topics':
       return <TopicsView namespace={namespace} />
-    case 'functions':
-      return <FunctionsView namespace={namespace} />
     case 'workflows':
       return <WorkflowsView namespace={namespace} />
     case 'environments':

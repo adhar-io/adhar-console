@@ -68,12 +68,13 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   functions: {
     label: 'Functions',
-    description: 'Create and manage serverless Function resources with scale-to-zero and on-demand scaling.',
+    description:
+      'Every serverless Function across environments — status, revisions, scale, logs, metrics, builds, delivery and invoke. New functions come from templates.',
   },
 }
 
 /** Views that render their own PageHeader — they put a repo picker or actions in it. */
-const SELF_HEADED = new Set<Section>(['branches', 'commits', 'prs', 'issues', 'pipelines', 'performance'])
+const SELF_HEADED = new Set<Section>(['branches', 'commits', 'prs', 'issues', 'pipelines', 'performance', 'functions'])
 
 export default function DevelopHome({ section }: { section?: string } = {}) {
   const active = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section

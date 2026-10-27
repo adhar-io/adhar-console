@@ -48,7 +48,6 @@ import {
   type GitOpsOwner,
   HEALTH_BADGE,
   isServing,
-  type KRevision,
   overlayDir,
   podRows,
   readyDigest,
@@ -61,6 +60,7 @@ import {
   USER_CONTAINER,
   deliveryRows,
 } from '../data/functions-model.ts'
+import { ExternalLink, Facts, Note, Section } from './function-bits.tsx'
 import { ConfigurationTab, DeleteTab, InvokeTab } from './function-ops.tsx'
 
 /**
@@ -269,63 +269,6 @@ const DOT: Record<FunctionState['health'], string> = {
   unknown: 'bg-content-subtle',
 }
 
-export function Section({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
-  return (
-    <section className='space-y-2'>
-      <div className='flex items-center justify-between gap-2'>
-        <h3 className='text-[11px] font-semibold uppercase tracking-wider text-content-subtle'>{title}</h3>
-        {actions}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-export function Facts({ rows }: { rows: Array<[string, ReactNode]> }) {
-  const shown = rows.filter(([, v]) => v !== undefined && v !== null && v !== '')
-  return (
-    <dl className='grid grid-cols-1 gap-x-6 gap-y-2 rounded-xl border border-edge-default bg-surface-raised p-4 text-[13px] sm:grid-cols-[11rem_1fr]'>
-      {shown.map(([k, v]) => (
-        <div key={k} className='contents'>
-          <dt className='text-content-subtle'>{k}</dt>
-          <dd className='min-w-0 break-words text-content [overflow-wrap:anywhere]'>{v}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-export function Note({ tone = 'info', children }: { tone?: 'info' | 'warn' | 'zero'; children: ReactNode }) {
-  return (
-    <div
-      className={cn(
-        'rounded-lg border px-3 py-2 text-[12px] leading-relaxed',
-        tone === 'warn'
-          ? 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200'
-          : tone === 'zero'
-          ? 'border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-500/25 dark:bg-violet-500/10 dark:text-violet-200'
-          : 'border-edge-default bg-surface-sunken text-content-muted',
-      )}
-    >
-      {children}
-    </div>
-  )
-}
-
-export function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
-  const external = /^https?:/.test(href)
-  return (
-    <a
-      href={href}
-      {...(external ? { target: '_blank', rel: 'noreferrer' } : {})}
-      className='text-brand-700 hover:underline dark:text-brand-300'
-    >
-      {children}
-      {external ? ' ↗' : ''}
-    </a>
-  )
-}
-
 function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
   const toast = useToast()
   return (
@@ -418,10 +361,10 @@ function OverviewTab({
       <Section title='Function'>
         <Facts
           rows={[
-            ['URL', url.url ? <span className='font-mono text-[12px]'>{url.url}{url.derived ? ' (expected — not reported yet)' : ''}</span> : 'Not published yet'],
-            ['In-cluster address', fn.status?.address ? <span className='font-mono text-[12px]'>{fn.status.address}</span> : undefined],
-            ['Environment', env ? <span className='capitalize'>{env}</span> : 'none'],
-            ['Namespace', <span className='font-mono text-[12px]'>{ns}</span>],
+            ['URL', url.url ? <span key='url' className='font-mono text-[12px]'>{url.url}{url.derived ? ' (expected — not reported yet)' : ''}</span> : 'Not published yet'],
+            ['In-cluster address', fn.status?.address ? <span key='address' className='font-mono text-[12px]'>{fn.status.address}</span> : undefined],
+            ['Environment', env ? <span key='env' className='capitalize'>{env}</span> : 'none'],
+            ['Namespace', <span key='ns' className='font-mono text-[12px]'>{ns}</span>],
             ['Runtime', runtimeLabel(p.runtime)],
             ['Triggers', `${triggerLabel(functionTriggers(fn))}${!triggers && p.eventSource ? ` · ${p.eventSource}` : ''}`],
             ['Port', String(p.port ?? 8080)],
@@ -429,10 +372,10 @@ function OverviewTab({
             ['Concurrency', `target ${p.targetConcurrency ?? 100} in-flight per pod (soft) · limit ${p.containerConcurrency ? p.containerConcurrency : 'unlimited'}`],
             ['Timeout', `${p.timeoutSeconds ?? 30}s per request`],
             ['Visibility', p.visibility === 'cluster' ? 'cluster only' : 'public, through the platform Gateway'],
-            ['Image', p.image ? <span className='font-mono text-[12px]'>{p.image}</span> : '—'],
-            ['Image digest', digest ? <span className='font-mono text-[12px]' title='As Knative resolved the tag when the ready revision was created'>{digest}</span> : undefined],
-            ['Ready revision', fn.status?.readyRevision ? <span className='font-mono text-[12px]'>{fn.status.readyRevision}</span> : 'none yet'],
-            ['Latest revision', fn.status?.latestRevision && fn.status.latestRevision !== fn.status.readyRevision ? <span className='font-mono text-[12px]'>{fn.status.latestRevision} (not ready)</span> : undefined],
+            ['Image', p.image ? <span key='image' className='font-mono text-[12px]'>{p.image}</span> : '—'],
+            ['Image digest', digest ? <span key='digest' className='font-mono text-[12px]' title='As Knative resolved the tag when the ready revision was created'>{digest}</span> : undefined],
+            ['Ready revision', fn.status?.readyRevision ? <span key='ready' className='font-mono text-[12px]'>{fn.status.readyRevision}</span> : 'none yet'],
+            ['Latest revision', fn.status?.latestRevision && fn.status.latestRevision !== fn.status.readyRevision ? <span key='latest' className='font-mono text-[12px]'>{fn.status.latestRevision} (not ready)</span> : undefined],
             ['Dapr', p.dapr?.enabled ? `sidecar on${p.dapr.appPort ? `, app port ${p.dapr.appPort}` : ''}` : undefined],
           ]}
         />
@@ -468,10 +411,10 @@ function OverviewTab({
       <Section title='Ownership'>
         <Facts
           rows={[
-            ['Source repository', repo?.webUrl ? <ExternalLink href={repo.webUrl}>{`${repo.org}/${repo.repo}`}</ExternalLink> : repo ? `${repo.org}/${repo.repo}` : 'Unknown — no Application XR names one'],
-            ['Deployed from', repo?.webUrl && env ? <ExternalLink href={giteaTreeUrl(repo.webUrl, 'main', overlayDir(env))}>{overlayDir(env)}</ExternalLink> : undefined],
+            ['Source repository', repo?.webUrl ? <ExternalLink key='repo' href={repo.webUrl}>{`${repo.org}/${repo.repo}`}</ExternalLink> : repo ? `${repo.org}/${repo.repo}` : 'Unknown — no Application XR names one'],
+            ['Deployed from', repo?.webUrl && env ? <ExternalLink key='overlay' href={giteaTreeUrl(repo.webUrl, 'main', overlayDir(env))}>{overlayDir(env)}</ExternalLink> : undefined],
             ['GitOps', owner.managed
-              ? owner.argoApp ? <ExternalLink href={`/deliver?section=apps&app=${encodeURIComponent(owner.argoApp)}`}>{`Argo CD application ${owner.argoApp}`}</ExternalLink> : 'Managed by Argo CD'
+              ? owner.argoApp ? <ExternalLink key='argo' href={`/deliver?section=apps&app=${encodeURIComponent(owner.argoApp)}`}>{`Argo CD application ${owner.argoApp}`}</ExternalLink> : 'Managed by Argo CD'
               : 'Not managed from Git'],
             ['Team', labels['adhar.io/team'] ?? p.team],
             ['Project', labels['adhar.io/project'] ?? p.project],
@@ -520,11 +463,11 @@ function PendingOverview({ group, app, repo }: { group: FunctionGroup; app?: App
       </Note>
       <Facts
         rows={[
-          ['Application', app ? <span className='font-mono text-[12px]'>{app.metadata.name}</span> : group.application],
+          ['Application', app ? <span key='app' className='font-mono text-[12px]'>{app.metadata.name}</span> : group.application],
           ['Application status', st ? `${st.label}${st.message ? ` — ${st.message}` : ''}` : undefined],
-          ['Source repository', repo?.webUrl ? <ExternalLink href={repo.webUrl}>{`${repo.org}/${repo.repo}`}</ExternalLink> : undefined],
+          ['Source repository', repo?.webUrl ? <ExternalLink key='repo' href={repo.webUrl}>{`${repo.org}/${repo.repo}`}</ExternalLink> : undefined],
           ['Project', group.project],
-          ['Deploy status', <ExternalLink href={`/catalog?entity=${encodeURIComponent(`component:${group.application}`)}&tab=deploy`}>Open the catalog’s Deploy tab</ExternalLink>],
+          ['Deploy status', <ExternalLink key='deploy' href={`/catalog?entity=${encodeURIComponent(`component:${group.application}`)}&tab=deploy`}>Open the catalog’s Deploy tab</ExternalLink>],
         ]}
       />
     </div>
@@ -800,7 +743,7 @@ function MetricsTab({ fn }: { fn: FunctionXR }) {
   return (
     <div className='space-y-4'>
       <div className='flex items-center justify-between gap-2'>
-        <div className='w-72'><Segmented value={win} onChange={setWin} options={WINDOWS} /></div>
+        <div className='w-72'><Segmented<'1h' | '6h' | '24h'> value={win} onChange={setWin} options={WINDOWS} /></div>
         <span className='text-[11px] text-content-subtle'>Prometheus · refreshes every minute</span>
       </div>
       {noRequestData

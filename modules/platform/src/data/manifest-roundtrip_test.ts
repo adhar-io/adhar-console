@@ -20,7 +20,7 @@ function roundTrips(label: string, value: Record<string, unknown>) {
     const text = toYaml(value)
     const back = tryParseYaml(text)
     assertEquals(back.ok, true, `could not parse:\n${text}`)
-    if (back.ok) assertEquals(back.value, value, `mismatch for:\n${text}`)
+    if (back.ok) assertEquals<unknown>(back.value, value, `mismatch for:\n${text}`)
   })
 }
 

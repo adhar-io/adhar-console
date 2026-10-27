@@ -10,5 +10,7 @@ export default defineRemoteConfig({
     './PullRequestList': './src/views/pr-list.tsx',
     // Rendered under Deliver (/deliver?section=performance); see src/performance-entry.tsx.
     './Performance': './src/performance-entry.tsx',
+    // Rendered under Deliver (/deliver?section=functions) in delivery mode; see src/functions-entry.tsx.
+    './Functions': './src/functions-entry.tsx',
   },
 })

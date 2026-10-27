@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.162",
+    "date": "2026-10-27",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Fix stale data issue"
+      }
+    ]
+  },
+  {
     "version": "0.1.161",
-    "date": "2026-10-26",
+    "date": "2026-10-27",
     "changes": [
       {
         "type": "improvement",
@@ -570,31 +580,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "workspace settings",
         "text": "Tabs instead of a second sidebar"
-      }
-    ]
-  },
-  {
-    "version": "0.1.122",
-    "date": "2026-10-11",
-    "changes": [
-      {
-        "type": "change",
-        "text": "Ci/cd: pipeline step log console without rounded corners"
-      },
-      {
-        "type": "change",
-        "scope": "adhar resources",
-        "text": "A page per XRD, and day-2 operations on every page"
-      },
-      {
-        "type": "change",
-        "scope": "catalog deploy tab",
-        "text": "Real namespace, matched CI runs, why it is degraded"
-      },
-      {
-        "type": "change",
-        "scope": "console",
-        "text": "Tinted canvas behind the default page content again"
       }
     ]
   }

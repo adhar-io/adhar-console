@@ -571,3 +571,18 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     /* signal not supported on this platform — ignore */
   }
 }
+
+// A listener that stops without a drain must take the process with it. The
+// watchers started above keep the event loop alive, so a dead listener used
+// to leave a live process answering "connection refused" for a minute until
+// the liveness probe gave up — the outage the Gateway reports as "upstream
+// connect error … delayed connect error: Connection refused". Deno resolves
+// `finished` when the listener stops for any reason (it did after a WebSocket
+// handler failed to return its upgrade response, 2026-10-26); exiting non-zero
+// lets the kubelet restart the pod at once.
+const onListenerStopped = (reason?: unknown) => {
+  if (draining) return
+  console.error('[server] HTTP listener stopped unexpectedly — exiting so the pod restarts', reason ?? '')
+  Deno.exit(1)
+}
+server.finished.then(() => onListenerStopped(), onListenerStopped)

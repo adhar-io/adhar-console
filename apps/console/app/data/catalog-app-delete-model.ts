@@ -67,6 +67,11 @@ const SCAFFOLD_GRACE_MS = 15 * 60_000
  * scaffolder's `adhar.io/git-repo` annotation) is therefore dropped once it is
  * older than the grace period AND every live source answered AND none of them
  * lists it. Hand-registered entries are never touched. Pure, for the test.
+ *
+ * While the sources are still answering (`sourcesHealthy` false) a stale
+ * scaffolded entry is hidden too, rather than shown and then pulled a moment
+ * later — the flash of "old apps" on every load. If its app does still exist,
+ * the live entity brings it back as soon as the source answers.
  */
 export function pruneStaleScaffolded(
   registered: readonly Entity[],
@@ -74,13 +79,16 @@ export function pruneStaleScaffolded(
   sourcesHealthy: boolean,
   now: number = Date.now(),
 ): Entity[] {
-  if (!sourcesHealthy) return [...registered]
+  const recent = (e: Entity) => {
+    const created = Date.parse(e.metadata.createdAt ?? '')
+    return !Number.isFinite(created) || now - created < SCAFFOLD_GRACE_MS
+  }
+  if (!sourcesHealthy) return registered.filter((e) => !e.metadata.annotations?.['adhar.io/git-repo'] || recent(e))
   const liveKeys = new Set(live.map((e) => `${e.kind}|${e.metadata.name.toLowerCase()}`))
   return registered.filter((e) => {
     if (!e.metadata.annotations?.['adhar.io/git-repo']) return true
     if (liveKeys.has(`${e.kind}|${e.metadata.name.toLowerCase()}`)) return true
-    const created = Date.parse(e.metadata.createdAt ?? '')
-    return !Number.isFinite(created) || now - created < SCAFFOLD_GRACE_MS
+    return recent(e)
   })
 }
 

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type SourceStatus, useLiveCatalog } from './catalog-live.ts'
 import { pruneStaleScaffolded } from './catalog-app-delete-model.ts'
@@ -218,15 +218,13 @@ export function useRegisterEntity() {
   })
 }
 
-/** Drop a registered entity from the local store and forget it in the snapshot. */
+/** Drop a registered entity from the local store. */
 function removeEntity(target: Pick<Entity, 'kind' | 'metadata'>): void {
   const same = (e: Entity) =>
     e.kind === target.kind &&
     (e.metadata.namespace ?? 'default') === (target.metadata.namespace ?? 'default') &&
     e.metadata.name === target.metadata.name
   writeStore(readStore().filter((e) => !same(e)))
-  const snap = loadSnapshot()
-  if (snap?.some(same)) saveSnapshot(snap.filter((e) => !same(e)))
 }
 
 export function useUnregisterEntity() {
@@ -257,7 +255,7 @@ function mergeEntity(list: Entity[], next: Entity): Entity[] {
 export interface CatalogResult {
   /** The merged entity list the UI renders. */
   data: Entity[]
-  /** True only when there is nothing to show yet (no cache, no snapshot). */
+  /** True only when there is nothing to show yet. */
   isLoading: boolean
   /** True while sources refresh behind data that is already on screen. */
   refreshing: boolean
@@ -291,33 +289,37 @@ export function useCatalog(): CatalogResult {
   )
   const fetching = registeredQ.isLoading || liveCatalog.isLoading
 
+  // Once every source has answered, forget stale scaffolded entries in this
+  // browser's store too — hiding them only meant they came back on every load.
+  const qc = useQueryClient()
+  const prunedCount = (registeredQ.data?.length ?? 0) - registered.length
+  useEffect(() => {
+    if (!sourcesHealthy || prunedCount <= 0) return
+    const stored = readStore()
+    const kept = pruneStaleScaffolded(stored, liveCatalog.entities, true)
+    if (kept.length === stored.length) return
+    writeStore(kept)
+    void qc.invalidateQueries({ queryKey: REGISTERED_QUERY_KEY })
+  }, [sourcesHealthy, prunedCount, liveCatalog.entities, qc])
+
   const base = useMemo(() => {
     const hasReal = liveCatalog.hasLive || registered.length > 0
-    if (hasReal && liveCatalog.hasLive && !liveCatalog.isLoading) {
-      // Fresh live result — remember it so the next visit / hard reload paints
-      // cards immediately while the sources refresh in the background.
-      saveSnapshot(liveCatalog.entities)
-    }
-    // Still fetching with nothing live yet → show the last snapshot (if any)
-    // instead of a blocking spinner; the list swaps in place once data lands.
-    const snapshot = !liveCatalog.hasLive && fetching ? loadSnapshot() : null
-    const showingSnapshot = !!snapshot && snapshot.length > 0
-    const isLoading = fetching && !hasReal && !showingSnapshot
+    // Nothing from a previous visit is painted while the sources load: a
+    // browser-saved copy of the catalog showed the old cluster's (or another
+    // tenant's) apps for a moment before live data replaced them. Within a
+    // session the query cache already makes revisits instant.
+    const isLoading = fetching && !hasReal
     const offline = !hasReal && !fetching
     // No sample data, ever: an empty platform shows an empty catalog (the
     // page renders an empty state), and the first real app appears as soon as
     // a source reports it.
-    const data = hasReal
-      ? mergeCatalogs(registered, liveCatalog.entities)
-      : showingSnapshot
-        ? mergeCatalogs(registered, snapshot)
-        : mergeCatalogs(registered, liveCatalog.entities)
+    const data = mergeCatalogs(registered, liveCatalog.entities)
     return {
       data,
       isLoading,
       refreshing: !isLoading && (liveCatalog.isFetching || registeredQ.isFetching),
       sources: liveCatalog.sources,
-      live: liveCatalog.hasLive || showingSnapshot,
+      live: liveCatalog.hasLive,
       offline,
     }
   }, [
@@ -339,39 +341,15 @@ export function useCatalog(): CatalogResult {
   return useMemo(() => (data === base.data ? base : { ...base, data }), [base, data])
 }
 
-/* ─────────── last-known-good snapshot (per browser) ─────────── */
+/* ─────────── retired browser snapshot ─────────── */
 
-const SNAPSHOT_KEY = 'adhar.catalog.snapshot.v1'
-const SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60_000
-let snapshotCache: Entity[] | null | undefined
-
-function loadSnapshot(): Entity[] | null {
-  if (snapshotCache !== undefined) return snapshotCache
-  snapshotCache = null
-  try {
-    const raw = globalThis.localStorage?.getItem(SNAPSHOT_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { at?: number; entities?: Entity[] }
-    if (!Array.isArray(parsed.entities)) return null
-    if (typeof parsed.at === 'number' && Date.now() - parsed.at > SNAPSHOT_MAX_AGE_MS) return null
-    snapshotCache = parsed.entities
-  } catch {
-    snapshotCache = null
-  }
-  return snapshotCache
-}
-
-let lastSaved = ''
-function saveSnapshot(entities: Entity[]) {
-  try {
-    const body = JSON.stringify({ at: Date.now(), entities })
-    if (body === lastSaved) return
-    lastSaved = body
-    snapshotCache = entities
-    globalThis.localStorage?.setItem(SNAPSHOT_KEY, body)
-  } catch {
-    // Quota / private mode — the snapshot is a convenience only.
-  }
+// The catalog used to save a copy of itself here and paint it on the next
+// load. It was neither cluster- nor tenant-scoped, so it showed stale apps;
+// clear what earlier versions left behind.
+try {
+  globalThis.localStorage?.removeItem('adhar.catalog.snapshot.v1')
+} catch {
+  // storage unavailable — nothing to clear
 }
 
 /* ─────────── helpers used by UI ─────────── */

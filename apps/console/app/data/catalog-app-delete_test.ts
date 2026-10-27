@@ -41,7 +41,9 @@ Deno.test('pruneStaleScaffolded: a deleted scaffolded app does not linger', () =
   const live = [scaffolded('cart', '2026-01-01T00:00:00Z')]
   const out = pruneStaleScaffolded([old, fresh, manual], live, true, now).map((e) => e.metadata.name)
   assertEquals(out, ['new-thing', 'hand-made'])
-  // Still live → kept; sources unhealthy → nothing is pruned.
+  // Still live → kept.
   assertEquals(pruneStaleScaffolded([old], [old], true, now).length, 1)
-  assertEquals(pruneStaleScaffolded([old], [], false, now).length, 1)
+  // Sources still answering → a stale scaffold is hidden (not flashed, then
+  // pulled); fresh scaffolds and hand-registered entries still show.
+  assertEquals(pruneStaleScaffolded([old, fresh, manual], [], false, now).map((e) => e.metadata.name), ['new-thing', 'hand-made'])
 })

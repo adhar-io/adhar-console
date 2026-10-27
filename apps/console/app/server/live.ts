@@ -139,7 +139,15 @@ export async function handleLive(req: Request): Promise<Response> {
   socket.onerror = teardown
   socket.onopen = () => send({ op: 'hello', user: id.user.id, t: Date.now() })
 
-  if (id.refreshedCookie) response.headers.append('set-cookie', id.refreshedCookie)
+  // Never touch the upgrade response, and never return anything else once
+  // upgraded. Its headers are immutable, so appending a refreshed session
+  // cookie threw; the handler then answered 500 instead of the upgrade, Deno
+  // logged "Upgrade response was not returned from callback" and its listener
+  // stopped accepting connections while the process lived on — the Gateway
+  // served "upstream connect error … Connection refused" until the liveness
+  // probe killed the pod (2026-10-26; reproduced on Deno 2.1.4). Dropping the
+  // cookie loses nothing: a refresh keeps the session's server-side row and id
+  // (sessionFromTokens), and the next plain request re-issues the cookie.
   return response
 }
 

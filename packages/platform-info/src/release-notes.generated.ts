@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.163",
+    "date": "2026-10-27",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Enhance Function features"
+      }
+    ]
+  },
+  {
     "version": "0.1.162",
     "date": "2026-10-27",
     "changes": [
@@ -535,51 +545,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "readme",
         "text": "One live version badge instead of CI / Release / Image"
-      }
-    ]
-  },
-  {
-    "version": "0.1.123",
-    "date": "2026-10-11",
-    "changes": [
-      {
-        "type": "change",
-        "scope": "adhar resources nav",
-        "text": "One flat list again"
-      },
-      {
-        "type": "change",
-        "scope": "workspace settings",
-        "text": "Tabs and page content on one white panel"
-      },
-      {
-        "type": "change",
-        "scope": "workspace settings",
-        "text": "Tab bar on a white surface"
-      },
-      {
-        "type": "change",
-        "scope": "workspace settings",
-        "text": "Categories in the sidebar, their pages as tabs"
-      },
-      {
-        "type": "change",
-        "scope": "workspace settings",
-        "text": "Review pass over all 30 pages"
-      },
-      {
-        "type": "change",
-        "scope": "workspace settings",
-        "text": "Every page its own tab, all visible"
-      },
-      {
-        "type": "change",
-        "text": "What's new and help: colour, hierarchy and a searchable help hero"
-      },
-      {
-        "type": "change",
-        "scope": "workspace settings",
-        "text": "Tabs instead of a second sidebar"
       }
     ]
   }

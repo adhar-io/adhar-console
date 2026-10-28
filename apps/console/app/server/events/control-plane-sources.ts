@@ -25,7 +25,7 @@ import {
 
 /**
  * Every XR kind the control plane defines (`platform/controlplane/configuration/xrd/`
- * in the platform repo — 39 on 2026-10-22). One watch each: an idle watch on
+ * in the platform repo — 40 on 2026-10-28). One watch each: an idle watch on
  * an empty resource costs the apiserver next to nothing, and a kind left out
  * here is a self-service request that is created, fails and is deleted in
  * silence. The platform repo's `TestConsoleWatchedResourcesAreGranted` reads
@@ -44,6 +44,7 @@ export const XR_KINDS: ReadonlyArray<{ kind: string; plural: string }> = [
   { kind: 'CostTracker', plural: 'costtrackers' },
   { kind: 'Database', plural: 'databases' },
   { kind: 'Environment', plural: 'environments' },
+  { kind: 'Function', plural: 'functions' },
   { kind: 'GitOps', plural: 'gitops' },
   { kind: 'GraphDatabase', plural: 'graphdatabases' },
   { kind: 'Health', plural: 'healths' },

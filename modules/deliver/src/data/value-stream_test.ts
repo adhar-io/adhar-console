@@ -13,6 +13,7 @@ import {
   leadTimes,
   ok,
   parseImageRef,
+  platformPackages,
   readRun,
   runIsForApp,
   stopsAt,
@@ -278,6 +279,37 @@ Deno.test('collectApps: XRs, per-env Argo CD apps and repos fold into one app ea
   assert(apps.some((a) => a.key === 'adhar/billing'));
   // A repo with no XR and no Argo CD app is a fallback app without a project.
   assertEquals(apps.find((a) => a.name === 'notes')!.from, ['repo']);
+});
+
+/**
+ * The two platform-made Argo CD apps that carry no `adhar.io/category`, with
+ * the labels they have on a live cluster (Azure, 2026-10-28): the platform's
+ * GitOps root, and the service adopter's per-repository bootstrap. Both were
+ * listed as team apps — `adhar-platform-applicationset` and
+ * `reactapp-bootstrap` beside the `reactapp` they adopt.
+ */
+Deno.test('collectApps: the platform GitOps root and service bootstrap apps are not team apps', () => {
+  const root = argo('adhar-platform-applicationset', {
+    labels: { 'app.kubernetes.io/part-of': 'adhar', 'adhar.io/component': 'platform-stack' },
+  });
+  const bootstrap = argo('reactapp-bootstrap', {
+    labels: { 'adhar.io/service': 'reactapp', 'adhar.io/type': 'service-bootstrap' },
+  });
+  const apps = collectApps({
+    xrs: [xr('reactapp')],
+    argoApps: [root, bootstrap, envApp('adhar', 'reactapp', 'dev'), argo('team-own-app')],
+    repos: [repo('reactapp')],
+  });
+  assertEquals(apps.map((a) => a.key), ['/team-own-app', 'adhar/reactapp']);
+  assertEquals(apps.find((a) => a.name === 'reactapp')!.argoApps.map((a) => a.metadata.name), [
+    'adhar-reactapp-dev',
+  ]);
+  // The root is a platform package: it belongs in the Platform packages panel.
+  assertEquals(platformPackages([root]).map((r) => [r.name, r.category]), [[
+    'adhar-platform-applicationset',
+    'core',
+  ]]);
+  assertEquals(platformPackages([bootstrap]), []);
 });
 
 Deno.test('collectApps: an Application XR whose source is a platform GitOps repo does not claim that repo', () => {

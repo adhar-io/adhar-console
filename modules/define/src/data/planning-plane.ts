@@ -71,7 +71,9 @@ export function planeProblem(e: unknown): PlaneProblem {
   if (body.error === 'upstream_unreachable') return { kind: 'unreachable', title: 'Plane is unreachable', message: 'The console could not reach Plane. It may be restarting.' }
   if (err?.status === 401) return { kind: 'auth', title: 'Plane rejected the console', message: planeError(e) }
   if (err?.status === 403) {
-    return { kind: 'permission', title: 'No permission in Plane', message: 'The console\'s Plane key is not allowed to do this in this project. A Plane workspace admin can grant it, or do it in Plane directly.' }
+    // Membership is reconciled: plane-project-access (plane package) adds the
+    // key's user and every platform admin to each project every five minutes.
+    return { kind: 'permission', title: 'No permission in Plane', message: 'The console\'s Plane key is not a member of this project yet. The platform adds it to every Plane project within five minutes of its creation — if this persists, check the plane-project-access job in adhar-system, or do it in Plane directly.' }
   }
   if (err?.status === 404) return { kind: 'not-found', title: 'Not found in Plane', message: planeError(e) }
   return { kind: 'other', title: 'Plane request failed', message: planeError(e) }

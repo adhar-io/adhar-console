@@ -156,7 +156,9 @@ export function PlaneErrorState({ error, what = 'work items', onRetry }: { error
     description = `The console shares one Plane API key (60 requests a minute) across every user. Plane asks to wait about ${wait ?? 60}s; this page retries on its own.`
   } else if (status === 403) {
     title = "The console's Plane key can't read this project"
-    description = "Plane answered 403. The API key's user must be a member of the project — add it in Plane's project settings."
+    // The plane package's plane-project-access CronJob adds the key's user
+    // (and every platform admin) to each project every five minutes.
+    description = "Plane answered 403: the key's user is not a member of this project yet. The platform adds it to every Plane project within five minutes of its creation — if this persists, check the plane-project-access job in adhar-system."
   }
   return (
     <EmptyState

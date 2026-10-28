@@ -45,6 +45,27 @@ Deno.test('an application with no platform labels is a custom app', () => {
   assertEquals(packageName(TEAM_APP), undefined)
 })
 
+/**
+ * The platform's GitOps root (`adhar-platform-applicationset`) carries
+ * `adhar.io/component: platform-stack` and, on platforms released before it
+ * was given a category, nothing else of ours. It is the platform's, not a
+ * team's — and only that component value says so.
+ */
+Deno.test('the platform-stack root application is a core platform app', () => {
+  const root = app('adhar-platform-applicationset', {
+    'app.kubernetes.io/part-of': 'adhar',
+    'adhar.io/component': 'platform-stack',
+  })
+  assertEquals(appCategory(root), 'core')
+  assert(isPlatformApp(root))
+  assertEquals(appCategory(app('svc', { 'adhar.io/component': 'api' })), CUSTOM)
+  // An explicit category still wins.
+  assertEquals(
+    appCategory(app('r', { 'adhar.io/component': 'platform-stack', 'adhar.io/category': 'infrastructure' })),
+    'infrastructure',
+  )
+})
+
 Deno.test('a blank or whitespace label is not a category', () => {
   assertEquals(appCategory(app('x', { 'adhar.io/category': '' })), CUSTOM)
   assertEquals(appCategory(app('y', { 'adhar.io/category': '   ' })), CUSTOM)

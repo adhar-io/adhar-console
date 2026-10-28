@@ -26,6 +26,17 @@ import type { argocd } from '@adhar/api-clients'
 export const CATEGORY_LABEL = 'adhar.io/category'
 export const PACKAGE_LABEL = 'adhar.io/package-name'
 
+/**
+ * The platform's own GitOps root, `adhar-platform-applicationset` — the Argo CD
+ * Application that keeps the live ApplicationSet equal to the packages repo —
+ * is labelled `adhar.io/component: platform-stack`. Platforms released before
+ * it also carried `adhar.io/category: core` give it no category, and it was
+ * filed as a team's app: the Delivery Flow listed it beside the apps teams
+ * build (2026-10-28). Still a label check, on the label it has always had.
+ */
+export const COMPONENT_LABEL = 'adhar.io/component'
+export const PLATFORM_STACK_COMPONENT = 'platform-stack'
+
 /** `custom` is not a platform category; it is the absence of one. */
 export const CUSTOM = 'custom'
 
@@ -67,8 +78,10 @@ function labels(app: argocd.Application): Record<string, string> {
 
 /** The platform category of an Application, or `custom` when it has none. */
 export function appCategory(app: argocd.Application): string {
-  const value = labels(app)[CATEGORY_LABEL]?.trim()
-  return value ? value : CUSTOM
+  const l = labels(app)
+  const value = l[CATEGORY_LABEL]?.trim()
+  if (value) return value
+  return l[COMPONENT_LABEL]?.trim() === PLATFORM_STACK_COMPONENT ? 'core' : CUSTOM
 }
 
 /** Installed by the platform, as opposed to deployed by a team. */

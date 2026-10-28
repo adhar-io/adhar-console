@@ -181,6 +181,21 @@ const KNOWN_ENVS = [
   'production',
 ];
 
+/**
+ * The service adopter's per-repository Argo CD app (`<repo>-bootstrap`, from
+ * the platform's `adhar-services` ApplicationSet). It syncs a repository's
+ * `.adhar/` descriptor into the control plane, which then composes the app's
+ * real per-environment Argo CD apps; it deploys nothing of the app itself. Read
+ * as one, it showed up as a second app named `<repo>-bootstrap` beside the app
+ * it adopts.
+ */
+export const SERVICE_TYPE_LABEL = 'adhar.io/type';
+export const SERVICE_BOOTSTRAP = 'service-bootstrap';
+
+export function isServiceBootstrap(app: argocd.Application): boolean {
+  return lower(app.metadata.labels?.[SERVICE_TYPE_LABEL]) === SERVICE_BOOTSTRAP;
+}
+
 export interface CollectInput {
   xrs: readonly AppXR[];
   argoApps: readonly argocd.Application[];
@@ -192,7 +207,8 @@ export interface CollectInput {
 /**
  * Every team application, grouped: Application XRs ∪ Argo CD apps labelled
  * `adhar.io/application` ∪ non-platform Gitea repositories. Platform packages
- * (`adhar.io/category`) are never included.
+ * (`adhar.io/category`), the platform's own GitOps root and the service
+ * adopter's bootstrap apps are never included.
  */
 export function collectApps(input: CollectInput): FlowApp[] {
   const byKey = new Map<string, FlowApp>();
@@ -225,7 +241,7 @@ export function collectApps(input: CollectInput): FlowApp[] {
     ),
   );
   for (const app of input.argoApps) {
-    if (isPlatformApp(app)) continue;
+    if (isPlatformApp(app) || isServiceBootstrap(app)) continue;
     const l = app.metadata.labels ?? {};
     const labelled = lower(l[kargo.LABEL_APPLICATION]);
     if (labelled) {

@@ -55,6 +55,7 @@ import { handleOrganizations } from './app/server/organizations.ts'
 import { handleStatus } from './app/server/status.ts'
 import { handlePromBatch } from './app/server/prom-batch.ts'
 import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
+import { dbReadiness } from './app/server/readiness.ts'
 import {
   csrfRejected,
   guardJsonBody,
@@ -156,7 +157,10 @@ function healthz(): Response {
 
 async function readyz(): Promise<Response> {
   const { isDbConfigured, pingDb } = await import('@adhar/db')
-  const db = isDbConfigured() ? ((await pingDb()) ? 'ok' : 'down') : 'unconfigured'
+  // Bounded, like the discovery probe below: an unbounded ping on a lost
+  // database outlived the kubelet's 5s probe and took the only console pod out
+  // of its Service (app/server/readiness.ts).
+  const db = await dbReadiness(isDbConfigured(), pingDb)
   const cfg = getServerAuthConfig()
   if (!cfg) {
     return Response.json({ status: 'ready', auth: 'stub', db }, { headers: { 'cache-control': 'no-store' } })

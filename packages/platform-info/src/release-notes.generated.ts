@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.165",
+    "date": "2026-10-28",
+    "changes": [
+      {
+        "type": "fix",
+        "text": "Ui fixes"
+      }
+    ]
+  },
+  {
     "version": "0.1.164",
-    "date": "2026-10-27",
+    "date": "2026-10-28",
     "changes": [
       {
         "type": "improvement",
@@ -508,27 +518,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "overview",
         "text": "Phone tweaks — no Customize in the hero, centred health dial"
-      }
-    ]
-  },
-  {
-    "version": "0.1.125",
-    "date": "2026-10-12",
-    "changes": [
-      {
-        "type": "change",
-        "scope": "drawers",
-        "text": "Tinted canvas behind content everywhere, white headers"
-      },
-      {
-        "type": "change",
-        "scope": "catalog drawer",
-        "text": "Tinted canvas behind the content, white cards on it"
-      },
-      {
-        "type": "change",
-        "scope": "terminal",
-        "text": "Real fullscreen for the shell's own button too"
       }
     ]
   }

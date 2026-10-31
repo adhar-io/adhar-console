@@ -1,8 +1,10 @@
 # Authorization (RBAC)
 
 The console has one authorization model: **Kubernetes RBAC, evaluated for the
-signed-in user**. There is no second policy engine in the console — what a
-person may do in the UI is exactly what the cluster's RBAC says they may do.
+signed-in user**, plus — for what belongs to ONE organisation — **membership of
+that organisation's Keycloak groups**. There is no policy the console keeps of
+its own: what a person may do in the UI is what the cluster's RBAC and their
+groups say they may do.
 
 - **Kubernetes objects** are authorized as themselves. "May I delete this
   Deployment" is a SelfSubjectAccessReview (SSAR) for `delete deployments.apps`
@@ -19,6 +21,12 @@ person may do in the UI is exactly what the cluster's RBAC says they may do.
 - **The BFF enforces the same checks.** A hidden button is not security: every
   console endpoint behind a virtual resource asks the same SSAR (same identity,
   same cache) before acting.
+- **One exception: what belongs to a single organisation.** Members, teams,
+  projects, tokens, approvals, billing and organisation settings are answered
+  from the organisation's Keycloak groups instead of RBAC (see
+  [Organisation-scoped permissions](#organisation-scoped-permissions)) — a
+  ClusterRoleBinding can only say "admin of every organisation". They are still
+  asked through the same `<Can>` / `requirePermission` choke point.
 
 ## How a check is answered
 
@@ -58,27 +66,27 @@ permissions **by name**, never by re-typing the strings.
 | Name (`CONSOLE_PERMISSIONS.…`) | RBAC (`verb resource.console.adhar.io`) | Enforced by |
 | --- | --- | --- |
 | `packagesToggle` | `update packages` | `POST /api/platform/appset/toggle`; scorecard fixes to platform repos |
-| `billingView` | `get billing` | every `GET /api/billing/*` |
-| `billingManage` | `update billing` | every write under `/api/billing/*` |
-| `membersInvite` | `create workspace-members` | `POST /api/workspace/invitations` |
-| `membersUpdate` | `update workspace-members` | `PATCH /api/workspace/members/:id` |
-| `membersRemove` | `delete workspace-members` | `DELETE /api/workspace/members/:id`, `DELETE /api/workspace/invitations/:id` |
-| `rolesCreate` / `rolesUpdate` / `rolesDelete` | `create`/`update`/`delete workspace-roles` | `POST`/`PUT`/`DELETE /api/store/workspace.role` |
-| `teamsCreate` / `teamsUpdate` / `teamsDelete` | `create`/`update`/`delete workspace-teams` | `/api/workspace/teams` (update covers team membership) |
-| `projectsCreate` / `projectsUpdate` / `projectsDelete` | `create`/`update`/`delete workspace-projects` | `/api/workspace/projects` |
-| `tokensCreate` / `tokensRevoke` | `create`/`delete workspace-tokens` | `/api/workspace/tokens` |
-| `approvalsDecide` | `approve workspace-approvals` | `POST /api/workspace/approvals/:id/{approve,reject}` |
+| `billingView` † | `get billing` | every `GET /api/billing/*` |
+| `billingManage` † | `update billing` | every write under `/api/billing/*` |
+| `membersInvite` † | `create workspace-members` | `POST /api/workspace/members`, `GET`/`POST /api/workspace/users`, `POST /api/workspace/users/:id/setup-email` |
+| `membersUpdate` † | `update workspace-members` | `PATCH /api/workspace/members/:id` |
+| `membersRemove` † | `delete workspace-members` | `DELETE /api/workspace/members/:id` |
+| `rolesCreate` / `rolesUpdate` / `rolesDelete` † | `create`/`update`/`delete workspace-roles` | `POST`/`PUT`/`DELETE /api/store/workspace.role` |
+| `teamsCreate` / `teamsUpdate` / `teamsDelete` † | `create`/`update`/`delete workspace-teams` | `/api/workspace/teams` (update covers team membership) |
+| `projectsCreate` / `projectsUpdate` / `projectsDelete` † | `create`/`update`/`delete workspace-projects` | `/api/workspace/projects` |
+| `tokensCreate` / `tokensRevoke` † | `create`/`delete workspace-tokens` | `/api/workspace/tokens` |
+| `approvalsDecide` † | `approve workspace-approvals` | `POST /api/workspace/approvals/:id/{approve,reject}` |
 | `orgCreate` | `create organizations` | `POST /api/organizations` |
-| `orgUpdate` | `update organizations` | `PUT /api/workspace/org`, `POST /api/workspace/org/transfer` (+ caller must be owner), `PATCH /api/organizations/:id` |
-| `orgDelete` | `delete organizations` | `DELETE /api/workspace/org`, `DELETE /api/organizations/:id` |
-| `auditView` | `get audit` | `GET /api/workspace/audit[/facets]` |
+| `orgUpdate` † | `update organizations` | `PUT /api/workspace/org`, `PATCH /api/organizations/:id` |
+| `orgDelete` † | `delete organizations` | `DELETE /api/workspace/org` (`DELETE /api/organizations/:id` now LEAVES an organisation) |
+| `auditView` † | `get audit` | `GET /api/workspace/audit[/facets]` |
 | `scorecardsRun` | `update scorecards` | `POST /api/scorecards/rerun`, `POST /api/scorecards/fix` (ownership still applies) |
 | `resilienceRun` | `create resilience-runs` (in the app's namespace) | `POST /api/resilience/runs` |
 | `waiverRequest` | `create scan-waivers` (in the project namespace) | waiver request / extend (+ project membership) |
 | `waiverApprove` | `approve scan-waivers` | approve / reject / revoke, `POST /api/security/gate`, `/waivers/sync` |
 | `waiverSelfApprove` | `self-approve scan-waivers` | approving your own request |
 | `scanPolicyEdit` | `update scan-policies` | `PUT /api/security/policy` |
-| `notificationsBroadcast` | `create notifications-broadcast` | `POST /api/notifications` with `broadcast: true` |
+| `notificationsBroadcast` † | `create notifications-broadcast` | `POST /api/notifications` with `broadcast: true` |
 | `aiKnowledgeAdd` | `create ai-knowledge` | `POST /api/ai/knowledge` with a note |
 | `aiKnowledgeRate` | `update ai-knowledge` | `POST /api/ai/feedback` |
 | `applicationsCreate` | `create applications` | `POST /api/scaffold` |
@@ -91,7 +99,54 @@ namespace may run resilience suites there and nowhere else.
 
 To add a permission: add it to `CONSOLE_PERMISSIONS`, gate the handler with
 `requirePermission`, wrap the UI action in `<Can>`, grant it in the platform's
-`console-rbac.yaml`, and add a row above.
+`console-rbac.yaml`, and add a row above. (An organisation-scoped one goes in
+`ORG_SCOPED` in `apps/console/app/server/tenancy/org-access.ts` instead of
+`console-rbac.yaml`.)
+
+## Organisation-scoped permissions
+
+Rows marked † above belong to ONE organisation, and a ClusterRoleBinding
+cannot express "admin of acme" — only "admin of every organisation". So for
+those the console answers from the caller's groups in the organisation the
+request is working in (`ORG_SCOPED`, `apps/console/app/server/tenancy/org-access.ts`),
+and **RBAC is not consulted** for them:
+
+| Who | Groups | Gets |
+| --- | --- | --- |
+| Member | `org-<slug>` | `get billing`, `get audit` — and reads everything in the organisation |
+| Organisation admin | `org-<slug>-admin` (always also in `org-<slug>`) | every † permission |
+| Platform admin | `platform-admin`, `platform-engineer`, `super-admin` | every † permission in EVERY organisation, without being listed |
+| Platform team | `platform-developer`, `platform-viewer` | member of the platform's own organisation (`adhar`) only |
+
+Keycloak is the only user store: those groups ARE the membership. Settings →
+Members lists people from them and adds, removes, promotes and creates
+accounts there (a new account gets a set-password email from Keycloak, so the
+realm needs an SMTP server); the console stores no members, roles or
+invitations. Teams are `ws-team-<slug>.<team>` — qualified by organisation,
+so two organisations' "platform" teams are two groups. The groups are the same
+ones the platform's Organisation, Project and Environment compositions bind
+(`org-<slug>-admin` → `admin`, `org-<slug>` → `view`, teams per project), so the
+console and Kubernetes agree on who is in what.
+
+- **Page checks** (`<Can>`, `useCan`, `access-batch`) use the token's groups —
+  no network call, and they are never cached server-side.
+- **Writes that change access** (members, accounts, teams, deleting, renaming
+  or leaving an organisation) re-read the caller's groups from Keycloak first,
+  so a demoted admin is refused at once. Keycloak unreachable is
+  `503 keycloak_unavailable`, never a success.
+- **Propagation.** A group added in Keycloak shows in the organisation
+  switcher immediately and reaches the session on the next request (the
+  console refreshes the token when Keycloak knows more than it does); a
+  removal reaches console reads and Kubernetes at the user's next token
+  refresh — at most one access-token lifetime (30 minutes by default).
+- **Known limit.** The `groups` claim carries the last path segment of each
+  group, lower-cased, so a SUBGROUP named `org-acme-admin` would look the same
+  in a token. Only Keycloak administrators can create groups, and they are
+  trusted; the console's own live checks count top-level groups only.
+
+The realm-wide `ws-role-<role>` groups the console used to mirror
+organisation roles into are retired (an owner of one organisation was an
+admin of all of them); the console neither reads nor writes them.
 
 ## Default grants (platform)
 
@@ -102,43 +157,46 @@ Shipped in the platform repo at
 | --- | --- |
 | `oidc:platform-admin`, `oidc:platform-engineer` | everything (they hold `cluster-admin`, whose `*` covers `console.adhar.io`) |
 | `oidc:super-admin` | everything (`adhar-console-admin`) |
-| `system:authenticated` (every signed-in user) | `adhar-console-member`: `get billing, audit`; `update scorecards`; `create scan-waivers`; `create, update ai-knowledge`; `create applications, organizations` — what every member could do before these checks existed |
-| `oidc:ws-role-owner`, `oidc:ws-role-admin` | workspace administration, `update organizations`, billing, broadcasts (`adhar-console-workspace-admin`) |
-| `oidc:ws-role-owner` | `delete organizations` |
-| `oidc:ws-role-billing` | `get, update billing` |
+| `system:authenticated` (every signed-in user) | `adhar-console-member`: `update scorecards`; `create scan-waivers`; `create, update ai-knowledge`; `create applications, organizations` — what every member could do before these checks existed (its `get billing, audit` no longer matters: those are organisation-scoped) |
 | `oidc:application-admin` | `create resilience-runs`, `delete applications` |
 | `admin` (aggregated; bound per team namespace) | `create resilience-runs` in that namespace |
 | `oidc:security-reviewer`, `oidc:security-admin` | `approve scan-waivers` |
 | `oidc:security-admin` | `update scan-policies` |
 
-The console mirrors organisation roles into the Keycloak groups
-`ws-role-<role>` (`workspace/keycloak-admin.ts`), which is how the
-owner/admin/billing roles of Workspace settings keep their meaning.
+Workspace administration, organisation settings and billing are not granted
+here: they are organisation-scoped (above), so an RBAC grant of them — the old
+`oidc:ws-role-owner` / `oidc:ws-role-admin` / `oidc:ws-role-billing` bindings
+included — is ignored. Someone who should manage one organisation's billing is
+made an admin of that organisation.
 
 ### Example ClusterRoles
 
-A FinOps group that may manage billing and nothing else:
+An SRE group that may run resilience suites anywhere and decide scan waivers:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: console-finops
+  name: console-sre
 rules:
   - apiGroups: [console.adhar.io]
-    resources: [billing]
-    verbs: [get, update]
+    resources: [resilience-runs]
+    verbs: [create]
+  - apiGroups: [console.adhar.io]
+    resources: [scan-waivers]
+    verbs: [approve]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: console-finops
-roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: console-finops }
+  name: console-sre
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: console-sre }
 subjects:
-  - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: "oidc:finops" }
+  - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: "oidc:sre" }
 ```
 
-Let one team run resilience suites only in its namespace:
+Let one team (`shop` of organisation `acme`) run resilience suites only in its
+namespace:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -148,7 +206,7 @@ metadata:
   namespace: shop
 roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: adhar-console-namespace-admin }
 subjects:
-  - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: "oidc:ws-team-shop" }
+  - { apiGroup: rbac.authorization.k8s.io, kind: Group, name: "oidc:ws-team-acme.shop" }
 ```
 
 Stop self-service organisation creation: remove `organizations` from the
@@ -158,8 +216,12 @@ Check what someone can do:
 
 ```bash
 kubectl auth can-i update packages.console.adhar.io --as oidc:ana --as-group oidc:platform-developer
-kubectl auth can-i create resilience-runs.console.adhar.io -n shop --as oidc:ana --as-group oidc:ws-team-shop
+kubectl auth can-i create resilience-runs.console.adhar.io -n shop --as oidc:ana --as-group oidc:ws-team-acme.shop
 ```
+
+`kubectl auth can-i` does not answer the organisation-scoped (†) permissions —
+they are not RBAC. Who administers an organisation is the membership of its
+`org-<slug>-admin` group (Settings → Members, or Keycloak's admin console).
 
 ## Using it in the UI
 
@@ -214,7 +276,10 @@ import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 import { authorize, permissionsFor, requirePermission } from './k8s/access.ts'
 
 const denied = await requirePermission(req, CONSOLE_PERMISSIONS.billingManage)
-if (denied) return denied // 403 naming the missing rule, or 503 if the cluster could not be asked
+// 403 naming the missing rule (or, organisation-scoped, `requires_org_admin` /
+// `not_a_member`; 409 `no_organisation` for someone in none), or 503 when it
+// could not be checked
+if (denied) return denied
 
 const ok = (await authorize(req, CONSOLE_PERMISSIONS.packagesToggle)).allowed
 const me = await permissionsFor(req, { canApprove: CONSOLE_PERMISSIONS.waiverApprove })

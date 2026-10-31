@@ -4,16 +4,19 @@ import { getK8sServiceToken, getTool } from './tool-registry.ts'
 import { giteaConn, giteaFetcher } from './gitea-auth.ts'
 import { getKeycloakAdmin } from './workspace/keycloak-admin.ts'
 import { applyXr, organisationManifest } from './control-plane.ts'
+import { orgAdminGroup, orgMemberGroup } from './tenancy/org-access.ts'
 
 /**
  * Tenant provisioner — turns a logical organization into a real, isolated tenant
  * across the platform's systems when the console has the credentials to do so:
  *
- *   • **Keycloak**   — an identity group `org-<slug>` (+ the creator added), so
- *                      cluster RBAC and app access can be granted by group.
- *   • **Kubernetes** — a namespace `<slug>` labelled for the tenant, plus a
- *                      RoleBinding granting the `org-<slug>` group the namespaced
- *                      `admin` ClusterRole inside it — the isolation boundary.
+ *   • **Keycloak**   — the identity groups `org-<slug>` (members) and
+ *                      `org-<slug>-admin` (admins), with the creator in both:
+ *                      they ARE the organisation's membership (org-access.ts).
+ *   • **Kubernetes** — a namespace `<slug>` labelled for the tenant, with the
+ *                      admin group bound to the namespaced `admin` ClusterRole
+ *                      and the member group to `view` — the isolation boundary,
+ *                      exactly what the Organisation composition grants.
  *   • **ArgoCD**     — an AppProject `<slug>` whose destinations are restricted
  *                      to the tenant namespace, so GitOps can only deploy there.
  *   • **Gitea**      — an org `<slug>` to hold the tenant's repositories.
@@ -40,14 +43,14 @@ export interface ProvisionStepResult {
 export interface ProvisionInput {
   slug: string
   name: string
-  /** Creating user — id (sub), email, or username, for group membership. */
+  /** The creating user's Keycloak id (the token's `sub`), put in both groups. */
   userRef?: string
   /** What the organisation is for, as typed during onboarding. */
   description?: string
 }
 
-/** Group name convention used for tenant RBAC (matches ws-* group bindings). */
-export const groupForOrg = (slug: string) => `org-${slug}`
+/** The organisation's member group — the name Grafana and Harbor are given for it. */
+export const groupForOrg = (slug: string) => orgMemberGroup(slug)
 
 const ok = (status: number) => status >= 200 && status < 300
 
@@ -59,16 +62,20 @@ async function k8sApply(token: string, path: string, manifest: unknown): Promise
   })
 }
 
-/* ── Keycloak identity group ── */
+/* ── Keycloak identity groups ── */
 async function provisionKeycloak(input: ProvisionInput): Promise<ProvisionStepResult> {
-  const label = `Keycloak group ${groupForOrg(input.slug)}`
+  const label = `Keycloak groups ${orgMemberGroup(input.slug)}, ${orgAdminGroup(input.slug)}`
   const kc = getKeycloakAdmin()
   if (!kc) return { system: 'keycloak', label, status: 'skipped', detail: 'Keycloak admin not configured' }
   try {
-    const group = await kc.ensureGroup(groupForOrg(input.slug))
-    if (!group) return { system: 'keycloak', label, status: 'failed', detail: 'could not create group' }
-    if (input.userRef) await kc.addUserToGroup(input.userRef, groupForOrg(input.slug))
-    return { system: 'keycloak', label, status: 'done', detail: 'group ready, creator added' }
+    // Organisation creation already did this inline (organizations.ts); it is
+    // repeated, idempotently, so the job's report is about what is TRUE.
+    await kc.ensureOrgGroups(input.slug)
+    if (input.userRef) {
+      await kc.addUserToGroup(input.userRef, orgMemberGroup(input.slug))
+      await kc.addUserToGroup(input.userRef, orgAdminGroup(input.slug))
+    }
+    return { system: 'keycloak', label, status: 'done', detail: input.userRef ? 'groups ready, creator is admin' : 'groups ready' }
   } catch (e) {
     return { system: 'keycloak', label, status: 'failed', detail: (e as Error).message }
   }
@@ -95,28 +102,43 @@ async function provisionNamespace(input: ProvisionInput): Promise<ProvisionStepR
     if (!ok(nsRes.status) && nsRes.status !== 409) {
       return { system: 'namespace', label, status: 'failed', detail: `namespace ${nsRes.status}` }
     }
-    const rbRes = await k8sApply(
-      token,
-      `/apis/rbac.authorization.k8s.io/v1/namespaces/${input.slug}/rolebindings`,
-      {
-        apiVersion: 'rbac.authorization.k8s.io/v1',
-        kind: 'RoleBinding',
-        metadata: { name: 'adhar-tenant-admins', namespace: input.slug },
-        roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: 'admin' },
-        subjects: [
-          { kind: 'Group', name: groupForOrg(input.slug), apiGroup: 'rbac.authorization.k8s.io' },
-        ],
-      },
-    )
-    if (!ok(rbRes.status) && rbRes.status !== 409) {
-      return {
-        system: 'namespace',
-        label,
-        status: 'failed',
-        detail: `namespace ready, RoleBinding ${rbRes.status}`,
+    // The same two bindings the Organisation composition makes (admin-rbac /
+    // member-rbac in compositions/organisation/local.yaml), with the
+    // apiserver's `oidc:` group prefix: admins administer the namespace,
+    // members may read it. Binding the MEMBER group to admin — as this path
+    // once did — made every member an administrator.
+    for (const binding of [
+      { name: `${input.slug}-org-admin`, role: 'admin', group: orgAdminGroup(input.slug) },
+      { name: `${input.slug}-org-view`, role: 'view', group: orgMemberGroup(input.slug) },
+    ]) {
+      const rbRes = await k8sApply(
+        token,
+        `/apis/rbac.authorization.k8s.io/v1/namespaces/${input.slug}/rolebindings`,
+        {
+          apiVersion: 'rbac.authorization.k8s.io/v1',
+          kind: 'RoleBinding',
+          metadata: { name: binding.name, namespace: input.slug, labels: { 'adhar.io/organisation': input.slug } },
+          roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: binding.role },
+          subjects: [
+            { kind: 'Group', name: `oidc:${binding.group}`, apiGroup: 'rbac.authorization.k8s.io' },
+          ],
+        },
+      )
+      if (!ok(rbRes.status) && rbRes.status !== 409) {
+        return {
+          system: 'namespace',
+          label,
+          status: 'failed',
+          detail: `namespace ready, RoleBinding ${binding.name} ${rbRes.status}`,
+        }
       }
     }
-    return { system: 'namespace', label, status: 'done', detail: `namespace + admin binding for ${groupForOrg(input.slug)}` }
+    return {
+      system: 'namespace',
+      label,
+      status: 'done',
+      detail: `namespace; ${orgAdminGroup(input.slug)} admin, ${orgMemberGroup(input.slug)} view`,
+    }
   } catch (e) {
     return { system: 'namespace', label, status: 'failed', detail: (e as Error).message }
   }

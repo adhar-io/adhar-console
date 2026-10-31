@@ -1,6 +1,6 @@
 /**
  * Planning math for Define — sprints, burndown/burnup, velocity, capacity,
- * project health, workload and intake SLAs. Pure functions only (no React,
+ * project health, availability and intake SLAs. Pure functions only (no React,
  * no fetch) so every number on the planning screens is testable.
  *
  * Inputs come from two places, and the functions say which:
@@ -444,7 +444,9 @@ export function capacityPlan(input: {
     const effective = days > 0 ? round((capacity * Math.max(0, days - (e?.daysOff ?? 0))) / days) : capacity
     const a = round(assigned.get(m) ?? 0)
     const load = effective > 0 ? Math.round((a / effective) * 100) / 100 : null
-    return { member: m, capacity, effective, assigned: a, load, over: effective > 0 ? a > effective : a > 0 && !!e }
+    // No effective capacity is "over" only when capacity was set and days off
+    // ate all of it; a row with no capacity recorded reads "no capacity set".
+    return { member: m, capacity, effective, assigned: a, load, over: effective > 0 ? a > effective : a > 0 && capacity > 0 }
   })
   rows.sort((x, y) => (y.load ?? -1) - (x.load ?? -1) || y.assigned - x.assigned)
   return {
@@ -514,53 +516,6 @@ export function effectiveHealth(derived: HealthSignal, override?: HealthOverride
     return { health: override.health, reasons: [override.note ? `set manually: ${override.note}` : 'set manually'], overridden: true }
   }
   return { ...derived, overridden: false }
-}
-
-/* ───── workload ───── */
-
-export interface WorkloadRow {
-  member: string
-  open: number
-  inProgress: number
-  points: number
-  overdue: number
-  projects: string[]
-  /** Weekly capacity in points, when recorded. */
-  capacity: number | null
-  over: boolean
-}
-
-export function workload(input: {
-  items: WorkItem[]
-  points?: Record<string, number>
-  capacity?: Record<string, number>
-  now?: number
-}): WorkloadRow[] {
-  const now = input.now ?? Date.now()
-  const rows = new Map<string, WorkloadRow & { _p: Set<string> }>()
-  for (const i of input.items) {
-    if (isClosed(i)) continue
-    for (const a of i.assignees) {
-      let r = rows.get(a)
-      if (!r) {
-        r = { member: a, open: 0, inProgress: 0, points: 0, overdue: 0, projects: [], capacity: input.capacity?.[a] ?? null, over: false, _p: new Set() }
-        rows.set(a, r)
-      }
-      r.open += 1
-      if (i.state_group === 'started') r.inProgress += 1
-      r.points += (pointsOf(i, input.points) ?? 0) / i.assignees.length
-      if (isOverdue(i, now)) r.overdue += 1
-      if (i.project) r._p.add(i.project)
-    }
-  }
-  return [...rows.values()]
-    .map(({ _p, ...r }) => ({
-      ...r,
-      points: round(r.points),
-      projects: [..._p],
-      over: r.capacity !== null && r.capacity > 0 ? r.points > r.capacity : r.inProgress > 5,
-    }))
-    .sort((a, b) => Number(b.over) - Number(a.over) || b.open - a.open)
 }
 
 /* ───── availability ───── */

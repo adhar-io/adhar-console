@@ -40,7 +40,9 @@ import {
 export const planning = plane.PlanningClient.auto({ tool: 'plane' })
 const giteaClient = gitea.GiteaClient.auto({ tool: 'gitea' })
 
-const REFRESH_MS = 30_000
+// Console policy: Plane data is re-read at most once a minute (the whole console
+// shares one 60-a-minute API key); writes invalidate what they touch instead.
+const REFRESH_MS = 60_000
 
 /* ───── honest error states ───── */
 

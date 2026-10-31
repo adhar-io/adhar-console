@@ -3,9 +3,6 @@ import { z } from 'zod'
 export const PlanTierSchema = z.enum(['free', 'team', 'business', 'enterprise'])
 export type PlanTier = z.infer<typeof PlanTierSchema>
 
-export const OrgRoleSchema = z.enum(['owner', 'admin', 'member', 'billing', 'viewer'])
-export type OrgRole = z.infer<typeof OrgRoleSchema>
-
 export const OrganizationSchema = z.object({
   id: z.string(),
   slug: z.string(),
@@ -21,29 +18,12 @@ export const OrganizationSchema = z.object({
 })
 export type Organization = z.infer<typeof OrganizationSchema>
 
-export const MemberSchema = z.object({
-  userId: z.string(),
-  email: z.string().email(),
-  name: z.string(),
-  avatarUrl: z.string().url().optional(),
-  role: OrgRoleSchema,
-  teams: z.array(z.string()),
-  joinedAt: z.string(),
-  lastActiveAt: z.string().optional(),
-  ssoProvider: z.string().optional(),
-})
-export type Member = z.infer<typeof MemberSchema>
-
-export const InvitationSchema = z.object({
-  id: z.string(),
-  email: z.string().email(),
-  role: OrgRoleSchema,
-  invitedBy: z.string(),
-  invitedAt: z.string(),
-  expiresAt: z.string(),
-  status: z.enum(['pending', 'accepted', 'expired', 'revoked']),
-})
-export type Invitation = z.infer<typeof InvitationSchema>
+/*
+ * No member, role or invitation types: an organisation's people are its
+ * Keycloak groups (`org-<slug>`, `org-<slug>-admin`), read through the
+ * console's /api/workspace BFF (modules/workspace/src/data/client.ts), and
+ * nobody is invited — people are added to the groups.
+ */
 
 export const TeamSchema = z.object({
   id: z.string(),
@@ -181,12 +161,6 @@ export interface CreateOrgInput {
   name: string
   region: string
   plan: PlanTier
-}
-
-export interface InviteMemberInput {
-  email: string
-  role: OrgRole
-  teams?: string[]
 }
 
 export interface CreateProjectInput {

@@ -249,10 +249,15 @@ export async function sessionFromTokens(
     })
   }
   const user = claimsToUser(claims, cfg.clientId)
-  const activeTenant =
-    opts.previous?.activeTenant && user.tenants.includes(opts.previous.activeTenant)
-      ? opts.previous.activeTenant
-      : user.tenants[0] ?? ''
+  // A refresh keeps the organisation the session is working in. It used to be
+  // kept only when the token's `tenants` claim listed it — a claim no Keycloak
+  // mapper emits — so every refresh reset it to '' and an organisation switch
+  // reverted within one access-token lifetime. Whether the user may still work
+  // in that organisation is not decided here: the console re-checks it against
+  // the token's groups on every request (app/server/request-user.ts).
+  const activeTenant = opts.previous
+    ? opts.previous.activeTenant ?? ''
+    : user.tenants[0] ?? ''
   return {
     user,
     accessToken: tokens.access_token,

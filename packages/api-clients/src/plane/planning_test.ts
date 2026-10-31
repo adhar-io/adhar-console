@@ -93,6 +93,13 @@ Deno.test('estimates: a 404 (route not registered) is null, other errors surface
   await assertRejects(() => b.client.estimatePoints('acme', 'p1'))
 })
 
+Deno.test('estimates: after a 404 the client stops asking (saves the shared rate limit)', async () => {
+  const { client, calls } = recorder({}, { [`GET ${P}/estimates/`]: 404 })
+  assertEquals(await client.estimatePoints('acme', 'p1'), null)
+  assertEquals(await client.estimatePoints('acme', 'p2'), null)
+  assertEquals(calls.filter((c) => c.route.endsWith('/estimates/')).length, 1)
+})
+
 Deno.test('relations flatten to issue ids per type', async () => {
   const { client, calls } = recorder({ [`GET ${P}/work-items/i1/relations/`]: { blocked_by: [{ project_id: 'p1', issue_id: 'i2' }], blocking: ['i3'] } })
   const r = await client.relationsOf('acme', 'p1', 'i1')

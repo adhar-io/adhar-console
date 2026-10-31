@@ -8,10 +8,12 @@ import {
   useDeleteTeam,
   useMembers,
   useRemoveTeamMember,
-  useTeams,
+  useTeamMembers,
+  useTeamsPage,
   useWorkspaceMe,
   type WsTeam,
 } from '../data/client.ts'
+import { deriveTeamSlug, TEAM_SLUG_RE, teamCandidates } from '../data/members-model.ts'
 import {
   PrimaryButton,
   SecondaryButton,
@@ -21,10 +23,15 @@ import {
   ViewShell,
 } from '../components/section-shell.tsx'
 
+/**
+ * Teams — groups of an organization's members for project access. A team's
+ * membership IS the Keycloak group `ws-team-<org>.<team>`: adding someone here
+ * adds them to that group, and the platform's compositions bind it in cluster
+ * RBAC. Nothing about who is in a team is stored in the console.
+ */
 export function Teams() {
   const me = useWorkspaceMe()
-  const teams = useTeams()
-  const members = useMembers()
+  const teams = useTeamsPage()
   const deleteTeam = useDeleteTeam()
   const toast = useToast()
   const canCreate = useCan(CONSOLE_PERMISSIONS.teamsCreate)
@@ -33,22 +40,22 @@ export function Teams() {
   const [managing, setManaging] = useState<WsTeam | null>(null)
   const [pendingDelete, setPendingDelete] = useState<WsTeam | null>(null)
 
-  const all = teams.data ?? []
+  const all = teams.data?.items ?? []
   // Keep the manage panel bound to fresh data after invalidations.
   const managingFresh = managing ? all.find((t) => t.id === managing.id) ?? null : null
+  const counted = all.every((t) => t.memberCount !== null)
+  const bound = all.filter((t) => t.accessBinding === 'current').length
+  const pending = all.filter((t) => t.accessBinding === 'pending-platform-upgrade')
+  const org = me.data?.orgSlug || '<org>'
 
   return (
     <ViewShell
       title="Teams"
-      description="Teams grant project-scoped access to groups of members. Each team maps to a Keycloak group (ws-team-<slug>) so cluster RBAC follows the console."
+      description={`Teams group this organization's members for project access. Each team is the Keycloak group ws-team-${org}.<team> — membership lives there, and cluster RBAC binds that group.`}
       writeCheck={CONSOLE_PERMISSIONS.teamsUpdate}
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {me.data ? (
-            <StatusBadge kind={me.data.keycloakConfigured ? 'healthy' : 'paused'}>
-              {me.data.keycloakConfigured ? 'RBAC sync on' : 'console-only'}
-            </StatusBadge>
-          ) : null}
+          {me.data && !me.data.keycloakConfigured ? <StatusBadge kind="paused">Keycloak not configured</StatusBadge> : null}
           {canCreate ? (
             <PrimaryButton onClick={() => setCreateOpen(true)}>
               <IconPlus /> New team
@@ -63,15 +70,31 @@ export function Teams() {
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile label="Teams" value={teams.isLoading ? '…' : all.length} />
-            <StatTile label="Members covered" value={all.reduce((s, t) => s + t.memberCount, 0)} />
+            <StatTile
+              label="Members covered"
+              value={counted ? all.reduce((s, t) => s + (t.memberCount ?? 0), 0) : '—'}
+              hint={counted ? undefined : 'Keycloak unreachable'}
+            />
             <StatTile label="Projects covered" value={all.reduce((s, t) => s + t.projectCount, 0)} />
             <StatTile
-              label="Synced to RBAC"
-              value={`${all.filter((t) => t.keycloakSynced).length}/${all.length}`}
-              tone={all.length && all.every((t) => t.keycloakSynced) ? 'good' : 'warn'}
-              hint="Keycloak groups"
+              label="Cluster access"
+              value={`${bound}/${all.length}`}
+              tone={all.length && bound === all.length ? 'good' : 'warn'}
+              hint={pending.length ? 'platform upgrade pending' : bound < all.length ? 'not confirmed for every team' : 'team groups bound'}
             />
           </div>
+
+          {teams.data?.degraded ? (
+            <Note>Member counts could not be read from Keycloak just now; they show as —.</Note>
+          ) : null}
+          {pending.length ? (
+            <Note>
+              {pending.length === 1 ? `${pending[0].name} still binds` : `${pending.length} teams still bind`} cluster
+              access to the old, organization-less group name. Access granted through{' '}
+              {pending.length === 1 ? 'it' : 'them'} reaches Kubernetes after the next platform upgrade; membership
+              itself already works.
+            </Note>
+          ) : null}
 
           {all.length === 0 && !teams.isLoading ? (
             <div>
@@ -79,7 +102,7 @@ export function Teams() {
                 title="No teams yet"
                 description={canCreate
                   ? 'Create a team to group members and grant project-scoped access.'
-                  : 'Ask a workspace admin to create a team to group members and grant project-scoped access.'}
+                  : 'Ask an organization admin to create a team to group members and grant project-scoped access.'}
                 action={canCreate ? (
                   <PrimaryButton onClick={() => setCreateOpen(true)}>
                     <IconPlus /> New team
@@ -114,9 +137,17 @@ export function Teams() {
           if (!pendingDelete) return
           const name = pendingDelete.name
           deleteTeam.mutate(pendingDelete.id, {
-            onSuccess: () => {
+            onSuccess: (r) => {
               setPendingDelete(null)
-              toast.success(`Deleted ${name}`, { description: 'Members keep their projects; only the grouping is gone.' })
+              if (r.controlPlaneSynced === false) {
+                // The group is gone (so is the access it granted), but the
+                // Team resource — and the Gitea team it composes — is not.
+                toast.warning(`Deleted ${name}, but its Team resource was left in place`, {
+                  description: `${r.controlPlaneDetail ?? 'The console could not delete it.'} Its Keycloak group is gone; members keep their organization membership.`,
+                })
+                return
+              }
+              toast.success(`Deleted ${name}`, { description: 'Its Keycloak group is gone; members keep their organization membership.' })
             },
             onError: (e) => toast.error(`Could not delete ${name}`, { description: (e as Error)?.message }),
           })
@@ -134,13 +165,18 @@ function CreateTeamModal({ open, onClose }: { open: boolean; onClose(): void }) 
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [description, setDescription] = useState('')
-  const [result, setResult] = useState<{ synced: boolean } | null>(null)
+  // An explicit slug must already satisfy the Team XRD; a blank one is derived
+  // from the name the way the server derives it — shown, so nobody is refused
+  // over a slug they never saw, and checked, for a name nothing can be made from.
+  const typed = slug.trim()
+  const derived = deriveTeamSlug(name)
+  const slugInvalid = typed !== '' && !TEAM_SLUG_RE.test(typed)
+  const needsSlug = typed === '' && name.trim() !== '' && derived === ''
 
   const close = () => {
     setName('')
     setSlug('')
     setDescription('')
-    setResult(null)
     create.reset()
     onClose()
   }
@@ -150,11 +186,9 @@ function CreateTeamModal({ open, onClose }: { open: boolean; onClose(): void }) 
       { name: name.trim(), slug: slug.trim() || undefined, description: description.trim() || undefined },
       {
         onSuccess: (r) => {
-          setResult({ synced: r.keycloakSynced })
-          if (r.keycloakSynced) toast.success(`Team ${name.trim()} created`, { description: 'Keycloak group synced for cluster RBAC.' })
-          else toast.warning(`Team ${name.trim()} created (console-only)`, { description: 'Group sync will apply once a Keycloak admin credential is configured.' })
+          toast.success(`Team ${r.item.name} created`, { description: `Its membership is the Keycloak group ${r.item.group}.` })
+          close()
         },
-        onError: (e) => toast.error('Could not create the team', { description: (e as Error)?.message }),
       },
     )
 
@@ -164,45 +198,45 @@ function CreateTeamModal({ open, onClose }: { open: boolean; onClose(): void }) 
       onClose={close}
       branded
       title="New team"
-      description="Creates the team and its matching Keycloak group for cluster RBAC."
+      description="Creates the team and the Keycloak group that holds its members. Add people to it afterwards."
       footer={
-        result ? (
-          <PrimaryButton onClick={close}>Done</PrimaryButton>
-        ) : (
-          <>
-            <SecondaryButton onClick={close}>Cancel</SecondaryButton>
-            <PrimaryButton disabled={!name.trim() || create.isPending} onClick={submit}>
-              {create.isPending ? 'Creating…' : 'Create team'}
-            </PrimaryButton>
-          </>
-        )
+        <>
+          <SecondaryButton onClick={close}>Cancel</SecondaryButton>
+          <PrimaryButton disabled={!name.trim() || slugInvalid || needsSlug || create.isPending} onClick={submit}>
+            {create.isPending ? 'Creating…' : 'Create team'}
+          </PrimaryButton>
+        </>
       }
     >
-      {result ? (
-        <div className="flex items-center gap-2 text-sm text-content">
-          <StatusBadge kind={result.synced ? 'healthy' : 'paused'}>
-            {result.synced ? 'synced to Keycloak' : 'created, console-only'}
-          </StatusBadge>
-          {result.synced
-            ? 'The team and its RBAC group are ready.'
-            : 'The team was saved; group sync will apply once a Keycloak admin credential is configured.'}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-content">Name</span>
-            <TextField value={name} onChange={setName} placeholder="e.g. Platform Engineering" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-content">Slug (optional)</span>
-            <TextField mono value={slug} onChange={setSlug} placeholder="platform-eng" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-content">Description</span>
-            <TextField value={description} onChange={setDescription} placeholder="What this team owns" />
-          </label>
-        </div>
-      )}
+      <div className="space-y-3">
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-content">Name</span>
+          <TextField value={name} onChange={setName} placeholder="e.g. Platform Engineering" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-content">Slug (optional)</span>
+          <TextField mono value={slug} onChange={setSlug} placeholder="platform-eng" />
+          <span className={slugInvalid || needsSlug ? 'mt-1 block text-[11px] text-rose-700 dark:text-rose-400' : 'mt-1 block text-[11px] text-content-subtle'}>
+            Lowercase letters, digits and hyphens, starting with a letter — at most 40 characters.{' '}
+            {typed
+              ? null
+              : needsSlug
+              ? 'No slug can be made from this name — type one.'
+              : derived
+              ? <>Left empty, it will be <code className="font-mono">{derived}</code>.</>
+              : 'Left empty, it is made from the name.'}
+          </span>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-content">Description</span>
+          <TextField value={description} onChange={setDescription} placeholder="What this team owns" />
+        </label>
+        {create.isError ? (
+          <p className="text-[12px] text-rose-700 dark:text-rose-400">
+            {(create.error as Error)?.message ?? 'Could not create the team.'}
+          </p>
+        ) : null}
+      </div>
     </Modal>
   )
 }
@@ -211,20 +245,15 @@ function CreateTeamModal({ open, onClose }: { open: boolean; onClose(): void }) 
 
 function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): void }) {
   const members = useMembers()
+  const inTeamQ = useTeamMembers(team?.id)
   const add = useAddTeamMember()
   const remove = useRemoveTeamMember()
   const toast = useToast()
   const [candidate, setCandidate] = useState('')
-  const [lastSync, setLastSync] = useState<boolean | null>(null)
 
-  const inTeam = useMemo(
-    () => (members.data ?? []).filter((m) => team && m.teams.includes(team.slug)),
-    [members.data, team],
-  )
-  const candidates = useMemo(
-    () => (members.data ?? []).filter((m) => team && !m.teams.includes(team.slug)),
-    [members.data, team],
-  )
+  const inTeam = useMemo(() => inTeamQ.data ?? [], [inTeamQ.data])
+  // Anyone in the organization who is not in the team yet — read from the team's own group.
+  const candidates = useMemo(() => teamCandidates(members.data ?? [], inTeam), [members.data, inTeam])
 
   return (
     <Modal
@@ -233,11 +262,7 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
       branded
       width="lg"
       title={team ? `Manage ${team.name}` : ''}
-      description={
-        team?.keycloakGroup
-          ? `Membership changes are mirrored to the Keycloak group "${team.keycloakGroup}".`
-          : undefined
-      }
+      description={team ? `Membership is the Keycloak group "${team.group}". Changes reach people's sessions within 30 minutes.` : undefined}
       footer={<PrimaryButton onClick={onClose}>Done</PrimaryButton>}
     >
       {team ? (
@@ -249,7 +274,12 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
                 value={candidate}
                 onChange={setCandidate}
                 options={[
-                  { value: '', label: candidates.length ? 'Select a member…' : 'Everyone is in this team' },
+                  {
+                    value: '',
+                    label: members.isLoading || inTeamQ.isLoading
+                      ? 'Loading…'
+                      : candidates.length ? 'Select a member…' : 'Everyone in the organization is in this team',
+                  },
                   ...candidates.map((m) => ({ value: m.userId, label: `${m.name} · ${m.email}` })),
                 ]}
               />
@@ -260,10 +290,9 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
                 add.mutate(
                   { teamId: team.id, userId: candidate },
                   {
-                    onSuccess: (r) => {
+                    onSuccess: () => {
                       setCandidate('')
-                      setLastSync(r.keycloakSynced)
-                      toast.success('Member added', { description: r.keycloakSynced ? 'Mirrored to the Keycloak group.' : 'Console-only until Keycloak sync is configured.' })
+                      toast.success('Member added', { description: `Added to ${team.group} in Keycloak.` })
                     },
                     onError: (e) => toast.error('Could not add member', { description: (e as Error)?.message }),
                   },
@@ -272,15 +301,14 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
             >
               {add.isPending ? 'Adding…' : 'Add'}
             </PrimaryButton>
-            {lastSync !== null ? (
-              <StatusBadge kind={lastSync ? 'healthy' : 'paused'}>
-                {lastSync ? 'synced' : 'console-only'}
-              </StatusBadge>
-            ) : null}
           </div>
 
           <div className="divide-y divide-edge-subtle rounded-xl border border-edge-default">
-            {inTeam.length === 0 ? (
+            {inTeamQ.isLoading ? (
+              <p className="p-4 text-[12px] text-content-muted">Loading members…</p>
+            ) : inTeamQ.isError ? (
+              <p className="p-4 text-[12px] text-rose-700 dark:text-rose-400">{(inTeamQ.error as Error)?.message ?? 'Could not read the team from Keycloak.'}</p>
+            ) : inTeam.length === 0 ? (
               <p className="p-4 text-[12px] text-content-muted">No members yet.</p>
             ) : (
               inTeam.map((m) => (
@@ -296,10 +324,7 @@ function ManageTeamModal({ team, onClose }: { team: WsTeam | null; onClose(): vo
                       remove.mutate(
                         { teamId: team.id, userId: m.userId },
                         {
-                          onSuccess: (r) => {
-                            setLastSync(r.keycloakSynced)
-                            toast.success(`Removed ${m.name}`)
-                          },
+                          onSuccess: () => toast.success(`Removed ${m.name}`),
                           onError: (e) => toast.error(`Could not remove ${m.name}`, { description: (e as Error)?.message }),
                         },
                       )
@@ -333,7 +358,7 @@ function ConfirmDeleteModal({
       open={team !== null}
       onClose={onCancel}
       title="Delete team"
-      description="Removes the team from every member and deletes its Keycloak group."
+      description="Deletes the team and its Keycloak group, so its members lose the access granted through it."
       footer={
         <>
           <SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>
@@ -345,8 +370,10 @@ function ConfirmDeleteModal({
     >
       {team ? (
         <p className="text-sm text-content">
-          Delete <span className="font-medium">{team.name}</span> ({team.memberCount} member
-          {team.memberCount === 1 ? '' : 's'})? Projects keep running; only access grouping is removed.
+          Delete <span className="font-medium">{team.name}</span>
+          {team.memberCount !== null ? ` (${team.memberCount} member${team.memberCount === 1 ? '' : 's'})` : ''} and the
+          group <code className="font-mono text-[12px]">{team.group}</code>? Projects keep running and people stay in the
+          organization; only the team's access grouping is removed.
         </p>
       ) : null}
     </Modal>
@@ -376,23 +403,23 @@ function TeamCard({ team, onManage, onDelete }: { team: WsTeam; onManage(): void
             <div className="truncate text-[15px] font-semibold text-content">{team.name}</div>
             <code className="font-mono text-[11px] text-content-subtle">{team.slug}</code>
           </div>
-          <StatusBadge kind={team.keycloakSynced ? 'healthy' : 'paused'} dot={false}>
-            {team.keycloakSynced ? 'RBAC' : 'console-only'}
-          </StatusBadge>
+          {team.accessBinding === 'pending-platform-upgrade' ? (
+            <span title="Cluster RBAC still binds this team's old, organization-less group; it moves to the group below with the next platform upgrade.">
+              <StatusBadge kind="paused" dot={false}>upgrade pending</StatusBadge>
+            </span>
+          ) : null}
         </div>
         <p className="line-clamp-2 min-h-[2.5rem] text-[12px] leading-relaxed text-content-muted">
           {team.description || 'No description yet.'}
         </p>
         <dl className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <Fact label="Members" value={team.memberCount} />
+          <Fact label="Members" value={team.memberCount ?? '—'} />
           <Fact label="Projects" value={team.projectCount} />
           <Fact label="Created" value={formatRelative(team.createdAt)} small />
         </dl>
-        {team.keycloakGroup ? (
-          <div className="truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-subtle" title={team.keycloakGroup}>
-            group · {team.keycloakGroup}
-          </div>
-        ) : null}
+        <div className="truncate rounded-md bg-surface-sunken px-2 py-1 font-mono text-[10px] text-content-subtle" title={team.group}>
+          group · {team.group}
+        </div>
         {canManage || canDelete ? (
           <div className="mt-auto flex items-center justify-end gap-1.5 pt-1">
             {canManage ? <SecondaryButton onClick={onManage}>Manage members</SecondaryButton> : null}
@@ -410,6 +437,14 @@ function Fact({ label, value, small = false }: { label: string; value: string | 
       <dt className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">{label}</dt>
       <dd className={small ? 'mt-0.5 truncate text-[12px] font-medium text-content' : 'mt-0.5 text-lg font-semibold tabular-nums text-content'}>{value}</dd>
     </div>
+  )
+}
+
+function Note({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-relaxed text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+      {children}
+    </p>
   )
 }
 
@@ -442,7 +477,7 @@ function StoreErrorState({ error, retry }: { error: unknown; retry(): void }) {
     return (
       <EmptyState
         title="Connect a database"
-        description="Team management persists to Postgres. Set DATABASE_URL for the console server to enable it — no stubbed data is shown."
+        description="Teams persist to Postgres. Set DATABASE_URL for the console server to enable it — no stubbed data is shown."
       />
     )
   }

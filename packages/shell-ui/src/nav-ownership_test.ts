@@ -90,6 +90,20 @@ Deno.test('the shipped nav tree has no conflicting destinations', async () => {
 })
 
 /**
+ * Define → Members was a second people directory: Plane's member list, its
+ * invitations (which bypassed Keycloak) and a workload table. People are
+ * managed in Settings → Members against Keycloak, and capacity and time off
+ * moved to the sprint's Capacity tab, so the row must not come back.
+ */
+Deno.test('Define has no Members page', async () => {
+  const src = await Deno.readTextFile(new URL('./nav-tree.tsx', import.meta.url))
+  assertEquals(src.includes("'define.members'"), false, 'nav-tree still declares define.members')
+  const rows = [...src.matchAll(/\{[^{}]*\bid:\s*'define\.[^']+'[^{}]*\}/g)].map((m) => m[0])
+  assertEquals(rows.length > 0, true, 'the Define rows were not found — has the tree moved?')
+  assertEquals(rows.filter((r) => /\bsearch:\s*'members'/.test(r)), [])
+})
+
+/**
  * A module's section list is routinely longer than the sidebar's. Workspace
  * settings has 31 sections behind 14 rows, and the page coerces anything it
  * does not know to its default — so the bare URL and every unlisted section

@@ -102,9 +102,11 @@ export {
   CONSOLE_PERMISSIONS,
   consoleCheck,
   consoleResourceCatalogue,
+  ORG_SCOPED_PERMISSIONS,
   type AccessCheck,
   type ConsolePermission,
   type ConsolePermissionName,
+  type OrgScopedRole,
 } from '@adhar/auth'
 export { ErrorBoundary } from './error-boundary.tsx'
 export { PageHeader } from './page-header.tsx'

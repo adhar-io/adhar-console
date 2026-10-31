@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lte, sql, type SQL } from 'drizzle-orm'
 import type { Db } from './client.ts'
 import { documents, notificationState, userPreferences, users } from './schema.ts'
 import type { DocumentRow } from './schema.ts'
@@ -8,7 +8,14 @@ import type { DocumentRow } from './schema.ts'
  * Drizzle so the API routes stay declarative and the SQL lives in one place.
  */
 
-/** Upsert the lightweight user directory row on each authenticated request. */
+/**
+ * Upsert the `users` row: who last WROTE console data (preferences,
+ * documents, notification state), and when — the ids that `created_by` /
+ * `updated_by` carry. It is not a user store and nothing reads it for
+ * identity, membership or access: Keycloak is the only user store. The
+ * workspace and organisation endpoints, which manage membership, no longer
+ * write it; the table stays for a rollback to an older console.
+ */
 export async function touchUser(
   db: Db,
   user: { id: string; email: string; name: string },
@@ -34,6 +41,22 @@ export async function getPreferences(
     .where(and(eq(userPreferences.userId, userId), eq(userPreferences.scope, scope)))
     .limit(1)
   return rows[0]?.data ?? null
+}
+
+/**
+ * Every user's preference document for one scope. For server-side sweeps that
+ * must see all users at once — the organisation directory is rebuilt from
+ * everyone's `organizations` registry — never for a request on one user's
+ * behalf, which reads its own row with `getPreferences`.
+ */
+export async function listPreferencesByScope(
+  db: Db,
+  scope: string,
+): Promise<Array<{ userId: string; data: Record<string, unknown> }>> {
+  return await db
+    .select({ userId: userPreferences.userId, data: userPreferences.data })
+    .from(userPreferences)
+    .where(eq(userPreferences.scope, scope))
 }
 
 /** Upsert a preference document for (user, scope). */
@@ -146,6 +169,19 @@ export async function listDocuments(
     .where(and(eq(documents.tenant, tenant), eq(documents.kind, kind)))
     .orderBy(asc(documents.createdAt))
   return rows.map(toStored)
+}
+
+/**
+ * The tenants holding at least one document of any of `kinds` — what a
+ * cross-tenant migration has to visit. Distinct, in no particular order.
+ */
+export async function listTenantsWithKinds(db: Db, kinds: string[]): Promise<string[]> {
+  if (kinds.length === 0) return []
+  const rows = await db
+    .selectDistinct({ tenant: documents.tenant })
+    .from(documents)
+    .where(inArray(documents.kind, kinds))
+  return rows.map((r) => r.tenant)
 }
 
 export interface DocumentQuery {

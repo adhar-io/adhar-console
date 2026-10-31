@@ -50,6 +50,8 @@ async function billingFetch<T>(path: string, init?: RequestInit): Promise<T> {
     throw new BillingError(
       code === 'store_unavailable'
         ? 'The console database is not available.'
+        : code === 'no_organisation'
+        ? 'You are not in an organization, so there is no plan to show.'
         : `Billing request failed (${res.status}${code ? `: ${code}` : ''})`,
       res.status,
       code,
@@ -101,7 +103,12 @@ export interface SubscriptionSummary {
   item: Subscription
   plan: PlanDef
   persisted: boolean
-  seatsUsed: number
+  /**
+   * People in the organisation's Keycloak groups — null when Keycloak could
+   * not be read (an unknown count, never a zero).
+   */
+  seatsUsed: number | null
+  seatsSource?: 'keycloak' | 'unavailable'
   priceMonthly: number
   currency: string
   paymentMethod: string | null
@@ -120,7 +127,7 @@ export interface UsageReport {
   windowStart: string
   windowEnd: string
   seats: number | null
-  seatsSource: 'workspace.member' | 'unavailable'
+  seatsSource: 'keycloak' | 'unavailable'
   namespaces: number | null
   pods: number | null
   nodes: number | null

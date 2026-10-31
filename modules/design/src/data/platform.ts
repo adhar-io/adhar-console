@@ -50,8 +50,11 @@ async function getJson<T>(url: string): Promise<T> {
   if (!res.ok) {
     let msg = `${url} → ${res.status}`
     try {
-      const b = (await res.json()) as { error?: string; message?: string }
-      if (b.message || b.error) msg = `${b.message ?? b.error} (${res.status})`
+      // The workspace BFF answers `{ error, detail }`; the detail is the
+      // readable part (e.g. why Keycloak could not list the members).
+      const b = (await res.json()) as { error?: string; message?: string; detail?: string }
+      const text = b.detail || b.message || b.error
+      if (text) msg = `${text} (${res.status})`
     } catch { /* keep status */ }
     throw new Error(msg)
   }
@@ -83,6 +86,8 @@ export interface WsMe {
   email: string
   name?: string
   teams?: string[]
+  /** The organisation's slug — the one its Keycloak groups are named by. */
+  orgSlug?: string | null
   org?: { slug?: string; name?: string }
 }
 
@@ -383,7 +388,7 @@ export function usePlatformSnapshot(enabled = true): SnapshotState {
       entities: catalog.entities,
       argoApps: apps,
       tenancy: {
-        org: { slug: me.data?.org?.slug ?? org, name: me.data?.org?.name },
+        org: { slug: me.data?.orgSlug ?? me.data?.org?.slug ?? org, name: me.data?.org?.name },
         teams: (teams.data ?? []).map((t) => ({ slug: t.slug, name: t.name })),
         projects: (projects.data ?? []).map((p) => ({ slug: p.slug, name: p.name, teams: p.teams })),
         apps: tenancyApps(catalog.entities, apps),

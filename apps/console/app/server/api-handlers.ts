@@ -24,9 +24,13 @@ const KIND_RE = /^[a-z0-9][a-z0-9.-]{0,63}$/
  *   - `console.*`     notifications and provisioning jobs;
  *   - `security.*`    scan waivers the CI enforces (scan-waivers.ts);
  *   - `resilience.*`  chaos run evidence for promotions (resilience-reports.ts);
- *   - the workspace API's own records — `workspace.member` carries the caller's
- *     ROLE (a member PUTting `{role:'owner'}` became owner), `workspace.invitation`
- *     the accept-token hash, `workspace.audit` the audit trail.
+ *   - the workspace API's own records — `workspace.member` carried the caller's
+ *     ROLE (a member PUTting `{role:'owner'}` became owner) and is what the
+ *     Keycloak membership migration replays, `workspace.invitation` the
+ *     accept-token hash, `workspace.audit` the audit trail,
+ *     `workspace.migration` the migration's done-markers (writing one would
+ *     skip a tenant's migration), `workspace.org-directory` which tenant holds
+ *     which organisation (writing one would point a slug at your tenant).
  * Other `workspace.*` kinds (settings pages: theme, webhooks, roles, …) are
  * client-owned documents and stay available.
  */
@@ -40,12 +44,16 @@ const RESERVED_WORKSPACE_KINDS = new Set([
   'workspace.api-token',
   'workspace.approval',
   'workspace.audit',
+  'workspace.migration',
+  'workspace.org-directory',
 ])
 
 /**
- * Client-owned kinds whose WRITES are still permissions: custom workspace roles
- * define what people may do, so creating/editing/deleting them is RBAC on
- * `workspace-roles.console.adhar.io` — the check Workspace → Roles hides on.
+ * Client-owned kinds whose WRITES are still permissions. `workspace.role` is a
+ * custom role from before an organisation's roles came from Keycloak: it grants
+ * nothing any more (there are two roles, `org-<slug>` member and
+ * `org-<slug>-admin` admin) and no page offers it, but writing one stays an
+ * organisation-admin action so nobody else can plant one.
  */
 const GUARDED_KIND_WRITES: Record<string, Partial<Record<'POST' | 'PUT' | 'DELETE', ConsolePermission>>> = {
   'workspace.role': {

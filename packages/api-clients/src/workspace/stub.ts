@@ -3,8 +3,6 @@ import type {
   AuditEvent,
   Environment,
   Integration,
-  Invitation,
-  Member,
   Organization,
   Plan,
   Project,
@@ -35,58 +33,6 @@ export const STUB_ORGS: Organization[] = [
     plan: 'team',
     createdAt: '2026-02-04T09:00:00Z',
     ssoEnforced: false,
-  },
-]
-
-export const STUB_MEMBERS: Member[] = [
-  {
-    userId: 'stub-user-1',
-    email: 'tapas.friends@gmail.com',
-    name: 'Tapas (you)',
-    role: 'owner',
-    teams: ['platform', 'dx'],
-    joinedAt: '2026-01-12T09:00:00Z',
-    lastActiveAt: '2026-04-19T06:14:00Z',
-    ssoProvider: 'keycloak',
-  },
-  {
-    userId: 'u-maya',
-    email: 'maya@example.com',
-    name: 'Maya Lin',
-    role: 'admin',
-    teams: ['platform'],
-    joinedAt: '2026-01-20T09:00:00Z',
-    lastActiveAt: '2026-04-19T05:22:00Z',
-    ssoProvider: 'keycloak',
-  },
-  {
-    userId: 'u-rafa',
-    email: 'rafa@example.com',
-    name: 'Rafael Ortiz',
-    role: 'member',
-    teams: ['delivery'],
-    joinedAt: '2026-02-14T09:00:00Z',
-    lastActiveAt: '2026-04-18T22:05:00Z',
-  },
-  {
-    userId: 'u-sam',
-    email: 'sam@example.com',
-    name: 'Samira Khan',
-    role: 'billing',
-    teams: [],
-    joinedAt: '2026-03-01T09:00:00Z',
-  },
-]
-
-export const STUB_INVITATIONS: Invitation[] = [
-  {
-    id: 'inv-001',
-    email: 'newhire@example.com',
-    role: 'member',
-    invitedBy: 'stub-user-1',
-    invitedAt: '2026-04-18T10:00:00Z',
-    expiresAt: '2026-04-25T10:00:00Z',
-    status: 'pending',
   },
 ]
 
@@ -313,8 +259,8 @@ export const STUB_AUDIT: AuditEvent[] = [
   {
     id: 'ev-2',
     actor: { type: 'user', id: 'u-maya', label: 'Maya Lin' },
-    action: 'member.invited',
-    target: { type: 'invitation', id: 'inv-001', label: 'newhire@example.com' },
+    action: 'member.add',
+    target: { type: 'member', id: 'u-newhire', label: 'newhire@example.com' },
     outcome: 'success',
     at: '2026-04-18T10:00:01Z',
   },

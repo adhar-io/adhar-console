@@ -1,6 +1,8 @@
-import { CONSOLE_PERMISSIONS, getServerAuthConfig, getValidSession } from '@adhar/auth/server'
+import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 import { originOk } from '../k8s/gateway.ts'
 import { requirePermission } from '../k8s/access.ts'
+import { getRequestContext } from '../request-user.ts'
+import { getKeycloakAdmin } from '../workspace/keycloak-admin.ts'
 import {
   defaultSubscription,
   getBillingProvider,
@@ -17,6 +19,7 @@ import {
   type InvoiceDoc,
 } from './invoices.ts'
 import {
+  countOrgSeats,
   meterUsage,
   openCostAllocation,
   periodWindow,
@@ -32,10 +35,12 @@ import {
  *   billing.budget         budgets AND cost centers (scope 'cost-center')
  *   billing.payment-method non-sensitive metadata only — PAN/CVC are rejected
  *
- * Usage is metered from REAL sources (Postgres members, kube-apiserver counts,
- * OpenCost allocation). Unavailable sources surface as `null` + a source flag,
- * never as invented numbers. `BillingProvider` (local | stripe) is the
- * processor seam; the API shape is identical either way.
+ * Usage is metered from REAL sources (the organisation's Keycloak groups for
+ * seats, kube-apiserver counts, OpenCost allocation). Unavailable sources
+ * surface as `null` + a source flag, never as invented numbers.
+ * `BillingProvider` (local | stripe) is the processor seam; the API shape is
+ * identical either way. Someone in no organisation (their personal tenant)
+ * has nothing to bill: every endpoint answers 409 `no_organisation`.
  *
  * Endpoints:
  *   GET  plans
@@ -66,22 +71,34 @@ const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 interface Auth {
   user: { id: string; name: string; email: string }
   tenant: string
+  /** The organisation `tenant` holds; null for someone in none. */
+  orgSlug: string | null
+  degraded: boolean
   token: string | null
   refreshedCookie?: string
 }
 
+/**
+ * The caller and the organisation they bill for — the same re-validated
+ * tenant every console route uses (request-user.ts), never a session value
+ * taken on trust.
+ */
 async function resolveAuth(req: Request): Promise<Auth | null> {
-  const cfg = getServerAuthConfig()
-  if (!cfg) return null
-  const result = await getValidSession(req, cfg)
-  if (!result) return null
-  const s = result.session
+  const ctx = await getRequestContext(req)
+  if (!ctx) return null
   return {
-    user: { id: s.user.id, name: s.user.name, email: s.user.email },
-    tenant: s.activeTenant || s.user.tenants[0] || 'default',
-    token: s.accessToken ?? null,
-    refreshedCookie: result.refreshedCookie,
+    user: { id: ctx.user.id, name: ctx.user.name, email: ctx.user.email },
+    tenant: ctx.activeTenant,
+    orgSlug: ctx.org?.slug ?? null,
+    degraded: ctx.degraded,
+    token: ctx.accessToken ?? null,
+    refreshedCookie: ctx.refreshedCookie,
   }
+}
+
+/** Seats are the organisation's explicit members in Keycloak — null when that cannot be read. */
+function seats(auth: Auth): Promise<number | null> {
+  return auth.orgSlug ? countOrgSeats(getKeycloakAdmin(), auth.orgSlug) : Promise.resolve(null)
 }
 
 function withCookie(res: Response, cookie?: string): Response {
@@ -113,23 +130,21 @@ async function getConn(): Promise<Conn | null> {
   return await getMigratedDb()
 }
 
-async function meter(auth: Auth, period?: string): Promise<UsageReport> {
-  const conn = await getConn()
-  const { listDocuments } = await db()
+function meter(auth: Auth, period?: string): Promise<UsageReport> {
   return meterUsage({
     tenant: auth.tenant,
     period,
     token: auth.token,
-    db: conn ? { conn, listDocuments: (c, t, k) => listDocuments(c as Conn, t, k) } : null,
+    seats: () => seats(auth),
   })
 }
 
 /*
- * Billing is authorized by Kubernetes RBAC on `billing.console.adhar.io`:
- * `get` to see it, `update` for every write — plan, seats, payment methods,
- * budgets, invoices. It replaced the workspace-role check (owner/admin/billing
- * in the console DB) so the Billing page's <Can> and this handler ask the one
- * same question; docs/rbac.md shows how to grant it to a billing group.
+ * Billing belongs to ONE organisation, so `get billing` / `update billing`
+ * are org-scoped permissions (tenancy/org-access.ts): every member may see
+ * the organisation's billing, its admins (and platform admins) change it.
+ * They are still asked through `requirePermission`, so the Billing page's
+ * <Can> and this handler ask the one same question.
  */
 
 /* ─────────────────── entry ─────────────────── */
@@ -137,6 +152,14 @@ async function meter(auth: Auth, period?: string): Promise<UsageReport> {
 export async function handleBilling(req: Request, subpath: string): Promise<Response> {
   const auth = await resolveAuth(req)
   if (!auth) return bad('unauthenticated', 401)
+  if (!auth.orgSlug) {
+    return withCookie(
+      auth.degraded
+        ? Response.json({ error: 'authorization_unavailable', detail: 'Your organisation could not be looked up right now. Try again shortly.' }, { status: 503 })
+        : Response.json({ error: 'no_organisation', detail: 'You are not in an organisation, so there is nothing to bill.' }, { status: 409 }),
+      auth.refreshedCookie,
+    )
+  }
 
   const method = req.method.toUpperCase()
   const mutating = method !== 'GET' && method !== 'HEAD'
@@ -263,8 +286,7 @@ async function getSubscription(auth: Auth): Promise<Response> {
   const { listDocuments } = await db()
   const { sub, persisted } = await loadSubscription(conn, auth.tenant)
   const plan = getPlan(sub.tier)!
-  const members = await listDocuments(conn, auth.tenant, 'workspace.member')
-  const seatsUsed = Math.max(members.length, 1)
+  const seatsUsed = await seats(auth)
   const methods = await listDocuments(conn, auth.tenant, PAYMENT_KIND)
   const def = methods.find((m) => (m.data as { isDefault?: boolean }).isDefault)
   return Response.json({
@@ -272,6 +294,7 @@ async function getSubscription(auth: Auth): Promise<Response> {
     plan,
     persisted,
     seatsUsed,
+    seatsSource: seatsUsed === null ? 'unavailable' : 'keycloak',
     priceMonthly: Math.round(sub.seatsPurchased * plan.pricePerSeatMonthly * 100) / 100,
     currency: plan.currency,
     paymentMethod: def ? String((def.data as { label?: unknown }).label ?? '') : null,

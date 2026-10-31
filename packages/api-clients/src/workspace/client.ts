@@ -6,9 +6,6 @@ import type {
   CreateProjectInput,
   Environment,
   Integration,
-  InviteMemberInput,
-  Invitation,
-  Member,
   Organization,
   Plan,
   Project,
@@ -20,8 +17,6 @@ import {
   STUB_AUDIT,
   STUB_ENVIRONMENTS,
   STUB_INTEGRATIONS,
-  STUB_INVITATIONS,
-  STUB_MEMBERS,
   STUB_ORGS,
   STUB_PLAN,
   STUB_PROJECTS,
@@ -37,13 +32,6 @@ export interface WorkspaceClient {
   createOrganization(input: CreateOrgInput): Promise<Organization>
   updateOrganization(slug: string, patch: Partial<Organization>): Promise<Organization>
   deleteOrganization(slug: string): Promise<void>
-
-  listMembers(orgSlug: string): Promise<Member[]>
-  inviteMember(orgSlug: string, input: InviteMemberInput): Promise<Invitation>
-  listInvitations(orgSlug: string): Promise<Invitation[]>
-  revokeInvitation(orgSlug: string, invitationId: string): Promise<void>
-  updateMemberRole(orgSlug: string, userId: string, role: Member['role']): Promise<void>
-  removeMember(orgSlug: string, userId: string): Promise<void>
 
   listTeams(orgSlug: string): Promise<Team[]>
   createTeam(orgSlug: string, team: { slug: string; name: string; description?: string }): Promise<Team>
@@ -80,18 +68,6 @@ function build(http: HttpClient): WorkspaceClient {
     updateOrganization: (s, p) => http.patch<Organization>(base(s), p),
     deleteOrganization: async (s) => {
       await http.delete<void>(base(s))
-    },
-    listMembers: (s) => http.get<Member[]>(`${base(s)}/members`),
-    inviteMember: (s, i) => http.post<Invitation>(`${base(s)}/invitations`, i),
-    listInvitations: (s) => http.get<Invitation[]>(`${base(s)}/invitations`),
-    revokeInvitation: async (s, id) => {
-      await http.delete<void>(`${base(s)}/invitations/${id}`)
-    },
-    updateMemberRole: async (s, u, r) => {
-      await http.patch<void>(`${base(s)}/members/${u}`, { role: r })
-    },
-    removeMember: async (s, u) => {
-      await http.delete<void>(`${base(s)}/members/${u}`)
     },
     listTeams: (s) => http.get<Team[]>(`${base(s)}/teams`),
     createTeam: (s, t) => http.post<Team>(`${base(s)}/teams`, t),
@@ -135,20 +111,6 @@ function stub(): WorkspaceClient {
       return { ...o, ...p }
     },
     deleteOrganization: async () => {},
-    listMembers: async () => STUB_MEMBERS,
-    inviteMember: async (_s, i) => ({
-      id: `inv-${Date.now()}`,
-      email: i.email,
-      role: i.role,
-      invitedBy: 'stub-user-1',
-      invitedAt: new Date().toISOString(),
-      expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString(),
-      status: 'pending',
-    }),
-    listInvitations: async () => STUB_INVITATIONS,
-    revokeInvitation: async () => {},
-    updateMemberRole: async () => {},
-    removeMember: async () => {},
     listTeams: async () => STUB_TEAMS,
     createTeam: async (_s, t) => ({
       id: `team-${t.slug}`,

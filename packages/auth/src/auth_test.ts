@@ -2,6 +2,7 @@ import { assertEquals, assertRejects } from 'jsr:@std/assert@1'
 import { parseCookies, sign, unsign } from './cookies.ts'
 import { getServerAuthConfig, type ServerAuthConfig } from './config.ts'
 import { sessionFromTokens } from './server.ts'
+import { claimsToUser } from './claims.ts'
 
 Deno.test('parseCookies keeps going past a malformed percent-encoded value', () => {
   // `%E0%A4%A` is a truncated UTF-8 sequence — decodeURIComponent throws on it.
@@ -55,6 +56,40 @@ Deno.test('non-numeric session TTLs fall back to the defaults instead of NaN', (
   )
 })
 
+const b64url = (v: unknown) => btoa(JSON.stringify(v)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+/** An unsigned access token: refresh responses are decoded, not re-verified. */
+const accessToken = (claims: Record<string, unknown>) => `${b64url({ alg: 'none' })}.${b64url(claims)}.sig`
+
+Deno.test('a token refresh keeps the organisation the session is working in', async () => {
+  // Keycloak emits no `tenants` claim, so the old rule ("keep it only if the
+  // token lists it") reset every session to '' on its first refresh and an
+  // organisation switch reverted within one access-token lifetime.
+  const cfg = { clientId: 'adhar-console' } as ServerAuthConfig
+  const previous = {
+    user: { id: 'u-1', email: 'ana@example.test', name: 'Ana', roles: ['viewer' as const], groups: ['org-acme'], tenants: [] },
+    accessToken: 'old',
+    refreshToken: 'r-1',
+    expiresAt: 0,
+    authTime: 1,
+    activeTenant: 'acme-x1y2z',
+    sid: 'sid-1',
+  }
+  const next = await sessionFromTokens(
+    cfg,
+    {
+      access_token: accessToken({ sub: 'u-1', email: 'ana@example.test', name: 'Ana', groups: ['org-acme', 'org-beta'], exp: 9, iat: 1 }),
+      token_type: 'Bearer',
+      expires_in: 300,
+    },
+    { previous },
+  )
+  assertEquals(next.activeTenant, 'acme-x1y2z')
+  // The groups are the NEW token's — that is how a membership change arrives.
+  assertEquals(next.user.groups, ['org-acme', 'org-beta'])
+  assertEquals(next.sid, 'sid-1')
+  assertEquals(next.authTime, 1)
+})
+
 Deno.test('a code exchange without an id_token cannot skip the nonce check', async () => {
   const cfg = { clientId: 'adhar-console' } as ServerAuthConfig
   await assertRejects(
@@ -67,4 +102,13 @@ Deno.test('a code exchange without an id_token cannot skip the nonce check', asy
     Error,
     'nonce',
   )
+})
+
+Deno.test('group names keep their case; only role aliasing ignores it', () => {
+  const u = claimsToUser({ sub: 'u', email: 'u@x', name: 'U', groups: ['/ORG-ACME-ADMIN', 'org-acme', '/parent/Platform-Admin'] } as never)
+  // Kubernetes binds OIDC groups case-sensitively; the console must see what it sees.
+  assertEquals(u.groups, ['ORG-ACME-ADMIN', 'org-acme', 'Platform-Admin'])
+  // The UI persona role still aliases case-insensitively, as before (a display
+  // choice; organisation access is decided from the exact group names above).
+  assertEquals(u.roles, ['platform-admin'])
 })

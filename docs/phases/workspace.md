@@ -14,8 +14,8 @@ the org lives here.
 | Group            | Section         | Purpose                                           |
 | ---------------- | --------------- | ------------------------------------------------- |
 | Organization     | General         | Name, slug, region, SSO, domain                   |
-| Organization     | Members         | People + roles; invite flow; remove               |
-| Organization     | Teams           | Grouping for access to projects                   |
+| Organization     | Members         | Keycloak groups: add, make admin, remove          |
+| Organization     | Teams           | `ws-team-<org>.<team>` groups; project access     |
 | Workloads        | Projects        | Repo + envs + team ownership                      |
 | Workloads        | Environments    | Dev → staging → prod + promotion rules            |
 | Connectivity     | Integrations    | Backing tool health + configure                   |
@@ -28,17 +28,25 @@ the org lives here.
 
 ## Data layer
 
-All views call `@adhar/api-clients/workspace`. Default in v1 is
-the stub; production wires through the BFF (same pattern as other clients).
-Tenant = the active org; resolved from session, never from request body.
+All views call the console's BFF, `/api/workspace/*`, through
+`modules/workspace/src/data/client.ts`. Tenant = the active org, re-validated
+on every request against the caller's Keycloak groups — never from the request
+body.
+
+People are Keycloak's, and only Keycloak's: an organization's members are the
+group `org-<slug>`, its admins `org-<slug>-admin` (every admin is in both), and
+a team is the group `ws-team-<org>.<team>`. The console stores no members,
+roles or invitations — Members reads and writes those groups, and adding
+someone new creates their Keycloak account (Keycloak emails a set-password
+link). See `docs/rbac.md`.
 
 ## Onboarding (`/onboarding`)
 
 A 5-step wizard that writes once to the workspace client:
 
 1. Welcome / intro.
-2. Create organization (name, slug, region, plan).
-3. Invite team (optional).
+2. Create organization (name, slug, region, plan) — you become its admin.
+3. Add people afterwards in Settings → Members (there are no invitations).
 4. Connect backing tools (multi-select of every BACKING_TOOLS entry).
 5. Pick a starter project (blank / monorepo / microservices / ML platform).
 
@@ -61,7 +69,6 @@ Adding a new admin surface:
 
 1. New view file under `modules/workspace/src/views/<section>.tsx`.
 2. Add to the `GROUPS` array in `modules/workspace/src/home.tsx`.
-3. Add the backing client method to
-   `packages/api-clients/src/workspace/client.ts` + a stub in `stub.ts`.
-4. Add a BFF endpoint in `apps/console/app/server/bff.ts` if the data lives
-   server-side.
+3. Add the data hook to `modules/workspace/src/data/client.ts`.
+4. Add a BFF endpoint in `apps/console/app/server/workspace/handlers.ts` if
+   the data lives server-side, gated by a `CONSOLE_PERMISSIONS` entry.

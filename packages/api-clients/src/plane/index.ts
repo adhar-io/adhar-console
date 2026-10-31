@@ -302,17 +302,6 @@ export const EstimatePointSchema = z.object({
 })
 export type EstimatePoint = z.infer<typeof EstimatePointSchema>
 
-export const InvitationSchema = z.object({
-  id: z.string(),
-  email: z.string(),
-  role: z.number(),
-  accepted: z.boolean().optional(),
-  responded_at: z.string().nullable().optional(),
-  created_at: z.string().optional(),
-  updated_at: z.string().optional(),
-})
-export type Invitation = z.infer<typeof InvitationSchema>
-
 
 /* ───── triage, links, relations, search, stickies (Plane public API v1) ───── */
 
@@ -369,7 +358,7 @@ export interface ProjectSummary {
   id: string
   name: string
   identifier: string
-  counts: Partial<Record<'members' | 'states' | 'labels' | 'cycles' | 'modules' | 'issues' | 'intake' | 'pages', number>>
+  counts: Partial<Record<'members' | 'states' | 'labels' | 'cycles' | 'modules' | 'issues' | 'intakes' | 'pages', number>>
 }
 
 export interface Sticky {
@@ -385,11 +374,8 @@ export interface Sticky {
 }
 
 export interface PlaneClient {
-  /* Workspace members + invitations */
+  /* Workspace members */
   listMembers(slug: string): Promise<Member[]>
-  listInvitations(slug: string): Promise<Invitation[]>
-  inviteMember(slug: string, body: { email: string; role: number }): Promise<Invitation>
-  deleteInvitation(slug: string, invitationId: string): Promise<void>
 
   /* Projects */
   listProjects(slug: string): Promise<Project[]>
@@ -586,12 +572,19 @@ function build(http: HttpClient): PlaneClient {
    * stores an issue's estimate as the id of one of these; the console works
    * in their values.
    */
+  // The fork's public API doesn't register `estimates/` (it 404s for every
+  // project). Remember the first 404 so each issue list doesn't spend one of
+  // the shared 60-a-minute key's requests rediscovering it — the BFF only
+  // caches 2xx answers.
+  let estimatesMissing = false
   const estimatePoints = async (slug: string, p: string): Promise<EstimatePoint[]> => {
+    if (estimatesMissing) return []
     let estimate: { id?: string } | undefined
     try {
       estimate = await http.get<{ id?: string }>(`${proj(slug, p)}/estimates/`)
-    } catch {
-      return [] // 404 — the project has no estimate configured
+    } catch (e) {
+      if ((e as { status?: number }).status === 404) estimatesMissing = true
+      return []
     }
     if (!estimate?.id) return []
     return list<EstimatePoint>(`${proj(slug, p)}/estimates/${estimate.id}/estimate-points/`)
@@ -618,7 +611,9 @@ function build(http: HttpClient): PlaneClient {
     if (typeof rest.estimate_point === 'number') {
       const points = await estimatePoints(slug, p)
       if (!points.length) {
-        throw new Error('This project has no estimate in Plane. Set one up under the project\'s Estimates settings first.')
+        throw new Error(estimatesMissing
+          ? 'Plane\'s API doesn\'t expose estimates on this server, so story points can\'t be set from the console. Set them in Plane.'
+          : 'This project has no estimate in Plane. Set one up under the project\'s Estimates settings first.')
       }
       const match = points.find((pt) => Number(pt.value) === rest.estimate_point)
       if (!match) {
@@ -632,11 +627,6 @@ function build(http: HttpClient): PlaneClient {
   return {
     listMembers: async (slug) =>
       (await list<RawWorkspaceMember>(`${ws(slug)}/members/`)).map((m) => normalizeMember(m, slug) as Member),
-    listInvitations: (slug) => list<Invitation>(`${ws(slug)}/invitations/`),
-    inviteMember: (slug, body) => http.post<Invitation>(`${ws(slug)}/invitations/`, body),
-    deleteInvitation: async (slug, id) => {
-      await http.delete<void>(`${ws(slug)}/invitations/${id}/`)
-    },
 
     listProjects: (slug) => list<Project>(`${ws(slug)}/projects/`),
     getProject: (slug, p) => http.get<Project>(`${proj(slug, p)}/`),
@@ -778,7 +768,7 @@ function build(http: HttpClient): PlaneClient {
       await http.delete<void>(`${proj(slug, p)}/archive/`)
     },
     getProjectSummary: (slug, p) =>
-      http.get<ProjectSummary>(`${proj(slug, p)}/summary/${qs({ fields: 'members,states,labels,cycles,modules,issues,intake' })}`),
+      http.get<ProjectSummary>(`${proj(slug, p)}/summary/${qs({ fields: 'members,states,labels,cycles,modules,issues,intakes' })}`),
     listProjectMembers: async (slug, p) =>
       (await list<ProjectMemberLite>(`${proj(slug, p)}/project-members-lite/`)).filter((m) => m.is_active !== false),
     addProjectMember: async (slug, p, member, role) => {
@@ -944,10 +934,6 @@ const STUB_LABELS_CON: Label[] = [
   { id: 'lbl-perf', name: 'performance', color: '#f59e0b', project: 'proj-con' },
   { id: 'lbl-docs', name: 'docs', color: '#0ea5e9', project: 'proj-con' },
   { id: 'lbl-security', name: 'security', color: '#a855f7', project: 'proj-con' },
-]
-
-const STUB_INVITES: Invitation[] = [
-  { id: 'inv-1', email: 'nadia@example.com', role: 15, accepted: false, responded_at: null, created_at: '2026-04-20T09:00:00Z' },
 ]
 
 const STUB_MEMBERS: Member[] = [
@@ -1377,11 +1363,6 @@ function issuesFor(p: string): Issue[] {
 
 export const PlaneClient = defineClient<PlaneClient>(build, () => ({
   listMembers: async () => STUB_MEMBERS,
-  listInvitations: async () => STUB_INVITES,
-  deleteInvitation: async (_slug, id) => {
-    const at = STUB_INVITES.findIndex((i) => i.id === id)
-    if (at >= 0) STUB_INVITES.splice(at, 1)
-  },
   listProjects: async () => STUB_PROJECTS,
   getProject: async (_slug, p) =>
     STUB_PROJECTS.find((x) => x.id === p) ?? STUB_PROJECTS[0],
@@ -1413,18 +1394,6 @@ export const PlaneClient = defineClient<PlaneClient>(build, () => ({
     return { ...(cur as Project), ...patch, id: p }
   },
   deleteProject: async () => undefined,
-  inviteMember: async (_slug, body) => {
-    const inv: Invitation = {
-      id: `inv-${Date.now().toString(36)}`,
-      email: body.email,
-      role: body.role,
-      accepted: false,
-      responded_at: null,
-      created_at: new Date().toISOString(),
-    }
-    STUB_INVITES.push(inv)
-    return inv
-  },
   listStates: async (_slug, p) => statesFor(p),
   listLabels: async (_slug, p) => labelsFor(p),
   listIssues: async (_slug, p, params) => {
@@ -1589,7 +1558,7 @@ export const PlaneClient = defineClient<PlaneClient>(build, () => ({
       id: pr.id,
       name: pr.name,
       identifier: pr.identifier,
-      counts: { members: STUB_MEMBERS.length, states: statesFor(p).length, labels: labelsFor(p).length, cycles: STUB_CYCLES_CON.length, modules: STUB_MODULES_CON.length, issues: issuesFor(p).length, intake: STUB_INTAKE.filter((x) => x.status === -2).length },
+      counts: { members: STUB_MEMBERS.length, states: statesFor(p).length, labels: labelsFor(p).length, cycles: STUB_CYCLES_CON.length, modules: STUB_MODULES_CON.length, issues: issuesFor(p).length, intakes: STUB_INTAKE.filter((x) => x.status === -2).length },
     }
   },
   listProjectMembers: async () =>

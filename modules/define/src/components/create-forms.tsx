@@ -10,7 +10,6 @@ import {
   useCreateModule,
   useCreateProject,
   useCreateView,
-  useInviteMember,
   useLabels,
   useMembers,
   useStates,
@@ -627,89 +626,6 @@ export function CreateViewModal({
 
 const VIEW_SELECT =
   'block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm capitalize focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
-
-/* ───── Invite member ───── */
-
-export function InviteMemberModal({
-  open,
-  onClose,
-}: {
-  open: boolean
-  onClose(): void
-}) {
-  const invite = useInviteMember()
-  const toast = useToast()
-  const [email, setEmail] = useState('')
-  const [role, setRole] = useState<number>(15)
-
-  const submit = () => {
-    const to = email.trim()
-    if (!to) return
-    invite.mutate(
-      { email: to, role },
-      {
-        onSuccess: () => {
-          toast.success(`Invitation sent to ${to}.`)
-          setEmail('')
-          setRole(15)
-          onClose()
-        },
-        onError: (e) => toast.error(planeError(e, 'Couldn\'t send the invitation.')),
-      },
-    )
-  }
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Invite member"
-      description="Sends an email invitation through Plane's workspace flow."
-      branded
-      footer={
-        <>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={submit}
-            loading={invite.isPending}
-            disabled={!email.trim()}
-          >
-            Send invite
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Email">
-          <input
-            autoFocus
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="teammate@example.com"
-            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
-          />
-        </Field>
-        <Field label="Role">
-          <select
-            value={role}
-            onChange={(e) => setRole(Number(e.target.value))}
-            className="block w-full rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-sm"
-          >
-            <option value={20}>Admin · full workspace access</option>
-            <option value={15}>Member · default contributor</option>
-            <option value={5}>Guest · limited access</option>
-          </select>
-        </Field>
-      </div>
-    </Modal>
-  )
-}
 
 /* ───── shared atom ───── */
 

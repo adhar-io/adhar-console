@@ -1,9 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { EmptyIcon } from './components/empty-icon.tsx'
-import { EmptyState, PageHeader, Spinner, StatusBadge, useIntegration } from '@adhar/shell-ui'
+import { Button, EmptyState, PageHeader, Spinner, useIntegration } from '@adhar/shell-ui'
 import { ProjectPicker } from './components/project-picker.tsx'
 import {
   getStoredProjectId,
+  planeError,
   setStoredProjectId,
   useProject,
   useProjects,
@@ -24,7 +25,6 @@ const Views = lazy(() => import('./views/views.tsx').then((m) => ({ default: m.V
 const Board = lazy(() => import('./views/board.tsx').then((m) => ({ default: m.Board })))
 const Backlog = lazy(() => import('./views/backlog.tsx').then((m) => ({ default: m.Backlog })))
 const Roadmap = lazy(() => import('./views/roadmap.tsx').then((m) => ({ default: m.Roadmap })))
-const Members = lazy(() => import('./views/members.tsx').then((m) => ({ default: m.Members })))
 const MyWork = lazy(() => import('./views/my-work.tsx').then((m) => ({ default: m.MyWork })))
 const Reports = lazy(() => import('./views/reports.tsx').then((m) => ({ default: m.Reports })))
 const Releases = lazy(() => import('./views/releases.tsx').then((m) => ({ default: m.Releases })))
@@ -42,7 +42,6 @@ type Section =
   | 'views'
   | 'roadmap'
   | 'okrs'
-  | 'members'
   | 'board'
   | 'backlog'
   | 'my-work'
@@ -106,10 +105,6 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   okrs: {
     label: 'OKRs',
     description: 'Objectives and their key results — progress rolls up per quarter with pace-aware status.',
-  },
-  members: {
-    label: 'Members',
-    description: 'Workload and capacity across projects, availability, the workspace directory and invitations.',
   },
   'my-work': {
     label: 'My Work',
@@ -203,6 +198,28 @@ export default function DefineHome({ section }: { section?: string } = {}) {
     )
   }
 
+  // Every Define page starts from Plane's project list. When Plane refuses or
+  // can't be reached, say so — instead of an endless "Loading projects…" on
+  // the dashboard or a misleading "Pick a project" everywhere else.
+  if (projects.error && !projects.data) {
+    const status = (projects.error as { status?: number }).status
+    return (
+      <div className="space-y-6">
+        <PageHeader title={def.label} />
+        <EmptyState
+          icon={<EmptyIcon name="plug" />}
+          title={status === 429 ? 'Plane is busy right now' : status === 401 || status === 403 ? 'Plane refused the console' : "Couldn't load Plane projects"}
+          description={planeError(projects.error, "The console couldn't read the project list from Plane.")}
+          action={
+            <Button size="sm" variant="primary" disabled={projects.isFetching} onClick={() => void projects.refetch()}>
+              {projects.isFetching ? 'Retrying…' : 'Try again'}
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* The dashboard draws its own header: its project picker and Customize live in the actions. */}
@@ -224,11 +241,6 @@ export default function DefineHome({ section }: { section?: string } = {}) {
           ) : (
             def.label
           )
-        }
-        badge={
-          active === 'members' && projects.data ? (
-            <StatusBadge kind="info">{projects.data.length} workspace projects</StatusBadge>
-          ) : null
         }
       />}
       <Suspense fallback={<div className="flex justify-center py-16 text-content-subtle" aria-busy="true"><Spinner size={16} /></div>}>
@@ -264,7 +276,6 @@ export default function DefineHome({ section }: { section?: string } = {}) {
         )}
         {active === 'roadmap' && <Roadmap projectId={activeProjectId} />}
         {active === 'okrs' && <Okrs projectId={activeProjectId} />}
-        {active === 'members' && <Members />}
         {active === 'releases' && <Releases projectId={activeProjectId} />}
         {active === 'automation' && <Automation projectId={activeProjectId} />}
       </Suspense>

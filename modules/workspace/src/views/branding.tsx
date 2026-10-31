@@ -192,7 +192,7 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
       {headerActions}
       <SettingsCard
         title="Brand"
-        description="Shown on invites, notification emails, and the org switcher."
+        description="Shown on notification emails and the organization switcher."
       >
         <SettingsRow
           label="Logo URL"
@@ -272,7 +272,7 @@ function Editor({ doc }: { doc: GeneralSettingsDoc }) {
             </p>
           ) : null}
         </SettingsRow>
-        <SettingsRow label="Homepage URL" description="Linked from the org avatar and invites.">
+        <SettingsRow label="Homepage URL" description="Linked from the organization avatar.">
           <TextField
             type="url"
             mono

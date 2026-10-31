@@ -10,6 +10,8 @@ export {
   getNotificationState,
   getPreferences,
   listDocuments,
+  listPreferencesByScope,
+  listTenantsWithKinds,
   putDocument,
   queryDocuments,
   setNotificationState,

@@ -145,7 +145,7 @@ export function TenancyLink({ project }: { project: plane.Project }) {
     <section className="space-y-3">
       <div>
         <h3 className="text-[14px] font-semibold text-content">Organization, team and project</h3>
-        <p className="text-[12px] text-content-muted">Which Adhar project — and so which teams — this Plane project belongs to. Kept in the console; it narrows Define to the active team.</p>
+        <p className="text-[12px] text-content-muted">Which Adhar project — and so which teams — this Plane project belongs to. Kept in the console; Define itself always lists every Plane project.</p>
       </div>
       {meta.isError ? <Notice tone="warn">{storeError(meta.error)}</Notice> : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

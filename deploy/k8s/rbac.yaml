@@ -79,9 +79,10 @@ subjects:
     namespace: adhar-console
 ---
 # Tenant provisioner — the ELEVATED grant that lets onboarding create a real,
-# isolated tenant (see app/server/tenant-provisioner.ts): a namespace + a
-# RoleBinding of the `org-<slug>` group to the namespaced `admin` ClusterRole,
-# and a scoped ArgoCD AppProject. This is high-privilege (namespace + RBAC
+# isolated tenant (see app/server/tenant-provisioner.ts): a namespace + two
+# RoleBindings there — `org-<slug>-admin` to the namespaced `admin`
+# ClusterRole, `org-<slug>` to `view` (the same as the Organisation
+# composition) — and a scoped ArgoCD AppProject. This is high-privilege (namespace + RBAC
 # creation) — keep it as a SEPARATE role so it can be reviewed/omitted
 # independently of the read-only reader role above. Without it the provisioner
 # degrades honestly (each step reports "failed/permission" and the org is still

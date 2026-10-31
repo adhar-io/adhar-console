@@ -28,7 +28,9 @@ export {
   CONSOLE_PERMISSIONS,
   consoleCheck,
   consoleResourceCatalogue,
+  ORG_SCOPED_PERMISSIONS,
   type AccessCheck,
   type ConsolePermission,
   type ConsolePermissionName,
+  type OrgScopedRole,
 } from './console-permissions.ts'

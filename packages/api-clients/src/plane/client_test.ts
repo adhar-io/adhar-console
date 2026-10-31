@@ -127,3 +127,20 @@ Deno.test('sub-issues come from the parent field', async () => {
   const subs = await client.listSubIssues('acme', 'p1', 'i1')
   assertEquals(subs.map((s) => s.id), ['i3'])
 })
+
+/**
+ * Keycloak is the only user store: people join an organisation through its
+ * Keycloak groups, and Plane's workspace membership follows those groups. A
+ * Plane invitation admitted someone the identity provider never heard of, so
+ * the client no longer offers one — neither the real client nor the stub.
+ */
+Deno.test('the client offers no Plane workspace invitations', () => {
+  const real = fakePlane().client as unknown as Record<string, unknown>
+  const stub = PlaneClient.stub() as unknown as Record<string, unknown>
+  for (const method of ['listInvitations', 'inviteMember', 'deleteInvitation']) {
+    assertEquals(method in real, false, `real client still has ${method}`)
+    assertEquals(method in stub, false, `stub client still has ${method}`)
+  }
+  // Reading the directory stays: Define resolves assignees through it.
+  assertEquals(typeof real.listMembers, 'function')
+})

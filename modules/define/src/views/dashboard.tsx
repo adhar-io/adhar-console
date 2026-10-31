@@ -161,7 +161,7 @@ export function Dashboard({
         : null}
 
       {err ? <SourceNote kind={err.kind} message={err.message} /> : null}
-      {me.unmatched && me.user ? <SourceNote kind="other" title="You aren’t a Plane member yet" message={`No Plane member has your console email (${me.user.email}), so the "assigned to me" widgets are empty. Ask a Plane admin to invite that address.`} /> : null}
+      {me.unmatched && me.user ? <SourceNote kind="other" title="You aren’t a Plane member yet" message={`No Plane member has your console email (${me.user.email}), so the "assigned to me" widgets are empty. Open Plane once and sign in with Keycloak — that adds you to the workspace.`} /> : null}
 
       {!scope.ready
         ? <Loading label="Loading projects…" />

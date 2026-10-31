@@ -2,25 +2,39 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 /**
  * Organizations (workspaces) the signed-in user can access, backed by
- * `/api/organizations`. An org is the tenant that scopes the console's own
- * data; switching / creating persists server-side (per-user) and re-signs the
+ * `/api/organizations`. The list is built from their Keycloak groups — an
+ * organization is listed because they are in `org-<slug>` (or its `-admin`
+ * group), and platform admins see every organization. An org is the tenant
+ * that scopes the console's own data; switching / creating re-signs the
  * session cookie's `activeTenant`, so we do a full reload afterwards for a
  * clean slate across every module.
  */
 export interface OrgSummary {
+  /** The tenant id. */
   id: string
   name: string
   slug: string
   createdAt?: string
+  /** The user's role in this organization. */
+  role?: 'admin' | 'member'
+  /**
+   * How they hold it: their own membership, a platform admin group (admin of
+   * every organization), or — in the platform's own organization — the
+   * platform team. Only a membership of their own can be left.
+   */
+  via?: 'membership' | 'platform-admin' | 'platform-team'
 }
 
-export type OrgAction = 'switch' | 'create' | 'rename' | 'delete' | null
+export type OrgAction = 'switch' | 'create' | 'rename' | 'leave' | null
 
 export interface UseOrganizations {
   orgs: OrgSummary[]
+  /** The active tenant, or '' when the user is in no organization. */
   activeId: string
   /** True once the real list has loaded from the server. */
   ready: boolean
+  /** The list came from the sign-in token because Keycloak could not be asked. */
+  degraded: boolean
   loading: boolean
   busy: OrgAction
   error: string | null
@@ -28,15 +42,28 @@ export interface UseOrganizations {
   createOrg(name: string): Promise<OrgSummary | null>
   /** Rename in place (no reload) — resolves true on success. */
   renameOrg(id: string, name: string): Promise<boolean>
-  /** Resolves true on success (the page reloads if the active org was deleted). */
-  deleteOrg(id: string): Promise<boolean>
+  /**
+   * Leave an organization — removes the user from its Keycloak groups. Resolves
+   * true on success (the page reloads if the active org was left).
+   */
+  leaveOrg(id: string): Promise<boolean>
   refresh(): void
+}
+
+/** The codes a person can act on, in their words; anything else shows the server's detail. */
+const ORG_ERROR: Record<string, string> = {
+  reauth_required: 'Your session does not carry this membership yet. Sign out and sign back in to switch to it.',
+  not_a_member: 'You are not a member of that organization.',
+  cannot_leave_last_admin: 'You are its last admin. Make someone else an admin before you leave.',
+  platform_admin_access: 'You see this organization as a platform admin, not as a member, so there is no membership to leave.',
+  requires_org_admin: 'Only an admin of that organization can do this.',
+  keycloak_unavailable: 'Keycloak could not be reached. Try again in a moment.',
 }
 
 async function readError(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { error?: string; detail?: string }
-    return body.detail || body.error || `HTTP ${res.status}`
+    return (body.error && ORG_ERROR[body.error]) || body.detail || body.error || `HTTP ${res.status}`
   } catch {
     return `HTTP ${res.status}`
   }
@@ -46,6 +73,7 @@ export function useOrganizations(): UseOrganizations {
   const [orgs, setOrgs] = useState<OrgSummary[]>([])
   const [activeId, setActiveId] = useState('')
   const [ready, setReady] = useState(false)
+  const [degraded, setDegraded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<OrgAction>(null)
   const [error, setError] = useState<string | null>(null)
@@ -65,12 +93,13 @@ export function useOrganizations(): UseOrganizations {
     fetch('/api/organizations', { credentials: 'same-origin', headers: { accept: 'application/json' } })
       .then(async (res) => {
         if (!res.ok) throw new Error(await readError(res))
-        return (await res.json()) as { organizations: OrgSummary[]; activeId: string }
+        return (await res.json()) as { organizations: OrgSummary[]; activeId: string; degraded?: boolean }
       })
       .then((data) => {
         if (cancelled) return
         setOrgs(data.organizations ?? [])
         setActiveId(data.activeId ?? '')
+        setDegraded(data.degraded === true)
         setReady(true)
         setError(null)
       })
@@ -176,10 +205,13 @@ export function useOrganizations(): UseOrganizations {
     [busy],
   )
 
-  const deleteOrg = useCallback(
+  // DELETE on an organization means "take me out of it": the server removes the
+  // user from its Keycloak groups and refuses to strand it without an admin.
+  // Deleting an organization itself is Settings → Delete org.
+  const leaveOrg = useCallback(
     async (id: string): Promise<boolean> => {
       if (busy) return false
-      setBusy('delete')
+      setBusy('leave')
       setError(null)
       try {
         const res = await fetch(`/api/organizations/${encodeURIComponent(id)}`, {
@@ -200,7 +232,7 @@ export function useOrganizations(): UseOrganizations {
         return true
       } catch (e) {
         if (alive.current) {
-          setError(e instanceof Error ? e.message : 'Could not delete organization')
+          setError(e instanceof Error ? e.message : 'Could not leave the organization')
           setBusy(null)
         }
         return false
@@ -209,5 +241,5 @@ export function useOrganizations(): UseOrganizations {
     [busy, refresh],
   )
 
-  return { orgs, activeId, ready, loading, busy, error, switchOrg, createOrg, renameOrg, deleteOrg, refresh }
+  return { orgs, activeId, ready, degraded, loading, busy, error, switchOrg, createOrg, renameOrg, leaveOrg, refresh }
 }

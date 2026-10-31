@@ -94,7 +94,10 @@ export function useBiParams(): BiParams {
       })
     sync()
     globalThis.addEventListener('popstate', sync)
-    const unsubscribe = router?.history?.subscribe?.(sync)
+    // TanStack Router notifies before it writes the URL (`window.history` is
+    // updated in a microtask), so reading `location` here would see the
+    // previous URL — every drawer one navigation behind. Read after it.
+    const unsubscribe = router?.history?.subscribe?.(() => queueMicrotask(sync))
     return () => {
       globalThis.removeEventListener('popstate', sync)
       unsubscribe?.()

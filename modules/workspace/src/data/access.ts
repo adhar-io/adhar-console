@@ -1,195 +1,96 @@
-import type { workspace } from '@adhar/api-clients'
+import {
+  CONSOLE_PERMISSIONS,
+  type ConsolePermissionName,
+  ORG_SCOPED_PERMISSIONS,
+  type OrgScopedRole,
+} from '@adhar/shell-ui'
 
 /**
- * Organisation roles, their labels, and the segregation-of-duty matrix shown
- * on Roles & permissions. Informational only: what a user may actually DO is
- * decided by Kubernetes RBAC (CONSOLE_PERMISSIONS, docs/rbac.md), asked per
- * action through components/role-gate.tsx / useCan.
+ * An organisation's roles, as Settings → Roles & permissions shows them.
  *
- * Standard org roles (`workspace.OrgRole`) are extended here with a few
- * enterprise-only roles surfaced in the role matrix:
+ * There are exactly two, and both are Keycloak groups — the console stores no
+ * roles of its own:
  *
- *   - `owner`     — full control. Can transfer ownership / delete the org.
- *   - `admin`     — manages members, projects, integrations, security
- *                   settings (no billing).
- *   - `security`  — manages SSO, MFA, IP allowlist, audit, compliance,
- *                   approvals. Read-only on billing.
- *   - `billing`   — manages plan, payment methods, invoices, budgets,
- *                   cost centers. Read-only on the rest.
- *   - `finance`   — alias of billing focused on cost allocation review.
- *   - `member`    — day-to-day developer; read-most, edit projects and
- *                   their environments.
- *   - `viewer`    — read-only.
+ *   member   `org-<slug>`
+ *   admin    `org-<slug>-admin` (every admin is in both)
  *
- * Segregation of duty: the platform model deliberately separates billing
- * (`billing` / `finance`) from security (`security`) from execution
- * (`admin` / `member`). One person SHOULD NOT be able to change cluster
- * security policy AND approve their own purchase order.
+ * Two kinds of people hold a role without being listed in either group: the
+ * platform admin groups (`platform-admin`, `platform-engineer`, `super-admin`)
+ * are admins of EVERY organisation, and the platform team
+ * (`platform-developer`, `platform-viewer`) are members of the platform's own
+ * organisation.
+ *
+ * What a role may do in its organisation is decided by the console from those
+ * groups — `ORG_SCOPED_PERMISSIONS`, the same list the server enforces
+ * (apps/console/app/server/tenancy/org-access.ts). Kubernetes RBAC answers the
+ * console's other permissions (platform packages, scan waivers, …), and is not
+ * asked about these.
  */
 
-export type Role =
-  | 'owner'
-  | 'admin'
-  | 'security'
-  | 'billing'
-  | 'finance'
-  | 'member'
-  | 'viewer'
+export type Role = OrgScopedRole
 
-export const ALL_ROLES: Role[] = ['owner', 'admin', 'security', 'billing', 'finance', 'member', 'viewer']
+/**
+ * A permission key inside a custom role saved before roles came from Keycloak
+ * (`workspace.role` documents). Those documents grant nothing now and no page
+ * offers them; the type stays so they can still be read.
+ */
+export type Permission = string
 
-export type Permission =
-  /* Org */
-  | 'org.read'
-  | 'org.write'
-  | 'org.transfer'
-  | 'org.delete'
-  /* Members */
-  | 'members.read'
-  | 'members.invite'
-  | 'members.remove'
-  | 'members.update_role'
-  /* Roles & teams */
-  | 'roles.read'
-  | 'roles.write'
-  | 'teams.read'
-  | 'teams.write'
-  /* Identity & Access */
-  | 'sso.read'
-  | 'sso.write'
-  | 'scim.read'
-  | 'scim.write'
-  | 'mfa.read'
-  | 'mfa.enforce'
-  | 'session.read'
-  | 'session.write'
-  | 'ipallow.read'
-  | 'ipallow.write'
-  /* Security & compliance */
-  | 'security.read'
-  | 'security.write'
-  | 'audit.read'
-  | 'audit.export'
-  | 'compliance.read'
-  | 'compliance.write'
-  | 'approvals.read'
-  | 'approvals.write'
-  /* Workloads */
-  | 'projects.read'
-  | 'projects.write'
-  | 'environments.read'
-  | 'environments.write'
-  /* Connectivity */
-  | 'integrations.read'
-  | 'integrations.write'
-  | 'tokens.read'
-  | 'tokens.write'
-  | 'webhooks.read'
-  | 'webhooks.write'
-  /* Billing */
-  | 'billing.read'
-  | 'billing.write'
-  | 'invoices.read'
-  | 'payments.read'
-  | 'payments.write'
-  | 'budgets.read'
-  | 'budgets.write'
-  | 'costcenters.read'
-  | 'costcenters.write'
-  | 'allocation.read'
+export const ALL_ROLES: Role[] = ['member', 'admin']
 
 export const ROLE_LABEL: Record<Role, string> = {
-  owner: 'Owner',
-  admin: 'Admin',
-  security: 'Security',
-  billing: 'Billing',
-  finance: 'Finance',
   member: 'Member',
-  viewer: 'Viewer',
+  admin: 'Admin',
+}
+
+export const ROLE_GROUP: Record<Role, (slug: string) => string> = {
+  member: (slug) => `org-${slug}`,
+  admin: (slug) => `org-${slug}-admin`,
 }
 
 export const ROLE_DESCRIPTION: Record<Role, string> = {
-  owner: 'Full control. Transfer or delete the organization.',
-  admin: 'Manages people, projects, integrations. No billing access.',
-  security: 'Manages SSO, MFA, IP allowlist, audit, compliance, approvals.',
-  billing: 'Manages plan, payments, invoices, budgets, cost centers.',
-  finance: 'Reviews cost allocation and approves budget changes.',
-  member: 'Day-to-day work — projects and environments.',
-  viewer: 'Read-only across the workspace.',
+  member: 'Works in the organization: reads its settings, members, teams, projects, approvals, audit trail and billing.',
+  admin: 'Everything a member can, plus who is in the organization, its teams, projects, tokens, approvals, billing and settings.',
 }
 
-export const ROLE_TONE: Record<Role, 'failed' | 'progressing' | 'info' | 'unknown' | 'paused' | 'healthy'> = {
-  owner: 'failed',
+export const ROLE_TONE: Record<Role, 'progressing' | 'info'> = {
   admin: 'progressing',
-  security: 'paused',
-  billing: 'info',
-  finance: 'info',
-  member: 'healthy',
-  viewer: 'unknown',
+  member: 'info',
 }
 
-const ALL_PERMS: Permission[] = [
-  'org.read', 'org.write', 'org.transfer', 'org.delete',
-  'members.read', 'members.invite', 'members.remove', 'members.update_role',
-  'roles.read', 'roles.write', 'teams.read', 'teams.write',
-  'sso.read', 'sso.write', 'scim.read', 'scim.write', 'mfa.read', 'mfa.enforce',
-  'session.read', 'session.write', 'ipallow.read', 'ipallow.write',
-  'security.read', 'security.write', 'audit.read', 'audit.export',
-  'compliance.read', 'compliance.write', 'approvals.read', 'approvals.write',
-  'projects.read', 'projects.write', 'environments.read', 'environments.write',
-  'integrations.read', 'integrations.write', 'tokens.read', 'tokens.write',
-  'webhooks.read', 'webhooks.write',
-  'billing.read', 'billing.write', 'invoices.read',
-  'payments.read', 'payments.write', 'budgets.read', 'budgets.write',
-  'costcenters.read', 'costcenters.write', 'allocation.read',
+/**
+ * A role name from anywhere — including documents saved before roles came
+ * from Keycloak (`owner`, `billing`, …) — as a label. The retired roles had
+ * no successor but admin or member, so they say which.
+ */
+export function roleLabel(role: string): string {
+  if (role === 'admin' || role === 'member') return ROLE_LABEL[role]
+  if (role === 'owner') return 'Admin (was Owner)'
+  return `${role} (retired)`
+}
+
+/** One row of the permission table: an organisation-scoped permission and who holds it. */
+export interface OrgPermissionRow {
+  name: ConsolePermissionName
+  description: string
+  /** The least role that holds it. */
+  role: Role
+}
+
+/** Permissions that are no longer offered anywhere (custom roles are gone). */
+const RETIRED: ReadonlySet<ConsolePermissionName> = new Set(['rolesCreate', 'rolesUpdate', 'rolesDelete'])
+
+/** The organisation-scoped permissions, members' first, as the server decides them. */
+export const ORG_PERMISSION_ROWS: OrgPermissionRow[] = ORG_SCOPED_PERMISSIONS
+  .filter(([name]) => !RETIRED.has(name))
+  .map(([name, role]) => ({ name, description: CONSOLE_PERMISSIONS[name].description, role }))
+  .sort((a, b) => (a.role === b.role ? 0 : a.role === 'member' ? -1 : 1))
+
+/** Groups that hold a role in every organisation (or the platform's) without being listed. */
+export const IMPLICIT_ROLE_GROUPS: Array<{ group: string; role: Role; where: string }> = [
+  { group: 'platform-admin', role: 'admin', where: 'every organization' },
+  { group: 'platform-engineer', role: 'admin', where: 'every organization' },
+  { group: 'super-admin', role: 'admin', where: 'every organization' },
+  { group: 'platform-developer', role: 'member', where: "the platform's own organization" },
+  { group: 'platform-viewer', role: 'member', where: "the platform's own organization" },
 ]
-
-const READ_ONLY = ALL_PERMS.filter((p) => p.endsWith('.read'))
-
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  owner: ALL_PERMS,
-  admin: [
-    'org.read', 'org.write',
-    'members.read', 'members.invite', 'members.remove', 'members.update_role',
-    'roles.read', 'teams.read', 'teams.write',
-    'sso.read', 'scim.read', 'mfa.read', 'session.read', 'ipallow.read',
-    'security.read', 'audit.read', 'compliance.read', 'approvals.read',
-    'projects.read', 'projects.write', 'environments.read', 'environments.write',
-    'integrations.read', 'integrations.write', 'tokens.read', 'tokens.write',
-    'webhooks.read', 'webhooks.write',
-    'billing.read', 'invoices.read', 'budgets.read', 'costcenters.read', 'allocation.read',
-  ],
-  security: [
-    ...READ_ONLY,
-    'sso.write', 'scim.write', 'mfa.enforce', 'session.write', 'ipallow.write',
-    'security.write', 'audit.export', 'compliance.write', 'approvals.write',
-  ],
-  billing: [
-    ...READ_ONLY,
-    'billing.write', 'payments.write', 'budgets.write', 'costcenters.write',
-  ],
-  finance: [
-    ...READ_ONLY,
-    'budgets.write', 'costcenters.write',
-  ],
-  member: [
-    'org.read',
-    'members.read', 'roles.read', 'teams.read',
-    'projects.read', 'projects.write', 'environments.read', 'environments.write',
-    'integrations.read', 'tokens.read', 'webhooks.read',
-    'billing.read', 'budgets.read', 'allocation.read',
-    'audit.read',
-  ],
-  viewer: READ_ONLY,
-}
-
-/* ─────────── helpers / re-exports ─────────── */
-
-export type WorkspaceOrgRole = workspace.OrgRole
-export const ORG_ROLE_LABEL: Record<workspace.OrgRole, string> = {
-  owner: 'Owner',
-  admin: 'Admin',
-  billing: 'Billing',
-  member: 'Member',
-  viewer: 'Viewer',
-}

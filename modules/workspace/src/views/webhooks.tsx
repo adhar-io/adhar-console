@@ -37,7 +37,7 @@ const EVENT_CATALOG: { id: string; label: string }[] = [
   { id: 'deployment.failed', label: 'Deployment failed' },
   { id: 'rollout.paused', label: 'Rollout paused' },
   { id: 'rollout.promoted', label: 'Rollout promoted' },
-  { id: 'member.invited', label: 'Member invited' },
+  { id: 'member.added', label: 'Member added' },
   { id: 'member.removed', label: 'Member removed' },
   { id: 'budget.exceeded', label: 'Budget exceeded' },
   { id: 'security.alert', label: 'Security alert' },

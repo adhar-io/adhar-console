@@ -18,7 +18,8 @@ const app = (name: string, destination: string): EntityDeployment['apps'][number
 } as unknown as EntityDeployment['apps'][number])
 
 const dep = (apps: EntityDeployment['apps']): EntityDeployment =>
-  ({ apps, environments: [], primary: apps[0], isLoading: false, isError: false, unmatched: apps.length === 0 }) as EntityDeployment
+  // A partial fixture: planTeardown reads only these fields.
+  ({ apps, environments: [], primary: apps[0], isLoading: false, isError: false, unmatched: apps.length === 0 }) as unknown as EntityDeployment
 
 Deno.test('planTeardown: apps, a dedicated namespace and a Gitea repository', () => {
   const plan = planTeardown(entity(), dep([app('cart', 'cart'), app('cart-staging', 'cart')]), 'https://gitea.example.com/acme/cart', 'gitea.example.com')

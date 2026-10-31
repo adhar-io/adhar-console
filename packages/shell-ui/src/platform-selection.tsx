@@ -28,8 +28,15 @@ import {
 
 /* ─────────── org → namespace scope ─────────── */
 
-function orgScopeSelector(slug: string | undefined, orgCount: number): string {
-  if (!slug || slug === 'default' || orgCount <= 1) return ''
+/**
+ * The platform's own organization is tenant `default`, whatever its slug —
+ * the org directory names it `adhar` (the Organisation XR) — and, like the
+ * old default organization, it is never narrowed to labelled namespaces.
+ */
+const PLATFORM_TENANT_ID = 'default'
+
+function orgScopeSelector(slug: string | undefined, orgCount: number, tenantId?: string): string {
+  if (!slug || slug === 'default' || tenantId === PLATFORM_TENANT_ID || orgCount <= 1) return ''
   return `adhar.io/org=${slug}`
 }
 
@@ -155,7 +162,7 @@ function useNamespaceList(scope: string): NsList {
 export function PlatformSelectionControls() {
   const org = useOrganizations()
   const activeSlug = org.ready ? org.orgs.find((o) => o.id === org.activeId)?.slug : undefined
-  const scope = orgScopeSelector(activeSlug, org.orgs.length)
+  const scope = orgScopeSelector(activeSlug, org.orgs.length, org.activeId)
 
   // Publish the org scope into the shared store so the platform data layer
   // restricts its own namespace listings to the same set.

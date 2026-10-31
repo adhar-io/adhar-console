@@ -1,7 +1,6 @@
 import { env } from '@adhar/utils'
-import { getRequestUser, unauthorized } from './request-user.ts'
+import { getRequestContext, unauthorized } from './request-user.ts'
 import { getTool } from './tool-registry.ts'
-import { activeOrgSlug } from './organizations.ts'
 import { KIND, openStore, type TeamDoc } from './workspace/store.ts'
 
 /**
@@ -152,9 +151,9 @@ export async function listOrgTeams(api: GiteaApi, org: string): Promise<Team[]> 
  * The active organisation's own teams.
  *
  * These are the `workspace.team` documents the team switcher lists and that
- * Workspace admin creates — reflected into Keycloak as `ws-team-<slug>`
- * groups. They are the organisation's teams in the sense the Owner picker
- * means: a real group of real people, scoped to this tenant.
+ * Workspace admin creates — their members are the Keycloak groups
+ * `ws-team-<org>.<slug>`. They are the organisation's teams in the sense the
+ * Owner picker means: a real group of real people, scoped to this tenant.
  *
  * `openStore` returns null when the deployment has no database configured, in
  * which case this contributes nothing and the Gitea/catalog sources below get
@@ -191,13 +190,17 @@ async function readGroupsFrom(api: GiteaApi, owner: string, name: string, path: 
 }
 
 export async function handleListTeams(req: Request): Promise<Response> {
-  const auth = await getRequestUser(req)
+  const auth = await getRequestContext(req)
   if (!auth) return unauthorized()
 
-  const org = await activeOrgSlug(auth.user.id, auth.activeTenant)
+  // The slug every tenant-scoped system is named after (Gitea org, groups,
+  // namespace) — from the shared organisation directory, which a member added
+  // in Keycloak resolves exactly as the creator does. No organisation (a
+  // personal tenant) has no teams of its own.
+  const org = auth.org?.slug ?? ''
 
   // The organisation's own teams come first — this is the question being asked.
-  const wsTeams = await listWorkspaceTeams(auth.activeTenant)
+  const wsTeams = org ? await listWorkspaceTeams(auth.activeTenant) : []
   if (wsTeams.length > 0) {
     return withCookie(
       Response.json({ teams: dedupeTeams(wsTeams), source: 'workspace', org }),
@@ -224,7 +227,7 @@ export async function handleListTeams(req: Request): Promise<Response> {
 
   // The organisation's own teams first. This is the answer the question
   // actually asks — who, in this org, can own the thing being created.
-  const orgTeams = await listOrgTeams(api, org)
+  const orgTeams = org ? await listOrgTeams(api, org) : []
   if (orgTeams.length > 0) {
     return withCookie(
       Response.json({ teams: dedupeTeams(orgTeams), source: 'org', org }),

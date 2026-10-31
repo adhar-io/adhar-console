@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { plane } from '@adhar/api-clients'
 import { usePlaneWorkspace, useToolPublicUrl } from '@adhar/shell-ui'
 
@@ -27,7 +28,9 @@ export const planeClient = plane.PlaneClient.auto({ tool: 'plane' })
  * whole Define phase follows the real organization.
  */
 
-const REFRESH_MS = 30_000
+// Console policy: Plane data is re-read at most once a minute (the whole console
+// shares one 60-a-minute API key); writes invalidate what they touch instead.
+const REFRESH_MS = 60_000
 
 /* ───── selection state ───── */
 
@@ -124,15 +127,6 @@ export function usePlaneLink(path = ''): string {
   const slug = usePlaneWorkspace()
   if (!base) return ''
   return `${base}/${slug}/${path.replace(/^\/+/, '')}`
-}
-
-export function useInvitations() {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  return useQuery({
-    queryKey: ['plane', 'invitations', WORKSPACE_SLUG],
-    queryFn: () => planeClient.listInvitations(WORKSPACE_SLUG),
-    staleTime: REFRESH_MS,
-  })
 }
 
 export function useMembers() {
@@ -262,25 +256,6 @@ export function useDeleteProject() {
   return useMutation({
     mutationFn: (id: string) => planeClient.deleteProject(WORKSPACE_SLUG, id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'projects', WORKSPACE_SLUG] }),
-  })
-}
-
-export function useInviteMember() {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (body: { email: string; role: number }) =>
-      planeClient.inviteMember(WORKSPACE_SLUG, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'invitations', WORKSPACE_SLUG] }),
-  })
-}
-
-export function useDeleteInvitation() {
-  const WORKSPACE_SLUG = usePlaneWorkspace()
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => planeClient.deleteInvitation(WORKSPACE_SLUG, id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plane', 'invitations', WORKSPACE_SLUG] }),
   })
 }
 
@@ -442,14 +417,15 @@ export const ROLE_OPTIONS: Array<{ value: number; label: string }> = [
   { value: plane.PLANE_ROLE.GUEST, label: 'Guest' },
 ]
 
-export function rolePill(role: number): { label: string; tone: 'failed' | 'progressing' | 'info' | 'unknown' } {
+/** A role is not a status: neutral pills, Admin set apart (never the red "failed" ✕). */
+export function rolePill(role: number): { label: string; tone: 'info' | 'unknown' } {
   switch (role) {
     case plane.PLANE_ROLE.ADMIN:
-      return { label: 'Admin', tone: 'failed' }
+      return { label: 'Admin', tone: 'info' }
     case plane.PLANE_ROLE.MEMBER:
-      return { label: 'Member', tone: 'progressing' }
+      return { label: 'Member', tone: 'unknown' }
     case plane.PLANE_ROLE.GUEST:
-      return { label: 'Guest', tone: 'info' }
+      return { label: 'Guest', tone: 'unknown' }
     default:
       return { label: `role ${role}`, tone: 'unknown' }
   }
@@ -489,35 +465,7 @@ export function stateGroupKind(g: plane.StateGroup): 'unknown' | 'info' | 'progr
 
 /* ───── errors ───── */
 
-/**
- * A sentence a person can act on, from whatever a Plane call threw. The BFF
- * and Plane both answer in JSON — `{error}`, `{detail}`, or DRF field errors
- * (`{name: ["This field is required."]}`) — and the raw `HTTP 400 at …`
- * message names none of that.
- */
-export function planeError(e: unknown, fallback = 'Plane request failed.'): string {
-  const err = e as { status?: number; body?: unknown; message?: string } | undefined
-  const status = err?.status
-  const body = err?.body
-  if (status === 429) return 'Plane is rate-limiting the console right now. Try again in a minute.'
-  if (status === 401 || status === 403) {
-    return 'Plane rejected the console\'s API key. An operator needs to re-run the Plane setup so the console gets a valid token.'
-  }
-  if (body && typeof body === 'object') {
-    const b = body as Record<string, unknown>
-    if (b.error === 'tool_not_configured') return 'Plane is not connected to this console (no PLANE_URL).'
-    if (b.error === 'upstream_unreachable') return 'The console could not reach Plane. It may be restarting.'
-    for (const key of ['error', 'detail', 'message']) {
-      if (typeof b[key] === 'string' && b[key]) return b[key] as string
-    }
-    const fields = Object.entries(b)
-      .filter(([, v]) => Array.isArray(v) && v.length && typeof v[0] === 'string')
-      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${(v as string[])[0]}`)
-    if (fields.length) return fields.join(' · ')
-  }
-  if (status === 404) return 'Plane has no such item, or it was deleted.'
-  return e instanceof Error && e.message ? e.message : fallback
-}
+export { planeError } from './plane-error.ts'
 
 /* ───── triage, links, relations, search, workflow, lifecycle, stickies ───── */
 
@@ -601,10 +549,21 @@ export function useCreateRelation(projectId?: string, issueId?: string) {
   )
 }
 
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms)
+    return () => clearTimeout(t)
+  }, [value, ms])
+  return v
+}
+
 /** Workspace search by title, number or `KEY-123`; empty until two characters. */
 export function useIssueSearch(query: string, opts?: { project?: string; limit?: number }) {
   const WORKSPACE_SLUG = usePlaneWorkspace()
-  const q = query.trim()
+  // Debounced: a search box must not spend one of the shared key's 60
+  // requests a minute on every keystroke.
+  const q = useDebounced(query.trim(), 300)
   return useQuery({
     queryKey: ['plane', 'search', WORKSPACE_SLUG, q, opts?.project ?? '*', opts?.limit ?? 10],
     queryFn: () => planeClient.searchIssues(WORKSPACE_SLUG, q, opts),

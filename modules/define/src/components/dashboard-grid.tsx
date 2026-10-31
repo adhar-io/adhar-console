@@ -334,7 +334,12 @@ export function SortableGrid<T extends { id: string }>({ items, classesFor, edit
   const committedIdx = new Map(items.map((x, i) => [x.id, i]))
 
   return (
-    <>
+    // `relative` is load-bearing: it is the containing block of the
+    // screen-reader live region below (`sr-only` is position:absolute). Without
+    // it that 1px box escaped the shell's scrolling <main> to the viewport, at
+    // its static position under the last widget, and grew the document itself —
+    // a second, page-level scrollbar and a screen of blank space after the grid.
+    <div className="relative">
       <div ref={gridRef} className={cn('relative grid grid-cols-1 gap-4 md:grid-cols-12', className)}>
         {order.map((item, i) => {
           const isDragging = drag?.activeId === item.id
@@ -376,7 +381,7 @@ export function SortableGrid<T extends { id: string }>({ items, classesFor, edit
       {drag && typeof document !== 'undefined'
         ? createPortal(<Ghost drag={drag} item={items.find((x) => x.id === drag.activeId)!} render={render} />, document.body)
         : null}
-    </>
+    </div>
   )
 }
 

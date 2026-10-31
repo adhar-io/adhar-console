@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useRouter } from '@tanstack/react-router'
-import { CONSOLE_PERMISSIONS, ErrorBoundary, PageHeader, SETTINGS_CATEGORIES, useAccessReview } from '@adhar/shell-ui'
+import { CONSOLE_PERMISSIONS, EmptyState, ErrorBoundary, PageHeader, SETTINGS_CATEGORIES, useAccessReview } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
+import { PrimaryButton } from './components/section-shell.tsx'
 import { Organization } from './views/organization.tsx'
 import { Members } from './views/members.tsx'
 import { Teams } from './views/teams.tsx'
@@ -223,9 +224,10 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
     <div className="space-y-5">
       <PageHeader
         title={activeGroup?.label ?? 'Workspace settings'}
-        // The member's organisation role (what they were invited as). What
-        // they may DO is Kubernetes RBAC, asked per action on each page.
-        badge={me.data?.role ? <RoleBadge role={me.data.role} /> : undefined}
+        // The signed-in user's role here — admin or member, from the
+        // organisation's Keycloak groups (or a platform admin group). What they
+        // may DO is still asked per action on each page.
+        badge={me.data?.role ? <RoleBadge role={me.data.role} via={me.data.via} /> : undefined}
       />
 
       {activeGroup?.caption ? <p className="-mt-5 text-[13px] text-content-muted">{activeGroup.caption}</p> : null}
@@ -237,7 +239,12 @@ export default function WorkspaceHome({ section: urlSection }: { section?: strin
         <div id="settings-panel" role="tabpanel" aria-label={activeItem?.label} className="min-w-0 space-y-6 p-5 sm:p-6">
           {/* One page failing must not blank the whole settings screen. */}
           <ErrorBoundary key={activeItem?.id}>
-            <SectionBody section={activeItem?.id ?? 'organization'} />
+            {/* A personal tenant has no organisation to configure: one state
+                instead of a 409 on every page. The palette is per device, so
+                Theming still works there. */}
+            {me.data && me.data.org === null && activeItem?.id !== 'theming'
+              ? <NoOrganization onboard={() => (router ? void router.navigate({ to: '/onboarding' }) : globalThis.location.assign('/onboarding'))} />
+              : <SectionBody section={activeItem?.id ?? 'organization'} />}
           </ErrorBoundary>
         </div>
       </section>
@@ -317,6 +324,16 @@ function CategoryTabs({ group, active, onPick }: { group: Group; active?: Sectio
         </div>
       </div>
     </div>
+  )
+}
+
+function NoOrganization({ onboard }: { onboard(): void }) {
+  return (
+    <EmptyState
+      title="No organization open"
+      description="Settings belong to an organization, and you have none open. If an admin added you to one, open it from the organization switcher — being added never moves you into an organization by itself. Otherwise create one, or ask an organization admin to add you."
+      action={<PrimaryButton onClick={onboard}>Create an organization</PrimaryButton>}
+    />
   )
 }
 

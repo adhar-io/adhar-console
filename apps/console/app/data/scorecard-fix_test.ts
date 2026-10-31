@@ -233,7 +233,7 @@ Deno.test('repoFromUrl / resolveRel / kustomizationResources', () => {
 })
 
 Deno.test('deploySourcesFor: production first, XR source included, deduplicated', () => {
-  const apps = [
+  const apps: Parameters<typeof deploySourcesFor>[1] = [
     { metadata: { name: 'cart-test', labels: { 'adhar.io/application': 'cart', 'adhar.io/environment': 'test' } }, spec: { source: { repoURL: 'http://g/acme/cart.git', path: 'deploy/envs/test' } } },
     { metadata: { name: 'cart-prod', labels: { 'adhar.io/application': 'cart', 'adhar.io/environment': 'prod' } }, spec: { source: { repoURL: 'http://g/acme/cart.git', path: 'deploy/envs/prod' } } },
     { metadata: { name: 'other', labels: {} }, spec: { source: { repoURL: 'http://g/acme/other.git', path: 'deploy' } } },

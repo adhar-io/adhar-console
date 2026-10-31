@@ -49,6 +49,7 @@ import { handleListTeams } from './app/server/teams.ts'
 import { handleWorkspace } from './app/server/workspace/handlers.ts'
 import { startPlatformEvents } from './app/server/events/platform-events.ts'
 import { startGraph } from './app/server/graph/builder.ts'
+import { startMembershipMigration } from './app/server/tenancy/migrate-membership.ts'
 import { handleGraph } from './app/server/graph/handlers.ts'
 import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
@@ -486,9 +487,10 @@ async function route(req: Request): Promise<Response> {
   // ApplicationSet YAML in Gitea (GitOps) — ArgoCD reconciles the change.
   if (path === '/api/platform/appset/toggle') return handleAppsetToggle(req)
 
-  // Workspace / Organization management (orgs, members, teams, roles,
-  // invitations, projects, api-tokens, audit) — tenant-scoped, Postgres-backed,
-  // with optional Keycloak group reflection.
+  // Workspace / Organization management (org settings, members, teams,
+  // projects, api-tokens, approvals, audit). Members and team membership ARE
+  // Keycloak groups (org-<slug>, org-<slug>-admin, ws-team-<org>.<team>), read
+  // and written there; the rest is tenant-scoped in Postgres.
   const ws = path.match(/^\/api\/workspace\/(.*)$/)
   if (ws) return handleWorkspace(req, ws[1])
 
@@ -543,6 +545,11 @@ const stopPlatformEvents = startPlatformEvents()
 // questions that list tools cannot, and the Knowledge Graph page renders it.
 const stopGraph = startGraph()
 
+// Organisation membership lives in Keycloak groups now; the one-time move of
+// the members this console used to keep in its database into those groups
+// (retried every five minutes until every tenant is done; never removes).
+const stopMembershipMigration = startMembershipMigration()
+
 // Chaos Engineering run reports — the resilience runner keeps only each app's
 // latest result, so the console freezes every run as it lands, commit and all.
 const stopResilienceReports = startResilienceReports()
@@ -570,6 +577,7 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
       console.log(`[server] ${sig} received — draining (deadline ${SHUTDOWN_DEADLINE_MS}ms)…`)
       stopPlatformEvents()
       stopGraph()
+      stopMembershipMigration()
       stopResilienceReports()
       setTimeout(() => {
         console.warn('[server] drain deadline reached — closing remaining connections')

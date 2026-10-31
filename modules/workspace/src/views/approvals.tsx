@@ -10,7 +10,7 @@ import {
   useToast,
 } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
-import { ROLE_LABEL, type Role } from '../data/access.ts'
+import { roleLabel } from '../data/access.ts'
 import {
   APPROVAL_SCOPES,
   isDbUnavailable,
@@ -40,7 +40,8 @@ import { RequirePermission } from '../components/role-gate.tsx'
 const SCOPE_LABEL: Record<string, string> = {
   'production-deploy': 'Production deploy',
   'budget-increase': 'Budget increase',
-  'role-grant-owner': 'Grant Owner role',
+  // The id predates admins being plural; it now guards granting organization admin.
+  'role-grant-owner': 'Grant organization admin',
   'data-export': 'Data export',
   'destructive-rbac': 'Destructive RBAC change',
   'cluster-delete': 'Delete cluster',
@@ -319,7 +320,7 @@ function PolicyList({ policies, loading }: { policies: ApprovalPolicy[]; loading
                     key={r}
                     className="rounded-md bg-surface-sunken px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-content-muted ring-1 ring-edge-subtle"
                   >
-                    {ROLE_LABEL[r as Role] ?? r}
+                    {roleLabel(r)}
                   </span>
                 ))}
               </div>

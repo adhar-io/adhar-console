@@ -107,10 +107,12 @@ export function Plan() {
           hint={sub ? sub.status : ''}
           tone={sub?.status === 'active' ? 'good' : 'warn'}
         />
+        {/* Seats used = people in the organisation's Keycloak groups; null
+            when Keycloak could not be read, which is unknown, not zero. */}
         <StatTile
           label="Seats"
-          value={summary ? `${summary.seatsUsed} / ${sub?.seatsPurchased}` : '—'}
-          hint="used / purchased"
+          value={summary ? `${summary.seatsUsed ?? '—'} / ${sub?.seatsPurchased}` : '—'}
+          hint={summary && summary.seatsUsed === null ? 'used count unavailable (Keycloak)' : 'used / purchased'}
         />
         <StatTile
           label="Monthly"

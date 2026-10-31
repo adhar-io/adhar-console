@@ -358,14 +358,14 @@ function VelocityView({ projectId, cycles }: { projectId: string; cycles: plane.
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[12px] text-content-muted">Last {vel.outcomes.length} finished sprint{vel.outcomes.length === 1 ? '' : 's'}. Committed is the scope at sprint start where the console recorded it, else the final scope.</p>
+        <p className="text-[12px] text-content-muted">{vel.outcomes.length ? `Last ${vel.outcomes.length} finished sprint${vel.outcomes.length === 1 ? '' : 's'}. ` : 'No sprint has finished yet — velocity appears after the first one. '}Committed is the scope at sprint start where the console recorded it, else the final scope.</p>
         <Segmented<Metric> label="Measure" value={metric} onChange={setMetric} options={[{ value: 'issues', label: 'Items' }, { value: 'points', label: 'Points' }]} />
       </div>
       {metric === 'points' && !hasPoints ? <Notice tone="warn">No work item has story points yet — set them on the planning board or the sprint's work items.</Notice> : null}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Average velocity" value={v.average === null ? '—' : `${v.average}${unit}`} hint={`last ${Math.min(v.window, vel.outcomes.length)} sprints`} />
+        <Stat label="Average velocity" value={v.average === null ? '—' : `${v.average}${unit}`} hint={vel.outcomes.length ? `last ${Math.min(v.window, vel.outcomes.length)} sprint${Math.min(v.window, vel.outcomes.length) === 1 ? '' : 's'}` : 'no finished sprints'} />
         <Stat label="Say / do" value={v.sayDo === null ? '—' : `${Math.round(v.sayDo * 100)}%`} hint="completed ÷ committed" />
-        <Stat label="Trend" value={v.trend === 1 ? 'Rising' : v.trend === -1 ? 'Falling' : 'Steady'} />
+        <Stat label="Trend" value={vel.outcomes.length < 2 ? '—' : v.trend === 1 ? 'Rising' : v.trend === -1 ? 'Falling' : 'Steady'} hint={vel.outcomes.length < 2 ? 'needs two finished sprints' : undefined} />
         <Stat label="Carry-over" value={`${vel.outcomes.reduce((a, o) => a + o.carried, 0)}${unit}`} hint="unfinished, all shown sprints" />
       </div>
       <GroupedBars

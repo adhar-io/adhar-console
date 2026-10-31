@@ -6,18 +6,20 @@ import { setActiveTeam } from './selection-store.ts'
  * `Organization → Team → Project → App`.
  *
  * All of that hierarchy already exists server-side: `workspace.team` documents
- * are tenant-scoped and reflected into Keycloak groups (`ws-team-<slug>`), a
- * member carries the team slugs they belong to, and a project carries the teams
- * that own it. What was missing is that a team was only ever a row in Workspace
- * admin — there was no way to say "I am working in this team" and have the
- * console follow, and no way to move between the teams you belong to.
+ * are tenant-scoped, each team's membership IS the Keycloak group
+ * `ws-team-<org>.<team>` (the console stores no member lists of its own), and
+ * a project carries the teams that own it. What was missing is that a team was
+ * only ever a row in Workspace admin — there was no way to say "I am working in
+ * this team" and have the console follow, and no way to move between the teams
+ * you belong to.
  *
  * This hook adds exactly that, and deliberately nothing else. It does not own
  * teams (Workspace does), it reads them:
  *
  *   • `/api/workspace/teams` — the teams in the active organization.
- *   • `/api/workspace/me`    — the signed-in member, whose `teams` decides
- *                              which of them are *yours*.
+ *   • `/api/workspace/me`    — the signed-in user, whose `teams` — read from
+ *                              their Keycloak groups — decides which of them
+ *                              are *yours*.
  *   • `/api/prefs/active-team` — the selection, per user and server-side, so it
  *                              survives a reload and follows you between
  *                              devices rather than living in one browser.
@@ -33,8 +35,13 @@ export interface TeamSummary {
   slug: string
   name: string
   description?: string
-  /** False when the team exists only in the console, not yet in Keycloak. */
-  keycloakSynced?: boolean
+  /** The Keycloak group that holds the team's members: `ws-team-<org>.<team>`. */
+  group?: string
+  /**
+   * Whether cluster RBAC binds `group` yet. `pending-platform-upgrade`: access
+   * granted through the team reaches Kubernetes after the next platform upgrade.
+   */
+  accessBinding?: 'current' | 'pending-platform-upgrade' | 'unknown'
   /** True when the signed-in user is a member of this team. */
   mine?: boolean
 }
@@ -74,7 +81,8 @@ interface WsTeam {
   slug: string
   name: string
   description?: string
-  keycloakSynced?: boolean
+  group?: string
+  accessBinding?: TeamSummary['accessBinding']
 }
 
 async function readError(res: Response): Promise<string> {
@@ -113,9 +121,9 @@ export function useTeams(orgId: string | undefined): UseTeams {
     let cancelled = false
     setLoading(true)
 
-    // `me` and the saved selection are both optional: a workspace with no
-    // member record, or no database, should still list teams rather than
-    // failing the whole switcher.
+    // `me` and the saved selection are both optional: a Keycloak hiccup on
+    // `me`, or no database for the preference, should still list teams rather
+    // than failing the whole switcher.
     Promise.all([
       fetch('/api/workspace/teams', { credentials: 'same-origin', headers: json }).then(async (res) => {
         if (!res.ok) throw new Error(await readError(res))
@@ -130,14 +138,17 @@ export function useTeams(orgId: string | undefined): UseTeams {
     ])
       .then(([list, me, pref]) => {
         if (cancelled) return
+        // `me.teams` comes from the user's Keycloak groups. Matched on the slug
+        // and on the team's group name, so either spelling of it counts.
         const mine = new Set(me?.teams ?? [])
         const items: TeamSummary[] = (list.items ?? []).map((t) => ({
           id: t.id,
           slug: t.slug,
           name: t.name,
           description: t.description,
-          keycloakSynced: t.keycloakSynced,
-          mine: mine.has(t.slug),
+          group: t.group,
+          accessBinding: t.accessBinding,
+          mine: mine.has(t.slug) || (!!t.group && mine.has(t.group)),
         }))
         // Your own teams first — on a large organization the list is otherwise
         // mostly other people's teams, with yours somewhere in the middle.
@@ -173,10 +184,10 @@ export function useTeams(orgId: string | undefined): UseTeams {
 
   /**
    * One shape for all three writes: mark busy, call, surface the server's own
-   * message on failure, re-read the list on success. Teams are mirrored into
-   * Keycloak groups server-side, so the list is re-fetched rather than patched
-   * locally — `keycloakSynced` is decided there and a local guess about it
-   * would be a guess about whether access actually works.
+   * message on failure, re-read the list on success. A team is a Keycloak group
+   * the server creates and deletes, so the list is re-fetched rather than
+   * patched locally — what exists, and who is in it, is decided there, and a
+   * local guess would be a guess about whether access actually works.
    */
   const write = useCallback(
     async <T,>(action: TeamAction, run: () => Promise<Response>, parse?: (r: Response) => Promise<T>): Promise<T | null> => {
@@ -210,8 +221,11 @@ export function useTeams(orgId: string | undefined): UseTeams {
           body: JSON.stringify(input),
         }),
         async (res) => {
-          const t = (await res.json()) as WsTeam
-          return { id: t.id, slug: t.slug, name: t.name, description: t.description, keycloakSynced: t.keycloakSynced, mine: true }
+          // The BFF answers `{ item }` — reading the body itself as the team
+          // gave the switcher a team with no id to switch to.
+          const { item: t } = (await res.json()) as { item: WsTeam }
+          // Creating a team does not put you in it: its group starts empty.
+          return { id: t.id, slug: t.slug, name: t.name, description: t.description, group: t.group, accessBinding: t.accessBinding, mine: false }
         },
       ),
     [write],
@@ -288,8 +302,8 @@ export function useTeams(orgId: string | undefined): UseTeams {
    * same rails and every remote sees the same value.
    *
    * The slug rather than the id, because the slug is what the rest of the
-   * platform already keys on: `ProjectDoc.teams`, member records, and the
-   * Keycloak group name `ws-team-<slug>`.
+   * platform already keys on: `ProjectDoc.teams`, a member's `teams`, and the
+   * team part of the Keycloak group `ws-team-<org>.<team>`.
    */
   useEffect(() => {
     if (!ready) return

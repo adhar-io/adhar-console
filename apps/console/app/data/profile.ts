@@ -452,9 +452,18 @@ export class ProfileApiError extends Error {
   }
 }
 
-/** True when the error means "no database configured" (connect-DB state). */
+/**
+ * True when the error means "no database configured" (connect-DB state). Only
+ * that code: a Keycloak or access-check outage is a 503 too, and "connect a
+ * database" is the wrong thing to tell someone during one.
+ */
 export function isDbUnavailable(e: unknown): boolean {
-  return e instanceof ProfileApiError && e.status === 503
+  return e instanceof ProfileApiError && e.status === 503 && (!e.code || e.code === 'store_unavailable')
+}
+
+/** True when the caller is in no organisation — API tokens belong to one. */
+export function isNoOrganisation(e: unknown): boolean {
+  return e instanceof ProfileApiError && e.status === 409 && e.code === 'no_organisation'
 }
 
 /** True when there is no console server at all (pure SPA dev). */
@@ -504,17 +513,24 @@ async function tokensFetch<T>(
       )
     }
     let code: string | undefined
+    let detail: string | undefined
     try {
-      code = ((await res.json()) as { error?: string }).error
+      const body = (await res.json()) as { error?: unknown; detail?: unknown }
+      code = typeof body.error === 'string' ? body.error : undefined
+      detail = typeof body.detail === 'string' ? body.detail : undefined
     } catch {
       /* non-JSON error body */
     }
     throw new ProfileApiError(
-      res.status === 503
-        ? 'The console database is not configured.'
-        : res.status === 401
-          ? 'Sign in with Keycloak SSO to manage personal access tokens.'
-          : `Token request failed (${res.status}${code ? `: ${code}` : ''})`,
+      res.status === 401
+        ? 'Sign in with Keycloak SSO to manage personal access tokens.'
+        : code === 'no_organisation'
+          ? 'API tokens belong to an organization, and you are not in one yet.'
+          : code === 'requires_org_admin'
+            ? 'Only organization admins can issue or revoke API tokens.'
+            : res.status === 503 && (!code || code === 'store_unavailable')
+              ? 'The console database is not configured.'
+              : detail ?? `Token request failed (${res.status}${code ? `: ${code}` : ''})`,
       res.status,
       code,
     )
@@ -549,8 +565,11 @@ export function usePersonalTokens() {
   return useQuery({
     queryKey: TOKENS_KEY,
     queryFn: async () => (await tokensFetch<{ items: PersonalToken[] }>('tokens')).items,
+    // Retry outages, never answers: a 4xx (no organisation, not allowed) or a
+    // missing database will not change on the next try.
     retry: (count, err) =>
-      !isDbUnavailable(err) && !isServerUnavailable(err) && !isUnauthenticated(err) && count < 2,
+      count < 2 && !isDbUnavailable(err) && !isServerUnavailable(err) &&
+      !(err instanceof ProfileApiError && err.status >= 400 && err.status < 500),
   })
 }
 

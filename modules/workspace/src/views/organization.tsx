@@ -30,6 +30,10 @@ export function Organization() {
   const [dirty, setDirty] = useState<OrgPatch>({})
 
   const o = q.data
+  // The directory's slug — the one the groups are named by. An old settings
+  // document stored the tenant id instead; the server corrects it, and this
+  // never shows it.
+  const slug = me.data?.orgSlug ?? o?.slug ?? ''
   const isDirty = Object.keys(dirty).length > 0
   const ssoEnforced = dirty.ssoEnforced ?? o?.ssoEnforced ?? false
 
@@ -65,16 +69,18 @@ export function Organization() {
               value={o ? (o.ssoEnforced ? 'Enforced' : 'Optional') : '…'}
               tone={o?.ssoEnforced ? 'good' : 'warn'}
             />
+            {/* Members are the org's Keycloak groups; a list that could not be
+                read is unknown, not zero. */}
             <StatTile
               label="Members"
-              value={members.data?.length ?? '…'}
-              hint="with workspace access"
+              value={members.isError ? '—' : members.data?.length ?? '…'}
+              hint={members.isError ? 'Keycloak unreachable' : me.data?.orgSlug ? `in org-${me.data.orgSlug}` : 'in Keycloak'}
             />
             <StatTile
-              label="RBAC sync"
-              value={me.data ? (me.data.keycloakConfigured ? 'Keycloak' : 'Console-only') : '…'}
+              label="Identity"
+              value={me.data ? (me.data.keycloakConfigured ? 'Keycloak' : 'Not configured') : '…'}
               tone={me.data?.keycloakConfigured ? 'good' : 'warn'}
-              hint={me.data?.keycloakConfigured ? 'groups reflected' : 'no admin credential'}
+              hint={me.data?.keycloakConfigured ? 'members are Keycloak groups' : 'no admin credential'}
             />
           </div>
 
@@ -95,7 +101,7 @@ export function Organization() {
               className="space-y-6"
             >
               <SettingsCard title="Identity">
-                <SettingsRow label="Name" description="Shown in the topbar, invites, and emails.">
+                <SettingsRow label="Name" description="Shown in the topbar, the organization switcher, and emails.">
                   <TextField
                     value={dirty.name ?? o?.name ?? ''}
                     onChange={(v) => setDirty((d) => ({ ...d, name: v }))}
@@ -103,10 +109,10 @@ export function Organization() {
                 </SettingsRow>
                 <SettingsRow
                   label="Slug"
-                  description="Derived from the tenant. Used in URLs and the SSO realm."
-                  hint={`adhar.io/${o?.slug ?? 'workspace'}`}
+                  description="Names the organization everywhere on the platform: its Keycloak groups, namespace and Gitea organization."
+                  hint={slug ? `org-${slug} · org-${slug}-admin` : undefined}
                 >
-                  <TextField mono readOnly value={o?.slug ?? ''} />
+                  <TextField mono readOnly value={slug} />
                 </SettingsRow>
                 <SettingsRow label="Description">
                   <TextField
@@ -149,7 +155,9 @@ export function Organization() {
 
               <SettingsCard
                 title="Single sign-on"
-                description={`Members authenticate via the Keycloak realm "${o?.slug ?? '—'}". See Identity & access → SSO for connections.`}
+                description={slug
+                  ? `Members sign in through the platform's Keycloak; membership is the groups org-${slug} and org-${slug}-admin.`
+                  : "Members sign in through the platform's Keycloak."}
               >
                 <SettingsRow
                   label="Enforce SSO"

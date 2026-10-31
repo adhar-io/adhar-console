@@ -16,7 +16,6 @@ import {
   withSnapshot,
   type WorkItem,
   workdays,
-  workload,
 } from './planning-model.ts'
 
 const T = (d: string) => Date.parse(`${d}T12:00:00Z`)
@@ -127,15 +126,6 @@ Deno.test('health: overdue work and a lagging sprint; a manual override wins unt
   assertEquals(effectiveHealth(derived, { health: 'at-risk', at: '2026-10-01', until: '2026-10-10' }, now).overridden, false)
 })
 
-Deno.test('workload counts open work per person across projects', () => {
-  const rows = workload({
-    items: [item('a', { assignees: ['u1'], project: 'p1', state_group: 'started' }), item('b', { assignees: ['u1'], project: 'p2', estimate_point: 3 }), done('c', '2026-10-01', { assignees: ['u1'] })],
-    capacity: { u1: 2 },
-  })
-  assertEquals(rows.length, 1)
-  assertEquals([rows[0].open, rows[0].inProgress, rows[0].points, rows[0].projects.length, rows[0].over], [2, 1, 3, 2, true])
-})
-
 Deno.test('intake SLA uses the priority window', () => {
   const s = slaState('2026-10-20T00:00:00Z', 'urgent', undefined, Date.parse('2026-10-20T05:00:00Z'))!
   assertEquals([s.breached, Math.round(s.used * 100)], [true, 125])
@@ -159,4 +149,15 @@ Deno.test('wall clock: a late-evening UTC instant is the next day in UTC+5:30', 
   assertEquals(wallDay('2026-10-20', -330), '2026-10-20')
   assertEquals(new Date(wallNow(-330, Date.parse('2026-10-20T19:13:00Z'))).toISOString().slice(0, 10), '2026-10-21')
   assertEquals(wallIso(null), null)
+})
+
+Deno.test('capacity: a member with no capacity set is not "over capacity"; one off for the whole sprint is', () => {
+  const items = [
+    { id: 'a', name: 'a', state: 's', state_group: 'started', priority: 'none', assignees: ['u1'], labels: [], created_at: '2026-01-01' },
+    { id: 'b', name: 'b', state: 's', state_group: 'started', priority: 'none', assignees: ['u2'], labels: [], created_at: '2026-01-01' },
+  ] as unknown as Parameters<typeof capacityPlan>[0]['items']
+  const plan = capacityPlan({ entries: [{ member: 'u1', capacity: 0 }, { member: 'u2', capacity: 5, daysOff: 10 }], items, metric: 'issues', workdays: 10 })
+  const by = new Map(plan.rows.map((r) => [r.member, r]))
+  assertEquals([by.get('u1')!.over, by.get('u1')!.load], [false, null])
+  assertEquals(by.get('u2')!.over, true)
 })

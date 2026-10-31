@@ -5,7 +5,7 @@ Deno.test('applyPollPolicy floors numeric intervals to a minute', () => {
   assertEquals(applyPollPolicy({ refetchInterval: 5_000 }).refetchInterval, 60_000)
   assertEquals(applyPollPolicy({ refetchInterval: 120_000 }).refetchInterval, 120_000)
   assertEquals(applyPollPolicy({ refetchInterval: false }).refetchInterval, false)
-  assertEquals(applyPollPolicy({}).refetchInterval, undefined)
+  assertEquals(applyPollPolicy<{ refetchInterval?: number }>({}).refetchInterval, undefined)
 })
 
 Deno.test('applyPollPolicy floors function intervals and disables background polling', () => {

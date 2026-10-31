@@ -56,11 +56,15 @@ function build(http: HttpClient): PlaneInsights {
     return out
   }
 
+  // `estimates/` isn't registered in the fork's public API: stop asking after the first 404.
+  let estimatesMissing = false
   const estimateValues = async (slug: string, p: string): Promise<Map<string, number>> => {
+    if (estimatesMissing) return new Map()
     let estimate: { id?: string } | undefined
     try {
       estimate = await http.get<{ id?: string }>(`${proj(slug, p)}/estimates/`)
-    } catch {
+    } catch (e) {
+      if ((e as { status?: number }).status === 404) estimatesMissing = true
       return new Map()
     }
     if (!estimate?.id) return new Map()

@@ -12,7 +12,7 @@ import { fixPathRefused } from './scorecard-fix.ts'
 import { redactForAnonymous, type StatusSnapshot } from './status.ts'
 
 Deno.test('/api/store refuses every server-owned kind, keeps client settings kinds', () => {
-  for (const k of ['auth.session', 'billing.subscription', 'billing.invoice', 'console.notification', 'security.waiver', 'resilience.report', 'workspace.member', 'workspace.invitation', 'workspace.audit', 'workspace.api-token', 'workspace.org']) {
+  for (const k of ['auth.session', 'billing.subscription', 'billing.invoice', 'console.notification', 'security.waiver', 'resilience.report', 'workspace.member', 'workspace.invitation', 'workspace.audit', 'workspace.api-token', 'workspace.org', 'workspace.migration', 'workspace.org-directory']) {
     assert(isReservedKind(k), k)
   }
   for (const k of ['workspace.theme', 'workspace.webhook', 'workspace.role', 'okr.objective', 'define.page', 'decide.budget']) {

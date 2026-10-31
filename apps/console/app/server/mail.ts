@@ -1,7 +1,8 @@
 import { env } from '@adhar/utils'
 
 /**
- * Outbound email for the console (workspace provisioning, invitations).
+ * Outbound email for the console (workspace provisioning, notifications). Set-password
+ * emails for new accounts are Keycloak's to send, not the console's.
  *
  * Two dependency-free transports, chosen by what the platform configured:
  *

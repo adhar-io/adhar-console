@@ -224,7 +224,6 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'define.roadmap', label: 'Roadmap', to: '/define', search: 'roadmap' },
           { id: 'define.releases', label: 'Releases', to: '/define', search: 'releases' },
           { id: 'define.reports', label: 'Reports', to: '/define', search: 'reports' },
-          { id: 'define.members', label: 'Members', to: '/define', search: 'members' },
           { id: 'define.automation', label: 'Automation', to: '/define', search: 'automation' },
         ],
       },

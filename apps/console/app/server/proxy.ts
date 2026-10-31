@@ -4,6 +4,7 @@ import { fetchWithApiServerClient } from './k8s/gateway.ts'
 import { type CachedResponse, retryAfterMs, snapshot, toolGetCache } from './tool-cache.ts'
 import { getRequestUser } from './request-user.ts'
 import { toolPublicUrl } from './domain.ts'
+import { isPlatformAdmin, orgAccess } from './tenancy/org-access.ts'
 import { env } from '@adhar/utils'
 import {
   accountMissing,
@@ -108,6 +109,66 @@ export function unsafeUpstreamPath(path: string): boolean {
   // deno-lint-ignore no-control-regex
   if (/[\x00-\x1f\x7f]/.test(decoded)) return true
   return decoded.split(/[/\\]/).some((seg) => seg === '.' || seg === '..')
+}
+
+/**
+ * Plane's workspace invitations, in any spelling that reaches the same route.
+ *
+ * People join an organisation through Keycloak now: Plane admits whoever its
+ * Keycloak sign-in lets in, and the console adds them to the organisation's
+ * groups. A Plane invitation would bypass all of that, and the console's Plane
+ * proxy sends every request with the console's own API key — so with the
+ * invitation UI gone, the route itself is closed rather than merely unlinked.
+ * Decoded, slash-collapsed and case-folded first, because nginx in front of
+ * Plane merges slashes and an encoded `/` must not slip past.
+ */
+export function planeInvitationPath(path: string): boolean {
+  const p = planePath(path)
+  if (p === null) return true
+  // Every invitation route Plane has — workspace and PROJECT invitations, the
+  // user's own invitation inbox, and the join endpoints that accept one — in
+  // any of its spellings (`invitations`, `project-invitations`, …).
+  return /(^|\/)[a-z-]*invitations(\/|$)/.test(p) || /(^|\/)join(\/|$)/.test(p)
+}
+
+/** Decoded, slash-collapsed, case-folded; null when it cannot be decoded. */
+function planePath(path: string): string | null {
+  try {
+    return decodeURIComponent(path).replace(/[/\\]+/g, '/').toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The Plane workspace a request CHANGES the membership of — adding, removing
+ * or re-roling a workspace or project member — or null for anything else
+ * (reads included). The proxy holds the console's own Plane key, which can do
+ * this for anyone; so only an admin of the organisation the workspace is named
+ * after (or a platform admin) may, the people who can already change that
+ * organisation's membership in Keycloak.
+ */
+export function planeMembershipWrite(method: string, path: string): string | null {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) return null
+  const p = planePath(path)
+  if (p === null) return null
+  const m = /(?:^|\/)workspaces\/([^/]+)\/(?:.*\/)?(members|project-members)(\/|$)/.exec(p)
+  return m ? m[1] : null
+}
+
+/**
+ * The refusal for a Plane membership write by someone who is not an admin of
+ * that workspace's organisation, or null. `groups` null = no session to read
+ * them from (a laptop without auth), where nothing is refused.
+ */
+export function planeMembershipDenied(groups: readonly string[] | null, method: string, path: string): Response | null {
+  if (groups === null) return null
+  const ws = planeMembershipWrite(method, path)
+  if (ws === null || isPlatformAdmin(groups) || orgAccess(groups, ws).role === 'admin') return null
+  return Response.json({
+    error: 'plane_membership_requires_admin',
+    detail: `Only admins of the organisation "${ws}" (or platform admins) can change who is in its Plane workspace and projects.`,
+  }, { status: 403 })
 }
 
 /** Largest request body the proxy buffers (it must, to replay a login-mode retry). */
@@ -429,10 +490,15 @@ export async function proxyToolRequest(
   // reach the console, signed in or not, with those credentials (2026-10-22).
   // Internal callers (live.ts, coder-ide.ts) forward the user's cookie. On a
   // laptop without auth configured, local development keeps working.
+  // The caller's groups, when there is a session to read them from (null on a
+  // laptop without auth, where every gate below stays open as before).
+  let callerGroups: string[] | null = null
   if (def.authMode !== 'user') {
     const cfg = getServerAuthConfig()
     if (cfg) {
-      if (!(await getValidSession(request, cfg))) return json(401, { error: 'unauthenticated' })
+      const valid = await getValidSession(request, cfg)
+      if (!valid) return json(401, { error: 'unauthenticated' })
+      callerGroups = valid.session.user.groups ?? []
     } else if (env('KUBERNETES_SERVICE_HOST')) {
       return json(503, { error: 'auth_not_configured', tool })
     }
@@ -456,6 +522,16 @@ export async function proxyToolRequest(
   const bare = splat.split('?')[0].split('#')[0].replace(/^\/+/, '')
   const path = bare ? `/${bare}` : ''
   if (unsafeUpstreamPath(path)) return json(400, { error: 'invalid_path' })
+  if (tool === 'plane' && planeInvitationPath(path)) {
+    return json(403, {
+      error: 'plane_invitations_disabled',
+      detail: 'Plane invitations are disabled: people join through Keycloak. Add them in Settings → Members.',
+    })
+  }
+  if (tool === 'plane') {
+    const denied = planeMembershipDenied(callerGroups, request.method, path)
+    if (denied) return denied
+  }
   const method = request.method.toUpperCase()
   const hasBody = method !== 'GET' && method !== 'HEAD'
   // Buffer the body once so a login-mode retry can resend it (a stream can't be

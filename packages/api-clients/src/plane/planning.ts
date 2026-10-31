@@ -171,6 +171,7 @@ function buildPlanning(http: HttpClient): PlanningClient {
     }
     return out
   }
+  let estimatesMissing = false
   return {
     listPlanIssues: async (slug, p) =>
       (await list<Record<string, unknown>>(`${proj(slug, p)}/issues/`, 'expand=state')).map(toPlanIssue),
@@ -219,11 +220,16 @@ function buildPlanning(http: HttpClient): PlanningClient {
       await http.delete<void>(`${proj(slug, p)}/project-members/${pk}/`)
     },
     estimatePoints: async (slug, p) => {
+      // Not registered in the fork's public API: after the first 404, don't ask again.
+      if (estimatesMissing) return null
       let estimate: { id?: string } | undefined
       try {
         estimate = await http.get<{ id?: string }>(`${proj(slug, p)}/estimates/`)
       } catch (e) {
-        if ((e as { status?: number }).status === 404) return null
+        if ((e as { status?: number }).status === 404) {
+          estimatesMissing = true
+          return null
+        }
         throw e
       }
       if (!estimate?.id) return []

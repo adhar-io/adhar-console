@@ -3,7 +3,7 @@ import { useRouter } from '@tanstack/react-router'
 
 /**
  * Deep links for Define's planning pages — Projects, Sprints, Epics,
- * Roadmap, Releases, Intake, Members, Automation.
+ * Roadmap, Releases, Intake, Automation.
  *
  * The host route owns `?section=`; each view keeps its selection beside it:
  *
@@ -100,7 +100,10 @@ export function usePlanningParams(): PlanningParams {
       })
     sync()
     globalThis.addEventListener('popstate', sync)
-    const unsubscribe = router?.history?.subscribe?.(sync)
+    // TanStack Router notifies before it writes the URL (`window.history` is
+    // updated in a microtask), so reading `location` here would see the
+    // previous URL — every drawer one navigation behind. Read after it.
+    const unsubscribe = router?.history?.subscribe?.(() => queueMicrotask(sync))
     return () => {
       globalThis.removeEventListener('popstate', sync)
       unsubscribe?.()

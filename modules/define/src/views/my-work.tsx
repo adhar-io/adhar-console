@@ -81,7 +81,7 @@ export function MyWork() {
         </div>
       </div>
       {err ? <SourceNote kind={err.kind} message={err.message} /> : null}
-      {me.unmatched ? <SourceNote kind="other" title="You aren’t a Plane member yet" message={`No Plane member has your console email (${me.user.email}). Ask a Plane admin to invite that address — until then nothing can be "yours" here.`} /> : null}
+      {me.unmatched ? <SourceNote kind="other" title="You aren’t a Plane member yet" message={`No Plane member has your console email (${me.user.email}). Open Plane once and sign in with Keycloak — that adds you to the workspace. Until then nothing can be "yours" here.`} /> : null}
 
       <Tabs tabs={tabs} value={tab} onChange={(t) => setParams({ tab: t === 'assigned' ? undefined : t })} ariaLabel="My work" />
 

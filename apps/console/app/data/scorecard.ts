@@ -904,7 +904,9 @@ export async function rerunScorecards(): Promise<RerunResult> {
       credentials: 'same-origin',
     })
     const body = (await res.json().catch(() => ({}))) as RerunResult
-    return { started: body.started === true, ...body }
+    // `started` is decided last, so a body without it (or with a non-boolean)
+    // cannot overwrite the strict answer.
+    return { ...body, started: body.started === true }
   } catch (e) {
     return { started: false, error: 'network', detail: e instanceof Error ? e.message : String(e) }
   }

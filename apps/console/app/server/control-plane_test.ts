@@ -1,5 +1,5 @@
 import { assertEquals, assertThrows } from 'jsr:@std/assert@^1.0.0'
-import { applyXr, organisationManifest, teamManifest, xrPath, applicationManifest } from './control-plane.ts'
+import { applyXr, applicationManifest, deleteConsoleXr, disambiguatedTeamName, organisationManifest, teamManifest, xrPath } from './control-plane.ts'
 
 // What the switcher's "New organization" sends to the control plane: the XR
 // the platform's own example (examples/organisation.yaml) describes, named by
@@ -172,5 +172,92 @@ Deno.test('a new application is written under its own name, never over another o
     assertEquals(new URL(writes[0].url).pathname.endsWith('/applications/my-service'), true)
   } finally {
     restore()
+  }
+})
+
+/* ── team object names can collide across organisations ── */
+
+/** An apiserver with real objects: GET of the collection lists, GET of a name reads one. */
+function stubObjects(objects: Record<string, unknown>, opts: { listStatus?: number } = {}) {
+  const calls: Call[] = []
+  const real = globalThis.fetch
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
+    const method = (init?.method ?? 'GET').toUpperCase()
+    calls.push({ url: url.toString(), method })
+    const name = url.pathname.split('/teams/')[1]
+    if (method === 'GET' && !name) {
+      const status = opts.listStatus ?? 200
+      return Promise.resolve(new Response(status === 200 ? JSON.stringify({ items: Object.values(objects) }) : 'denied', { status }))
+    }
+    if (method === 'GET') {
+      const obj = objects[name]
+      return Promise.resolve(obj ? Response.json(obj) : new Response('not found', { status: 404 }))
+    }
+    return Promise.resolve(new Response('{}', { status: 200 }))
+  }) as typeof fetch
+  return { calls, restore: () => { globalThis.fetch = real } }
+}
+
+// (acme-x, y) holds `acme-x-y`; (acme, x-y) makes the same name.
+const theirs = {
+  metadata: { name: 'acme-x-y', labels: { 'adhar.io/managed-by': 'adhar-console' } },
+  spec: { parameters: { name: 'y', organisation: 'acme-x' } },
+}
+
+Deno.test('a team whose object name is another organisation\'s team is written under a name of its own', async () => {
+  const { calls, restore } = stubObjects({ 'acme-x-y': theirs })
+  try {
+    const m = teamManifest({ slug: 'x-y', name: 'X Y' }, 'acme')
+    assertEquals(m.metadata.name, 'acme-x-y')
+    const out = await applyXr(m, 'tok')
+    assertEquals(out.ok, true)
+    const writes = calls.filter((c) => c.method === 'PATCH')
+    assertEquals(writes.length, 1)
+    assertEquals(writes[0].url.includes('/teams/acme-x-y?'), false, 'the other team is not rewritten')
+    assertEquals(writes[0].url.includes(`/teams/${disambiguatedTeamName(m)}?`), true)
+  } finally {
+    restore()
+  }
+})
+
+Deno.test('deleting a team never deletes another organisation\'s team that shares its name', async () => {
+  // Listing works: nothing matches (acme, x-y), so nothing is ours.
+  const listed = stubObjects({ 'acme-x-y': theirs })
+  try {
+    const out = await deleteConsoleXr(teamManifest({ slug: 'x-y', name: 'X Y' }, 'acme'), 'tok')
+    assertEquals(out.ok, true)
+    assertEquals(listed.calls.filter((c) => c.method === 'DELETE').length, 0)
+  } finally {
+    listed.restore()
+  }
+  // The object at the resolved name is replaced between the lookup and the
+  // delete (another organisation's team now holds it): read again, left alone.
+  const raced = stubObjects({ 'acme-x-y': theirs })
+  const realFetch = globalThis.fetch
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url)
+    if ((init?.method ?? 'GET') === 'GET' && !url.pathname.split('/teams/')[1]) {
+      // The listing still shows OUR team under that name.
+      return Promise.resolve(Response.json({ items: [{ ...theirs, spec: { parameters: { name: 'x-y', organisation: 'acme' } } }] }))
+    }
+    return realFetch(input, init)
+  }) as typeof fetch
+  try {
+    await deleteConsoleXr(teamManifest({ slug: 'x-y', name: 'X Y' }, 'acme'), 'tok')
+    assertEquals(raced.calls.filter((c) => c.method === 'DELETE').length, 0)
+  } finally {
+    globalThis.fetch = realFetch
+    raced.restore()
+  }
+  // Listing denied: the object at the name is read and its parameters checked.
+  const blind = stubObjects({ 'acme-x-y': theirs }, { listStatus: 403 })
+  try {
+    await deleteConsoleXr(teamManifest({ slug: 'x-y', name: 'X Y' }, 'acme'), 'tok')
+    const applied = await applyXr(teamManifest({ slug: 'x-y', name: 'X Y' }, 'acme'), 'tok')
+    assertEquals(applied.ok, false, 'nor written over')
+    assertEquals(blind.calls.filter((c) => c.method === 'DELETE' || c.method === 'PATCH').length, 0)
+  } finally {
+    blind.restore()
   }
 })

@@ -8,6 +8,7 @@ import { useSprintData, useVelocityData } from '../data/planning-sprint.ts'
 import { type SprintMeta, storeError, useMemberMetas, usePatchSprintMeta, useSetIssuePoints } from '../data/planning-store.ts'
 import { capacityPlan, dayKey, daysLeft, daysOffIn, isDone, type Metric, pointsOf, scopeChanges, type SprintStatus, startOfDay, toMs, wallNow, workdays } from '../data/planning-model.ts'
 import { usePlanningParams, useSetPlanningParams } from '../data/planning-nav.ts'
+import { AvailabilityModal } from './availability-modal.tsx'
 import { IssueDrawer } from './issue-drawer.tsx'
 import {
   AvatarStack,
@@ -35,7 +36,8 @@ import {
  *
  * Plane stores the cycle, its dates and membership. Goal, capacity, daily
  * snapshots (for scope history), the commitment and the retrospective are
- * console-side (`define.sprint`).
+ * console-side (`define.sprint`). So is each person's availability — weekly
+ * capacity and time off (`define.member`) — which the Capacity tab edits.
  */
 
 export const SPRINT_STATUS: Record<SprintStatus, { label: string; kind: StatusKind }> = {
@@ -471,16 +473,19 @@ function CapacityTab({ projectId, cycle, data, cycles }: { projectId: string; cy
   const vel = useVelocityData(projectId, cycles, data.metric)
   const { people } = usePeople()
   const toast = useToast()
+  // Whose time off is open for editing.
+  const [editing, setEditing] = useState<string | null>(null)
   const s = toMs(cycle.start_date)
   const e = toMs(cycle.end_date)
   const days = s !== undefined && e !== undefined ? workdays(s, e) : 0
-  const absences = new Map((memberMetas.data ?? []).map((d) => [d.id, d.data.absences ?? []]))
+  const metas = new Map((memberMetas.data ?? []).map((d) => [d.id, d.data]))
   const capacity = data.meta.data?.capacity ?? {}
   const entries = (members.data ?? []).filter((m) => !m.is_bot).map((m) => ({
     member: m.id,
     capacity: capacity[m.id] ?? 0,
-    daysOff: s !== undefined && e !== undefined ? daysOffIn(absences.get(m.id), s, e) : 0,
+    daysOff: s !== undefined && e !== undefined ? daysOffIn(metas.get(m.id)?.absences, s, e) : 0,
   }))
+  const nameOf = (member: string) => people.get(member)?.name ?? members.data?.find((m) => m.id === member)?.display_name ?? 'Former member'
   const plan = capacityPlan({ entries, items: data.items, metric: data.metric, points: data.points, workdays: days })
   const unit = data.metric === 'points' ? 'pts' : 'items'
   const setCap = (member: string, v: number) =>
@@ -496,8 +501,9 @@ function CapacityTab({ projectId, cycle, data, cycles }: { projectId: string; cy
         <Stat label="Velocity" value={vel.velocity.average === null ? '—' : `${vel.velocity.average} ${unit}`} hint={vel.velocity.average === null ? 'no finished sprints' : `avg of last ${Math.min(vel.outcomes.length, 3)}`} />
       </div>
       {data.meta.error ? <Notice tone="warn">{storeError(data.meta.error)}</Notice> : null}
+      {memberMetas.isError ? <Notice tone="warn">{storeError(memberMetas.error)}</Notice> : null}
       <p className="text-[12px] text-content-muted">
-        Capacity per person for this sprint in {unit}, kept in the console. Days off come from each person's availability on the Members page. Open work only; shared items split evenly.
+        Capacity per person for this sprint in {unit}, kept in the console. Days off come from each person's availability — set it with the Days off button on their row. Open work only; shared items split evenly.
       </p>
       <div className="overflow-x-auto rounded-xl border border-edge-default bg-surface-raised">
         <table className="w-full min-w-130 text-[12px]">
@@ -513,9 +519,10 @@ function CapacityTab({ projectId, cycle, data, cycles }: { projectId: string; cy
           <tbody>
             {plan.rows.map((r) => {
               const p = people.get(r.member)
+              const daysOff = entries.find((x) => x.member === r.member)?.daysOff ?? 0
               return (
                 <tr key={r.member} className="border-b border-edge-subtle last:border-0">
-                  <td className="px-3 py-1.5 text-content">{p?.name ?? members.data?.find((m) => m.id === r.member)?.display_name ?? 'Former member'}</td>
+                  <td className="px-3 py-1.5 text-content">{nameOf(r.member)}</td>
                   <td className="px-3 py-1.5">
                     <input
                       type="number"
@@ -531,11 +538,27 @@ function CapacityTab({ projectId, cycle, data, cycles }: { projectId: string; cy
                       disabled={!!data.meta.error}
                     />
                   </td>
-                  <td className="px-3 py-1.5 tabular-nums text-content-muted">{entries.find((x) => x.member === r.member)?.daysOff ?? 0}</td>
+                  <td className="px-3 py-1.5">
+                    {/* Disabled until the saved availability has loaded: the
+                        dialog starts from it, and saving writes it back whole. */}
+                    <button
+                      type="button"
+                      onClick={() => setEditing(r.member)}
+                      disabled={!memberMetas.isSuccess}
+                      title="Edit time off"
+                      aria-label={`Days off for ${nameOf(r.member)}: ${daysOff}. Edit time off`}
+                      className="inline-flex h-7 min-w-10 items-center justify-center rounded-md border border-edge-default bg-surface-app px-2 tabular-nums text-content-muted transition-colors hover:border-edge-strong hover:text-content disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {daysOff}
+                    </button>
+                  </td>
                   <td className="px-3 py-1.5 tabular-nums text-content">{r.assigned}{r.effective ? ` / ${r.effective}` : ''}</td>
                   <td className="px-3 py-1.5">
                     <div className="flex items-center gap-2">
-                      <Meter value={r.assigned} max={Math.max(r.effective, r.assigned, 1)} tone={r.over ? 'bad' : r.load !== null && r.load > 0.85 ? 'warn' : 'good'} label="Load" />
+                      {/* Without a capacity there is nothing to measure load against — no bar. */}
+                      {r.effective > 0 || r.over
+                        ? <Meter value={r.assigned} max={Math.max(r.effective, r.assigned, 1)} tone={r.over ? 'bad' : r.load !== null && r.load > 0.85 ? 'warn' : 'good'} label="Load" />
+                        : <span className="min-w-0 flex-1" aria-hidden />}
                       <span className={cn('w-20 shrink-0 text-[11px]', r.over ? 'font-medium text-rose-700 dark:text-rose-300' : 'text-content-muted')}>
                         {r.over ? 'over capacity' : r.load === null ? (r.assigned ? 'no capacity set' : '—') : `${Math.round(r.load * 100)}%`}
                       </span>
@@ -547,6 +570,7 @@ function CapacityTab({ projectId, cycle, data, cycles }: { projectId: string; cy
           </tbody>
         </table>
       </div>
+      {editing ? <AvailabilityModal member={editing} name={nameOf(editing)} meta={metas.get(editing)} onClose={() => setEditing(null)} /> : null}
     </div>
   )
 }

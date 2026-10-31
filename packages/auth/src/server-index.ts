@@ -50,6 +50,7 @@ export {
   handleLogout,
   handleSession,
   readSession,
+  refreshSessionNow,
 } from './handlers.ts'
 // The console permission catalogue is pure data shared with the browser; it is
 // re-exported here so BFF code takes it from the server entrypoint and never
@@ -60,7 +61,9 @@ export {
   CONSOLE_PERMISSIONS,
   consoleCheck,
   consoleResourceCatalogue,
+  ORG_SCOPED_PERMISSIONS,
   type AccessCheck,
   type ConsolePermission,
   type ConsolePermissionName,
+  type OrgScopedRole,
 } from './console-permissions.ts'

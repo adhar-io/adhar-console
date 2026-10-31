@@ -1,12 +1,15 @@
 import type { ReactNode } from 'react'
 import { StatusBadge, useAccessReview, type AccessCheck } from '@adhar/shell-ui'
 import { ROLE_LABEL, ROLE_TONE, type Role } from '../data/access.ts'
+import type { OrgVia } from '../data/members-model.ts'
 
 /**
- * Write gating for Settings — Kubernetes RBAC, asked as the signed-in user
- * (docs/rbac.md). Every write a settings page makes goes to a BFF endpoint
- * guarded by a `CONSOLE_PERMISSIONS` entry; the page asks the same question
- * before it offers the action.
+ * Write gating for Settings. Every write a settings page makes goes to a BFF
+ * endpoint guarded by a `CONSOLE_PERMISSIONS` entry, and the page asks the same
+ * question before it offers the action (docs/rbac.md): organisation-scoped
+ * permissions are answered by the console from the caller's Keycloak groups
+ * (`org-<slug>` / `org-<slug>-admin`), the rest by Kubernetes RBAC as the
+ * signed-in user.
  *
  * Blocked actions are HIDDEN, not disabled — and stay hidden while the answer
  * loads. A form the user may read but not change stays visible in `readOnly`
@@ -53,7 +56,7 @@ export function ReadOnlyPill({ check }: { check: AccessCheck | readonly AccessCh
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-edge-default bg-surface-sunken px-2 py-0.5 text-[10px] font-semibold uppercase leading-none tracking-wider text-content-muted"
-      title="Your Kubernetes RBAC on this cluster does not allow changes here. Ask a workspace admin for access."
+      title="Your role does not allow changes here. Ask an organization admin (or, for platform settings, a platform admin) for access."
     >
       <IconLock />
       Read only
@@ -61,8 +64,21 @@ export function ReadOnlyPill({ check }: { check: AccessCheck | readonly AccessCh
   )
 }
 
-export function RoleBadge({ role }: { role: Role }) {
-  return <StatusBadge kind={ROLE_TONE[role]}>{ROLE_LABEL[role]}</StatusBadge>
+/**
+ * The signed-in user's role in the active organization. `via: 'platform-admin'`
+ * means the role comes from a platform admin group (admin of every
+ * organization) rather than from this organization's own groups.
+ */
+export function RoleBadge({ role, via }: { role: Role; via?: OrgVia | null }) {
+  const platform = via === 'platform-admin'
+  return (
+    <span title={platform ? 'Admin here through a platform admin group, which holds admin in every organization.' : undefined}>
+      <StatusBadge kind={ROLE_TONE[role]}>
+        {ROLE_LABEL[role]}
+        {platform ? <span className="font-normal opacity-80">· Platform admin</span> : null}
+      </StatusBadge>
+    </span>
+  )
 }
 
 function IconLock() {

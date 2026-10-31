@@ -41,7 +41,7 @@ export interface ProvisioningJob {
 
 /** Steps we report before the provisioner has produced its own results. */
 const PENDING_STEPS: ProvisionStepResult[] = [
-  { system: 'keycloak', label: 'Identity group & role mapping', status: 'skipped', detail: 'queued' },
+  { system: 'keycloak', label: 'Identity groups (members & admins)', status: 'skipped', detail: 'queued' },
   { system: 'controlplane', label: 'Organisation resource', status: 'skipped', detail: 'queued' },
   { system: 'namespace', label: 'Namespace & RBAC', status: 'skipped', detail: 'queued' },
   { system: 'argocd', label: 'Argo CD project', status: 'skipped', detail: 'queued' },
@@ -97,7 +97,8 @@ export async function startProvisioning(input: {
         slug: input.orgSlug,
         name: input.orgName,
         description: input.orgDescription,
-        userRef: input.user.email || input.user.id,
+        // The Keycloak id, never the email: membership calls take ids only.
+        userRef: input.user.id,
       })
     } catch (e) {
       steps = PENDING_STEPS.map((s) => ({ ...s, status: 'failed', detail: e instanceof Error ? e.message : String(e) }))

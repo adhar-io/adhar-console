@@ -77,15 +77,25 @@ upstream credential server-side (`apps/console/app/server/proxy.ts` +
 
 ## Roles
 
-Currently four roles, mapped from Keycloak realm roles on login:
+What someone may do in an ORGANIZATION comes from its two Keycloak groups:
 
-- `platform-admin` — full access across every tenant.
-- `tenant-admin` — admin within the active tenant.
-- `developer` — can read/write within projects they belong to.
-- `viewer` — read-only.
+- `org-<slug>` — member: reads the organization's settings, members, teams,
+  projects, approvals, audit trail and billing.
+- `org-<slug>-admin` — admin (also in the member group): everything a member
+  can, plus who is in it, its teams, projects, tokens, approvals, billing and
+  settings.
 
-Views guard with `useHasRole(...)`. BFF handlers re-check — never trust the
-client.
+`platform-admin`, `platform-engineer` and `super-admin` are admins of every
+organization; `platform-developer` and `platform-viewer` are members of the
+platform's own. These organization-scoped permissions are answered by the
+console from the caller's groups (`apps/console/app/server/tenancy/org-access.ts`);
+every other console permission, and every Kubernetes object, is Kubernetes
+RBAC (`docs/rbac.md`). Views ask with `useCan(...)`; BFF handlers re-check —
+never trust the client — and access-changing writes re-read the caller's
+groups from Keycloak first.
+
+The console persona (`platform-admin` / `developer` / `viewer` …) derived from
+realm roles and groups only shapes navigation; it grants nothing.
 
 ## Backing tool access
 

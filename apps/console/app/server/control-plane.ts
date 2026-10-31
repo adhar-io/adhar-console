@@ -224,17 +224,42 @@ export function xrCollectionPath(m: Pick<XrManifest, 'apiVersion' | 'kind' | 'me
 /* ── an XR is identified by what it composes, not by its object name ── */
 
 /**
- * The Team composition derives the Keycloak group (`ws-team-<name>`) and the
- * Gitea team from `spec.parameters`, so two XRs carrying the same parameters
- * compose the SAME external objects under two owners — whatever they are
- * called. The platform declares its own tenancy that way (the `adhar-supply-chain`
- * package seeds `Organisation/adhar` and `Team/platform`, named by the bare
- * slug), so the console must look for an existing XR by its parameters before
- * it writes one of its own.
+ * The Team composition derives the team's Keycloak group name and the Gitea
+ * team from `spec.parameters` — the group is `ws-team-<organisation>.<name>`
+ * (it was `ws-team-<name>` until the platform qualified it by organisation;
+ * the console fills the group, the composition only publishes its name on
+ * `status.group`) — so two XRs carrying the same parameters compose the SAME
+ * external objects under two owners, whatever they are called. The platform
+ * declares its own tenancy that way (the `adhar-supply-chain` package seeds
+ * `Organisation/adhar` and `Team/platform`, named by the bare slug), so the
+ * console must look for an existing XR by its parameters before it writes one
+ * of its own.
  */
 export type XrTarget =
   | { action: 'apply'; name: string; adopted: boolean }
   | { action: 'skip'; name: string; reason: string }
+  /** The name is held by an XR of a DIFFERENT subject: never write or delete it. */
+  | { action: 'refuse'; name: string; reason: string }
+
+const isTenancyKind = (m: Pick<XrManifest, 'kind'>) => m.kind === 'Organisation' || m.kind === 'Team'
+
+/**
+ * A Team's object name is `<org>-<team>`, which is not unique: (acme, x-y) and
+ * (acme-x, y) both make `acme-x-y`. When that name is already another team's,
+ * this one is written under `<org>-<team>-<hash of (org, team)>` instead —
+ * deterministic, so its next apply and its delete find the same object (they
+ * look it up by parameters first anyway).
+ */
+export function disambiguatedTeamName(m: XrManifest): string {
+  const key = `${m.spec.parameters.organisation}\u0000${m.spec.parameters.name}`
+  let h = 0x811c9dc5
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i)
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  const base = m.metadata.name.slice(0, 63 - 7).replace(/-+$/, '')
+  return `${base}-${h.toString(16).padStart(8, '0').slice(0, 6)}`
+}
 
 /** Does this existing XR compose what the manifest asks for? */
 function sameSubject(m: XrManifest, parameters: Record<string, unknown> | undefined): boolean {
@@ -277,19 +302,51 @@ export async function resolveXrTarget(
     const res = await apiServerFetch(token, xrCollectionPath(m))
     if (!res.ok) {
       await res.body?.cancel().catch(() => {})
-      return { action: 'apply', name: m.metadata.name, adopted: false }
+      return await ownName(m, token)
     }
     items = ((await res.json()) as { items?: XrListItem[] }).items ?? []
   } catch {
-    return { action: 'apply', name: m.metadata.name, adopted: false }
+    return await ownName(m, token)
   }
   const match = items.find((it) => sameSubject(m, it.spec?.parameters))
-  if (!match?.metadata?.name) return { action: 'apply', name: m.metadata.name, adopted: false }
+  if (!match?.metadata?.name) {
+    // Nothing composes this subject yet. Its own name may still be taken —
+    // by ANOTHER organisation's team (see disambiguatedTeamName): writing
+    // there would rewrite that team's parameters under the same field manager.
+    const taken = (name: string) => items.some((it) => it.metadata?.name === name)
+    if (!isTenancyKind(m) || !taken(m.metadata.name)) return { action: 'apply', name: m.metadata.name, adopted: false }
+    const alt = m.kind === 'Team' ? disambiguatedTeamName(m) : ''
+    if (alt && !taken(alt)) return { action: 'apply', name: alt, adopted: false }
+    return { action: 'refuse', name: m.metadata.name, reason: `${m.kind}/${m.metadata.name} belongs to a different ${m.kind.toLowerCase()}` }
+  }
   const name = match.metadata.name
   if (match.metadata.labels?.[MANAGED_BY_LABEL] !== FIELD_MANAGER) {
     return { action: 'skip', name, reason: `${m.kind}/${name} is already declared by the platform` }
   }
   return { action: 'apply', name, adopted: name !== m.metadata.name }
+}
+
+/**
+ * The manifest's own name, when the collection could not be listed (no CRD,
+ * no permission). For a tenancy kind the one object at that name is still
+ * read: if it composes something else, it is refused rather than overwritten
+ * or deleted. Anything the read cannot settle keeps the old behaviour.
+ */
+async function ownName(m: XrManifest, token: string): Promise<XrTarget> {
+  const own: XrTarget = { action: 'apply', name: m.metadata.name, adopted: false }
+  if (!isTenancyKind(m)) return own
+  try {
+    const got = await apiServerFetch(token, xrPath(m))
+    if (!got.ok) {
+      await got.body?.cancel().catch(() => {})
+      return own
+    }
+    const obj = (await got.json()) as XrListItem
+    if (sameSubject(m, obj.spec?.parameters)) return own
+    return { action: 'refuse', name: m.metadata.name, reason: `${m.kind}/${m.metadata.name} belongs to a different ${m.kind.toLowerCase()}` }
+  } catch {
+    return own
+  }
 }
 
 /**
@@ -302,6 +359,8 @@ export async function applyXr(m: XrManifest, token: string | undefined = getK8sS
   // Already declared elsewhere: the subject exists, which is what the caller
   // wanted, so this is a success that wrote nothing.
   if (target.action === 'skip') return { ok: true, status: 0, detail: target.reason }
+  // Its name holds someone else's subject: writing would rewrite theirs.
+  if (target.action === 'refuse') return { ok: false, status: 409, detail: target.reason }
   const manifest: XrManifest = target.name === m.metadata.name ? m : { ...m, metadata: { ...m.metadata, name: target.name } }
   try {
     const res = await apiServerFetch(token, xrPath(manifest), {
@@ -322,6 +381,91 @@ export async function applyXr(m: XrManifest, token: string | undefined = getK8sS
     return { ok: false, status: res.status, detail: reason || `HTTP ${res.status}` }
   } catch (e) {
     return { ok: false, status: 0, detail: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * Delete an XR the CONSOLE declared — a team deleted in Workspace settings. An
+ * XR the platform declares (or anyone else's: no `adhar.io/managed-by:
+ * adhar-console`) is left in place and reported as such. An absent XR is
+ * already the end state. Never throws.
+ */
+export async function deleteConsoleXr(m: XrManifest, token: string | undefined = getK8sServiceToken()): Promise<ApplyOutcome> {
+  if (!token) return { ok: false, status: 0, detail: 'console ServiceAccount token unavailable' }
+  const target = await resolveXrTarget(m, token)
+  if (target.action === 'skip') return { ok: true, status: 0, detail: `${target.reason} — left in place` }
+  // Nothing at our name is ours to delete.
+  if (target.action === 'refuse') return { ok: true, status: 0, detail: `${target.reason} — left in place` }
+  const path = xrPath({ ...m, metadata: { ...m.metadata, name: target.name } })
+  try {
+    const got = await apiServerFetch(token, path)
+    if (got.status === 404) {
+      await got.body?.cancel().catch(() => {})
+      return { ok: true, status: 404, detail: `${m.kind}/${target.name} does not exist` }
+    }
+    if (!got.ok) {
+      await got.body?.cancel().catch(() => {})
+      return { ok: false, status: got.status, detail: `reading ${m.kind}/${target.name} failed (HTTP ${got.status})` }
+    }
+    const obj = (await got.json()) as XrListItem
+    if (obj.metadata?.labels?.[MANAGED_BY_LABEL] !== FIELD_MANAGER) {
+      return { ok: true, status: 0, detail: `${m.kind}/${target.name} is not declared by the console — left in place` }
+    }
+    // The label says the console made it — but maybe for another team whose
+    // name collides with this one's. Only the subject's own XR is deleted.
+    if (isTenancyKind(m) && !sameSubject(m, obj.spec?.parameters)) {
+      return { ok: true, status: 0, detail: `${m.kind}/${target.name} belongs to a different ${m.kind.toLowerCase()} — left in place` }
+    }
+    const res = await apiServerFetch(token, path, { method: 'DELETE' })
+    await res.body?.cancel().catch(() => {})
+    ensured.delete(`${m.kind}/${m.metadata.name}`)
+    if (res.ok || res.status === 404) return { ok: true, status: res.status, detail: `${m.kind}/${target.name} deleted` }
+    return { ok: false, status: res.status, detail: `deleting ${m.kind}/${target.name} failed (HTTP ${res.status})` }
+  } catch (e) {
+    return { ok: false, status: 0, detail: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** A Team XR as the console needs it: which team of which organisation, and its published group. */
+export interface TeamXrSummary {
+  organisation: string
+  name: string
+  /** `status.group` — the Keycloak group the platform binds for this team. */
+  group?: string
+}
+
+const TEAM_XR_TTL_MS = 30_000
+let teamXrCache: { at: number; items: TeamXrSummary[] } | null = null
+
+/**
+ * Every Team XR, cached briefly; null when the cluster cannot be asked (no
+ * control plane, no token). The console compares `status.group` with the
+ * group it fills, so a team can say whether the platform binds it yet.
+ */
+export async function listTeamXrs(token: string | undefined = getK8sServiceToken()): Promise<TeamXrSummary[] | null> {
+  if (teamXrCache && Date.now() - teamXrCache.at < TEAM_XR_TTL_MS) return teamXrCache.items
+  if (!token) return null
+  try {
+    const res = await apiServerFetch(
+      token,
+      xrCollectionPath({ apiVersion: PLATFORM_API_VERSION, kind: 'Team', metadata: { name: '', namespace: TENANCY_NAMESPACE, labels: {} } }),
+    )
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {})
+      return null
+    }
+    const body = (await res.json()) as { items?: Array<XrListItem & { status?: { group?: unknown } }> }
+    const items: TeamXrSummary[] = []
+    for (const it of body.items ?? []) {
+      const p = it.spec?.parameters ?? {}
+      if (typeof p.organisation !== 'string' || typeof p.name !== 'string') continue
+      const group = typeof it.status?.group === 'string' && it.status.group ? it.status.group : undefined
+      items.push({ organisation: p.organisation, name: p.name, ...(group ? { group } : {}) })
+    }
+    teamXrCache = { at: Date.now(), items }
+    return items
+  } catch {
+    return null
   }
 }
 
@@ -355,7 +499,8 @@ export function backfillXrs(manifests: XrManifest[]): void {
   })()
 }
 
-/** Test seam: forget what has been back-filled. */
+/** Test seam: forget what has been back-filled, and the Team XR listing. */
 export function resetBackfillMemo(): void {
   ensured.clear()
+  teamXrCache = null
 }

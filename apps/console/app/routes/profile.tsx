@@ -23,6 +23,7 @@ import {
   Textarea,
   THEMES,
   useCan,
+  useOrganizations,
   useToast,
 } from '@adhar/shell-ui'
 import { formatAbsolute, formatRelative } from '@adhar/utils'
@@ -36,6 +37,7 @@ import {
   EMPTY_IDENTITY,
   fileToAvatarDataUrl,
   isDbUnavailable,
+  isNoOrganisation,
   isServerUnavailable,
   isUnauthenticated,
   keycloakAccountUrl,
@@ -392,13 +394,14 @@ function ProfileSection({
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-content-subtle">Org memberships</dt>
-              <dd className="text-content">{user.tenants.join(', ') || '—'}</dd>
+              <dt className="text-xs text-content-subtle">Organizations</dt>
+              <dd className="text-content"><OrgMemberships /></dd>
             </div>
           </dl>
           <p className="text-xs text-content-subtle">
-            Email, username, and org membership come from Keycloak SSO and are read-only here —
-            change them in the Keycloak account console.
+            Email and username come from Keycloak SSO — change them in the Keycloak account console.
+            Organization membership is the organization's Keycloak groups, managed by its admins in
+            Settings → Members.
           </p>
         </CardBody>
       </Card>
@@ -1229,8 +1232,27 @@ function ShowOnceModal({
   )
 }
 
+/**
+ * The organizations the signed-in user belongs to, from their Keycloak groups
+ * (the same list as the organization switcher) — with their role in each.
+ */
+function OrgMemberships() {
+  const { orgs, loading } = useOrganizations()
+  if (loading && orgs.length === 0) return <>…</>
+  if (orgs.length === 0) return <>None yet</>
+  return <>{orgs.map((o) => `${o.name}${o.role ? ` (${o.role})` : ''}`).join(', ')}</>
+}
+
 /** DB-unavailable / no-server / fetch-error state — no fake rows, ever. */
 function TokenErrorState({ error, retry }: { error: unknown; retry(): void }) {
+  if (isNoOrganisation(error)) {
+    return (
+      <EmptyState
+        title="Not in an organization"
+        description="API tokens belong to an organization. Create one, or ask an organization admin to add you — then open it from the organization switcher."
+      />
+    )
+  }
   if (isDbUnavailable(error)) {
     return (
       <EmptyState

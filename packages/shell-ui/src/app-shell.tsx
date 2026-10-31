@@ -227,12 +227,16 @@ export function AppShell({
           onOpenSidebar={() => setMobileOpen(true)}
           headerControls={headerControls}
         />
+        {/* `relative`: an absolutely positioned descendant with no positioned
+            ancestor (an `sr-only` live region, a ghost layer) otherwise anchors
+            to the viewport, stretches the document past the window and adds a
+            second scrollbar with blank space under the app. */}
         {contentWidth === 'bleed' ? (
-          <main className="isolate flex min-h-0 flex-1 flex-col overflow-hidden">
+          <main className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden">
             <ErrorBoundary>{children}</ErrorBoundary>
           </main>
         ) : (
-          <main className="isolate flex-1 overflow-y-auto bg-surface-canvas">
+          <main className="relative isolate flex-1 overflow-y-auto bg-surface-canvas">
             <ErrorBoundary>
               <div
                 className={cn(

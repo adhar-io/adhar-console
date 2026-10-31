@@ -104,16 +104,21 @@ function buildWork(http: HttpClient): PlaneWorkClient {
     description_stripped: i.description_stripped ?? stripHtml(i.description_html),
   })
 
+  // `estimates/` isn't registered in the fork's public API: stop asking after the first 404.
+  let estimatesMissing = false
   /** Resolve estimate point ids to values when the project exposes them (404 → leave as is). */
   const withEstimates = async (slug: string, p: string, rows: WorkItem[]): Promise<WorkItem[]> => {
     const raw = (i: WorkItem) => i.estimate_point as unknown
     if (!rows.some((i) => typeof raw(i) === 'string')) return rows
     let points: EstimatePoint[] = []
-    try {
-      const est = await http.get<{ id?: string }>(`${proj(slug, p)}/estimates/`)
-      if (est?.id) points = await list<EstimatePoint>(`${proj(slug, p)}/estimates/${est.id}/estimate-points/`)
-    } catch {
-      points = []
+    if (!estimatesMissing) {
+      try {
+        const est = await http.get<{ id?: string }>(`${proj(slug, p)}/estimates/`)
+        if (est?.id) points = await list<EstimatePoint>(`${proj(slug, p)}/estimates/${est.id}/estimate-points/`)
+      } catch (e) {
+        if ((e as { status?: number }).status === 404) estimatesMissing = true
+        points = []
+      }
     }
     const byId = new Map(points.map((pt) => [pt.id, Number(pt.value)]))
     return rows.map((i) => {

@@ -1,24 +1,36 @@
 /**
- * Console permissions as Kubernetes RBAC — the catalogue of VIRTUAL resources.
+ * Console permissions — the catalogue of VIRTUAL resources, and who answers
+ * each one.
  *
- * Authorization in the console is Kubernetes RBAC, evaluated for the signed-in
- * user with a SelfSubjectAccessReview. Kubernetes objects need nothing extra:
- * "may I delete this Deployment" is asked about the Deployment. Console-level
- * actions — switching a platform package on, changing billing, approving a scan
- * waiver — are not Kubernetes objects, so they are named here as resources in
- * the API group `console.adhar.io`.
+ * Kubernetes objects need nothing extra: "may I delete this Deployment" is
+ * asked about the Deployment, with a SelfSubjectAccessReview as the signed-in
+ * user. Console-level actions — switching a platform package on, approving a
+ * scan waiver, adding someone to an organisation — are not Kubernetes objects,
+ * so they are named here as resources in the API group `console.adhar.io`.
  *
- * No CRD backs them, and none is needed: the RBAC authorizer matches rules by
- * string, so a ClusterRole rule `{apiGroups: [console.adhar.io], resources:
- * [billing], verbs: [update]}` is honoured by an SSAR for exactly that triple
- * whether or not the API exists. Operators grant console actions with the same
- * ClusterRoles/RoleBindings they already use for everything else, and
- * `kubectl auth can-i update billing.console.adhar.io --as …` answers the same
- * question the console asks.
+ * Two kinds of console permission, answered in two places:
+ *
+ *   - ORGANISATION-SCOPED (`ORG_SCOPED_PERMISSIONS` below: members, teams,
+ *     projects, tokens, approvals, organisation settings, billing, audit,
+ *     broadcast). These belong to ONE organisation, so the console answers them
+ *     from the caller's Keycloak groups for the organisation they are working
+ *     in — `org-<slug>` is a member, `org-<slug>-admin` an admin, and the
+ *     platform admin groups are admins of every organisation. Kubernetes RBAC
+ *     is NOT consulted for them: a ClusterRoleBinding is realm-wide, so "admin
+ *     of acme" could only ever have meant "admin of every organisation", and
+ *     `kubectl auth can-i` does not answer these.
+ *   - Everything else is Kubernetes RBAC. No CRD backs these resources, and
+ *     none is needed: the RBAC authorizer matches rules by string, so a
+ *     ClusterRole rule `{apiGroups: [console.adhar.io], resources: [packages],
+ *     verbs: [update]}` is honoured by an SSAR for exactly that triple whether
+ *     or not the API exists, and `kubectl auth can-i update
+ *     packages.console.adhar.io --as …` answers the same question the console
+ *     asks.
  *
  * This module is the single source of the names: the BFF authorizes with it,
- * shell-ui's `<Can>` checks with it, and the platform's ClusterRoles grant it
- * (docs/rbac.md). Pure data, no dependencies — server and browser both import it.
+ * shell-ui's `<Can>` checks with it, and the platform's ClusterRoles grant the
+ * RBAC ones (docs/rbac.md). Pure data, no dependencies — server and browser
+ * both import it.
  */
 
 /** The API group every console virtual resource lives in. */
@@ -66,12 +78,14 @@ export const CONSOLE_PERMISSIONS = Object.freeze({
   billingManage: p('billing', 'update', 'Change plan or seats, budgets, cost centres, payment methods; generate and pay invoices.'),
 
   // Workspace administration (Workspace settings).
-  membersInvite: p('workspace-members', 'create', 'Invite people to the organisation.'),
+  membersInvite: p('workspace-members', 'create', 'Add people to the organisation, or create their Keycloak account.'),
   membersUpdate: p('workspace-members', 'update', 'Change a member\'s organisation role.'),
-  membersRemove: p('workspace-members', 'delete', 'Remove members and revoke pending invitations.'),
-  rolesCreate: p('workspace-roles', 'create', 'Create custom workspace roles.'),
-  rolesUpdate: p('workspace-roles', 'update', 'Edit custom workspace roles.'),
-  rolesDelete: p('workspace-roles', 'delete', 'Delete custom workspace roles.'),
+  membersRemove: p('workspace-members', 'delete', 'Remove people from the organisation.'),
+  // No longer offered: an organisation has exactly two roles, member and admin,
+  // and both come from Keycloak. Kept so stored grants and old clients resolve.
+  rolesCreate: p('workspace-roles', 'create', 'Create custom workspace roles (retired).'),
+  rolesUpdate: p('workspace-roles', 'update', 'Edit custom workspace roles (retired).'),
+  rolesDelete: p('workspace-roles', 'delete', 'Delete custom workspace roles (retired).'),
   teamsCreate: p('workspace-teams', 'create', 'Create teams.'),
   teamsUpdate: p('workspace-teams', 'update', 'Rename teams and add or remove team members.'),
   teamsDelete: p('workspace-teams', 'delete', 'Delete teams.'),
@@ -84,7 +98,7 @@ export const CONSOLE_PERMISSIONS = Object.freeze({
 
   // Organisations (tenant switcher / onboarding).
   orgCreate: p('organizations', 'create', 'Create (and provision) an organisation.'),
-  orgUpdate: p('organizations', 'update', 'Rename an organisation, edit its settings, transfer ownership.'),
+  orgUpdate: p('organizations', 'update', 'Rename an organisation and edit its settings.'),
   orgDelete: p('organizations', 'delete', 'Delete an organisation.'),
 
   auditView: p('audit', 'get', 'Read the workspace audit trail.'),
@@ -113,6 +127,40 @@ export const CONSOLE_PERMISSIONS = Object.freeze({
 } as const)
 
 export type ConsolePermissionName = keyof typeof CONSOLE_PERMISSIONS
+
+/** The two roles an organisation has: `org-<slug>` members and `org-<slug>-admin` admins. */
+export type OrgScopedRole = 'admin' | 'member'
+
+/**
+ * The organisation-scoped permissions and the role each needs in the
+ * organisation the caller is working in. The console answers these from
+ * Keycloak groups (apps/console/app/server/tenancy/org-access.ts); Kubernetes
+ * RBAC is not asked. Settings → Roles & permissions renders this same list,
+ * so what the page says is what the server enforces.
+ */
+export const ORG_SCOPED_PERMISSIONS: ReadonlyArray<readonly [ConsolePermissionName, OrgScopedRole]> = Object.freeze([
+  ['billingView', 'member'],
+  ['auditView', 'member'],
+  ['membersInvite', 'admin'],
+  ['membersUpdate', 'admin'],
+  ['membersRemove', 'admin'],
+  ['rolesCreate', 'admin'],
+  ['rolesUpdate', 'admin'],
+  ['rolesDelete', 'admin'],
+  ['teamsCreate', 'admin'],
+  ['teamsUpdate', 'admin'],
+  ['teamsDelete', 'admin'],
+  ['projectsCreate', 'admin'],
+  ['projectsUpdate', 'admin'],
+  ['projectsDelete', 'admin'],
+  ['tokensCreate', 'admin'],
+  ['tokensRevoke', 'admin'],
+  ['approvalsDecide', 'admin'],
+  ['orgUpdate', 'admin'],
+  ['orgDelete', 'admin'],
+  ['billingManage', 'admin'],
+  ['notificationsBroadcast', 'admin'],
+] as const)
 
 /** Every virtual resource with the verbs the console asks about — for docs and tests. */
 export function consoleResourceCatalogue(): Array<{ resource: string; verbs: string[] }> {

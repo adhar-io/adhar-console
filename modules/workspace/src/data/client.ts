@@ -2,16 +2,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { workspace } from '@adhar/api-clients'
 import { docStore, DocStoreError, type StoredDoc, useLiveInvalidate, usePollingInterval } from '@adhar/shell-ui'
 import type { Permission } from './access.ts'
+import { type MemberStatus, type OrgRole, type OrgVia, workspaceErrorMessage } from './members-model.ts'
 
 /**
- * Workspace data layer — REAL, tenant-scoped persistence through the console's
- * BFF (`/api/workspace/*`, Postgres document store) with Keycloak group
- * reflection for teams and org roles.
+ * Workspace data layer — REAL, tenant-scoped data through the console's BFF
+ * (`/api/workspace/*`).
  *
- * Org / members / invitations / teams / projects / api-tokens / audit /
- * approvals all round-trip through the server; there is no in-memory fallback.
- * A missing database surfaces as a `WorkspaceApiError` with status 503 that
- * views render as a "connect a database" state — never fake data.
+ * People are Keycloak's: an organisation's members are the Keycloak groups
+ * `org-<slug>` and `org-<slug>-admin`, and a team is the group
+ * `ws-team-<org>.<team>`. The console stores no member, role or invitation
+ * records — listing members reads those groups, and adding, removing or
+ * promoting someone writes them. A Keycloak failure on a write is an error
+ * (503 / 502), never a quiet "saved, console-only".
+ *
+ * Org settings / teams / projects / api-tokens / audit / approvals round-trip
+ * through the server's Postgres document store; there is no in-memory
+ * fallback. A missing database surfaces as a `WorkspaceApiError` with code
+ * `store_unavailable` that views render as a "connect a database" state —
+ * never fake data.
  *
  * Custom RBAC roles and webhooks keep their existing docStore persistence.
  */
@@ -25,32 +33,30 @@ export class WorkspaceApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** The server's own explanation, when it sent one. */
+    readonly detail?: string,
+    /** The whole error body — some codes carry more (`user_exists` → `userId`, `already_member` → `item`). */
+    readonly body: Record<string, unknown> = {},
   ) {
     super(message)
     this.name = 'WorkspaceApiError'
   }
 }
 
-/** True when the error means "no database configured" (surface a connect-DB state). */
+/**
+ * True when the error means "no database configured" (surface a connect-DB
+ * state). A 503 from Keycloak or from the access check is NOT that — those are
+ * outages, retried and shown with their own message.
+ */
 export function isDbUnavailable(e: unknown): boolean {
-  return (
-    (e instanceof WorkspaceApiError && e.status === 503) ||
-    (e instanceof DocStoreError && e.status === 503)
-  )
+  if (e instanceof WorkspaceApiError) return e.status === 503 && (!e.code || e.code === 'store_unavailable')
+  return e instanceof DocStoreError && e.status === 503
 }
 
-const ERROR_MESSAGE: Record<string, string> = {
-  store_unavailable: 'The console database is not configured.',
-  requires_admin_or_owner: 'This action requires the Admin or Owner role.',
-  requires_owner: 'This action requires the Owner role.',
-  cannot_demote_last_owner: 'The organization must keep at least one owner.',
-  cannot_remove_last_owner: 'The organization must keep at least one owner.',
-  cannot_remove_self: 'You cannot remove your own membership.',
-  cannot_decide_own_request: 'You cannot approve or reject your own request.',
-  confirmation_mismatch: 'The confirmation text does not match the organization name.',
-  slug_taken: 'That slug is already in use.',
-  invalid_email: 'Enter a valid email address.',
-  already_decided: 'This request has already been decided.',
+/** Retry outages, never answers: a 4xx or a missing database will not change on the next try. */
+function shouldRetry(count: number, err: unknown): boolean {
+  if (count >= 2 || isDbUnavailable(err)) return false
+  return !(err instanceof WorkspaceApiError && err.status < 500)
 }
 
 async function wsFetch<T>(
@@ -69,19 +75,21 @@ async function wsFetch<T>(
     body: json !== undefined ? JSON.stringify(json) : undefined,
   })
   if (!res.ok) {
-    let code: string | undefined
+    let body: Record<string, unknown> = {}
     try {
-      code = ((await res.json()) as { error?: string }).error
+      const parsed = await res.json()
+      if (parsed && typeof parsed === 'object') body = parsed as Record<string, unknown>
     } catch {
       /* non-JSON error body */
     }
+    const code = typeof body.error === 'string' ? body.error : undefined
+    const detail = typeof body.detail === 'string' ? body.detail : undefined
     throw new WorkspaceApiError(
-      (code && ERROR_MESSAGE[code]) ??
-        (res.status === 503
-          ? 'The console database is not configured.'
-          : `Workspace request failed (${res.status}${code ? `: ${code}` : ''})`),
+      workspaceErrorMessage({ status: res.status, code, detail, partial: body.partial === true }),
       res.status,
       code,
+      detail,
+      body,
     )
   }
   return (await res.json()) as T
@@ -89,16 +97,108 @@ async function wsFetch<T>(
 
 /* ─────────────────── API types ─────────────────── */
 
+export type { OrgRole, OrgVia }
 export type WsOrganization = workspace.Organization
-export type WsMember = workspace.Member
-export type WsInvitation = workspace.Invitation & { teams?: string[] }
 export type WsProject = workspace.Project
 export type WsAuditEvent = workspace.AuditEvent & { metadata?: Record<string, unknown> }
-export type OrgRole = workspace.OrgRole
 
-export interface WsTeam extends workspace.Team {
-  keycloakGroup?: string
-  keycloakSynced: boolean
+/** A person in the active organisation, read from its Keycloak groups. */
+export interface WsMember {
+  /** Keycloak user id. */
+  userId: string
+  email: string
+  /** "first last", else the username, else the email. */
+  name: string
+  username: string
+  /** `admin` = in `org-<slug>-admin`. */
+  role: OrgRole
+  /** Slugs of this organisation's teams the person is in. */
+  teams: string[]
+  status: MemberStatus
+  /** When the Keycloak account was created. */
+  createdAt?: string
+}
+
+export interface MembersResponse {
+  /** Everyone in `org-<slug>` or `org-<slug>-admin`. */
+  items: WsMember[]
+  /**
+   * Groups whose members hold a role here without being listed: the platform
+   * admin groups (admin of every organisation) and, in the platform
+   * organisation only, the platform team (members).
+   */
+  implicit: Array<{ group: string; role: OrgRole }>
+  /** The list stopped at the server's cap. */
+  truncated: boolean
+  /**
+   * Whether Keycloak can email a set-password link (the realm has an SMTP
+   * server). False: "New account" cannot work, so Add people leads with "ask
+   * them to sign up". Null: Keycloak would not say.
+   */
+  canEmail?: boolean | null
+}
+
+export interface WsTeam {
+  id: string
+  slug: string
+  name: string
+  description?: string
+  createdAt: string
+  /** The Keycloak group that IS the team's membership: `ws-team-<org>.<team>`. */
+  group: string
+  /** Same as `group`; kept for older readers. */
+  keycloakGroup: string
+  /** Null when Keycloak could not be read. */
+  memberCount: number | null
+  projectCount: number
+  /**
+   * Whether cluster RBAC already binds `group`. `pending-platform-upgrade`: the
+   * Team resource still publishes the old organisation-less group, so access
+   * granted through this team reaches Kubernetes after the next platform
+   * upgrade.
+   */
+  accessBinding: 'current' | 'pending-platform-upgrade' | 'unknown'
+}
+
+export interface TeamsResponse {
+  items: WsTeam[]
+  /** Member counts could not be read from Keycloak. */
+  degraded?: boolean
+}
+
+/** A team member, as `GET /teams/:id/members` lists them. */
+export type WsTeamMember = Pick<WsMember, 'userId' | 'email' | 'name' | 'status'>
+
+/** A Keycloak account found by `GET /users`, with its membership here. */
+export interface DirectoryUser {
+  userId: string
+  email: string
+  name: string
+  username: string
+  enabled: boolean
+  /**
+   * Whether Keycloak verified the account's email. The realm lets anyone sign
+   * up with any address, so an unverified account found by email may be
+   * someone else's; only a platform admin may add one, explicitly.
+   */
+  emailVerified: boolean
+  /** Role in the active organisation, or null when not a member. */
+  membership: OrgRole | null
+}
+
+export interface UserSearch {
+  items: DirectoryUser[]
+  /** `exact`: email/username match only (org admins); `search`: directory search (platform admins). */
+  mode: 'exact' | 'search'
+}
+
+export type SetupEmailResult =
+  | { sent: true }
+  | { sent: false; reason: 'send_failed'; detail?: string }
+
+export interface CreatedUser {
+  item: WsMember
+  setupEmail: SetupEmailResult
 }
 
 export interface WsApiToken extends workspace.ApiToken {
@@ -110,10 +210,17 @@ export interface WorkspaceMe {
   userId: string
   email: string
   name: string
-  role: OrgRole
+  /** Null in a personal tenant — the user is in no organisation. */
+  role: OrgRole | null
+  via: OrgVia | null
+  /** This organisation's teams the user is in. */
   teams: string[]
-  org: WsOrganization
-  /** Whether the server can reflect changes into Keycloak groups (real RBAC). */
+  /** The organisation's Keycloak / control-plane slug (not the tenant id). */
+  orgSlug: string | null
+  /** The platform's own organisation — it cannot be deleted. */
+  isPlatformOrganisation: boolean
+  org: WsOrganization | null
+  /** Whether the console holds a Keycloak admin credential (membership is read and written there). */
   keycloakConfigured: boolean
 }
 
@@ -142,13 +249,18 @@ const K = {
   me: ['ws', 'me'] as const,
   org: ['ws', 'org'] as const,
   members: ['ws', 'members'] as const,
-  invitations: ['ws', 'invitations'] as const,
+  // Under `teams`, so invalidating the team list refreshes every team's members too.
   teams: ['ws', 'teams'] as const,
+  teamMembers: (id: string) => ['ws', 'teams', id, 'members'] as const,
+  users: (q: string) => ['ws', 'users', q] as const,
   projects: ['ws', 'projects'] as const,
   tokens: ['ws', 'tokens'] as const,
   approvals: ['ws', 'approvals'] as const,
   audit: (p: AuditParams) => ['ws', 'audit', p] as const,
 }
+
+/** Billing's seat count is the size of the member list. */
+const BILLING_KEY = ['billing'] as const
 
 /* ─────────────────── me / access ─────────────────── */
 
@@ -161,7 +273,7 @@ export function useWorkspaceMe() {
     queryKey: K.me,
     queryFn: fetchWorkspaceMe,
     staleTime: 30_000,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
   })
 }
 
@@ -171,7 +283,7 @@ export function useOrg() {
   return useQuery({
     queryKey: K.org,
     queryFn: async () => (await wsFetch<{ item: WsOrganization }>('org')).item,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
   })
 }
 
@@ -196,37 +308,92 @@ export function useUpdateOrg() {
   })
 }
 
-export function useTransferOwnership() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (userId: string) =>
-      wsFetch<{ ok: boolean; keycloakSynced: boolean }>('org/transfer', {
-        method: 'POST',
-        json: { userId },
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: K.members })
-      qc.invalidateQueries({ queryKey: K.me })
-    },
-  })
-}
-
 export function useDeleteOrg() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (confirm: string) =>
-      wsFetch<{ ok: boolean }>('org', { method: 'DELETE', json: { confirm } }),
+      // `retained`: what deleting the organisation deliberately leaves in place.
+      wsFetch<{ ok: boolean; retained?: string[] }>('org', { method: 'DELETE', json: { confirm } }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ws'] }),
   })
 }
 
-/* ─────────────────── members ─────────────────── */
+/* ─────────────────── members (Keycloak groups) ─────────────────── */
 
+function fetchMembers(): Promise<MembersResponse> {
+  return wsFetch<MembersResponse>('members')
+}
+
+/** The member list with what it leaves out — implicit admins, and whether it was capped. */
+export function useMembersPage() {
+  return useQuery({ queryKey: K.members, queryFn: fetchMembers, retry: shouldRetry })
+}
+
+/** Just the people (same request and cache as `useMembersPage`). */
 export function useMembers() {
   return useQuery({
     queryKey: K.members,
-    queryFn: async () => (await wsFetch<{ items: WsMember[] }>('members')).items,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    queryFn: fetchMembers,
+    select: (page: MembersResponse) => page.items,
+    retry: shouldRetry,
+  })
+}
+
+/** Everything a membership change can move: the list, team counts, your own role, seats. */
+function invalidateMembership(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: K.members })
+  qc.invalidateQueries({ queryKey: K.teams })
+  qc.invalidateQueries({ queryKey: K.me })
+  qc.invalidateQueries({ queryKey: ['ws', 'users'] })
+  qc.invalidateQueries({ queryKey: BILLING_KEY })
+}
+
+/** Add an existing Keycloak account to the organisation (and optionally to teams). */
+export function useAddMember() {
+  const qc = useQueryClient()
+  return useMutation({
+    // `allowUnverifiedEmail`: a platform admin vouching for an account whose
+    // email Keycloak never verified (refused for anyone else).
+    mutationFn: (input: { userId: string; role?: OrgRole; teams?: string[]; allowUnverifiedEmail?: boolean }) =>
+      wsFetch<{ item: WsMember }>('members', { method: 'POST', json: input }),
+    onSuccess: () => invalidateMembership(qc),
+  })
+}
+
+/**
+ * Create a Keycloak account and add it here. Keycloak emails the person a
+ * set-password link; `setupEmail.sent` says whether that email went out.
+ */
+export function useCreateUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { email: string; firstName?: string; lastName?: string; role: OrgRole; teams?: string[] }) =>
+      wsFetch<CreatedUser>('users', { method: 'POST', json: input }),
+    onSuccess: () => invalidateMembership(qc),
+  })
+}
+
+/** Send the set-password email again, for a member who has not set one yet. */
+export function useResendSetupEmail() {
+  return useMutation({
+    mutationFn: (userId: string) =>
+      wsFetch<{ setupEmail: SetupEmailResult }>(`users/${encodeURIComponent(userId)}/setup-email`, { method: 'POST' }),
+  })
+}
+
+/**
+ * Find Keycloak accounts to add. Org admins get exact email / username
+ * matches; platform admins get a directory search (`mode` says which).
+ */
+export function useSearchUsers(q: string) {
+  const query = q.trim()
+  return useQuery({
+    queryKey: K.users(query),
+    queryFn: () => wsFetch<UserSearch>(`users?${new URLSearchParams({ q: query, max: '20' })}`),
+    enabled: query.length >= 2,
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+    retry: shouldRetry,
   })
 }
 
@@ -234,7 +401,7 @@ export function useUpdateMemberRole() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (v: { userId: string; role: OrgRole }) =>
-      wsFetch<{ item: WsMember; keycloakSynced: boolean }>(`members/${v.userId}`, {
+      wsFetch<{ item: WsMember }>(`members/${encodeURIComponent(v.userId)}`, {
         method: 'PATCH',
         json: { role: v.role },
       }),
@@ -245,62 +412,43 @@ export function useUpdateMemberRole() {
   })
 }
 
+/** Remove someone from the organisation's groups — and its team groups. Their Keycloak account stays. */
 export function useRemoveMember() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (userId: string) =>
-      wsFetch<{ ok: boolean; keycloakSynced: boolean }>(`members/${userId}`, {
-        method: 'DELETE',
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: K.members })
-      qc.invalidateQueries({ queryKey: K.teams })
-    },
-  })
-}
-
-/* ─────────────────── invitations ─────────────────── */
-
-export function useInvitations() {
-  return useQuery({
-    queryKey: K.invitations,
-    queryFn: async () => (await wsFetch<{ items: WsInvitation[] }>('invitations')).items,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
-  })
-}
-
-export interface CreatedInvitation {
-  item: WsInvitation
-  /** Plaintext invite token — shown once; only a hash is stored server-side. */
-  token: string
-  acceptPath: string
-}
-
-export function useCreateInvitation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (input: { email: string; role: OrgRole; teams?: string[] }) =>
-      wsFetch<CreatedInvitation>('invitations', { method: 'POST', json: input }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: K.invitations }),
-  })
-}
-
-export function useRevokeInvitation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) =>
-      wsFetch<{ item: WsInvitation }>(`invitations/${id}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: K.invitations }),
+      wsFetch<{ ok: boolean }>(`members/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+    onSuccess: () => invalidateMembership(qc),
   })
 }
 
 /* ─────────────────── teams ─────────────────── */
 
+function fetchTeams(): Promise<TeamsResponse> {
+  return wsFetch<TeamsResponse>('teams')
+}
+
+/** Teams with whether their member counts could be read. */
+export function useTeamsPage() {
+  return useQuery({ queryKey: K.teams, queryFn: fetchTeams, retry: shouldRetry })
+}
+
 export function useTeams() {
   return useQuery({
     queryKey: K.teams,
-    queryFn: async () => (await wsFetch<{ items: WsTeam[] }>('teams')).items,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    queryFn: fetchTeams,
+    select: (page: TeamsResponse) => page.items,
+    retry: shouldRetry,
+  })
+}
+
+export function useTeamMembers(teamId: string | undefined) {
+  return useQuery({
+    queryKey: K.teamMembers(teamId ?? ''),
+    queryFn: async () =>
+      (await wsFetch<{ items: WsTeamMember[] }>(`teams/${encodeURIComponent(teamId!)}/members`)).items,
+    enabled: !!teamId,
+    retry: shouldRetry,
   })
 }
 
@@ -308,7 +456,7 @@ export function useCreateTeam() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (input: { name: string; slug?: string; description?: string }) =>
-      wsFetch<{ item: WsTeam; keycloakSynced: boolean }>('teams', {
+      wsFetch<{ item: WsTeam }>('teams', {
         method: 'POST',
         json: input,
       }),
@@ -320,7 +468,7 @@ export function useUpdateTeam() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (v: { id: string; name?: string; description?: string }) =>
-      wsFetch<{ item: WsTeam }>(`teams/${v.id}`, {
+      wsFetch<{ item: WsTeam }>(`teams/${encodeURIComponent(v.id)}`, {
         method: 'PATCH',
         json: { name: v.name, description: v.description },
       }),
@@ -331,11 +479,14 @@ export function useUpdateTeam() {
 export function useDeleteTeam() {
   const qc = useQueryClient()
   return useMutation({
+    // `controlPlaneSynced: false` — the Team resource (and its Gitea team) was
+    // left in place; the page says so rather than implying it is gone.
     mutationFn: (id: string) =>
-      wsFetch<{ ok: boolean; keycloakSynced: boolean }>(`teams/${id}`, { method: 'DELETE' }),
+      wsFetch<{ ok: boolean; controlPlaneSynced?: boolean; controlPlaneDetail?: string }>(`teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: K.teams })
       qc.invalidateQueries({ queryKey: K.members })
+      qc.invalidateQueries({ queryKey: K.me })
     },
   })
 }
@@ -344,13 +495,14 @@ export function useAddTeamMember() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (v: { teamId: string; userId: string }) =>
-      wsFetch<{ item: WsTeam; keycloakSynced: boolean }>(`teams/${v.teamId}/members`, {
+      wsFetch<{ item: WsTeam }>(`teams/${encodeURIComponent(v.teamId)}/members`, {
         method: 'POST',
         json: { userId: v.userId },
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: K.teams })
       qc.invalidateQueries({ queryKey: K.members })
+      qc.invalidateQueries({ queryKey: K.me })
     },
   })
 }
@@ -359,13 +511,14 @@ export function useRemoveTeamMember() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (v: { teamId: string; userId: string }) =>
-      wsFetch<{ item: WsTeam; keycloakSynced: boolean }>(
-        `teams/${v.teamId}/members/${v.userId}`,
+      wsFetch<{ item: WsTeam }>(
+        `teams/${encodeURIComponent(v.teamId)}/members/${encodeURIComponent(v.userId)}`,
         { method: 'DELETE' },
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: K.teams })
       qc.invalidateQueries({ queryKey: K.members })
+      qc.invalidateQueries({ queryKey: K.me })
     },
   })
 }
@@ -376,7 +529,7 @@ export function useProjects() {
   return useQuery({
     queryKey: K.projects,
     queryFn: async () => (await wsFetch<{ items: WsProject[] }>('projects')).items,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
   })
 }
 
@@ -423,7 +576,7 @@ export function useApiTokens() {
   return useQuery({
     queryKey: K.tokens,
     queryFn: async () => (await wsFetch<{ items: WsApiToken[] }>('tokens')).items,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
   })
 }
 
@@ -514,7 +667,7 @@ export function useAuditEvents(params: AuditParams, live = false) {
       return wsFetch<AuditPage>(`audit${qs ? `?${qs}` : ''}`)
     },
     placeholderData: (prev) => prev,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
   })
 }
 
@@ -524,7 +677,7 @@ export function useAuditFacets() {
     queryKey: ['ws', 'audit', 'facets'] as const,
     queryFn: () => wsFetch<AuditFacets>('audit/facets'),
     staleTime: 60_000,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
   })
 }
 
@@ -557,7 +710,7 @@ export function useApprovalRequests() {
   return useQuery({
     queryKey: K.approvals,
     queryFn: async () => (await wsFetch<{ items: ApprovalRequest[] }>('approvals')).items,
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
   })
 }
 
@@ -601,16 +754,30 @@ export interface ApprovalPolicy {
 
 const APPROVAL_POLICY_KIND = 'workspace.approval-policy'
 
+// An organisation has two roles, admin and member, and deciding a request
+// takes organisation admin (`approvalsDecide`) — so admins are the approvers.
+// `role-grant-owner` keeps its id for the overrides tenants already saved; it
+// now guards granting organisation admin, since there is no owner any more.
 const DEFAULT_APPROVAL_POLICIES: ApprovalPolicy[] = [
-  { id: 'production-deploy', scope: 'production-deploy', description: 'Promotion to a Kargo stage tagged "production".', approversRequired: 2, approverRoles: ['admin', 'owner'], enabled: true },
-  { id: 'budget-increase', scope: 'budget-increase', description: 'Lifting a budget cap by more than 10%.', approversRequired: 1, approverRoles: ['billing', 'owner'], enabled: true },
-  { id: 'role-grant-owner', scope: 'role-grant-owner', description: 'Granting the Owner role to any member.', approversRequired: 2, approverRoles: ['owner'], enabled: true },
-  { id: 'data-export', scope: 'data-export', description: 'Bulk exporting tenant data outside the home region.', approversRequired: 2, approverRoles: ['admin', 'owner'], enabled: true },
-  { id: 'destructive-rbac', scope: 'destructive-rbac', description: 'Removing the only Owner / disabling SSO enforcement.', approversRequired: 2, approverRoles: ['owner'], enabled: true },
-  { id: 'cluster-delete', scope: 'cluster-delete', description: 'Deleting a Kubernetes cluster registered in the platform.', approversRequired: 2, approverRoles: ['admin', 'owner'], enabled: false },
+  { id: 'production-deploy', scope: 'production-deploy', description: 'Promotion to a Kargo stage tagged "production".', approversRequired: 2, approverRoles: ['admin'], enabled: true },
+  { id: 'budget-increase', scope: 'budget-increase', description: 'Lifting a budget cap by more than 10%.', approversRequired: 1, approverRoles: ['admin'], enabled: true },
+  { id: 'role-grant-owner', scope: 'role-grant-owner', description: 'Granting organisation admin to any member.', approversRequired: 2, approverRoles: ['admin'], enabled: true },
+  { id: 'data-export', scope: 'data-export', description: 'Bulk exporting tenant data outside the home region.', approversRequired: 2, approverRoles: ['admin'], enabled: true },
+  { id: 'destructive-rbac', scope: 'destructive-rbac', description: 'Removing the last admin / disabling SSO enforcement.', approversRequired: 2, approverRoles: ['admin'], enabled: true },
+  { id: 'cluster-delete', scope: 'cluster-delete', description: 'Deleting a Kubernetes cluster registered in the platform.', approversRequired: 2, approverRoles: ['admin'], enabled: false },
 ]
 
 type ApprovalPolicyOverride = Pick<ApprovalPolicy, 'approversRequired' | 'approverRoles' | 'enabled'>
+
+/**
+ * Approver roles as they are now. Overrides saved before roles came from
+ * Keycloak can name `owner`, `security`, `billing`, … — roles that no longer
+ * exist. Deciding a request takes organisation admin whatever the policy
+ * says, so every approver is an admin.
+ */
+export function approverRolesNow(roles: readonly string[]): string[] {
+  return roles.length ? ['admin'] : []
+}
 
 const APPROVAL_POLICIES_KEY = ['ws', 'approval-policies'] as const
 
@@ -623,10 +790,10 @@ export function useApprovalPolicies() {
       const byId = new Map(stored.map((d) => [d.id, d.data]))
       return DEFAULT_APPROVAL_POLICIES.map((p) => {
         const o = byId.get(p.id)
-        return o ? { ...p, ...o, approverRoles: [...(o.approverRoles ?? p.approverRoles)] } : p
+        return o ? { ...p, ...o, approverRoles: approverRolesNow(o.approverRoles ?? p.approverRoles) } : p
       })
     },
-    retry: (count, err) => !isDbUnavailable(err) && count < 2,
+    retry: shouldRetry,
     staleTime: 60_000,
   })
 }

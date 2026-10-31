@@ -1,15 +1,26 @@
 import { accessCheckKey, type AccessCheck, type ConsolePermission } from '@adhar/auth/server'
 import { apiServerFetch, type K8sIdentity, resolveClusterBase, resolveIdentity } from './gateway.ts'
+import { getRequestContext } from '../request-user.ts'
+import { decideOrgScoped, type OrgAccess, orgAdminGroup, orgScopedRole } from '../tenancy/org-access.ts'
 
 /**
- * Authorization as Kubernetes RBAC — the one place the console asks "may this
- * person do X?".
+ * Authorization — the one place the console asks "may this person do X?".
  *
- * Every answer is a SelfSubjectAccessReview sent AS the signed-in user (their
- * OIDC token, or the console ServiceAccount impersonating them — gateway.ts
- * decides), so the apiserver's RBAC authorizer is the only policy engine. That
- * covers Kubernetes objects and the console's own actions alike: the latter are
- * virtual resources in `console.adhar.io` (packages/auth/src/console-permissions.ts).
+ * Almost every answer is a SelfSubjectAccessReview sent AS the signed-in user
+ * (their OIDC token, or the console ServiceAccount impersonating them —
+ * gateway.ts decides), so the apiserver's RBAC authorizer is the policy engine.
+ * That covers Kubernetes objects and the console's own actions alike: the
+ * latter are virtual resources in `console.adhar.io`
+ * (packages/auth/src/console-permissions.ts).
+ *
+ * The exception is the ~20 permissions that belong to ONE organisation —
+ * members, teams, projects, tokens, approvals, billing, org settings
+ * (`ORG_SCOPED` in tenancy/org-access.ts). A ClusterRoleBinding cannot say
+ * "admin of acme", only "admin of every organisation", so those are answered
+ * from the caller's groups in the request's organisation (`org-<slug>-admin`,
+ * or a platform admin) and never reach the apiserver or the cache below. The
+ * question is still asked here, so `<Can>`/`useCan` and the handlers still ask
+ * it the same way and cannot disagree.
  *
  * Two consumers, one cache, so they cannot disagree:
  *   - `POST /api/k8s/-/access-batch` — the browser's `<Can>` / `useCan` hide
@@ -249,6 +260,65 @@ export function checkAccess(id: K8sIdentity, checks: AccessCheck[], cluster?: st
   return evaluateBatch(checks, ssarReviewer(id, cluster), { cache: sharedCache, scope: identityKey(id, cluster) })
 }
 
+/** The caller's standing in the request's organisation, as the org-scoped checks need it. */
+export interface OrgScope {
+  access: OrgAccess
+  /** The organisation could not be resolved (directory unreadable): answer no, and say why. */
+  degraded: boolean
+  /** The caller works in their personal tenant — no organisation at all. */
+  personal?: boolean
+  slug?: string
+}
+
+/** The org scope of `req`, or null when it has no session. */
+export async function orgScopeOf(req: Request): Promise<OrgScope | null> {
+  const ctx = await getRequestContext(req)
+  if (!ctx) return null
+  return { access: ctx.access, degraded: ctx.degraded, personal: ctx.personal, slug: ctx.org?.slug }
+}
+
+/**
+ * Evaluate a mixed batch: org-scoped checks from `org` (never reviewed, never
+ * cached — a membership change must show on the next ask, and these answers
+ * depend on the organisation, which the cache key does not carry), the rest
+ * through `evaluateBatch`. Order is preserved.
+ */
+export async function evaluateChecks(
+  checks: AccessCheck[],
+  review: ReviewFn,
+  org: OrgScope | null,
+  opts: { cache?: AccessCache; scope?: string; concurrency?: number } = {},
+): Promise<BatchResult> {
+  const results: boolean[] = new Array(checks.length).fill(false)
+  const rest: AccessCheck[] = []
+  const restAt: number[] = []
+  let degraded = false
+  checks.forEach((c, i) => {
+    if (!orgScopedRole(c)) {
+      rest.push(c)
+      restAt.push(i)
+      return
+    }
+    if (!org || org.degraded) {
+      degraded ||= Boolean(org?.degraded)
+      return
+    }
+    results[i] = decideOrgScoped(c, org.access) === true
+  })
+  if (rest.length > 0) {
+    const r = await evaluateBatch(rest, review, opts)
+    r.results.forEach((v, j) => (results[restAt[j]] = v))
+    degraded ||= r.degraded
+  }
+  return { results, degraded }
+}
+
+/** `checkAccess`, with the org-scoped checks answered from the request's organisation. */
+async function checkAccessFor(req: Request, id: K8sIdentity, checks: AccessCheck[], cluster?: string): Promise<BatchResult> {
+  const org = checks.some((c) => orgScopedRole(c)) ? await orgScopeOf(req) : null
+  return evaluateChecks(checks, ssarReviewer(id, cluster), org, { cache: sharedCache, scope: identityKey(id, cluster) })
+}
+
 /* ─────────────────────────── HTTP: /api/k8s/-/access-batch ─────────────────────────── */
 
 /**
@@ -266,7 +336,7 @@ export async function handleAccessBatch(req: Request, id: K8sIdentity, cluster?:
   }
   const v = validateBatch(body)
   if (!v.ok) return Response.json({ error: v.error, detail: v.detail }, { status: 400 })
-  const out = await checkAccess(id, v.checks, cluster)
+  const out = await checkAccessFor(req, id, v.checks, cluster)
   return Response.json(out.degraded ? out : { results: out.results })
 }
 
@@ -274,19 +344,26 @@ export async function handleAccessBatch(req: Request, id: K8sIdentity, cluster?:
 
 export type PermissionDecision =
   | { allowed: true; id: K8sIdentity }
-  | { allowed: false; degraded: boolean; id: K8sIdentity | null }
+  | { allowed: false; degraded: boolean; id: K8sIdentity | null; org?: OrgScope | null }
 
 /**
  * May the caller of `req` do `check`? Same identity, same SSAR, same cache as
  * the browser's `<Can>` — so a button that is shown is a request that passes.
+ * Org-scoped checks are answered from the request's organisation instead (see
+ * the header); the cluster does not enter into them.
  */
 export async function authorize(
   req: Request,
   check: AccessCheck,
-  opts: { cluster?: string; id?: K8sIdentity | null } = {},
+  opts: { cluster?: string; id?: K8sIdentity | null; org?: OrgScope | null } = {},
 ): Promise<PermissionDecision> {
   const id = opts.id !== undefined ? opts.id : await resolveIdentity(req)
   if (!id) return { allowed: false, degraded: false, id: null }
+  if (orgScopedRole(check)) {
+    const org = opts.org !== undefined ? opts.org : await orgScopeOf(req)
+    if (!org || org.degraded) return { allowed: false, degraded: Boolean(org?.degraded), id, org }
+    return decideOrgScoped(check, org.access) ? { allowed: true, id } : { allowed: false, degraded: false, id, org }
+  }
   if (resolveClusterBase(opts.cluster) === null) return { allowed: false, degraded: false, id }
   const { results, degraded } = await checkAccess(id, [check], opts.cluster)
   return results[0] ? { allowed: true, id } : { allowed: false, degraded, id }
@@ -318,6 +395,32 @@ export function permissionDenied(check: AccessCheck | ConsolePermission, degrade
 }
 
 /**
+ * The refusal for an org-scoped check: there is no RBAC rule to name, only the
+ * organisation's groups. No organisation at all (a personal tenant) is a 409 —
+ * nothing to be refused in — and an admin action is 403 `requires_org_admin`.
+ */
+export function orgPermissionDenied(check: AccessCheck | ConsolePermission, org: OrgScope | null | undefined): Response {
+  if (org?.degraded) return permissionDenied(check, true)
+  if (!org || org.personal || !org.slug) {
+    return Response.json({
+      error: 'no_organisation',
+      detail: 'You are not in an organisation yet. Ask an organisation admin to add you, or create one.',
+    }, { status: 409 })
+  }
+  const what = 'description' in check ? `${check.description.replace(/\.$/, '')} — ` : ''
+  if (orgScopedRole(check) === 'admin' && org.access.role) {
+    return Response.json({
+      error: 'requires_org_admin',
+      detail: `${what}only organisation admins can do this (Keycloak group ${orgAdminGroup(org.slug)}, or a platform admin).`,
+    }, { status: 403 })
+  }
+  return Response.json({
+    error: 'not_a_member',
+    detail: `${what}you are not a member of this organisation.`,
+  }, { status: 403 })
+}
+
+/**
  * Gate a handler: `null` when allowed, otherwise the refusal to return.
  *
  *   const denied = await requirePermission(req, CONSOLE_PERMISSIONS.billingManage)
@@ -334,6 +437,7 @@ export async function requirePermission(
   if (!d.id) {
     return Response.json({ error: 'unauthenticated', detail: 'Sign in to continue.' }, { status: 401 })
   }
+  if (orgScopedRole(c)) return orgPermissionDenied(check, d.org)
   return permissionDenied(c, d.degraded)
 }
 
@@ -347,7 +451,7 @@ export async function permissionsFor<K extends string>(
   const out = Object.fromEntries(names.map((n) => [n, false])) as Record<K, boolean>
   const id = opts.id !== undefined ? opts.id : await resolveIdentity(req)
   if (!id || !names.length) return out
-  const { results } = await checkAccess(id, names.map((n) => stripDescription(checks[n])), opts.cluster)
+  const { results } = await checkAccessFor(req, id, names.map((n) => stripDescription(checks[n])), opts.cluster)
   names.forEach((n, i) => (out[n] = results[i]))
   return out
 }

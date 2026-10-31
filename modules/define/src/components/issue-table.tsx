@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { cn, formatRelative } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { memberDisplayName } from '../data/plane.ts'
@@ -67,6 +67,8 @@ type Row = { kind: 'group'; id: string; label: string; icon?: ReactNode; count: 
 const ROW_H = 36
 const GROUP_H = 34
 const OVERSCAN = 12
+/** The grid never shrinks below this (px), however little room is left. */
+const MIN_GRID_H = 320
 
 /** Group keys an item falls under (multi-valued fields put it in several). */
 function groupKeys(i: WorkItem, by: GroupBy): string[] {
@@ -181,6 +183,33 @@ export function IssueTable({
     return () => ro.disconnect()
   }, [])
 
+  // Fit the grid to what's left of the page's scroll area, so the page and the
+  // grid never both scroll (a fixed `100dvh - Nrem` guessed the height of the
+  // toolbars above and was off whenever they wrapped). Re-fit when anything
+  // above it changes size or the window resizes.
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const scroller = el.closest('main') as HTMLElement | null
+    const fit = () => {
+      const scTop = scroller ? scroller.getBoundingClientRect().top : 0
+      const scH = scroller ? scroller.clientHeight : globalThis.innerHeight
+      const top = el.getBoundingClientRect().top - scTop + (scroller?.scrollTop ?? 0)
+      const wrap = scroller?.firstElementChild as HTMLElement | null
+      const pad = wrap ? parseFloat(getComputedStyle(wrap).paddingBottom) || 0 : 0
+      el.style.maxHeight = `${Math.max(MIN_GRID_H, Math.floor(scH - top - pad - 1))}px`
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    if (el.parentElement) ro.observe(el.parentElement)
+    if (scroller) ro.observe(scroller)
+    globalThis.addEventListener('resize', fit)
+    return () => {
+      ro.disconnect()
+      globalThis.removeEventListener('resize', fit)
+    }
+  }, [])
+
   // Row offsets (group rows are shorter).
   const offsets = useMemo(() => {
     const out = new Array<number>(rows.length + 1)
@@ -244,7 +273,7 @@ export function IssueTable({
     <div
       ref={box}
       onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-      className="relative h-[calc(100dvh-19rem)] min-h-[22rem] overflow-auto rounded-xl border border-edge-default bg-surface-raised"
+      className="relative max-h-[calc(100dvh-20rem)] overflow-auto rounded-xl border border-edge-default bg-surface-raised"
       role="grid"
       aria-rowcount={rows.length}
       aria-busy={loading}

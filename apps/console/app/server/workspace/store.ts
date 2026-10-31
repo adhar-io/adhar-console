@@ -3,15 +3,23 @@ import { notifyFromAudit } from '../notify.ts'
  * Workspace persistence layer — tenant-scoped documents in Postgres via the
  * console's generic docStore (`documents` table, no schema migration needed).
  *
- * Each workspace domain is a document KIND:
+ * WHO belongs to an organisation is not stored here. Membership, roles and
+ * team membership are Keycloak groups (tenancy/org-access.ts); the console
+ * reads and writes them there and keeps no copy. What remains is what no
+ * identity provider owns — each a document KIND:
  *   workspace.org         singleton per tenant (id = 'current')
- *   workspace.member      id = Keycloak user id (sub)
- *   workspace.invitation  id = uuid
- *   workspace.team        id = uuid (slug stored in data)
+ *   workspace.team        id = uuid (slug, name, description — its members are
+ *                         the Keycloak group `ws-team-<org>.<slug>`)
  *   workspace.project     id = uuid
  *   workspace.api-token   id = uuid (only a SHA-256 hash of the secret)
  *   workspace.approval    id = uuid (request/approve queue)
  *   workspace.audit       id = uuid (append-only, one per mutation)
+ *   workspace.migration   id = migration name (tenancy/migrate-membership.ts)
+ *
+ * Legacy, read only by the one-time migration into Keycloak and never
+ * written again (kept, not deleted, so a rollback still finds them):
+ *   workspace.member      id = Keycloak user id (sub) — role + team slugs
+ *   workspace.invitation  id = uuid
  */
 
 export const KIND = {
@@ -23,12 +31,13 @@ export const KIND = {
   token: 'workspace.api-token',
   approval: 'workspace.approval',
   audit: 'workspace.audit',
+  migration: 'workspace.migration',
 } as const
 
 export const ORG_DOC_ID = 'current'
 
-export type OrgRole = 'owner' | 'admin' | 'member' | 'billing' | 'viewer'
-export const ORG_ROLES: OrgRole[] = ['owner', 'admin', 'member', 'billing', 'viewer']
+/** The roles the console used to store on `workspace.member` (legacy; see tenancy/org-access.ts). */
+export type LegacyOrgRole = 'owner' | 'admin' | 'member' | 'billing' | 'viewer'
 
 /* ─────────────────── stored document shapes ─────────────────── */
 
@@ -46,11 +55,12 @@ export interface OrgDoc {
   [k: string]: unknown
 }
 
+/** Legacy membership record (see the header): the migration's input, never written. */
 export interface MemberDoc {
   email: string
   name: string
   avatarUrl?: string
-  role: OrgRole
+  role: LegacyOrgRole
   /** Team slugs the member belongs to. */
   teams: string[]
   joinedAt: string
@@ -59,9 +69,10 @@ export interface MemberDoc {
   [k: string]: unknown
 }
 
+/** Legacy invitation (see the header): no longer created or accepted. */
 export interface InvitationDoc {
   email: string
-  role: OrgRole
+  role: LegacyOrgRole
   teams: string[]
   invitedBy: string
   invitedAt: string
@@ -78,10 +89,13 @@ export interface TeamDoc {
   name: string
   description?: string
   createdAt: string
-  /** Keycloak group name this team maps to (for cluster RBAC). */
+  /**
+   * Legacy: the group name this team USED to map to (`ws-team-<slug>`) and
+   * whether reflecting it worked. The group is now derived from the
+   * organisation and slug on every read and these are no longer written.
+   */
   keycloakGroup?: string
-  /** Whether the last Keycloak group sync attempt succeeded. */
-  keycloakSynced: boolean
+  keycloakSynced?: boolean
   [k: string]: unknown
 }
 
@@ -259,6 +273,32 @@ export async function writeAudit(
   void notifyFromAudit(store, doc)
 }
 
+/**
+ * An audit event the CONSOLE caused on no one's behalf (a migration). Recorded
+ * as a `system` actor; it does not fan out to the Notification Center, whose
+ * per-mutation toasts are for things people did.
+ */
+export async function writeSystemAudit(
+  store: Store,
+  action: string,
+  target: { type: string; id: string; label: string },
+  metadata?: Record<string, unknown>,
+): Promise<void> {
+  const doc: AuditDoc = {
+    actor: { type: 'system', id: 'adhar-console', label: 'Adhar Console' },
+    action,
+    target,
+    outcome: 'success',
+    at: new Date().toISOString(),
+    ...(metadata ? { metadata } : {}),
+  }
+  try {
+    await store.put(KIND.audit, crypto.randomUUID(), doc, 'system')
+  } catch (e) {
+    console.warn('[workspace] failed to write audit event:', e)
+  }
+}
+
 /* ─────────────────── secrets ─────────────────── */
 
 const HEX = '0123456789abcdef'
@@ -273,11 +313,6 @@ function randomHex(bytes: number): string {
 /** Mint an API-token secret: `adhar_<40 hex chars>`. */
 export function mintTokenSecret(): string {
   return `adhar_${randomHex(20)}`
-}
-
-/** Mint an invitation token (returned once in the invite link). */
-export function mintInviteToken(): string {
-  return randomHex(24)
 }
 
 export async function sha256Hex(value: string): Promise<string> {
@@ -296,8 +331,4 @@ export function slugify(input: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 48) || `item-${randomHex(3)}`
-}
-
-export function isExpired(iso: string): boolean {
-  return new Date(iso).getTime() < Date.now()
 }

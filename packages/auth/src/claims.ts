@@ -46,6 +46,19 @@ export function normalizeRoleToken(raw: string): string {
   return t.split('/').pop() || t
 }
 
+/**
+ * A group as `user.groups` keeps it: the Keycloak path stripped to its last
+ * segment, the CASE KEPT. Kubernetes binds OIDC groups case-sensitively, and
+ * the console decides organisation access from these names (`org-acme-admin`
+ * is acme's admin group; `ORG-ACME-ADMIN` is not) — folding case here made a
+ * group the cluster does not bind count as one it does. Role aliasing and the
+ * persona resolver normalise case themselves.
+ */
+export function groupName(raw: string): string {
+  const t = raw.trim().replace(/^\/+/, '')
+  return t.split('/').pop() || t
+}
+
 function mapRoles(raw: string[]): Role[] {
   const out = new Set<Role>()
   for (const r of raw) {
@@ -61,15 +74,16 @@ function mapRoles(raw: string[]): Role[] {
  * Roles are collected from `realm_access.roles` (realm roles), the console
  * client's `resource_access` entry (client roles), AND the `groups` claim
  * (group memberships) — then aliased to the console's role set. Group names are
- * also preserved verbatim on `user.groups` so the shell can resolve a persona
- * from them directly. Tenants come from a custom `tenants` claim.
+ * also kept on `user.groups` — last path segment, case as Keycloak spells it
+ * (see `groupName`) — so the shell can resolve a persona from them and the BFF
+ * can decide organisation access. Tenants come from a custom `tenants` claim.
  *
  * Pure + dependency-free so it is safe to import from the browser bundle.
  */
 export function claimsToUser(claims: Claims, clientId?: string): User {
   const realmRoles = claims.realm_access?.roles ?? []
   const clientRoles = (clientId && claims.resource_access?.[clientId]?.roles) || []
-  const groups = (claims.groups ?? []).map(normalizeRoleToken).filter(Boolean)
+  const groups = (claims.groups ?? []).map(groupName).filter(Boolean)
   return {
     id: claims.sub,
     email: claims.email,

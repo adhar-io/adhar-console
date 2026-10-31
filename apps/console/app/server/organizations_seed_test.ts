@@ -1,4 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
+import { RESERVED_ORG_SLUGS } from './tenancy/org-access.ts'
 
 const SRC = new URL('./organizations.ts', import.meta.url)
 const src = await Deno.readTextFile(SRC)
@@ -24,7 +25,8 @@ Deno.test('the seeded placeholder organisation is never back-filled', () => {
     'readRegistry no longer marks its invented registry as seeded, so nothing downstream can tell a ' +
       'placeholder from a real organisation',
   )
-  const call = src.indexOf('backfillXrs(')
+  // The call site (the handler takes it from its deps), not the declaration.
+  const call = src.indexOf('deps.backfillXrs(')
   assert(call > 0, 'organizations.ts no longer back-fills at all; this guard needs updating')
   const guardAt = src.indexOf('if (!reg.seeded)')
   assert(
@@ -35,9 +37,10 @@ Deno.test('the seeded placeholder organisation is never back-filled', () => {
 })
 
 Deno.test('reserved namespace names are never published as organisations', () => {
+  // The list lives in tenancy/org-access.ts, shared with the directory.
   for (const ns of ['default', 'kube-system', 'kube-public', 'kube-node-lease', 'adhar-system']) {
     assert(
-      src.includes(`'${ns}'`),
+      RESERVED_ORG_SLUGS.has(ns),
       `${ns} is missing from RESERVED_ORG_SLUGS; an organisation of that name would adopt the namespace`,
     )
   }

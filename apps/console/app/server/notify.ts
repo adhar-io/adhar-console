@@ -112,6 +112,14 @@ const VERB: Record<string, string> = {
   enable: 'enabled',
   disable: 'disabled',
   save: 'saved',
+  // Membership (Keycloak groups) — `member.create_account` would otherwise
+  // read "Member create_account: …".
+  create_account: 'account created',
+  setup_email: 'set-password email sent',
+  update_role: 'role changed',
+  member_add: 'member added',
+  member_remove: 'member removed',
+  migrated_to_keycloak: 'moved to Keycloak',
 }
 
 /**
@@ -126,7 +134,6 @@ const VERB: Record<string, string> = {
 const HREF_BY_TYPE: Record<string, string> = {
   team: '/settings?section=teams',
   member: '/settings?section=members',
-  invitation: '/settings?section=members',
   role: '/settings?section=roles',
   project: '/settings?section=projects',
   environment: '/settings?section=environments',

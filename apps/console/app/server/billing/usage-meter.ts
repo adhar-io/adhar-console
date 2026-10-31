@@ -1,10 +1,14 @@
 import { env } from '@adhar/utils'
 import { apiServerFetch } from '../k8s/gateway.ts'
+import type { IdentityDirectory } from '../workspace/keycloak-admin.ts'
+import { orgAdminGroup, orgMemberGroup } from '../tenancy/org-access.ts'
 
 /**
  * Usage metering — REAL sources only, never fabricated:
  *
- *   - seats        → count of `workspace.member` docs for the tenant (Postgres)
+ *   - seats        → the organisation's explicit members in Keycloak: everyone
+ *     in `org-<slug>` or `org-<slug>-admin`. Platform admins, who reach every
+ *     organisation without being listed in it, are not a seat of any.
  *   - namespaces / pods / nodes → live kube-apiserver counts via the caller's
  *     token (their RBAC applies). Namespaces are tenant-scoped when possible:
  *     `adhar.io/tenant=<tenant>` label first, then `<tenant>-` prefix, falling
@@ -31,9 +35,9 @@ export interface UsageReport {
   period: string
   windowStart: string
   windowEnd: string
-  /** Seats in use (tenant members). Null when no database is configured. */
+  /** Seats in use (explicit organisation members). Null when Keycloak could not be read. */
   seats: number | null
-  seatsSource: 'workspace.member' | 'unavailable'
+  seatsSource: 'keycloak' | 'unavailable'
   namespaces: number | null
   pods: number | null
   nodes: number | null
@@ -48,20 +52,33 @@ export interface UsageReport {
   breakdownByNamespace: NamespaceUsage[]
 }
 
-/** Minimal doc-store surface the meter needs (satisfied by `@adhar/db`). */
-export interface MeterDb {
-  conn: unknown
-  listDocuments(conn: unknown, tenant: string, kind: string): Promise<unknown[]>
-}
-
 export interface MeterInput {
   tenant: string
   /** `YYYY-MM`; defaults to the current UTC month. */
   period?: string
   /** Caller's Keycloak access token for apiserver counts. Null ⇒ cluster unavailable. */
   token: string | null
-  /** Postgres access for seat counting. Null ⇒ seats unavailable. */
-  db: MeterDb | null
+  /** Seat counter (see `countOrgSeats`); null or a null answer ⇒ seats unavailable. */
+  seats: (() => Promise<number | null>) | null
+}
+
+/**
+ * The organisation's seats: the size of the union of its member and admin
+ * groups. Null when there is no Keycloak to ask or it could not answer — an
+ * unknown seat count is shown as unknown, never as a guess.
+ */
+export async function countOrgSeats(kc: IdentityDirectory | null, slug: string): Promise<number | null> {
+  if (!kc) return null
+  try {
+    const [members, admins] = await Promise.all([
+      kc.listGroupMembers(orgMemberGroup(slug)),
+      kc.listGroupMembers(orgAdminGroup(slug)),
+    ])
+    return new Set([...members.members, ...admins.members].map((m) => m.id)).size
+  } catch (e) {
+    console.error('[billing] seat count failed:', e instanceof Error ? e.message : e)
+    return null
+  }
 }
 
 /** Resolve `YYYY-MM` → [start, end) clamped to now. */
@@ -253,24 +270,13 @@ const CACHE_TTL_MS = 60_000
 
 export async function meterUsage(input: MeterInput): Promise<UsageReport> {
   const { period, start, end } = periodWindow(input.period)
-  const key = `${input.tenant}:${period}:${input.token ? 'k8s' : 'nok8s'}:${input.db ? 'db' : 'nodb'}`
+  const key = `${input.tenant}:${period}:${input.token ? 'k8s' : 'nok8s'}:${input.seats ? 'seats' : 'noseats'}`
   const hit = cache.get(key)
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.report
 
-  // Seats — tenant member documents. The authenticated caller is themselves a
-  // real seat, so an empty member collection still counts 1 (no fabrication:
-  // the requesting user demonstrably exists).
-  let seats: number | null = null
-  let seatsSource: UsageReport['seatsSource'] = 'unavailable'
-  if (input.db) {
-    try {
-      const members = await input.db.listDocuments(input.db.conn, input.tenant, 'workspace.member')
-      seats = Math.max(members.length, 1)
-      seatsSource = 'workspace.member'
-    } catch (e) {
-      console.error('[billing] seat count failed:', e instanceof Error ? e.message : e)
-    }
-  }
+  // Seats — the organisation's explicit members in Keycloak (countOrgSeats).
+  const seats = input.seats ? await input.seats().catch(() => null) : null
+  const seatsSource: UsageReport['seatsSource'] = seats === null ? 'unavailable' : 'keycloak'
 
   const cluster = await clusterCounts(input.token, input.tenant)
 

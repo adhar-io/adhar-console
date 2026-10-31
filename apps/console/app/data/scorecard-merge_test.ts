@@ -38,6 +38,8 @@ const rec = (name: string, kind: PlatformService['kind'], score: number): Platfo
     operations: score,
     performance: null,
     resilience: null,
+    supply_chain: null,
+    efficiency: null,
   },
   signals: [],
   kind,

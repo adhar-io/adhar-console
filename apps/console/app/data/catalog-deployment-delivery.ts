@@ -156,7 +156,7 @@ export function diagnoseDelivery({ xr, project, objects, argoApps, stages }: Dia
   const inheritCond = conditions.find((c) => c.type === 'ProjectEnvironments')
   const wantedIgnored = fromStatus || Boolean(inheritCond)
   const expected: Array<{ name: string; namespace?: string; argoApplication?: string; stage?: string }> = fromStatus
-    ? published.filter((e): e is { name: string } => Boolean(e?.name)).map((e) => ({ ...e, namespace: e.namespace ?? projEnvs.find((p) => p.name === e.name)?.namespace }))
+    ? published.filter((e): e is (typeof published)[number] & { name: string } => Boolean(e?.name)).map((e) => ({ ...e, namespace: e.namespace ?? projEnvs.find((p) => p.name === e.name)?.namespace }))
     : projEnvs.filter((e) => wantedIgnored || !wanted.length || wanted.includes(e.name))
   const unknownEnvs = wantedIgnored ? [] : wanted.filter((w) => projEnvs.length && !projEnvs.some((e) => e.name === w))
 

@@ -13,7 +13,7 @@
 [![React](https://img.shields.io/badge/react-19.2-61DAFB?logo=react&logoColor=black)](https://react.dev)
 [![Module Federation](https://img.shields.io/badge/module_federation-8_remotes-7C3AED)](./docs/architecture/module-federation.md)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green?logo=apache)](./LICENSE)
-[![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adharworkspace/shared_invite/zt-26586j9sx-QGrIejNigvzGJrnyH~IXww)
+[![Slack](https://img.shields.io/badge/slack-join_community-4A154B?logo=slack)](https://join.slack.com/t/adhar-io/shared_invite/zt-4e93jrspf-HpEo6FRHwi1LA05TEJUCVg)
 
 <h3>Adhar • Built with ❤️ for developers!</h3>
 

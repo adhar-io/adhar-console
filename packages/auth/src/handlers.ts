@@ -267,15 +267,22 @@ export async function getValidSession(
   if (!needsRefresh) return { session }
   if (!session.refreshToken) return null
 
-  const key = session.refreshToken
+  // Refresh failed (token revoked / Keycloak down) → treat as logged out.
+  const next = await refreshShared(session, cfg)
+  if (!next) return null
+  return { session: next, refreshedCookie: await sessionSetCookie(next, cfg) }
+}
+
+/** One refresh per refresh token in flight, shared by every caller (see above). */
+function refreshShared(session: ServerSession, cfg: ServerAuthConfig): Promise<ServerSession | null> {
+  const key = session.refreshToken!
   let flight = inflightRefresh.get(key)
   if (!flight) {
     flight = (async () => {
       try {
-        const tokens = await refreshTokens(cfg, session.refreshToken!)
+        const tokens = await refreshTokens(cfg, key)
         return await sessionFromTokens(cfg, tokens, { previous: session })
       } catch {
-        // Refresh failed (token revoked / Keycloak down) → treat as logged out.
         return null
       } finally {
         inflightRefresh.delete(key)
@@ -283,8 +290,37 @@ export async function getValidSession(
     })()
     inflightRefresh.set(key, flight)
   }
+  return flight
+}
 
-  const next = await flight
+/**
+ * Refresh the session's tokens NOW, whatever their remaining lifetime.
+ *
+ * Group membership reaches a session only through a token: Keycloak writes the
+ * `groups` claim when it mints one, so a person added to a group keeps the old
+ * set until the next refresh — up to a whole access-token lifetime. The console
+ * calls this right after it changes the caller's own groups (creating an
+ * organisation, leaving one) or when Keycloak says the caller belongs to an
+ * organisation their token does not show yet, so the change takes effect on
+ * the next click rather than half an hour later.
+ *
+ * Shares the single-flight of `getValidSession`. Returns null when there is
+ * nothing to refresh with or the refresh failed; the existing session stays
+ * valid either way — a forced refresh that fails must never sign anyone out.
+ */
+export async function refreshSessionNow(
+  req: Request,
+  cfg: ServerAuthConfig,
+): Promise<{ session: ServerSession; refreshedCookie: string } | null> {
+  const session = await readSession(req, cfg)
+  if (!session?.refreshToken) return null
+  if (
+    typeof session.authTime === 'number' &&
+    Date.now() - session.authTime > cfg.sessionAbsoluteTtlSeconds * 1000
+  ) {
+    return null
+  }
+  const next = await refreshShared(session, cfg)
   if (!next) return null
   return { session: next, refreshedCookie: await sessionSetCookie(next, cfg) }
 }

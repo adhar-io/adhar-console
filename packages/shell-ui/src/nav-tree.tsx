@@ -320,7 +320,6 @@ export const DEFAULT_NAV: NavSection[] = [
             // Tetragon look like it was somewhere else.
             badge: { kind: 'progressing', value: 'eBPF' },
           },
-          { id: 'deliver.functions', label: 'Functions', to: '/deliver', search: 'functions' },
           { id: 'deliver.policy', label: 'Policy', to: '/deliver', search: 'policy' },
           // The view is the Develop module's (develop/Performance); the host renders it here.
           { id: 'deliver.performance', label: 'Performance Center', to: '/deliver', search: 'performance' },

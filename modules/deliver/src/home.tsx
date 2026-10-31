@@ -11,8 +11,6 @@ import { Scans } from './views/scans.tsx'
 import { Runtime } from './views/runtime.tsx'
 import { Policy } from './views/policy.tsx'
 
-// Deliver → Functions is the Develop module's Functions view in delivery mode
-// (`develop/Functions`, routed by the host) — one table, not two.
 type Section =
   | 'dashboard'
   | 'flow'

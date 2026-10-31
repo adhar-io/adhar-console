@@ -72,8 +72,7 @@ import { FunctionDrawer, type FunctionTab } from './function-drawer.tsx'
  * Argo CD would never reconcile — the inline create form is gone for that
  * reason.
  *
- * Deliver → Functions renders this same component in `delivery` mode (the
- * drawer opens on Delivery), so there is one table, not two that disagree.
+ * `delivery` mode opens the drawer on its Delivery tab.
  */
 
 export type FunctionsMode = 'develop' | 'delivery'

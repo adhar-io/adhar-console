@@ -4,6 +4,16 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.167",
+    "date": "2026-10-31",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Remove duplicate Functions link"
+      }
+    ]
+  },
+  {
     "version": "0.1.166",
     "date": "2026-10-31",
     "changes": [
@@ -496,27 +506,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "overview hero",
         "text": "Open Platform and Re-run onboarding share one row on phones"
-      }
-    ]
-  },
-  {
-    "version": "0.1.127",
-    "date": "2026-10-13",
-    "changes": [
-      {
-        "type": "change",
-        "scope": "topbar menus",
-        "text": "Fit the screen on phones (notifications first)"
-      },
-      {
-        "type": "change",
-        "scope": "shell",
-        "text": "Size the console to the visible viewport (dvh)"
-      },
-      {
-        "type": "change",
-        "scope": "app launcher",
-        "text": "Sits on screen on phones"
       }
     ]
   }

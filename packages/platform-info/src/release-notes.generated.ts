@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.168",
+    "date": "2026-11-02",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Polish adhar console"
+      }
+    ]
+  },
+  {
     "version": "0.1.167",
-    "date": "2026-10-31",
+    "date": "2026-11-01",
     "changes": [
       {
         "type": "improvement",
@@ -495,17 +505,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "catalog coverage tiles",
         "text": "Progress bar pinned to the bottom edge"
-      }
-    ]
-  },
-  {
-    "version": "0.1.128",
-    "date": "2026-10-13",
-    "changes": [
-      {
-        "type": "change",
-        "scope": "overview hero",
-        "text": "Open Platform and Re-run onboarding share one row on phones"
       }
     ]
   }

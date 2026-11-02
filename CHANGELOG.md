@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.168] - 2026-11-02
+
+### Improved
+
+- Polish adhar console
+
 ## [0.1.167] - 2026-10-31
 
 ### Improved

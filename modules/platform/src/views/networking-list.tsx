@@ -81,8 +81,8 @@ function ServicesTable({ namespace }: { namespace?: string }) {
               key: 'name',
               header: 'Name',
               cell: (s) => (
-                <div>
-                  <div className="font-medium text-content">{s.metadata.name}</div>
+                <div className="min-w-[13rem]">
+                  <div className="break-words font-medium text-content">{s.metadata.name}</div>
                   <div className="text-xs text-content-muted">{s.metadata.namespace}</div>
                 </div>
               ),
@@ -104,7 +104,7 @@ function ServicesTable({ namespace }: { namespace?: string }) {
             {
               key: 'clusterIp',
               header: 'ClusterIP',
-              cell: (s) => <code className="font-mono text-[11px]">{s.spec?.clusterIP ?? '—'}</code>,
+              cell: (s) => <code className="whitespace-nowrap font-mono text-[11px]">{s.spec?.clusterIP ?? '—'}</code>,
             },
             {
               key: 'ports',
@@ -134,11 +134,10 @@ function ServicesTable({ namespace }: { namespace?: string }) {
                 const sel = s.spec?.selector
                 if (!sel || Object.keys(sel).length === 0)
                   return <span className="text-content-subtle">—</span>
+                const text = Object.entries(sel).map(([k, v]) => `${k}=${v}`).join(', ')
                 return (
-                  <code className="font-mono text-[11px] text-content-muted">
-                    {Object.entries(sel)
-                      .map(([k, v]) => `${k}=${v}`)
-                      .join(', ')}
+                  <code className="block max-w-[22rem] truncate font-mono text-[11px] text-content-muted" title={text}>
+                    {text}
                   </code>
                 )
               },
@@ -281,8 +280,8 @@ function IngressesTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (i) => (
-              <div>
-                <div className="font-medium text-content">{i.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{i.metadata.name}</div>
                 <div className="text-xs text-content-muted">{i.metadata.namespace}</div>
               </div>
             ),
@@ -388,8 +387,8 @@ function EndpointsTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (e) => (
-              <div>
-                <div className="font-medium text-content">{e.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{e.metadata.name}</div>
                 <div className="text-xs text-content-muted">{e.metadata.namespace}</div>
               </div>
             ),
@@ -499,8 +498,8 @@ function NetworkPoliciesTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (p) => (
-              <div>
-                <div className="font-medium text-content">{p.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{p.metadata.name}</div>
                 <div className="text-xs text-content-muted">{p.metadata.namespace}</div>
               </div>
             ),

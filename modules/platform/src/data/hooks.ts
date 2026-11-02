@@ -35,8 +35,15 @@ function useScopedNamespace(explicit?: string): string | undefined {
  */
 
 /** Cast a live (generic) list to a concrete resource type for the views. */
+/**
+ * Adapt a live list to the TanStack-query shape the views read. The shared
+ * live hook hands back `[]` until its first snapshot (and after an error), so
+ * a view that branches on `data ?` painted "0 pods" / "none" mid-load. Report
+ * `undefined` until the list has really been read — same as `useQuery`.
+ */
 function asLive<T>(live: ReturnType<typeof useLiveList>) {
-  return { ...live, data: live.data as unknown as T[] }
+  const unread = (live.isLoading || live.isError) && live.data.length === 0
+  return { ...live, data: unread ? undefined : (live.data as unknown as T[]) }
 }
 
 export function useConnection() {

@@ -3,15 +3,17 @@
  * what the caller's groups entitle (not a per-user list only the creator ever
  * had), creating an organisation makes its two groups first or not at all,
  * activating one is confirmed with Keycloak, and nobody leaves an organisation
- * without an admin.
+ * without an admin — or without it being in the organisation's audit trail.
  */
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1'
 import { groupExistsIn, handleOrganizations, type OrganizationsDeps, type Registry, slugConflict } from './organizations.ts'
 import { FakeKeycloak } from './workspace/testing/fake-keycloak.ts'
 import { MemoryDb } from './workspace/testing/memory-store.ts'
-import { OrgDirectory } from './tenancy/directory.ts'
+import { type DirectoryEntry, OrgDirectory } from './tenancy/directory.ts'
 import { createLiveGroups } from './tenancy/entitlement.ts'
 import { NO_ACCESS, orgAccess } from './tenancy/org-access.ts'
+import { migrateTenant, type MigrationDeps } from './tenancy/migrate-membership.ts'
+import { KIND } from './workspace/store.ts'
 import type { RequestContext } from './request-user.ts'
 import type { XrManifest } from './control-plane.ts'
 
@@ -65,6 +67,7 @@ function setup() {
       return Promise.resolve({ cookie: `adhar_session=${tenantId || 'none'}; Path=/`, groups: state.refreshedGroups ?? [] })
     },
     renameWorkspaceDoc: () => Promise.resolve(),
+    openStore: (t) => Promise.resolve(db.store(t)),
     startProvisioning: (input) =>
       Promise.resolve({
         id: 'job-1',
@@ -220,6 +223,32 @@ Deno.test('a name whose slug would be ambiguous, or taken, is refused', async ()
   assertEquals((await call(h, as, 'POST', '', { name: 'Orphan' })).body.error, 'name_taken')
 })
 
+Deno.test('a name the directory holds, or holds with -admin after it, is taken before Keycloak is touched', async () => {
+  const h = setup()
+  // Organisations an older console recorded without groups or a namespace:
+  // nothing in Keycloak or the cluster says either name is in use.
+  h.db.put('_directory', 'workspace.org-directory', 'delta', { slug: 'delta', tenantId: 'delta-a1b2c', name: 'Delta', createdAt: '2026-01-03T00:00:00Z' })
+  h.db.put('_directory', 'workspace.org-directory', 'omega-admin', {
+    slug: 'omega-admin',
+    tenantId: 'omega-admin-d4e5f',
+    name: 'Omega Admin',
+    createdAt: '2026-01-03T00:00:00Z',
+  })
+  h.directory.invalidate()
+  const as = { userId: h.ids.dave, tenant: '_u_dave', groups: [] }
+  const writes = h.kc.writes().length
+  // `delta` would take over the older organisation's directory entry; `omega`
+  // would make omega-admin's members (its group org-omega-admin) its admins.
+  for (const name of ['Delta', 'Omega']) {
+    const r = await call(h, as, 'POST', '', { name })
+    assertEquals([r.status, r.body.error], [409, 'name_taken'], name)
+  }
+  assertEquals(h.kc.writes().length, writes, 'no group was created or joined')
+  assertEquals(h.kc.groupsOf(h.ids.dave), [])
+  assertEquals((await h.directory.bySlug('delta'))?.tenantId, 'delta-a1b2c')
+  assertEquals((await h.directory.bySlug('omega-admin'))?.tenantId, 'omega-admin-d4e5f')
+})
+
 Deno.test('the platform organisation and its environment namespaces are reserved, existing or not', async () => {
   const h = setup()
   // The namespace check cannot run (bootstrap, or no SA token): still refused.
@@ -233,10 +262,20 @@ Deno.test('the platform organisation and its environment namespaces are reserved
 
 Deno.test('two creates of one name: the second gets 409 and never joins, or deletes, the first one\'s groups', async () => {
   const h = setup()
-  // The race: both requests passed the slug check before either created anything.
+  // The race: both requests passed the slug checks before either created
+  // anything — the second one on a replica whose directory has not seen the
+  // first yet — so only creating the groups themselves can decide it.
   h.deps.slugChecks = { namespaceExists: () => Promise.resolve(false), groupExists: () => Promise.resolve(false) }
   const first = await call(h, { userId: h.ids.dave, tenant: '_u_dave', groups: [] }, 'POST', '', { name: 'Gamma' })
   assertEquals(first.status, 201)
+  const directory = h.directory
+  h.deps.directory = {
+    bySlug: () => Promise.resolve(null),
+    byTenant: (t: string, o?: { refreshOnMiss?: boolean }) => directory.byTenant(t, o),
+    entries: () => directory.entries(),
+    put: (e: DirectoryEntry, by: string) => directory.put(e, by),
+    invalidate: () => directory.invalidate(),
+  } as unknown as OrgDirectory
   const second = await call(h, { userId: h.ids.bob }, 'POST', '', { name: 'Gamma' })
   assertEquals([second.status, second.body.error], [409, 'name_taken'])
   assertFalse(h.kc.groupsOf(h.ids.bob).some((g) => g.startsWith('org-gamma')), 'the loser is not an admin of the winner\'s organisation')
@@ -337,4 +376,44 @@ Deno.test('an admin may leave once another admin exists', async () => {
   assertEquals(r.status, 200)
   assertEquals(h.kc.groupsOf(h.ids.alice), [])
   assertEquals(h.kc.membersOf('org-acme-admin'), [h.ids.bob])
+})
+
+Deno.test('leaving is in the organisation\'s audit trail, so a migration retry never puts the person back', async () => {
+  const h = setup()
+  // Bob's old member document made him an owner of acme's payments team. The
+  // migration plans member + admin + team for him and stops after the first.
+  h.db.put(ACME, KIND.team, 'tp', { slug: 'payments', name: 'Payments', createdAt: '2026-01-01T00:00:00Z' })
+  h.db.put(ACME, KIND.member, h.ids.bob, { email: 'bob@acme.test', name: 'bob', role: 'owner', teams: ['payments'], joinedAt: '' })
+  let failing = true
+  h.kc.failOn = (c) =>
+    failing && c.method === 'PUT' && c.path.startsWith(`/users/${h.ids.bob}/`) &&
+      h.kc.groups.get(c.path.split('/').pop()!)?.name === 'org-acme-admin'
+      ? 503
+      : null
+  const client = h.kc.client()
+  const migration: MigrationDeps = {
+    kc: client,
+    directory: h.directory,
+    openStore: (t) => Promise.resolve(h.db.store(t)),
+    listTenants: () => Promise.resolve([ACME]),
+    teamXrs: () => Promise.resolve([]),
+    log: () => {},
+  }
+  assertEquals((await migrateTenant(ACME, migration)).status, 'failed')
+  assertFalse(h.kc.groupsOf(h.ids.bob).includes('org-acme-admin'), 'the admin grant is still to come')
+
+  // Before the retry, Bob leaves acme from the switcher.
+  h.kc.failOn = null
+  const left = await call(h, { userId: h.ids.bob }, 'DELETE', ACME)
+  assertEquals(left.status, 200)
+  assertEquals(h.kc.groupsOf(h.ids.bob), [])
+  const audit = h.db.all<{ action: string; target: { id: string }; metadata?: { role?: string } }>(ACME, KIND.audit)
+    .find((a) => a.data.action === 'member.leave')
+  assertEquals([audit?.data.target.id, audit?.data.metadata?.role], [h.ids.bob, 'member'])
+
+  failing = false
+  const retry = await migrateTenant(ACME, migration)
+  assertEquals(retry.status, 'migrated')
+  assertEquals(h.kc.groupsOf(h.ids.bob), [], 'not made admin, not put back in the team')
+  if (retry.status === 'migrated') assertEquals(retry.counts.skippedChanged, 2)
 })

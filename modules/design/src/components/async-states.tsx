@@ -1,4 +1,4 @@
-import { Button, Skeleton } from '@adhar/shell-ui'
+import { Button, EmptyState, Skeleton } from '@adhar/shell-ui'
 
 /**
  * Shared loading / error blocks for views backed by the document store.
@@ -33,10 +33,11 @@ export function LoadingBlock({ label = 'Loading…', cards = 6 }: { label?: stri
 
 export function ErrorBlock({ error, onRetry, title = 'Couldn’t reach the document store' }: { error: Error; onRetry?: () => void; title?: string }) {
   return (
-    <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-5 shadow-sm dark:border-rose-500/30 dark:bg-rose-500/10">
-      <div className="text-sm font-semibold text-rose-800 dark:text-rose-200">{title}</div>
-      <p className="mt-1 text-xs leading-relaxed text-rose-700 [overflow-wrap:anywhere] dark:text-rose-300">{error.message}</p>
-      {onRetry ? <Button size="sm" className="mt-3" onClick={onRetry}>Retry</Button> : null}
-    </div>
+    <EmptyState
+      tone="error"
+      title={title}
+      description={error.message}
+      action={onRetry ? <Button size="sm" onClick={onRetry}>Retry</Button> : undefined}
+    />
   )
 }

@@ -347,7 +347,11 @@ export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTes
           gone={gone}
         />
 
-        <TabBar tab={tab} onTab={setTab} running={running} errors={activity.totals.error + activity.totals.warning} only={recordOnly ? ['report'] : undefined} />
+        {/* No tabs over a run that is gone with nothing kept, or that could not
+            be read — every tab would be empty. */}
+        {(gone && !recordOnly) || (runQ.isError && !gone && !run) ? null : (
+          <TabBar tab={tab} onTab={setTab} running={running} errors={activity.totals.error + activity.totals.warning} only={recordOnly ? ['report'] : undefined} />
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4" role="tabpanel" aria-label={TABS.find(([t]) => t === tab)?.[1]}>
           {recordOnly
@@ -367,6 +371,17 @@ export function RunDrawer({ namespace, name, onClose, record, verdict, onOpenTes
                 title="This run no longer exists"
                 description="The TestRun was deleted — by someone else, by the operator's cleanup, or from this drawer. Its kept result, if it was harvested, is still under Results."
                 action={<Button variant="secondary" size="sm" onClick={onClose}>Close</Button>}
+              />
+            )
+            : runQ.isError && !run
+            ? (
+              // A 403 / apiserver error used to fall through to the skeleton and
+              // spin forever.
+              <EmptyState
+                tone="error"
+                title="Couldn't read this run"
+                description={runQ.error instanceof Error ? runQ.error.message : String(runQ.error)}
+                action={<Button variant="secondary" size="sm" onClick={() => void runQ.refetch()}>Retry</Button>}
               />
             )
             : runQ.isLoading || !run || !lc
@@ -1546,7 +1561,7 @@ function MetricsTab({ run, lc, plan, live, summary, metrics, loading }: {
 
       {!live.promOk
         ? (
-          <EmptyState
+          <EmptyState tone="error"
             compact
             title="Prometheus is not reachable"
             description={`${live.promReason ?? 'The console could not query Prometheus.'} The charts below that come from the runner’s own output still work.`}

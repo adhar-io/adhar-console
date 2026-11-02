@@ -5,6 +5,7 @@ import {
   AppShell,
   DonutGauge,
   DrawerWidenButton,
+  Skeleton,
   Sparkline,
   StatusBadge,
   useDrawerWidth,
@@ -1467,7 +1468,12 @@ function ClusterSnapshotPanel() {
           ? 'not installed'
           : s.policy.evaluated === 0
             ? 'no results yet'
-            : `${s.policy.pass} pass`
+            // With failures the value already says "N fail" in the tile's
+            // tone; the caption gives scale, not a pass count coloured as a
+            // failure.
+            : s.policy.fail > 0
+              ? `of ${s.policy.evaluated.toLocaleString()} results`
+              : `${s.policy.pass.toLocaleString()} pass`
 
   return (
     <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm">
@@ -1531,7 +1537,7 @@ function ClusterSnapshotPanel() {
             }
             label={
               nodePct === null ? (
-                <span className="text-content-muted">—</span>
+                connecting ? <Skeleton className="mx-auto h-7 w-14" /> : <span className="text-content-muted">—</span>
               ) : (
                 <span>
                   {nodePct}
@@ -1541,7 +1547,7 @@ function ClusterSnapshotPanel() {
             }
             caption={
               connecting
-                ? 'loading nodes'
+                ? 'nodes'
                 : !connected
                   ? 'cluster unreachable'
                   : `${s.nodes.ready}/${s.nodes.total} nodes`
@@ -1565,6 +1571,7 @@ function ClusterSnapshotPanel() {
             }
             tone={!live ? 'slate' : s.pods.failing ? 'rose' : 'emerald'}
             series={history.pods}
+            loading={connecting}
           />
           <StatTile
             label="Deployments"
@@ -1586,6 +1593,7 @@ function ClusterSnapshotPanel() {
                     : 'rose'
             }
             series={history.healthy}
+            loading={connecting}
           />
           <StatTile
             label="New Deployments (7d)"
@@ -1593,11 +1601,13 @@ function ClusterSnapshotPanel() {
             sub={!live ? (connecting ? 'loading' : 'unreachable') : 'created in last 7 days'}
             tone={live ? 'emerald' : 'slate'}
             series={history.deploys}
+            loading={connecting}
           />
           <StatTile
             label="Policy"
             value={policyValue}
             sub={policySub}
+            loading={s.policy.state === 'loading'}
             tone={
               s.policy.state !== 'ready' || s.policy.evaluated === 0
                 ? 'slate'
@@ -1618,12 +1628,15 @@ function StatTile({
   sub,
   tone,
   series,
+  loading = false,
 }: {
   label: string
   value: string
   sub: string
   tone: 'emerald' | 'amber' | 'rose' | 'slate'
   series?: number[]
+  /** First read still in flight: skeleton lines in place of "— / loading". */
+  loading?: boolean
 }) {
   const color =
     tone === 'emerald'
@@ -1638,11 +1651,20 @@ function StatTile({
       <div className="text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
         {label}
       </div>
-      <div className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-content">
-        {value}
-      </div>
-      <div className={`mt-0.5 text-xs font-medium ${toneText(tone)}`}>{sub}</div>
-      {series && series.length > 1 ? (
+      {loading ? (
+        <div aria-busy="true" aria-label={`${label} loading`}>
+          <div className="mt-1 flex h-8 items-center"><Skeleton className="h-6 w-16" /></div>
+          <div className="mt-0.5 flex h-4 items-center"><Skeleton className="h-2.5 w-20" /></div>
+        </div>
+      ) : (
+        <>
+          <div className="mt-1 flex h-8 items-center text-2xl font-semibold tabular-nums tracking-tight text-content">
+            {value}
+          </div>
+          <div className={`mt-0.5 min-h-4 text-xs font-medium ${toneText(tone)}`}>{sub}</div>
+        </>
+      )}
+      {!loading && series && series.length > 1 ? (
         <div className="pointer-events-none absolute -bottom-1 left-0 right-0 opacity-50">
           <Sparkline points={series} color={color} height={28} strokeWidth={1.25} />
         </div>
@@ -1844,10 +1866,13 @@ function DoraPanel() {
               </div>
               {s.delta ? <div className={`text-xs font-medium ${toneText(s.deltaTone)}`}>{s.delta}</div> : null}
             </div>
-            <div className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-content">
-              {s.value}
+            {/* Loading reads as a skeleton the height of the figure, and the
+                caption line is always reserved, so the row does not grow
+                when the sources answer. */}
+            <div className="mt-2 flex h-8 items-center text-2xl font-semibold tabular-nums tracking-tight text-content">
+              {s.value === '···' ? <Skeleton className="h-6 w-14" /> : s.value}
             </div>
-            {s.muted ? <div className="mt-0.5 text-[11px] text-content-subtle">{s.muted}</div> : null}
+            <div className="mt-0.5 min-h-4 truncate text-[11px] text-content-subtle" title={s.muted}>{s.muted ?? ''}</div>
           </div>
           {s.series.filter((n) => n > 0).length > 1 ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 opacity-60">

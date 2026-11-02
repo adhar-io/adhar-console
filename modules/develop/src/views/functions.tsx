@@ -213,7 +213,7 @@ export function Functions({ mode = 'develop' }: { mode?: FunctionsMode } = {}) {
     },
     ...columns.map((env): Column<FunctionGroup> => ({
       key: `env:${env}`,
-      header: <span className='capitalize'>{env}</span>,
+      header: env, // inherits the table's uppercase header style (`capitalize` overrode it)
       sortable: false,
       filter: false,
       cell: (g) => {
@@ -236,10 +236,12 @@ export function Functions({ mode = 'develop' }: { mode?: FunctionsMode } = {}) {
 
   const filtering = Boolean(query) || Object.values(facetValues).some((v) => v.length)
   const loading = listQ.isLoading && !list
+  const emptyPage = Boolean(list?.installed) && !loading && groups.length === 0
 
   return (
     <div className='space-y-4'>
-      <PageHeader title='Functions' actions={newFunction} />
+      {/* One primary per view: when the page IS the empty state, its CTA is the button. */}
+      <PageHeader title='Functions' actions={emptyPage ? undefined : newFunction} />
       {list?.scope === 'namespaces' ? <FunctionsLive list={list} /> : null}
 
       {list && !list.installed
@@ -251,7 +253,7 @@ export function Functions({ mode = 'develop' }: { mode?: FunctionsMode } = {}) {
         )
         : listQ.isError && !list
         ? (
-          <EmptyState
+          <EmptyState tone="error"
             title='Could not load functions'
             description={listQ.error instanceof Error ? listQ.error.message : String(listQ.error)}
             action={<button type='button' className={BUTTON_SECONDARY} onClick={() => listQ.refetch()}>Retry</button>}

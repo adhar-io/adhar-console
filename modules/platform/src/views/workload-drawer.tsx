@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Button,
   canResource,
   DonutGauge,
+  EmptyState,
   Kbd,
   Spinner,
   StatusBadge,
@@ -16,6 +17,7 @@ import {
   type TabDef,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
@@ -228,14 +230,9 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
     [logsDenied, execDenied],
   )
 
-  // Close on Esc — matches the pod drawer.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc (topmost overlay only), scroll lock, focus in + restore — matches the pod drawer.
+  const panelRef = useRef<HTMLElement>(null)
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
 
   const obj = wl.data
   const health = obj ? healthOf(kind, obj) : undefined
@@ -249,7 +246,7 @@ export function WorkloadDrawer({ kind, namespace, name, onClose }: Props) {
         onClick={onClose}
         aria-hidden
       />
-      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -995,12 +992,15 @@ function ArgoRolloutLadder({
           if ((err as { status?: number })?.status === 404) return []
           throw err
         })) as unknown as RolloutObj[]
+      // `null`, never `undefined`: React Query rejects an undefined result as an
+      // error, which painted "Couldn't read Argo Rollouts" on every plain
+      // Deployment that simply has no Rollout.
       return list.find(
         (r) =>
           r.metadata.name === name ||
           (r.spec?.workloadRef?.name === name &&
             (!r.spec.workloadRef.kind || r.spec.workloadRef.kind === kind)),
-      )
+      ) ?? null
     },
   })
 
@@ -1009,15 +1009,17 @@ function ArgoRolloutLadder({
   if (q.isLoading) return null
   if (q.isError) {
     return (
-      <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-center dark:border-rose-500/30 dark:bg-rose-500/10">
-        <div className="text-sm font-medium text-rose-800 dark:text-rose-200">Couldn't read Argo Rollouts</div>
-        <p className="mx-auto mt-1 max-w-md text-xs text-rose-700 dark:text-rose-300">
-          {(q.error as Error)?.message ?? 'The Kubernetes gateway returned an error.'}
-        </p>
-        <Button variant="secondary" size="sm" className="mt-2" onClick={() => void q.refetch()}>
-          Retry
-        </Button>
-      </div>
+      <EmptyState
+        compact
+        tone="error"
+        title="Couldn't read Argo Rollouts"
+        description={(q.error as Error)?.message ?? 'The Kubernetes gateway returned an error.'}
+        action={
+          <Button variant="secondary" size="sm" onClick={() => void q.refetch()}>
+            Retry
+          </Button>
+        }
+      />
     )
   }
 
@@ -1385,8 +1387,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3 px-4 py-2.5">
-      <span className="w-32 shrink-0 text-xs font-medium text-content-muted">{label}</span>
-      <span className="min-w-0 flex-1 text-sm text-content">{value}</span>
+      <span className="w-24 shrink-0 text-xs font-medium text-content-muted sm:w-32">{label}</span>
+      <span className="min-w-0 flex-1 break-words text-sm text-content">{value}</span>
     </div>
   )
 }
@@ -1401,7 +1403,7 @@ function KV({ label, value, mono = false }: { label: string; value: React.ReactN
 }
 
 function Mono({ children }: { children: React.ReactNode }) {
-  return <code className="font-mono text-xs">{children}</code>
+  return <code className="break-all font-mono text-xs">{children}</code>
 }
 
 function KeyValueList({ obj }: { obj?: Record<string, string> }) {

@@ -17,6 +17,7 @@ import {
   ToolLogo,
   useDrawerWidth,
   useToast,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import {
@@ -32,7 +33,7 @@ import {
   type MarketplaceChart,
 } from '../data/marketplace.ts'
 import { age } from '../data/format.ts'
-import { matchesSearch, UpdatedChip } from './list-shell.tsx'
+import { matchesSearch } from './list-shell.tsx'
 
 /**
  * Adhar Marketplace — the list, categories and enabled state all come from the
@@ -42,7 +43,7 @@ import { matchesSearch, UpdatedChip } from './list-shell.tsx'
  * reconciled by ArgoCD. The curated catalogue only enriches matched apps.
  */
 export function MarketplaceView() {
-  const { apps, appsetNames, isLoading, isFetching, isError, error, argoNotInstalled, dataUpdatedAt, refetch } =
+  const { apps, appsetNames, isLoading, isFetching, isError, error, argoNotInstalled, refetch } =
     useMarketplaceApps()
 
   const [search, setSearch] = useState('')
@@ -148,7 +149,6 @@ export function MarketplaceView() {
         categoryCounts={categoryCounts}
         loading={isLoading}
         isFetching={isFetching}
-        lastUpdatedAt={dataUpdatedAt}
         onRefresh={refetch}
         search={search}
         onSearchChange={setSearch}
@@ -251,7 +251,6 @@ function MarketplaceToolbar({
   categoryCounts,
   loading,
   isFetching,
-  lastUpdatedAt,
   onRefresh,
   search,
   onSearchChange,
@@ -267,7 +266,6 @@ function MarketplaceToolbar({
   categoryCounts: Record<string, number>
   loading: boolean
   isFetching: boolean
-  lastUpdatedAt?: number
   onRefresh(): void
   search: string
   onSearchChange(q: string): void
@@ -338,7 +336,6 @@ function MarketplaceToolbar({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {lastUpdatedAt ? <UpdatedChip at={lastUpdatedAt} /> : null}
             <button
               type="button"
               onClick={onRefresh}
@@ -792,18 +789,10 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
   const chart = app.chart
   const panelRef = useRef<HTMLElement>(null)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !toggle.isPending) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, toggle.isPending])
-
-  // Move focus into the drawer on open so Escape + tabbing land inside it.
-  useEffect(() => {
-    panelRef.current?.focus()
-  }, [])
+  // Esc (topmost overlay, not mid-toggle), scroll lock, focus in + restore.
+  useOverlayDismiss(true, () => {
+    if (!toggle.isPending) onClose()
+  }, { focusRef: panelRef })
 
   const result = toggle.data
   const err = toggle.error as Error | undefined

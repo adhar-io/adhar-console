@@ -640,13 +640,15 @@ export function MonitorButton({ url, compact = false }: { url: string; compact?:
         'inline-flex items-center gap-1.5 font-medium transition-colors',
         compact
           ? 'min-h-8 rounded-md bg-surface-raised px-2 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0 sm:px-1.5'
-          : 'rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs text-content-muted shadow-sm hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300',
+          // Matches the catalog drawer header's link chips (HEADER_CHIP).
+          : 'h-8 whitespace-nowrap rounded-lg border border-edge-default bg-surface-raised px-3 text-xs text-content-muted shadow-xs outline-none hover:border-edge-strong hover:bg-surface-sunken hover:text-content focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised pointer-coarse:h-11',
       )}
     >
       <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">
         <GrafanaIcon />
       </span>
       Monitor
+      <span className="sr-only"> in Grafana (opens in a new tab)</span>
     </a>
   )
 }

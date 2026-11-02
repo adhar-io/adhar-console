@@ -105,7 +105,7 @@ export function Runtime() {
 
   if (agents.isError) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Couldn't reach the cluster"
         description={agents.error instanceof Error ? agents.error.message : 'Unknown error listing DaemonSets.'}
         action={<Button size="sm" variant="secondary" onClick={() => agents.refetch()}>Retry</Button>}
@@ -167,15 +167,11 @@ export function Runtime() {
         ariaLabel="Runtime security"
         actions={
           <div className="flex items-center gap-2">
-            {feed.isFetching ? (
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-content-subtle">
-                <Spinner size={12} /> live
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-content-subtle">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden /> live
-              </span>
-            )}
+            {/* Steady marker: swapping it for a spinner on every background
+                re-read was "refreshing" chrome and made the tab bar flicker. */}
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-content-subtle">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden /> live
+            </span>
           </div>
         }
       >
@@ -919,7 +915,7 @@ function PoliciesTab({
   }
   if (error) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         compact
         title="Couldn't read TracingPolicies"
         description={error instanceof Error ? error.message : 'Unknown error listing cilium.io/v1alpha1 tracingpolicies.'}

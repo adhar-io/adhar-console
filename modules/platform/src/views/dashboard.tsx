@@ -238,13 +238,15 @@ export function PlatformDashboard() {
                 with a crash-looping container and no node problems used to read
                 "healthy" here while the tile beside it was red.
               */}
-              <StatusBadge kind={signalSeverity(critical, warning)}>
-                {critical > 0
-                  ? `attention · ${critical}`
-                  : warning > 0
-                  ? `degraded · ${warning}`
-                  : 'healthy'}
-              </StatusBadge>
+              {pods.data ? (
+                <StatusBadge kind={signalSeverity(critical, warning)}>
+                  {critical > 0
+                    ? `attention · ${critical}`
+                    : warning > 0
+                    ? `degraded · ${warning}`
+                    : 'healthy'}
+                </StatusBadge>
+              ) : <Spinner size={12} />}
             </div>
           </CardHeader>
           <CardBody className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -370,9 +372,11 @@ export function PlatformDashboard() {
                 <div className="text-sm font-semibold text-content">Recent warnings</div>
                 <div className="text-[11px] text-content-subtle">Warning events, newest first</div>
               </div>
-              <StatusBadge kind={recentWarnings.length > 0 ? 'failed' : 'healthy'}>
-                {recentWarnings.length > 0 ? `${warns} active` : 'none'}
-              </StatusBadge>
+              {events.data ? (
+                <StatusBadge kind={recentWarnings.length > 0 ? 'failed' : 'healthy'}>
+                  {recentWarnings.length > 0 ? `${warns} active` : 'none'}
+                </StatusBadge>
+              ) : null}
             </div>
           </CardHeader>
           <CardBody className="p-0!">
@@ -418,7 +422,7 @@ export function PlatformDashboard() {
               <div className="text-sm font-semibold text-content">Resource utilization</div>
               <div className="text-[11px] text-content-subtle">
                 {hasNodeMetrics
-                  ? 'Live usage from metrics-server · refreshing every 10s'
+                  ? 'Live usage from metrics-server'
                   : 'Allocatable + workload health live; CPU/Memory need metrics-server'}
               </div>
             </div>

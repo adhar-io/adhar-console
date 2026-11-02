@@ -43,7 +43,9 @@ export function CatalogEmpty({ sources, onRegister }: { sources: SourceStatus[];
           {failing.map((s) => (
             <li key={s.id} className="flex items-start gap-2 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-[12px]">
               <span aria-hidden className="mt-1 h-2 w-2 shrink-0 rounded-full bg-rose-500" />
-              <span className="min-w-0">
+              {/* `anywhere`: the error carries the full request URL, which
+                  otherwise ran out of the chip on a phone. */}
+              <span className="min-w-0 [overflow-wrap:anywhere]">
                 <span className="font-medium text-content">{s.label}</span>
                 <span className="text-content-muted"> — {s.error ?? 'not reachable'}</span>
               </span>
@@ -79,6 +81,18 @@ export function CatalogEmpty({ sources, onRegister }: { sources: SourceStatus[];
         <Button variant="secondary" size="sm" onClick={onRegister}>
           Register existing service
         </Button>
+        {failing.length && !unreachable ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={async () => {
+              await qc.invalidateQueries({ queryKey: ['catalog'] })
+              toast.success('Checking the catalog sources again')
+            }}
+          >
+            Retry {failing.length === 1 ? failing[0].label : 'failed sources'}
+          </Button>
+        ) : null}
       </div>
     </section>
   )

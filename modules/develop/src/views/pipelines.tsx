@@ -162,7 +162,7 @@ export function Pipelines() {
       />
 
       {conns.isLoading ? <LoadingBlock label="Loading pipelines…" /> : conns.isError ? (
-        <EmptyState
+        <EmptyState tone="error"
           title="Couldn't reach Airbyte"
           description={conns.error instanceof Error ? conns.error.message : 'Airbyte did not answer.'}
           action={<Button size="sm" variant="secondary" onClick={() => conns.refetch()}>Retry</Button>}
@@ -576,7 +576,7 @@ function ConnectionDrawer({ conn: c, loading, jobs, airbyteUrl, onClose }: {
   if (!c) {
     return (
       <Drawer onClose={onClose} widthId="develop.connection" header={<div className="flex justify-between"><span className="text-sm text-content-muted">Connection</span><CloseButton onClick={onClose} /></div>}>
-        {loading ? <div className="flex items-center gap-2 text-sm text-content-muted"><Spinner size={12} /> Loading…</div> : <EmptyState compact title="Connection not found" description="It may have been deleted." />}
+        {loading ? <div className="flex items-center gap-2 text-sm text-content-muted"><Spinner size={12} /> Loading…</div> : <EmptyState tone="error" compact title="Connection not found" description="It may have been deleted." />}
       </Drawer>
     )
   }

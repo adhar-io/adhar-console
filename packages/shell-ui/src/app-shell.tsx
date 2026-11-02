@@ -1,10 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRouterState } from '@tanstack/react-router'
 import { Sidebar } from './sidebar.tsx'
 import { Topbar } from './topbar.tsx'
 import { ErrorBoundary } from './error-boundary.tsx'
 import { CommandPalette, type CommandItem } from './command-palette.tsx'
 import { CLOSE_EVENT, OPEN_EVENT } from './ai-assistant.tsx'
 import { cn } from '@adhar/utils'
+import { useOverlayDismiss } from './overlay.ts'
 import type { NavSection } from './nav-tree.tsx'
 import type { AppLink } from './app-launcher.tsx'
 import type { Tenant } from '@adhar/tenancy'
@@ -116,7 +118,7 @@ export function AppShell({
   // becomes permanent and the overlay would otherwise trap clicks.
   useEffect(() => {
     if (typeof document === 'undefined') return
-    const mq = window.matchMedia('(min-width: 1024px)')
+    const mq = globalThis.matchMedia('(min-width: 1024px)')
     const onChange = () => {
       if (mq.matches) setMobileOpen(false)
     }
@@ -124,27 +126,15 @@ export function AppShell({
     return () => mq.removeEventListener?.('change', onChange)
   }, [])
 
-  // Lock body scroll while the mobile sidebar drawer is open.
-  useEffect(() => {
-    if (typeof document === 'undefined') return
-    if (mobileOpen) {
-      const prev = document.body.style.overflow
-      document.body.style.overflow = 'hidden'
-      return () => {
-        document.body.style.overflow = prev
-      }
-    }
-  }, [mobileOpen])
+  // The mobile sheet is a modal overlay like any other: ESC closes it (only
+  // when nothing above it — a tenant menu inside it — is open), page scroll is
+  // locked, Tab stays inside, and focus returns to the hamburger on close.
+  const sheetRef = useRef<HTMLDivElement>(null)
+  useOverlayDismiss(mobileOpen, () => setMobileOpen(false), { focusRef: sheetRef })
 
-  // ESC closes the mobile drawer.
-  useEffect(() => {
-    if (!mobileOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMobileOpen(false)
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [mobileOpen])
+  // A page that crashed must not keep showing its error card once the user
+  // navigates elsewhere under the same shell.
+  const routeKey = useRouterState({ select: (s) => s.location.pathname })
 
   return (
     // `h-dvh`, not `h-screen`: 100vh on a phone includes the strip behind the
@@ -180,6 +170,10 @@ export function AppShell({
         role="dialog"
         aria-modal={mobileOpen}
         aria-label="Primary navigation"
+        aria-hidden={!mobileOpen}
+        // Closed, the sheet is only translated off-screen: without `inert` its
+        // links stayed in the tab order and in the accessibility tree.
+        inert={!mobileOpen}
       >
         <button
           type="button"
@@ -191,8 +185,10 @@ export function AppShell({
           )}
         />
         <div
+          ref={sheetRef}
+          tabIndex={-1}
           className={cn(
-            'relative flex w-70 max-w-[calc(100vw-3.5rem)] shrink-0 transform-gpu transition-transform duration-250 ease-smooth',
+            'relative flex w-70 max-w-[calc(100vw-3.5rem)] shrink-0 transform-gpu outline-none transition-transform duration-250 ease-smooth',
             mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
           )}
         >
@@ -233,11 +229,11 @@ export function AppShell({
             second scrollbar with blank space under the app. */}
         {contentWidth === 'bleed' ? (
           <main className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden">
-            <ErrorBoundary>{children}</ErrorBoundary>
+            <ErrorBoundary resetKey={routeKey}>{children}</ErrorBoundary>
           </main>
         ) : (
           <main className="relative isolate flex-1 overflow-y-auto bg-surface-canvas">
-            <ErrorBoundary>
+            <ErrorBoundary resetKey={routeKey}>
               <div
                 className={cn(
                   'mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8',

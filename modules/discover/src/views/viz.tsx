@@ -5,6 +5,7 @@ import type { Health } from '../data/golden-signals.ts'
 import { routeClick } from '../data/discover-links.ts'
 import { formatValue, type Unit } from '../data/promql-lite.ts'
 import type { RangeSeries } from '../data/prom.ts'
+import { classifySourceError, sourceErrorKind } from '../data/source-error.ts'
 
 /**
  * Shared chart + widget atoms for the Discover dashboard, metrics explorer and
@@ -147,11 +148,30 @@ export function Loading({ height = 120 }: { height?: number }) {
 }
 
 /** Error message from a failed query, shown in place of the chart. */
-export function QueryError({ error, height }: { error: unknown; height?: number }) {
-  const msg = error instanceof Error ? error.message : String(error)
+export function QueryError({ error, height, tool }: { error: unknown; height?: number; tool?: string }) {
+  const kind = sourceErrorKind(error)
+  // A query the source rejected keeps the source's own message (a PromQL /
+  // LogQL parse error is exactly what the reader needs). An outage gets a
+  // sentence instead of "HTTP 502 Bad Gateway at GET http://…/api/svc/…".
+  if (kind === 'other') {
+    const msg = error instanceof Error ? error.message : String(error)
+    return <NoData title="Query failed" hint={msg} height={height} />
+  }
+  if (tool) {
+    const { title, description } = classifySourceError(tool, error)
+    return <NoData title={title} hint={description} height={height} />
+  }
+  const title = kind === 'not-configured'
+    ? 'Source not configured'
+    : kind === 'unauthorized' || kind === 'rejected'
+    ? 'Not authorized for this source'
+    : kind === 'unreachable'
+    ? "Can't reach the source"
+    : kind === 'timeout'
+    ? 'Source timed out'
+    : 'Source unavailable'
   const status = (error as { status?: number } | null)?.status
-  const title = status === 503 || status === 404 ? 'Source not configured' : status && status >= 500 ? 'Source unavailable' : 'Query failed'
-  return <NoData title={title} hint={msg} height={height} />
+  return <NoData title={title} hint={status ? `HTTP ${status} from the console proxy — retry in a moment.` : undefined} height={height} />
 }
 
 /* ─────────── charts ─────────── */

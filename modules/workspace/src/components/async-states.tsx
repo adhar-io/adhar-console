@@ -1,4 +1,4 @@
-import { DocStoreError, Spinner, StatusBadge } from '@adhar/shell-ui'
+import { Button, DocStoreError, EmptyState, Spinner, StatusBadge } from '@adhar/shell-ui'
 
 /**
  * Shared loading / error blocks for the docStore-backed ENTERPRISE-SECURITY
@@ -20,25 +20,15 @@ export function StoreErrorBlock({ error, onRetry }: { error: Error; onRetry?: ()
   const noDb =
     error instanceof DocStoreError && (error.code === 'store_unavailable' || error.status === 503)
   return (
-    <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 shadow-sm dark:border-rose-500/30 dark:bg-rose-500/10">
-      <div className="text-sm font-semibold text-rose-800 dark:text-rose-300">
-        {noDb ? 'Connect a database to use this page' : "Couldn't reach the document store"}
-      </div>
-      <p className="mt-1 text-xs leading-relaxed text-rose-700 dark:text-rose-400">
-        {noDb
-          ? 'This configuration is persisted in the tenant-scoped Postgres document store. Point the console at a database (DATABASE_URL) and reload — nothing is faked in the meantime.'
-          : error.message}
-      </p>
-      {onRetry ? (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-3 rounded-md border border-rose-300 bg-surface-raised px-3 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-500/20"
-        >
-          Retry
-        </button>
-      ) : null}
-    </div>
+    <EmptyState
+      // No database is a setup step, not an outage — keep it neutral.
+      tone={noDb ? 'default' : 'error'}
+      title={noDb ? 'Connect a database to use this page' : "Couldn't reach the document store"}
+      description={noDb
+        ? 'This configuration is persisted in the tenant-scoped Postgres document store. Point the console at a database (DATABASE_URL) and reload — nothing is faked in the meantime.'
+        : error.message}
+      action={onRetry ? <Button size="sm" onClick={onRetry}>Retry</Button> : undefined}
+    />
   )
 }
 

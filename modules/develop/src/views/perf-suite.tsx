@@ -114,7 +114,7 @@ export function PerfSuite({
   if (suiteQ.isLoading) return <div className="flex justify-center py-16"><Spinner /></div>
   if (suiteQ.isError) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Gitea is not reachable"
         description={`Performance tests live in the application repositories in Gitea, and the console could not reach Gitea: ${
           (suiteQ.error as Error).message
@@ -375,7 +375,7 @@ function TestWorkbench({
 
   if (q.isLoading) return <Card><CardBody className="flex justify-center py-16"><Spinner /></CardBody></Card>
   if (!test) {
-    return <Card><CardBody className="py-10"><EmptyState title="Could not read that test" /></CardBody></Card>
+    return <Card><CardBody className="py-10"><EmptyState tone="error" title="Could not read that test" /></CardBody></Card>
   }
 
   const doSave = async () => {

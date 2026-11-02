@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -20,6 +20,7 @@ import {
   canResource,
   useAccessReview,
   useCan,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
@@ -625,8 +626,8 @@ export function XrList({
       header: 'Name',
       value: (r) => r.metadata.name,
       cell: (r) => (
-        <div>
-          <div className="flex items-center gap-1.5 font-medium text-content">
+        <div className="min-w-[11rem]">
+          <div className="flex items-center gap-1.5 break-words font-medium text-content">
             {r.metadata.name}
             {isProtected(r) ? <span title="Deletion protection is on" aria-label="Protected" className="text-[11px] text-content-subtle">🔒</span> : null}
           </div>
@@ -668,7 +669,10 @@ export function XrList({
           | undefined
         if (sel?.matchLabels && Object.keys(sel.matchLabels).length) {
           return (
-            <code className="text-xs text-content-muted">
+            <code
+              className="block max-w-[16rem] truncate text-xs text-content-muted"
+              title={Object.entries(sel.matchLabels).map(([k, v]) => `${k}=${v}`).join(', ')}
+            >
               selector · {Object.entries(sel.matchLabels).map(([k, v]) => `${k}=${v}`).join(',')}
             </code>
           )
@@ -1090,13 +1094,10 @@ export function ClaimFormModal({
   })
   const live = ((watch.data as unknown) ?? applied) as XR | null
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !applyMut.isPending) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, applyMut.isPending])
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useOverlayDismiss(true, () => {
+    if (!applyMut.isPending) onClose()
+  }, { focusRef: dialogRef })
 
   const grouped = useMemo(() => {
     if (!fields) return []
@@ -1312,12 +1313,12 @@ export function ClaimFormModal({
       <button
         type="button"
         aria-label="Close"
-        className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={() => {
           if (!applyMut.isPending) onClose()
         }}
       />
-      <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-2xl">
+      <div ref={dialogRef} tabIndex={-1} className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-2xl outline-none">
         <header className="border-b border-edge-default bg-surface-raised px-5 py-4">
           <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
             {mode === 'create' ? 'Self-service provisioning' : 'Edit claim'}
@@ -1986,14 +1987,12 @@ function XrDrawer({
     },
   })
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // The edit modal handles its own Escape — don't close the drawer under it.
-      if (e.key === 'Escape' && !editing) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, editing])
+  // The overlay stack hands Esc to the topmost layer only, so the edit modal
+  // and the delete confirm close first; the `editing` guard stays as a belt.
+  const panelRef = useRef<HTMLElement>(null)
+  useOverlayDismiss(true, () => {
+    if (!editing) onClose()
+  }, { focusRef: panelRef })
 
   const ready = findCondition(current, 'Ready')
   const synced = findCondition(current, 'Synced')
@@ -2005,10 +2004,10 @@ function XrDrawer({
       <button
         type="button"
         aria-label="Close"
-        className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col overflow-hidden outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">
@@ -3250,10 +3249,13 @@ function RowBtn({ title, onClick, danger = false, children }: { title: string; o
 
 /** Inline confirmation — a delete here tears down real infrastructure. */
 function ConfirmDelete({ what, onCancel, onConfirm }: { what: string; onCancel(): void; onConfirm(): void }) {
+  // Registers as the top overlay, so Esc cancels this — not the drawer under it.
+  const boxRef = useRef<HTMLDivElement>(null)
+  useOverlayDismiss(true, onCancel, { focusRef: boxRef })
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="alertdialog" aria-modal="true">
       <button type="button" aria-label="Cancel" className="fixed inset-0 bg-scrim/40" onClick={onCancel} />
-      <div className="relative w-full max-w-md rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-2xl">
+      <div ref={boxRef} tabIndex={-1} className="relative w-full max-w-md rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-2xl outline-none">
         <h3 className="text-sm font-semibold text-content">Delete {what}?</h3>
         <p className="mt-1.5 text-[13px] text-content-muted">
           Crossplane will deprovision everything this claim composed. This cannot be undone.
@@ -3375,7 +3377,7 @@ function SpecRow({
       <span className="shrink-0 text-xs font-medium uppercase tracking-wide text-content-subtle">
         {label}
       </span>
-      <span className={cn('text-right text-sm text-content', mono && 'font-mono text-xs')}>
+      <span className={cn('min-w-0 break-words text-right text-sm text-content', mono && 'break-all font-mono text-xs')}>
         {value}
       </span>
     </div>

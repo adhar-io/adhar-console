@@ -231,7 +231,7 @@ function shown(q: { isLoading: boolean; isError: boolean }, n: number): number |
 
 function SourceError({ what, error, retry }: { what: string; error: unknown; retry(): void }) {
   return (
-    <EmptyState className={PANEL_EMPTY}
+    <EmptyState tone="error" className={PANEL_EMPTY}
       compact
       title={`Couldn't load ${what}`}
       description={error instanceof Error ? error.message : String(error ?? 'Unknown error.')}

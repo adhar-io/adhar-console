@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -131,8 +131,8 @@ export function NamespacesView() {
               key: 'name',
               header: 'Name',
               cell: (ns) => (
-                <div>
-                  <div className="font-medium text-content">{ns.metadata.name}</div>
+                <div className="min-w-[13rem]">
+                  <div className="break-words font-medium text-content">{ns.metadata.name}</div>
                   <LabelChips labels={ns.metadata.labels} />
                 </div>
               ),
@@ -313,13 +313,15 @@ function NamespaceDrawer({ namespace, onClose }: { namespace: NamespaceObject; o
   const quotaList = (quotas.data ?? []) as ResourceQuota[]
   const limitList = (limits.data ?? []) as LimitRange[]
 
-  useOverlayDismiss(true, onClose)
+  const panelRef = useRef<HTMLElement>(null)
+
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
 
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">Namespace</div>

@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { workspace } from '@adhar/api-clients'
 import { docStore, DocStoreError, type StoredDoc, useLiveInvalidate, usePollingInterval } from '@adhar/shell-ui'
-import type { Permission } from './access.ts'
 import { type MemberStatus, type OrgRole, type OrgVia, workspaceErrorMessage } from './members-model.ts'
 
 /**
@@ -53,9 +52,14 @@ export function isDbUnavailable(e: unknown): boolean {
   return e instanceof DocStoreError && e.status === 503
 }
 
-/** Retry outages, never answers: a 4xx or a missing database will not change on the next try. */
-function shouldRetry(count: number, err: unknown): boolean {
+/**
+ * Retry outages, never answers: a 4xx, a missing database or an unconfigured
+ * dependency (`keycloak_not_configured`, …) will not change on the next try —
+ * retrying only holds the page on its skeleton for the length of the backoff.
+ */
+export function shouldRetry(count: number, err: unknown): boolean {
   if (count >= 2 || isDbUnavailable(err)) return false
+  if (err instanceof WorkspaceApiError && err.code?.endsWith('_not_configured')) return false
   return !(err instanceof WorkspaceApiError && err.status < 500)
 }
 
@@ -814,43 +818,11 @@ export function useSaveApprovalPolicy() {
 
 /* ─────────────────── document-store kinds ─────────────────── */
 
-const ROLE_KIND = 'workspace.role'
+// No `workspace.role`: the custom roles older consoles stored there grant
+// nothing — an organisation's roles are its two Keycloak groups — and no page
+// reads or writes them any more (the documents themselves are left alone).
 const WEBHOOK_KIND = 'workspace.webhook'
 const DELIVERY_KIND = 'workspace.webhook-delivery'
-
-/* ─────────────────── Custom RBAC roles ─────────────────── */
-
-export interface CustomRole {
-  id: string
-  name: string
-  description?: string
-  permissions: Permission[]
-  createdAt: string
-  updatedAt: string
-}
-
-export interface RoleInput {
-  name: string
-  description?: string
-  permissions: Permission[]
-}
-
-interface RoleData {
-  name: string
-  description?: string
-  permissions: Permission[]
-}
-
-function toRole(doc: StoredDoc<RoleData>): CustomRole {
-  return {
-    id: doc.id,
-    name: doc.data.name,
-    description: doc.data.description,
-    permissions: [...(doc.data.permissions ?? [])],
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-  }
-}
 
 /* ─────────────────── Webhooks ─────────────────── */
 
@@ -902,38 +874,6 @@ function toWebhook(doc: StoredDoc<WebhookData>): Webhook {
 
 function toDelivery(doc: StoredDoc<DeliveryData>): WebhookDelivery {
   return { id: doc.id, ...doc.data }
-}
-
-/* ─────────────────── Custom roles (docStore-backed) ─────────────────── */
-
-export async function listCustomRoles(): Promise<CustomRole[]> {
-  const docs = await docStore.list<RoleData>(ROLE_KIND)
-  return docs.map(toRole)
-}
-
-export async function createRole(input: RoleInput): Promise<CustomRole> {
-  const doc = await docStore.create<RoleData>(ROLE_KIND, {
-    name: input.name,
-    description: input.description,
-    permissions: [...input.permissions],
-  })
-  return toRole(doc)
-}
-
-export async function updateRole(id: string, patch: Partial<RoleInput>): Promise<CustomRole> {
-  const existing = await docStore.get<RoleData>(ROLE_KIND, id)
-  if (!existing) throw new Error(`Role ${id} not found`)
-  const next: RoleData = {
-    name: patch.name ?? existing.data.name,
-    description: patch.description ?? existing.data.description,
-    permissions: patch.permissions ? [...patch.permissions] : existing.data.permissions,
-  }
-  const doc = await docStore.put<RoleData>(ROLE_KIND, id, next)
-  return toRole(doc)
-}
-
-export async function deleteRole(id: string): Promise<void> {
-  await docStore.remove(ROLE_KIND, id)
 }
 
 /* ─────────────────── Webhooks (docStore-backed) ─────────────────── */

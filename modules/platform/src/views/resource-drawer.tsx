@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { type ReactNode, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AiButton,
@@ -10,6 +10,7 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import type { KubeObject } from '@adhar/api-clients/k8s'
 import { cn } from '@adhar/utils'
@@ -78,13 +79,8 @@ export function ResourceDrawer<T extends Resource>({
   onClose(): void
 }) {
   const width = useDrawerWidth('platform.resource', { base: 'max-w-2xl' })
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const panelRef = useRef<HTMLElement>(null)
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
 
   const ai = aiContextOf(resource)
   const raw = redactSecret(resource)
@@ -98,7 +94,7 @@ export function ResourceDrawer<T extends Resource>({
         className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col outline-none overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">

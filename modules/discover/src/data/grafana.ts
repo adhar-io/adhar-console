@@ -205,8 +205,18 @@ export interface BoardVariable {
   error?: unknown
 }
 
-async function loadQueryVarOptions(q: string, ds: GrafanaDatasource | null, time: BoardTime): Promise<string[]> {
-  const kind = dsKind(ds)
+async function loadQueryVarOptions(
+  q: string,
+  ds: GrafanaDatasource | null,
+  time: BoardTime,
+  refType?: string,
+): Promise<string[]> {
+  // No resolved datasource (Grafana's datasource list unreadable or empty):
+  // fall back to the console's own Prometheus / Loki, exactly as panels do in
+  // `usePanelData`. `dsKind(null)` is 'other', which left every query variable
+  // with no options — "All" then expanded to `node=~""` and the whole board
+  // read "No data".
+  const kind = ds ? dsKind(ds) : refType === 'loki' ? 'loki' : refType && refType !== 'prometheus' ? 'other' : 'prometheus'
   const start = String(Math.floor(time.start / 1000))
   const end = String(Math.floor(time.end / 1000))
   if (kind === 'loki') {
@@ -337,7 +347,8 @@ export function useBoardVariables(
     queries: specs.map(({ d, ds, q, key }) => ({
       queryKey: key,
       queryFn: async () => {
-        const raw = await loadQueryVarOptions(q, ds, time)
+        const ref = d.datasource
+        const raw = await loadQueryVarOptions(q, ds, time, typeof ref === 'object' && ref ? ref.type : undefined)
         return sortOptions(applyVarRegex(raw, d.regex), d.sort ?? 0)
       },
       staleTime: 60_000,

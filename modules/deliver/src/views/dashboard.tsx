@@ -14,9 +14,9 @@ import type { argocd, kargo } from '@adhar/api-clients'
 import {
   useApplications,
   useRollouts,
-  useScans,
   useStages,
 } from '../data/delivery.ts'
+import { useScanSummaries } from '../data/scan-summaries.ts'
 import { useRuntimeAgents, useRuntimeEvents } from '../data/runtime.ts'
 import type { RuntimeEvent, RuntimeSeverity } from '../data/runtime-events.ts'
 import { orderStages, shortFreight, stageStatus } from '../data/stage-order.ts'
@@ -59,7 +59,8 @@ export function Dashboard() {
   const appsQ = useApplications()
   const stagesQ = useStages()
   const rolloutsQ = useRollouts()
-  const scansQ = useScans()
+  // Counts only — read as a Kubernetes Table, not the full multi-MB report list.
+  const scansQ = useScanSummaries()
   const agents = useRuntimeAgents()
   const feed = useRuntimeEvents(agents.engines, { tailLines: 100 })
 
@@ -76,7 +77,11 @@ export function Dashboard() {
 
   const appList = appsQ.data ?? []
   // Promotion order, not the API's alphabetical order — see stage-order.ts.
-  const stageList = orderStages(stagesQ.data ?? [])
+  // Promotion order is per Kargo project: every project has its own dev/test/
+  // prod, so ordering (and React keys) by bare stage name across projects mixed
+  // the chains together and collided on `dev` / `test` / `prod`.
+  const stageGroups = groupStagesByProject(stagesQ.data ?? [])
+  const stageList = stageGroups.flatMap((g) => g.stages)
   const rolloutList = (rolloutsQ.data ?? []) as Rollout[]
   const scanList = scansQ.data ?? []
   const alerts = feed.events.filter((e) => RUNTIME_ALERT.has(e.severity))
@@ -198,7 +203,14 @@ export function Dashboard() {
                 action={<LinkButton href="/deliver?section=stages">Open Kargo Stages</LinkButton>}
               />
             ) : (
-              stageList.map((s, i) => <StageNode key={s.name} stage={s} terminal={i === stageList.length - 1} />)
+              stageGroups.map((g) => (
+                <div key={g.project} className="space-y-3">
+                  {stageGroups.length > 1 ? (
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-content-subtle">{g.project || 'no project'}</div>
+                  ) : null}
+                  {g.stages.map((s, i) => <StageNode key={`${g.project}/${s.name}`} stage={s} terminal={i === g.stages.length - 1} />)}
+                </div>
+              ))
             )}
           </CardBody>
         </Card>
@@ -209,7 +221,7 @@ export function Dashboard() {
           <CardHeader>
             <div className="text-sm font-semibold text-content">Vulnerability load</div>
             <div className="text-[11px] text-content-subtle">
-              {scans.loading || scans.error ? 'trivy-operator reports' : `Across ${scanList.length} trivy-operator reports`}
+              {scans.loading || scans.error ? 'trivy-operator reports' : `Across ${scanList.length} image reports`}
             </div>
           </CardHeader>
           <CardBody>
@@ -341,7 +353,7 @@ function PanelLoading({ text }: { text: string }) {
 
 function SourceError({ source, error, retry }: { source: string; error: unknown; retry(): void }) {
   return (
-    <EmptyState className={PANEL_EMPTY}
+    <EmptyState tone="error" className={PANEL_EMPTY}
       compact
       title={`Couldn't reach ${source}`}
       description={errText(error)}
@@ -681,4 +693,14 @@ function IconArrow() {
       <path d="m12 5 7 7-7 7" />
     </svg>
   )
+}
+
+/** Stages grouped by Kargo project (sorted), each group in promotion order. */
+function groupStagesByProject(stages: kargo.Stage[]): Array<{ project: string; stages: kargo.Stage[] }> {
+  const by = new Map<string, kargo.Stage[]>()
+  for (const s of stages) {
+    const p = s.project ?? ''
+    by.set(p, [...(by.get(p) ?? []), s])
+  }
+  return [...by.keys()].sort().map((project) => ({ project, stages: orderStages(by.get(project)!) }))
 }

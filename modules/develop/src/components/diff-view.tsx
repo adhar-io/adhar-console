@@ -20,7 +20,7 @@ export function DiffView({ files, loading, error }: { files?: DiffFile[]; loadin
     );
   }
   if (error) {
-    return <EmptyState compact title="Couldn't load the diff" description={error instanceof Error ? error.message : String(error)} />;
+    return <EmptyState tone="error" compact title="Couldn't load the diff" description={error instanceof Error ? error.message : String(error)} />;
   }
   if (!files?.length) {
     return <EmptyState compact title='No file changes' description='There is no diff to show.' />;

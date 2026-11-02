@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Button, EmptyState, Spinner } from '@adhar/shell-ui'
+import { classifySourceError, sourceErrorKind } from '../data/source-error.ts'
 
 /**
  * Honest source states for every Discover view.
@@ -20,58 +21,6 @@ export function LoadingCard({ label }: { label: string }) {
 }
 
 /**
- * Duck-typed classification of an api-client error. We avoid importing the
- * `HttpError` class (it isn't re-exported from the package root) and instead
- * read the shape the base HTTP layer guarantees: `.status` on response errors,
- * `.name` = 'NetworkError' | 'TimeoutError' otherwise.
- */
-function classify(
-  tool: string,
-  error: unknown,
-): { title: string; description: string } {
-  const status = (error as { status?: number } | null)?.status
-  const name = (error as { name?: string } | null)?.name
-
-  if (status === 404 || status === 501) {
-    return {
-      title: `${tool} is not configured`,
-      description: `No ${tool} backend is wired to this workspace yet. Connect ${tool} through the platform integrations to populate this view.`,
-    }
-  }
-  if (status === 401 || status === 403) {
-    return {
-      title: `Not authorized for ${tool}`,
-      description: `Your session can't read from ${tool}. Check your role or re-authenticate, then retry.`,
-    }
-  }
-  if (status === 502 || status === 503 || status === 504) {
-    return {
-      title: `${tool} is unavailable`,
-      description: `The ${tool} backend responded but isn't ready (HTTP ${status}). It may be starting up — retry in a moment.`,
-    }
-  }
-  if (name === 'TimeoutError') {
-    return {
-      title: `${tool} timed out`,
-      description: `The request to ${tool} took too long to respond. Retry, or check the backend's health.`,
-    }
-  }
-  if (name === 'NetworkError') {
-    return {
-      title: `Can't reach ${tool}`,
-      description: `The console couldn't connect to ${tool} through the BFF proxy. Confirm the backend is running and try again.`,
-    }
-  }
-  return {
-    title: `Couldn't load ${tool} data`,
-    description:
-      error instanceof Error && error.message
-        ? error.message
-        : `An unexpected error occurred talking to ${tool}.`,
-  }
-}
-
-/**
  * Honest error / not-configured state for a view whose single source failed.
  * `icon` is typically the tool's brand mark from shell-ui.
  */
@@ -88,10 +37,13 @@ export function SourceError({
   icon?: ReactNode
   compact?: boolean
 }) {
-  const { title, description } = classify(tool, error)
+  const { title, description } = classifySourceError(tool, error)
+  // A tool nobody connected is a setup step, not a failure — keep it neutral.
+  const tone = sourceErrorKind(error) === 'not-configured' ? 'default' : 'error'
   return (
     <EmptyState
       compact={compact}
+      tone={tone}
       icon={icon}
       title={title}
       description={description}

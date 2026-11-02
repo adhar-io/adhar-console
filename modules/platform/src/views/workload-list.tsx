@@ -91,8 +91,8 @@ function DeploymentTable({ namespace }: { namespace?: string }) {
               key: 'name',
               header: 'Name',
               cell: (d) => (
-                <div>
-                  <div className="font-medium text-content">{d.metadata.name}</div>
+                <div className="min-w-[13rem]">
+                  <div className="break-words font-medium text-content">{d.metadata.name}</div>
                   <div className="text-xs text-content-muted">{d.metadata.namespace}</div>
                 </div>
               ),
@@ -182,8 +182,8 @@ function ReplicaSetTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (r) => (
-              <div>
-                <div className="font-medium text-content">{r.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{r.metadata.name}</div>
                 <div className="text-xs text-content-muted">{r.metadata.namespace}</div>
               </div>
             ),
@@ -293,8 +293,8 @@ function JobTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (j) => (
-              <div>
-                <div className="font-medium text-content">{j.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{j.metadata.name}</div>
                 <div className="text-xs text-content-muted">{j.metadata.namespace}</div>
               </div>
             ),
@@ -365,8 +365,8 @@ function CronJobTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (cj) => (
-              <div>
-                <div className="font-medium text-content">{cj.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{cj.metadata.name}</div>
                 <div className="text-xs text-content-muted">{cj.metadata.namespace}</div>
               </div>
             ),
@@ -452,8 +452,8 @@ function HpaTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (h) => (
-              <div>
-                <div className="font-medium text-content">{h.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{h.metadata.name}</div>
                 <div className="text-xs text-content-muted">{h.metadata.namespace}</div>
               </div>
             ),
@@ -575,8 +575,8 @@ function GenericWorkloadList({
               key: 'name',
               header: 'Name',
               cell: (o) => (
-                <div>
-                  <div className="font-medium text-content">{o.metadata.name}</div>
+                <div className="min-w-[13rem]">
+                  <div className="break-words font-medium text-content">{o.metadata.name}</div>
                   <div className="text-xs text-content-muted">{o.metadata.namespace}</div>
                 </div>
               ),

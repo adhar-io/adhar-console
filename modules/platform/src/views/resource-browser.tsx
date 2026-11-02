@@ -630,7 +630,7 @@ function buildColumns({
               e.stopPropagation()
               onNamespace(o.metadata.namespace)
             }}
-            className="text-content-muted hover:text-brand-700 hover:underline dark:hover:text-brand-300"
+            className="whitespace-nowrap text-left text-content-muted hover:text-brand-700 hover:underline focus-visible:underline focus-visible:outline-none dark:hover:text-brand-300"
           >
             {o.metadata.namespace}
           </button>
@@ -767,7 +767,7 @@ function LiveDot({ status }: { status: LiveStatus | 'polling' }) {
           : 'text-amber-600 dark:text-amber-400'
   const label = status === 'polling' ? 'polling' : status
   return (
-    <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-medium', tone)} title={status === 'polling' ? 'This API has no watch — refreshed every 15s' : undefined}>
+    <span className={cn('inline-flex items-center gap-1.5 text-[11px] font-medium', tone)} title={status === 'polling' ? 'This API has no watch — re-read once a minute' : undefined}>
       <span className={cn('h-1.5 w-1.5 rounded-full bg-current', status !== 'live' && status !== 'polling' && 'animate-pulse')} />
       {label}
     </span>

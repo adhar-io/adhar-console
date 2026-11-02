@@ -161,20 +161,15 @@ export function NotificationCenter() {
         }
       />
 
-      {!live ? (
-        <div className="mb-6 flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-3 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-          <span className="mt-0.5 shrink-0"><IconInfo /></span>
-          {feed.isError ? (
-            <span className="flex flex-1 flex-wrap items-center justify-between gap-2">
-              <span>Couldn't reach the notification feed (<code className="font-mono">/api/notifications</code>){feed.error instanceof Error ? `: ${feed.error.message}` : ''}.</span>
-              <button type="button" onClick={() => void feed.refetch()} className="rounded-md border border-amber-300/70 px-2 py-0.5 font-medium hover:bg-amber-100 dark:border-amber-500/40 dark:hover:bg-amber-500/20">Retry</button>
-            </span>
-          ) : (
-            <span>The notification feed needs the console database (<code className="font-mono">DATABASE_URL</code>). Until it is configured no notifications are recorded or shown.</span>
-          )}
+      {/* A feed that failed outright, or has no database, says so once in the
+          list's own empty state. Only a failed REFRESH over a list already on
+          screen needs this strip — the rows below are the last good read. */}
+      {feed.isError && feed.data ? (
+        <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300/60 bg-amber-50/70 px-4 py-2.5 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <span className="flex items-center gap-2"><IconInfo />Couldn't refresh the feed — showing the last list read.</span>
+          <button type="button" onClick={() => void feed.refetch()} className="rounded-md border border-amber-300/70 px-2 py-0.5 font-medium hover:bg-amber-100 dark:border-amber-500/40 dark:hover:bg-amber-500/20">Retry</button>
         </div>
       ) : null}
-
       {/* stats — the same tile as the Scorecards page, and each one is a filter */}
       {/* Counts of a feed that could not be read are unknown, not zero — and
           "all caught up" would be a claim about notifications nobody saw. */}
@@ -217,13 +212,23 @@ export function NotificationCenter() {
         ) : feed.isError && !feed.data ? (
           // The banner above names the failure; an empty list here would claim
           // there is nothing to read.
-          <div className="p-10">
-            <EmptyState title="Notifications unavailable" description="The feed could not be read, so nothing is listed. Retry from the banner above." />
-          </div>
+          <EmptyState
+            bare
+            tone="error"
+            title="Notifications unavailable"
+            description={`Couldn't reach /api/notifications${feed.error instanceof Error ? ` (${feed.error.message})` : ''}, so nothing is listed.`}
+            action={<Button size="sm" variant="secondary" onClick={() => void feed.refetch()} loading={feed.isFetching}>Try again</Button>}
+          />
+        ) : feed.data?.persisted === false ? (
+          // No database: nothing is recorded, so an empty list is not "caught
+          // up" — it is a feed that does not exist yet.
+          <EmptyState
+            bare
+            title="Notifications aren't being recorded"
+            description="Connect the console database (DATABASE_URL) and operations, insights and Assist outcomes will be kept here."
+          />
         ) : items.length === 0 ? (
-          <div className="p-10">
-            <EmptyState title={q || kind || source || unread ? 'Nothing matches' : "You're all caught up"} description={q || kind || source || unread ? 'Try loosening the filters.' : 'Operations, insights and Assist outcomes will show up here as they happen.'} />
-          </div>
+          <EmptyState bare title={q || kind || source || unread ? 'Nothing matches' : "You're all caught up"} description={q || kind || source || unread ? 'Try loosening the filters.' : 'Operations, insights and Assist outcomes will show up here as they happen.'} />
         ) : (
           grouped.map(([day, list]) => (
             <section key={day}>
@@ -377,4 +382,3 @@ const IconInfo = () => <I><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8
 const IconCheck = () => <I><path d="M20 6 9 17l-5-5" /></I>
 const IconX = () => <I size={12}><path d="M18 6 6 18M6 6l12 12" /></I>
 const IconSpark = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="shrink-0"><path d="M12 2l1.9 5.6L19.5 9l-5.6 1.9L12 16.5l-1.9-5.6L4.5 9l5.6-1.4L12 2z" /></svg>
-const Spinner = () => <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden><circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" /><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>

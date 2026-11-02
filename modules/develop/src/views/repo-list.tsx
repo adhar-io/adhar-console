@@ -6,6 +6,7 @@ import {
   Field,
   Input,
   Modal,
+  PageHeader,
   Select,
   Textarea,
   useMediaQuery,
@@ -290,15 +291,34 @@ export function RepoList() {
     void q.refetch().finally(() => setRefreshing(false));
   };
 
-  if (q.isLoading) return <RepoListSkeleton layout={prefs.layout} />;
+  // Header actions live in the page header (title left, actions right), the
+  // same as Pull Requests / Issues — not inside the filter toolbar.
+  const newRepoButton = (
+    <Button size='sm' variant='primary' onClick={() => setCreating(true)}>
+      <IconPlus /> New repository
+    </Button>
+  );
+  if (q.isLoading) return <><PageHeader title='Repositories' /><RepoListSkeleton layout={prefs.layout} /></>;
   if (q.isError && !q.data) {
-    return <GiteaError what='repositories' error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} />;
+    return <><PageHeader title='Repositories' /><GiteaError what='repositories' error={q.error} onRetry={() => q.refetch()} retrying={q.isFetching} /></>;
   }
 
   const sortDef = SORTS.find((s) => s.key === prefs.sort) ?? SORTS[0];
 
   return (
     <div className='space-y-4'>
+      <PageHeader
+        title='Repositories'
+        actions={
+          <>
+            <Button size='sm' variant='secondary' onClick={refresh} loading={refreshing} title='Refresh' aria-label='Refresh'>
+              {refreshing ? null : <IconRefresh />}
+            </Button>
+            {/* One primary per view: an empty org's CTA is the empty state's. */}
+            {all.length ? newRepoButton : null}
+          </>
+        }
+      />
       {/* ── stats strip: each tile is a one-click filter ── */}
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8'>
         <StatTile label='Repositories' value={stats.total} hint={`${stats.active} active`} on={state === 'all' && visibility === 'all' && activity === 'any'} onClick={() => { setState('all'); setVisibility('all'); setActivity('any'); }} />
@@ -353,14 +373,6 @@ export function RepoList() {
             <LayoutBtn on={prefs.layout === 'compact'} onClick={() => setPrefs((p) => ({ ...p, layout: 'compact' }))} title='Compact list'><IconRows /></LayoutBtn>
           </div>
 
-          <div className='ml-auto flex items-center gap-1.5'>
-            <Button size='sm' variant='secondary' onClick={refresh} loading={refreshing} title='Refresh' aria-label='Refresh'>
-              {refreshing ? null : <IconRefresh />}
-            </Button>
-            <Button size='sm' variant='primary' onClick={() => setCreating(true)}>
-              <IconPlus /> New repository
-            </Button>
-          </div>
         </div>
 
         {/* Active filters as chips, plus the count — the state of the list, in words. */}
@@ -387,7 +399,7 @@ export function RepoList() {
               ? 'Create the first repository in this org, or push one with git.'
               : 'Try a different search or clear the filters.'}
             action={all.length === 0
-              ? <Button variant='primary' size='sm' onClick={() => setCreating(true)}><IconPlus /> New repository</Button>
+              ? newRepoButton
               : <Button size='sm' variant='secondary' onClick={clearAll}>Clear filters</Button>}
           />
         )

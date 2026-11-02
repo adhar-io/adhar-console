@@ -170,7 +170,7 @@ function KeycloakLink({ label = 'Open Keycloak account console' }: { label?: str
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 underline-offset-2 hover:underline dark:text-brand-300"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-medium text-brand-700 underline-offset-2 hover:underline dark:text-brand-300"
     >
       {label} ↗
     </a>
@@ -361,7 +361,7 @@ function ProfileSection({
     <div className="max-w-3xl space-y-6 pb-24">
       {/* Identity — avatar is editable; SSO fields are read-only */}
       <Card as="section">
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <SectionTitle title="Identity" description="Your photo and how you appear across the console." />
           <KeycloakLink />
         </CardHeader>
@@ -513,7 +513,7 @@ function ProfileSection({
 
       {/* Links — dynamic add/remove */}
       <Card as="section">
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <SectionTitle title="Links" description="Website, GitHub, LinkedIn, docs — anything you want on your profile." />
           <Button
             size="xs"
@@ -563,7 +563,7 @@ function ProfileSection({
 
       {/* Custom fields — user-defined sections */}
       <Card as="section">
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <SectionTitle
             title="Custom fields"
             description="Add your own labelled details — cost center, Slack handle, on-call rotation, anything."
@@ -843,7 +843,7 @@ function NotificationsSection({
   return (
     <div className="max-w-3xl space-y-4">
       <Card as="section">
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <SectionTitle
             title="Notification preferences"
             description={`In-app lands in the console tray; email goes to ${email}.`}
@@ -1338,7 +1338,7 @@ function SecuritySection({
   return (
     <div className="max-w-3xl space-y-6">
       <Card as="section">
-        <CardHeader className="flex items-center justify-between">
+        <CardHeader className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <SectionTitle title="Current session" />
           {live ? <StatusBadge kind="healthy">this session</StatusBadge> : null}
         </CardHeader>

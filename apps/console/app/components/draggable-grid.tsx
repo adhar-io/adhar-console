@@ -416,7 +416,10 @@ export function DraggableGrid<T extends { id: string }>({
                   }}
                   style={{ touchAction: 'none' }}
                   className={cn(
-                    'absolute right-4 top-4 z-10 flex h-8 w-8 cursor-grab items-center justify-center rounded-md text-content-subtle transition-opacity active:cursor-grabbing sm:right-5 sm:top-5 sm:h-6 sm:w-6',
+                    // Top-centre edge, not the top-right corner: panel headers
+                    // put their labels and actions on the right, and the grip
+                    // sat on top of them ("CHANGE FAIL RATE" on the DORA tile).
+                    'absolute left-1/2 top-0 z-10 flex h-5 w-12 -translate-x-1/2 cursor-grab items-center justify-center rounded-b-md text-content-subtle transition-opacity hover:bg-surface-sunken active:cursor-grabbing [@media(hover:none)]:h-6 [@media(hover:none)]:w-14',
                     isDragging ? 'opacity-0' : 'opacity-35 group-hover:opacity-100 [@media(hover:none)]:opacity-70',
                   )}
                 >
@@ -512,13 +515,13 @@ function DropArrowGlyph() {
 
 function DragHandleGlyph() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <circle cx="9" cy="6" r="1.6" />
-      <circle cx="15" cy="6" r="1.6" />
-      <circle cx="9" cy="12" r="1.6" />
-      <circle cx="15" cy="12" r="1.6" />
-      <circle cx="9" cy="18" r="1.6" />
-      <circle cx="15" cy="18" r="1.6" />
+    <svg width="18" height="10" viewBox="0 0 24 12" fill="currentColor" aria-hidden>
+      <circle cx="6" cy="3.5" r="1.6" />
+      <circle cx="12" cy="3.5" r="1.6" />
+      <circle cx="18" cy="3.5" r="1.6" />
+      <circle cx="6" cy="8.5" r="1.6" />
+      <circle cx="12" cy="8.5" r="1.6" />
+      <circle cx="18" cy="8.5" r="1.6" />
     </svg>
   )
 }

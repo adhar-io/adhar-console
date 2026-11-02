@@ -74,7 +74,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
 }
 
 /** Views that render their own PageHeader — they put a repo picker or actions in it. */
-const SELF_HEADED = new Set<Section>(['branches', 'commits', 'prs', 'issues', 'pipelines', 'performance', 'functions'])
+const SELF_HEADED = new Set<Section>(['repos', 'branches', 'environments', 'commits', 'prs', 'issues', 'pipelines', 'performance', 'functions'])
 
 export default function DevelopHome({ section }: { section?: string } = {}) {
   const active = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { canResource, EmptyState, StatusBadge, Tabs, useAppConfig, useCan, useToast, type StatusKind, type TabDef } from '@adhar/shell-ui'
+import { Button, canResource, EmptyState, StatusBadge, Tabs, useAppConfig, useCan, useToast, type StatusKind, type TabDef } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
 import { useGeneric } from '../data/hooks.ts'
@@ -211,22 +211,6 @@ export function PolicyView() {
   const config = useAppConfig()
   const reporterUrl = config.data?.tools?.['policy-reporter']?.url || ''
 
-  const notInstalled = is404(cps) && is404(crs)
-  if (notInstalled) {
-    return (
-      <EmptyState
-        title="Policy engine not installed"
-        description={
-          <>
-            No <code className="font-mono">kyverno.io</code> / <code className="font-mono">wgpolicyk8s.io</code> CRDs found. Enable{' '}
-            <strong>Kyverno</strong> from the Marketplace (or follow the{' '}
-            <a className="text-brand-700 underline dark:text-brand-300" href="https://kyverno.io/docs/installation/" target="_blank" rel="noreferrer">install guide</a>) to manage policies here.
-          </>
-        }
-      />
-    )
-  }
-
   const policies = useMemo<KyvernoPolicy[]>(
     () => [...((cps.data ?? []) as KyvernoPolicy[]), ...((is404(nps) ? [] : nps.data ?? []) as KyvernoPolicy[])],
     [cps.data, nps.data, nps.isError, nps.error],
@@ -267,6 +251,36 @@ export function PolicyView() {
   const enforce = policies.filter((p) => policyMode(p) === 'Enforce').length
 
   const loading = cps.isLoading || crs.isLoading
+
+  // Every hook above runs on every render — this early exit used to sit before
+  // the memos, so a cluster without Kyverno crashed the page (React #300) the
+  // moment the 404 arrived after a loading render.
+  const notInstalled = is404(cps) && is404(crs)
+  if (notInstalled) {
+    return (
+      <EmptyState
+        title="Policy engine not installed"
+        description={
+          <>
+            No <code className="font-mono">kyverno.io</code> / <code className="font-mono">wgpolicyk8s.io</code> CRDs found. Enable{' '}
+            <strong>Kyverno</strong> from the Marketplace (or follow the{' '}
+            <a className="text-brand-700 underline dark:text-brand-300" href="https://kyverno.io/docs/installation/" target="_blank" rel="noreferrer">install guide</a>) to manage policies here.
+          </>
+        }
+      />
+    )
+  }
+
+  if (cps.isError && !is404(cps) && !cps.data) {
+    return (
+      <EmptyState
+        tone="error"
+        title="Couldn't read policies"
+        description={cps.error instanceof Error ? cps.error.message : 'The Kubernetes API refused the ClusterPolicy list.'}
+        action={<Button size="sm" variant="secondary" onClick={() => cps.refetch()}>Retry</Button>}
+      />
+    )
+  }
 
   return (
     <div className="space-y-5">

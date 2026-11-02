@@ -23,7 +23,7 @@ import { lastValue, promRange, toPoints, type PromMatrix } from '../data/prom.ts
  * gracefully on their own:
  *
  *  1. **Live snapshot** — instantaneous CPU / memory per container from
- *     `metrics.k8s.io/v1beta1` (metrics-server), polled every 10s. Always shown
+ *     `metrics.k8s.io/v1beta1` (metrics-server), re-read once a minute. Always shown
  *     when metrics-server is present.
  *  2. **Time-series** — real historical graphs from **Prometheus**, proxied by
  *     the BFF at `/api/svc/prometheus/api/v1/query_range`. CPU vs requests/limits
@@ -277,7 +277,7 @@ function LiveSnapshot({
   const memPctLimit = limits.memLim ? Math.round((memTotal / limits.memLim) * 100) : undefined
 
   return (
-    <Panel title="Live snapshot" subtitle="metrics.k8s.io · every 10s">
+    <Panel title="Live snapshot" subtitle="metrics.k8s.io">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <InstantTile label="CPU (pod)" value={`${formatCpu(cpuTotal)}`} sub={cpuPctLimit != null ? `${cpuPctLimit}% of limit` : 'cores'} tone={pctTone(cpuPctLimit)} />
         <InstantTile label="Memory (pod)" value={formatBytes(memTotal)} sub={memPctLimit != null ? `${memPctLimit}% of limit` : 'working set'} tone={pctTone(memPctLimit)} />

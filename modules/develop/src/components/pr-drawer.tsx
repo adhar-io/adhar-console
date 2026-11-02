@@ -68,7 +68,7 @@ export function PrDrawer({ seed, repo, index, onClose, onOpenCommit }: {
     return (
       <Drawer onClose={onClose} widthId='develop.pr' header={<div className='flex justify-between'><span className='text-sm text-content-muted'>{repo} #{index}</span><CloseButton onClick={onClose} /></div>}>
         {q.isError
-          ? <EmptyState compact title='Pull request not found' description={q.error instanceof Error ? q.error.message : ''} />
+          ? <EmptyState tone="error" compact title='Pull request not found' description={q.error instanceof Error ? q.error.message : ''} />
           : <ItemSkeleton label='Loading pull request' />}
       </Drawer>
     );

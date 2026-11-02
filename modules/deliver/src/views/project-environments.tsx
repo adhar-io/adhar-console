@@ -153,7 +153,7 @@ export function ProjectEnvironments() {
           <Spinner size={14} /> Loading project environments…
         </div>
       ) : d.errors.stages && d.errors.argo ? (
-        <EmptyState
+        <EmptyState tone="error"
           compact
           title="Couldn't read Kargo or Argo CD"
           description={(d.errors.stages as Error)?.message ?? 'Neither the promotion stages nor the deployments are readable with your access.'}

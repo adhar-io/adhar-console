@@ -120,6 +120,8 @@ const VERB: Record<string, string> = {
   member_add: 'member added',
   member_remove: 'member removed',
   migrated_to_keycloak: 'moved to Keycloak',
+  // `member.leave` — someone left the organisation from the switcher.
+  leave: 'left',
 }
 
 /**

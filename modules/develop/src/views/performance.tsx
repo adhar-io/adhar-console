@@ -249,6 +249,7 @@ export function Performance() {
               setTab('results')
             }}
             onQuickTest={canQuick ? () => setQuick(true) : undefined}
+            onNewTest={() => { setTab('tests'); setNewTestToken((n) => n + 1) }}
           />
         )
         : tab === 'tests'

@@ -134,10 +134,12 @@ async function argoPost<T>(path: string, body: unknown): Promise<T> {
 
 async function argoError(res: Response, path: string): Promise<Error> {
   const text = await res.text().catch(() => '')
-  let detail = text
+  let detail = text.trim()
   try {
     const parsed = JSON.parse(text) as { message?: string; error?: string }
-    detail = parsed.message ?? parsed.error ?? text
+    // A JSON body with neither field (Argo answers 401 with `{}`) has no detail
+    // worth showing — it rendered as a trailing "— {}".
+    detail = (parsed?.message ?? parsed?.error ?? '').trim()
   } catch {
     /* non-JSON body — keep raw text */
   }

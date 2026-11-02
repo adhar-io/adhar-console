@@ -29,13 +29,6 @@ import {
 
 export type Role = OrgScopedRole
 
-/**
- * A permission key inside a custom role saved before roles came from Keycloak
- * (`workspace.role` documents). Those documents grant nothing now and no page
- * offers them; the type stays so they can still be read.
- */
-export type Permission = string
-
 export const ALL_ROLES: Role[] = ['member', 'admin']
 
 export const ROLE_LABEL: Record<Role, string> = {

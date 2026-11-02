@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { tallyReadiness, workspaceState } from '../data/workspace-readiness.ts'
 import { createPortal } from 'react-dom'
 import {
@@ -11,6 +11,7 @@ import {
   Field,
   Input,
   Modal,
+  PageHeader,
   Select,
   Spinner,
   StatusBadge,
@@ -234,25 +235,49 @@ export function Environments() {
     delete: () => setConfirmDelete(w),
   })
 
+  const header = (actions?: ReactNode) => <PageHeader title="Cloud Dev Environments" actions={actions} />
   if (q.isLoading) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
-        <Spinner size={14} /> Loading environments…
+      <div className="space-y-4">
+        {header()}
+        <div className="flex items-center gap-2 rounded-xl border border-edge-default bg-surface-raised p-6 text-sm text-content-muted shadow-sm">
+          <Spinner size={14} /> Loading environments…
+        </div>
       </div>
     )
   }
   if (q.isError) {
     return (
-      <EmptyState
-        title="Couldn't reach Coder"
-        description={q.error instanceof Error ? q.error.message : 'Unknown error.'}
-        action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>}
-      />
+      <div className="space-y-4">
+        {header()}
+        <EmptyState tone="error"
+          title="Couldn't reach Coder"
+          description={q.error instanceof Error ? q.error.message : 'Unknown error.'}
+          action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>}
+        />
+      </div>
     )
   }
 
+  // Page actions sit in the header (title left, actions right). The empty
+  // state carries the primary CTA when there are no environments yet, so the
+  // header does not repeat it — one primary per view.
+  const emptyWithCta = all.length === 0 && Boolean(tpls.data?.length)
   return (
     <div className="space-y-4">
+      {header(
+        <>
+          {dashboard ? (
+            <a href={dashboard} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/30 dark:hover:text-brand-300">Coder <IconExternal /></a>
+          ) : null}
+          <Button size="sm" variant="secondary" onClick={() => { q.refetch(); tpls.refetch() }} title="Refresh" aria-label="Refresh"><IconRefresh /></Button>
+          {emptyWithCta ? null : (
+            <Button size="sm" variant="primary" onClick={() => setCreateOpen({})} disabled={!tpls.data?.length} title={tpls.data?.length ? undefined : 'Publish a template in Coder first'}>
+              <IconPlus /> New environment
+            </Button>
+          )}
+        </>,
+      )}
       {/* ── stats strip (click to filter) ── */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
         <StatTile label="Environments" value={stats.total} hint={`${stats.owners} owner${stats.owners === 1 ? '' : 's'}`} on={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
@@ -294,13 +319,6 @@ export function Environments() {
             <LayoutBtn on={prefs.layout === 'grid'} onClick={() => setPrefs((p) => ({ ...p, layout: 'grid' }))} title="Grid"><IconGrid /></LayoutBtn>
             <LayoutBtn on={prefs.layout === 'table'} onClick={() => setPrefs((p) => ({ ...p, layout: 'table' }))} title="Table"><IconList /></LayoutBtn>
           </div>
-          {dashboard ? (
-            <a href={dashboard} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-xs font-medium text-content hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300">Coder <IconExternal /></a>
-          ) : null}
-          <Button size="sm" variant="secondary" onClick={() => { q.refetch(); tpls.refetch() }} title="Refresh"><IconRefresh /></Button>
-          <Button size="sm" variant="primary" onClick={() => setCreateOpen({})} disabled={!tpls.data?.length} title={tpls.data?.length ? undefined : 'Publish a template in Coder first'}>
-            <IconPlus /> New environment
-          </Button>
         </div>
       </div>
 

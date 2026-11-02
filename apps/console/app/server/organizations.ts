@@ -39,7 +39,7 @@ import {
   teamsOf,
 } from './tenancy/org-access.ts'
 import { isMigrated, migrateTenant } from './tenancy/migrate-membership.ts'
-import { openStore } from './workspace/store.ts'
+import { openStore, type Store, writeAudit } from './workspace/store.ts'
 
 /**
  * Organization (workspace) management — `/api/organizations/*`.
@@ -316,6 +316,8 @@ export interface OrganizationsDeps {
   writeRegistry(userId: string, user: { id: string; name: string; email: string }, reg: Registry): Promise<boolean>
   issueSession(req: Request, tenantId: string, opts: { refresh: boolean }): Promise<{ cookie: string; groups: string[] } | null>
   renameWorkspaceDoc(tenantId: string, name: string, userId: string): Promise<void>
+  /** An organisation's own document store — where its audit trail lives. Null without a database. */
+  openStore(tenantId: string): Promise<Store | null>
   startProvisioning: typeof startProvisioning
   backfillXrs(manifests: XrManifest[]): void
   slugChecks?: Parameters<typeof slugConflict>[1]
@@ -340,6 +342,7 @@ const DEFAULT_DEPS: OrganizationsDeps = {
   writeRegistry,
   issueSession,
   renameWorkspaceDoc,
+  openStore,
   startProvisioning,
   backfillXrs,
   isMigrated: (tenantId) => isMigrated(tenantId),
@@ -516,6 +519,16 @@ async function createOrganization(
     }, 409))
   const conflict = await slugConflict(slug, deps.slugChecks)
   if (conflict) return taken(conflict === 'reserved')
+  // The directory can know an organisation that Keycloak and the cluster do
+  // not — one an older console created while it could make neither its groups
+  // nor its namespace. `<slug>` must be free there too, or this organisation
+  // would take over its directory entry. So must `<slug>-admin`: ITS member
+  // group `org-<slug>-admin` is this organisation's admin group, so creating
+  // `<slug>` beside it would make its members this organisation's admins (and
+  // drop it from the directory). New names cannot end in `-admin`; old ones can.
+  for (const s of [slug, `${slug}-admin`]) {
+    if (await deps.directory.bySlug(s)) return taken(false)
+  }
 
   // Onboarding asks what the org is for and shows the answer back on the
   // review step, so it has to be stored — a field that is collected,
@@ -730,9 +743,10 @@ async function renameOrganization(
 
 /**
  * Leave organisation `id`: out of its team groups, its admin group and its
- * member group, in that order. The last explicit admin cannot leave (someone
- * must be able to administer it), and someone who only sees the organisation
- * as a platform admin has nothing to leave.
+ * member group, in that order, and recorded in its audit trail
+ * (`member.leave`). The last explicit admin cannot leave (someone must be able
+ * to administer it), and someone who only sees the organisation as a platform
+ * admin has nothing to leave.
  */
 async function leaveOrganization(
   req: Request,
@@ -767,7 +781,8 @@ async function leaveOrganization(
       detail: 'You are the only admin of this organisation. Make someone else an admin before you leave.',
     }, 409))
   }
-  for (const t of teamsOf(groups, slug)) await kc.removeUserFromGroup(auth.user.id, teamGroup(slug, t))
+  const teams = teamsOf(groups, slug)
+  for (const t of teams) await kc.removeUserFromGroup(auth.user.id, teamGroup(slug, t))
   if (explicit === 'admin') {
     await kc.removeUserFromGroup(auth.user.id, orgAdminGroup(slug))
     if (guarded && (await otherAdmins()) === 0) {
@@ -780,6 +795,25 @@ async function leaveOrganization(
   }
   await kc.removeUserFromGroup(auth.user.id, orgMemberGroup(slug))
   deps.liveGroups.invalidate(auth.user.id)
+  // Recorded in the ORGANISATION's audit trail, like every other membership
+  // change. That record is also what the membership migration reads: its
+  // retry skips the remaining grants of anyone changed since it planned them,
+  // and without one a person who left would be put back in.
+  try {
+    const store = await deps.openStore(entry.tenantId)
+    if (store) {
+      await writeAudit(
+        store,
+        { id: auth.user.id, name: auth.user.name },
+        'member.leave',
+        { type: 'member', id: auth.user.id, label: auth.user.email || auth.user.name },
+        req,
+        { role: explicit, teams },
+      )
+    }
+  } catch (e) {
+    console.warn('[organizations] could not record the leave in the audit trail:', e instanceof Error ? e.message : e)
+  }
 
   const remaining = reg.seeded ? [] : reg.orgs.filter((o) => o.id !== id)
   const switched = auth.activeTenant === id

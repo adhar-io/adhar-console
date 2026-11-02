@@ -423,25 +423,27 @@ export function IngressWidget({ ctx }: { ctx: DashCtx }) {
 /* ─────────────────────────── logs + traces error charts ─────────────────────────── */
 
 const LOKI_MAX_MS = 6 * 3_600_000
+/** The scan touches every stream; past this it is not going to be a glance. */
+const LOKI_TIMEOUT_MS = 25_000
 
 export function LogErrorsWidget({ ctx }: { ctx: DashCtx }) {
   const cheap = ctx.windowMs <= LOKI_MAX_MS
   const step = Math.max(60, ctx.stepSec)
   const query = lokiErrorVolume(ctx.scope, step)
-  const q = useRange(cheap ? query : null, { windowMs: ctx.windowMs, stepSec: step, refreshMs: ctx.refreshMs, source: 'loki' })
+  const q = useRange(cheap ? query : null, { windowMs: ctx.windowMs, stepSec: step, refreshMs: ctx.refreshMs, source: 'loki', timeoutMs: LOKI_TIMEOUT_MS })
   const logsQ = `${lokiSelector(ctx.scope)} |~ "(?i)\\\\b(error|fatal|panic|exception)\\\\b"`
   const series = q.data ?? []
   const total = series.reduce((a, s) => a + s.points.reduce((b, [, v]) => b + v, 0), 0)
   return (
     <Widget
       title="Log error volume"
-      subtitle={`Loki · lines matching error|fatal|panic|exception${cheap ? ` · ${Math.round(total).toLocaleString()} in range` : ''}`}
+      subtitle={`Loki · lines matching error|fatal|panic|exception${cheap && q.isSuccess ? ` · ${Math.round(total).toLocaleString()} in range` : ''}`}
       href={discoverHref('logs', { q: logsQ, range: ctx.range })}
       hrefLabel="Logs"
     >
       {!cheap ? (
         <NoData title="Range too wide for a full log scan" hint="Log error volume scans every stream; pick 6h or less, or open Logs to query a narrower selector." />
-      ) : q.isLoading ? <Loading /> : q.isError ? <QueryError error={q.error} /> : series.length === 0 ? (
+      ) : q.isLoading ? <Loading /> : q.isError ? <QueryError error={q.error} tool="Loki" /> : series.length === 0 ? (
         <NoData hint="No error lines in this window — or Loki has no streams with a namespace label." />
       ) : (
         <SignalChart

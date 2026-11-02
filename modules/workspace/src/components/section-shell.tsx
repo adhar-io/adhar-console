@@ -40,13 +40,12 @@ export function ViewShell({
   return (
     <ActionSlotContext.Provider value={slot}>
       <div className="space-y-6">
-        {/* `justify-between` alone is not enough: once the actions wrap onto
-            their own line they become the only item on it, and a lone item
-            under `justify-between` sits at flex-START — which is why pages with
-            a long description (Members) showed their buttons on the left. The
-            title takes the free space so wrapping is rare, and `ml-auto` keeps
-            the actions right-aligned when it does happen. */}
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        {/* Stacks on a phone (title + description full width, actions on the
+            row below) and sits side by side from `sm` up — beside a 40-char
+            description the buttons squeezed the copy into a one-word column.
+            The title takes the free space and `sm:ml-auto` keeps the actions
+            right-aligned on wider screens. */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold tracking-tight text-content">{title}</h2>
@@ -58,7 +57,7 @@ export function ViewShell({
               </p>
             ) : null}
           </div>
-          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:shrink-0 sm:justify-end">
             {actions}
             <div ref={setSlot} className="contents" />
           </div>
@@ -106,7 +105,7 @@ export function SettingsCard({
               <p className="mt-0.5 text-[12px] text-content-muted">{description}</p>
             ) : null}
           </div>
-          {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+          {actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div> : null}
         </header>
       ) : null}
       {/* A card is already the frame: an empty state or a table inside it

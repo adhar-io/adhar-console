@@ -243,7 +243,7 @@ function FileView({
   if (f.isError || !f.data) {
     return (
       <div className='rounded-lg border border-edge-default bg-surface-raised'>
-        <EmptyState
+        <EmptyState tone="error"
           compact
           title="Couldn't load the file from Gitea"
           description={f.error instanceof Error ? `${path} — ${f.error.message}` : path}

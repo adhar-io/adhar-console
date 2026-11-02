@@ -106,7 +106,7 @@ export function Policy() {
   // to empty). Surface the underlying reason rather than pretending it's empty.
   if (policies.isError && reports.isError && exceptions.isError) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Couldn't reach the policy engine"
         description={
           policies.error instanceof Error

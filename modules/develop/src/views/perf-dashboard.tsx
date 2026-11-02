@@ -18,7 +18,7 @@ import { runPerfTestChecks, useAllowedNamespaces } from '../data/access.ts'
  * what is running now, the latest results and what regressed. Every row is
  * a door — to the test, its results, a run, or straight into a new run.
  */
-export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenResults, onQuickTest }: {
+export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenResults, onQuickTest, onNewTest }: {
   insights: PerfInsights
   runs: TestRun[]
   onOpenTest(test: string): void
@@ -26,6 +26,8 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
   onOpenResults(test?: string): void
   /** Absent when the user may not start runs anywhere — Quick test is hidden. */
   onQuickTest?: () => void
+  /** Opens the Tests tab's "New test" dialog — the empty state's next action when Quick test is unavailable. */
+  onNewTest?: () => void
 }) {
   const { records, tests, configs, schedules, verdictOf, loading } = insights
   const [nowMs] = useState(() => Date.now())
@@ -56,7 +58,7 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
 
   if (insights.recordsError != null && !records.length) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Couldn't read performance results"
         description={`Kept results live in ConfigMaps on the cluster, and listing them failed: ${
           insights.recordsError instanceof Error ? insights.recordsError.message : String(insights.recordsError)
@@ -73,7 +75,11 @@ export function PerfDashboard({ insights, runs, onOpenTest, onOpenRun, onOpenRes
         description={onQuickTest
           ? 'Build an HTTP load test in a minute with Quick test, or write a k6 script from a template in the Tests tab. Results, trends, gates and schedules appear here once tests run.'
           : 'Write a k6 script from a template in the Tests tab. Results, trends, gates and schedules appear here once tests run.'}
-        action={onQuickTest ? <Button variant="primary" onClick={onQuickTest}>Quick test</Button> : undefined}
+        action={onQuickTest
+          ? <Button variant="primary" onClick={onQuickTest}>Quick test</Button>
+          : onNewTest
+          ? <Button variant="secondary" onClick={onNewTest}>New test</Button>
+          : undefined}
       />
     )
   }

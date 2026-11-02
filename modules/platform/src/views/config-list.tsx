@@ -132,8 +132,8 @@ function ConfigMapsTable({ namespace }: { namespace?: string }) {
               key: 'name',
               header: 'Name',
               cell: (c) => (
-                <div>
-                  <div className="font-medium text-content">{c.metadata.name}</div>
+                <div className="min-w-[13rem]">
+                  <div className="break-words font-medium text-content">{c.metadata.name}</div>
                   <div className="text-xs text-content-muted">{c.metadata.namespace}</div>
                 </div>
               ),
@@ -367,8 +367,8 @@ function SecretsTable({ namespace }: { namespace?: string }) {
               key: 'name',
               header: 'Name',
               cell: (s) => (
-                <div>
-                  <div className="font-medium text-content">{s.metadata.name}</div>
+                <div className="min-w-[13rem]">
+                  <div className="break-words font-medium text-content">{s.metadata.name}</div>
                   <div className="text-xs text-content-muted">{s.metadata.namespace}</div>
                 </div>
               ),

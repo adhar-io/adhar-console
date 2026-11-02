@@ -17,21 +17,22 @@ export function NamespacePicker({ value, onChange }: Props) {
     .map((n) => n.metadata.name)
     .filter(Boolean)
     .sort()
+  // The caller frames it (cloud shell wraps it in a labelled Field), so the
+  // picker carries only an accessible name — an inline "Namespace" label here
+  // printed the word twice and squeezed the select on a phone.
   return (
-    <label className="flex items-center gap-2 text-xs text-content-muted">
-      Namespace
-      <Select
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value || undefined)}
-        className="min-w-44"
-      >
-        <option value="">All namespaces</option>
-        {namespaces.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </Select>
-    </label>
+    <Select
+      aria-label="Namespace"
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value || undefined)}
+      className="w-full"
+    >
+      <option value="">All namespaces</option>
+      {namespaces.map((n) => (
+        <option key={n} value={n}>
+          {n}
+        </option>
+      ))}
+    </Select>
   )
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -11,7 +12,7 @@ import {
   type StatusKind,
   useToast,
 } from '@adhar/shell-ui'
-import { cn, formatRelative } from '@adhar/utils'
+import { cn } from '@adhar/utils'
 import {
   ALL_KINDS,
   EDGE_PHRASE,
@@ -104,6 +105,17 @@ export function KnowledgeGraph({ namespace }: { namespace?: string }) {
 
   if (status.isLoading) {
     return <div className="flex justify-center py-16"><Spinner /></div>
+  }
+
+  if (status.isError && !status.data) {
+    return (
+      <EmptyState
+        tone="error"
+        title="Couldn't reach the knowledge graph"
+        description={status.error instanceof Error ? status.error.message : 'The console server did not answer the graph status request.'}
+        action={<Button size="sm" variant="secondary" onClick={() => status.refetch()}>Retry</Button>}
+      />
+    )
   }
 
   if (!status.data?.running) {
@@ -308,7 +320,7 @@ function Overview({ onCentre, onKind }: { onCentre(id: string): void; onKind(kin
             </div>
             {q.data ? (
               <div className="mt-0.5 text-[11px] text-content-subtle">
-                {q.data.namespaces.length} namespaces visible to you · updated {formatRelative(q.data.updatedAt)}
+                {q.data.namespaces.length} namespaces visible to you
               </div>
             ) : null}
           </div>

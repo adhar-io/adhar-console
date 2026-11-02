@@ -82,8 +82,8 @@ export function MfaAndSession() {
 
       {!saved ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-          Showing recommended defaults — this tenant has not saved a policy yet. Nothing is
-          enforced until a workspace admin saves one.
+          Showing recommended defaults — this organization has not saved a policy yet. Saving one
+          records it here; sign-in is enforced by Keycloak's realm settings either way.
         </p>
       ) : null}
 
@@ -103,7 +103,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <ViewShell
       title="MFA & sessions"
-      description="Multi-factor enforcement, factor strength, and session lifetime. Saved to the tenant document store; realm-level enforcement is applied through Keycloak."
+      description="The organization's stated policy for multi-factor sign-in and session lifetime, saved to the console's document store. It is NOT applied to Keycloak: what sign-in enforces is the realm's own configuration (Keycloak → Authentication and Realm settings → Sessions)."
       writeCheck={WRITE}
     >
       {children}
@@ -131,7 +131,7 @@ function MfaCard({ policy }: { policy: SecurityPolicyDoc }) {
   return (
     <SettingsCard
       title="Multi-factor authentication"
-      description="Recorded here and applied at the Keycloak realm for SSO members."
+      description="Recorded here only. Keycloak requires a second factor through the realm's authentication flows and required actions, which an operator sets in Keycloak."
       actions={
         <RequirePermission check={WRITE}>
           <SecondaryButton disabled={!dirty || save.isPending} onClick={() => setDraft(policy.mfa)}>

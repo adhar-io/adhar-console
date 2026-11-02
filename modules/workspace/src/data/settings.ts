@@ -1,55 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CURRENT_ORG_SLUG,
-  createRole,
   createWebhook,
-  deleteRole,
   deleteWebhook,
-  listCustomRoles,
   listWebhookDeliveries,
   listWebhooks,
   testWebhook,
-  updateRole,
   updateWebhook,
-  type RoleInput,
   type WebhookInput,
 } from './client.ts'
 
 /**
- * React Query hooks for the actionable Settings write-flows — custom RBAC
- * roles and webhook CRUD/test. They wrap the docStore-backed data functions
- * (real Postgres persistence) so the views stay declarative and cache
- * invalidation is centralized. Queries surface a `DocStoreError` verbatim when
- * the database is unavailable — the views render the error rather than fake data.
+ * React Query hooks for the actionable Settings write-flows — webhook
+ * CRUD/test. They wrap the docStore-backed data functions (real Postgres
+ * persistence) so the views stay declarative and cache invalidation is
+ * centralized. Queries surface a `DocStoreError` verbatim when the database is
+ * unavailable — the views render the error rather than fake data.
+ *
+ * There are no custom-role hooks: an organisation's two roles are its Keycloak
+ * groups (`org-<slug>`, `org-<slug>-admin`), and the console keeps no roles of
+ * its own (data/access.ts).
  */
-
-/* ─────────────────── Custom roles ─────────────────── */
-
-const ROLES_KEY = ['ws', 'custom-roles', CURRENT_ORG_SLUG] as const
-
-export function useCustomRoles() {
-  return useQuery({
-    queryKey: ROLES_KEY,
-    queryFn: () => listCustomRoles(),
-  })
-}
-
-export function useSaveRole() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (v: { id?: string; input: RoleInput }) =>
-      v.id ? updateRole(v.id, v.input) : createRole(v.input),
-    onSettled: () => qc.invalidateQueries({ queryKey: ROLES_KEY }),
-  })
-}
-
-export function useDeleteRole() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => deleteRole(id),
-    onSettled: () => qc.invalidateQueries({ queryKey: ROLES_KEY }),
-  })
-}
 
 /* ─────────────────── Webhooks ─────────────────── */
 

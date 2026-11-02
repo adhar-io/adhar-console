@@ -152,7 +152,7 @@ function HarborRegistry() {
     )
   }
   if (repos.isError) {
-    return <EmptyState title="Couldn't reach Harbor" description={repos.error instanceof Error ? repos.error.message : 'The registry API did not answer.'} />
+    return <EmptyState tone="error" title="Couldn't reach Harbor" description={repos.error instanceof Error ? repos.error.message : 'The registry API did not answer.'} />
   }
 
   return (
@@ -212,13 +212,14 @@ function HarborRegistry() {
             </div>
             <div className="mt-2 flex items-center gap-1.5">
               {projects.data && projects.data.length > 0 ? (
-                <select value={project || defaultProject} onChange={(e) => { setProject(e.target.value); setSelected(null) }} aria-label="Project" className="h-8 min-w-0 flex-1 rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content focus:outline-none">
+                <select value={project || defaultProject} onChange={(e) => { setProject(e.target.value); setSelected(null) }} aria-label="Project" className="h-8 min-w-0 flex-1 rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20">
                   {projects.data.map((p) => (
-                    <option key={p.id} value={p.name}>{p.name}{p.public ? ' (public)' : ''} · {p.repoCount} repo{p.repoCount === 1 ? '' : 's'}</option>
+                    // Short label: the pane is 280px and the long form clipped mid-word.
+                    <option key={p.id} value={p.name} title={`${p.name}${p.public ? ' (public)' : ''} · ${p.repoCount} repo${p.repoCount === 1 ? '' : 's'}`}>{p.name} ({p.repoCount})</option>
                   ))}
                 </select>
               ) : null}
-              <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Sort" className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content-muted focus:outline-none">
+              <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} aria-label="Sort" className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content-muted focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20">
                 <option value="updated">Recently updated</option>
                 <option value="pulls">Most pulled</option>
                 <option value="artifacts">Most artifacts</option>
@@ -392,6 +393,10 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
       key: 'digest',
       header: 'Digest',
       width: 130,
+      // Off by default: it is on every row's drawer (and copyable there), and
+      // its 130px were what pushed the Pull / Scan actions behind a scroll in
+      // the artifacts pane at laptop widths. "Columns" brings it back.
+      defaultHidden: true,
       value: (a) => a.digest,
       cell: (a) => (
         <button type="button" onClick={(e) => { e.stopPropagation(); copy(a.digest) }} className="font-mono text-[11px] text-content-muted hover:text-content" title={`${a.digest} — click to copy`}>
@@ -538,13 +543,14 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
             <span title={scanningPossible ? 'Artifacts with a Harbor scan report.' : 'No scanner is registered, so no artifact can have a report.'}>
               · {scanningPossible ? `${totals.scanned}/${list.length} scanned` : 'scanning unavailable'}
             </span>
-            {q.isFetching ? <Spinner size={12} /> : null}
           </div>
         </div>
       </CardHeader>
       <CardBody className="p-0!">
         <DataTable
           tableId="deliver-harbor-artifacts"
+          // The card is the frame — a second bordered box inside it doubled the edge.
+          className="rounded-none border-0 shadow-none"
           columns={columns}
           rows={list}
           rowKey={(a) => a.digest}
@@ -553,7 +559,7 @@ function ArtifactsPane({ repoName, host, scanners }: { repoName: string; host: s
           stickyHeader
           features={{ search: true, filters: true, columns: true, density: true, export: true }}
           searchPlaceholder="Search tags, digests, platforms…"
-          empty={<EmptyState compact title="No artifacts" description="No images pushed for this repository yet." />}
+          empty={<EmptyState bare compact title="No artifacts" description="No images pushed for this repository yet." />}
         />
       </CardBody>
 
@@ -1216,7 +1222,7 @@ function VulnPanel({ repo, artifact: a, scanningPossible }: { repo: string; arti
           <Chip key={s} on={sev === s} onClick={() => setSev(sev === s ? 'all' : s)} tone={s === 'Critical' ? 'failed' : s === 'High' ? 'degraded' : undefined}>{counts[s] ?? 0} {s.toLowerCase()}</Chip>
         ))}
         <Chip on={fixableOnly} onClick={() => setFixableOnly((v) => !v)}>fixable only</Chip>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="CVE or package…" className="ml-auto h-7 w-44 rounded-lg border border-edge-default bg-surface-app px-2 text-[11px] text-content placeholder:text-content-subtle focus:outline-none" />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="CVE or package…" className="ml-auto h-7 w-44 rounded-lg border border-edge-default bg-surface-app px-2 text-[11px] text-content placeholder:text-content-subtle focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20" />
       </div>
       {q.isLoading ? (
         <div className="flex items-center gap-2 text-[12px] text-content-muted"><Spinner size={12} /> Loading report…</div>
@@ -1233,7 +1239,7 @@ function VulnPanel({ repo, artifact: a, scanningPossible }: { repo: string; arti
           stickyHeader
           dense
           features={{ columns: true, export: true }}
-          empty={<EmptyState compact title={all.length === 0 ? 'Report is empty' : 'No matches'} description={all.length === 0 ? 'The scanner ran and recorded no findings for this artifact.' : undefined} />}
+          empty={<EmptyState bare compact title={all.length === 0 ? 'Report is empty' : 'No matches'} description={all.length === 0 ? 'The scanner ran and recorded no findings for this artifact.' : undefined} />}
         />
       )}
     </div>
@@ -1282,7 +1288,7 @@ function NexusRegistry() {
     )
   }
   if (repos.isError) {
-    return <EmptyState title="Couldn't reach Nexus" description={repos.error instanceof Error ? repos.error.message : 'The Nexus REST API did not answer.'} />
+    return <EmptyState tone="error" title="Couldn't reach Nexus" description={repos.error instanceof Error ? repos.error.message : 'The Nexus REST API did not answer.'} />
   }
 
   return (
@@ -1315,7 +1321,7 @@ function NexusRegistry() {
               <div className="text-sm font-semibold text-content">Repositories</div>
               <span className="text-[11px] text-content-subtle">{list.length === all.length ? all.length : `${list.length}/${all.length}`}</span>
             </div>
-            <select value={formatF} onChange={(e) => { setFormatF(e.target.value); setSelected(null) }} aria-label="Format" className="mt-2 h-8 w-full rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content focus:outline-none">
+            <select value={formatF} onChange={(e) => { setFormatF(e.target.value); setSelected(null) }} aria-label="Format" className="mt-2 h-8 w-full rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20">
               <option value="all">All formats</option>
               {formats.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
@@ -1454,7 +1460,6 @@ function NexusComponentsPane({
             />
             <Button size="sm" variant="secondary" onClick={() => setApplied(q)}>Search</Button>
             {nexusUrl ? <Button size="sm" variant="ghost" onClick={() => globalThis.open(`${nexusUrl}/#browse/browse:${encodeURIComponent(repository.name)}`, '_blank', 'noopener')}>Open in Nexus</Button> : null}
-            {comps.isFetching ? <Spinner size={12} /> : null}
           </div>
         </div>
         {comps.data?.truncated ? (
@@ -1466,11 +1471,12 @@ function NexusComponentsPane({
       <CardBody className="p-0!">
         {comps.isError ? (
           <div className="p-6">
-            <EmptyState compact title="Couldn't list components" description={comps.error instanceof Error ? comps.error.message : 'Nexus did not answer.'} />
+            <EmptyState tone="error" compact title="Couldn't list components" description={comps.error instanceof Error ? comps.error.message : 'Nexus did not answer.'} />
           </div>
         ) : (
           <DataTable
             tableId="deliver-nexus-components"
+            className="rounded-none border-0 shadow-none"
             columns={columns}
             rows={rows}
             rowKey={(c) => c.id}
@@ -1479,7 +1485,7 @@ function NexusComponentsPane({
             stickyHeader
             features={{ search: true, filters: true, columns: true, density: true, export: true }}
             searchPlaceholder="Filter loaded packages…"
-            empty={<EmptyState compact title="No packages" description="Nexus returned no components for this repository." />}
+            empty={<EmptyState bare compact title="No packages" description="Nexus returned no components for this repository." />}
           />
         )}
       </CardBody>

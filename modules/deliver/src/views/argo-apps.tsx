@@ -306,7 +306,7 @@ export function ArgoApps() {
   }
   if (q.isError) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Couldn't reach ArgoCD"
         description={q.error instanceof Error ? q.error.message : 'Unknown error.'}
         action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>}
@@ -376,6 +376,10 @@ export function ArgoApps() {
         categories={categoryF}
         onKind={(k) => {
           setKindF((cur) => (cur === k ? null : k))
+          setCategoryF([])
+        }}
+        onAll={() => {
+          setKindF(null)
           setCategoryF([])
         }}
         onCategory={(id) =>
@@ -466,6 +470,7 @@ function CategoryBar({
   kind,
   categories,
   onKind,
+  onAll,
   onCategory,
 }: {
   tally: Array<{ id: string; title: string; count: number; platform: boolean }>
@@ -473,6 +478,7 @@ function CategoryBar({
   kind: 'platform' | 'custom' | null
   categories: string[]
   onKind(k: 'platform' | 'custom'): void
+  onAll(): void
   onCategory(id: string): void
 }) {
   const total = tally.reduce((n, c) => n + c.count, 0)
@@ -483,11 +489,13 @@ function CategoryBar({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <FilterPill on={kind === null && categories.length === 0} onClick={() => kind && onKind(kind)}>
+        {/* "All" clears both rows — it used to only undo the kind, so with a
+            category picked it did nothing. */}
+        <FilterPill on={kind === null && categories.length === 0} onClick={onAll}>
           All <Count>{total}</Count>
         </FilterPill>
         {/* Only offered when there is something on the other side of it. */}
-        {hasCustom ? (
+        {hasCustom && (platformCount > 0 || kind !== null) ? (
           <>
             <FilterPill on={kind === 'custom'} onClick={() => onKind('custom')}>
               Custom apps <Count>{customCount}</Count>
@@ -499,6 +507,9 @@ function CategoryBar({
         ) : null}
       </div>
 
+      {/* A lone category chip filters nothing the row above doesn't already
+          (it rendered as a second "Custom apps 2"), so the row needs two. */}
+      {showing.length > 1 || categories.length > 0 ? (
       <div className="flex flex-wrap items-center gap-1.5">
         {showing.map((c) => (
           <FilterPill
@@ -511,6 +522,7 @@ function CategoryBar({
           </FilterPill>
         ))}
       </div>
+      ) : null}
     </div>
   )
 }
@@ -758,6 +770,9 @@ function AppCard({
         ) : null}
       </div>
 
+      {/* No footer at all when it would hold nothing (read-only viewer, no
+          images yet) — it rendered as an empty band under the card. */}
+      {a.status.images.length || a.status.deployments || canWrite ? (
       <div className="mt-auto flex items-center gap-2 border-t border-edge-subtle px-4 py-2.5">
         {a.status.images.length || a.status.deployments ? (
           <span className="min-w-0 truncate text-[11px] text-content-subtle" title={a.status.images.join('\n')}>
@@ -777,6 +792,7 @@ function AppCard({
           </div>
         ) : null}
       </div>
+      ) : null}
     </Card>
   )
 }
@@ -1072,8 +1088,11 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
                 <div className="flex items-center gap-2 text-sm text-content-muted">
                   <Spinner size={14} /> Loading resource tree…
                 </div>
+              ) : resources.isError ? (
+                // An unreadable tree is not an empty one — say so, with a retry.
+                <EmptyState bare compact tone="error" title="Couldn't read the resource tree" description={errMessage(resources.error)} action={<Button size="sm" variant="secondary" onClick={() => void resources.refetch()}>Retry</Button>} />
               ) : nodes.length === 0 ? (
-                <EmptyState title="No managed resources" />
+                <EmptyState bare compact title="No managed resources" description="Argo CD reports nothing under this application yet." />
               ) : (
                 <ul className="space-y-0.5">
                   {nodes.map((n) => (
@@ -1096,8 +1115,10 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
                 <div className="flex items-center gap-2 text-sm text-content-muted">
                   <Spinner size={14} /> Loading history…
                 </div>
+              ) : history.isError ? (
+                <EmptyState bare compact tone="error" title="Couldn't read the deployment history" description={errMessage(history.error)} action={<Button size="sm" variant="secondary" onClick={() => void history.refetch()}>Retry</Button>} />
               ) : (history.data ?? []).length === 0 ? (
-                <EmptyState title="No deployment history" />
+                <EmptyState bare compact title="No deployment history" description="Each sync adds an entry here once it completes." />
               ) : (
                 <ol className="space-y-2">
                   {(history.data ?? []).map((h) => (
@@ -1467,3 +1488,7 @@ function IconClose() {
 }
 
 export default ArgoApps
+
+function errMessage(e: unknown): string {
+  return e instanceof Error && e.message ? e.message : String(e ?? 'Unknown error')
+}

@@ -374,7 +374,7 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
 
       {/* ═══════════ body ═══════════ */}
       <div
-        className={cn('grid min-h-0 gap-3', prefs.sidebar && 'lg:grid-cols-[300px_minmax(0,1fr)]', fullscreen ? 'flex-1' : 'h-[calc(100vh-11rem)] min-h-[560px]')}
+        className={cn('grid min-h-0 gap-3', prefs.sidebar && 'lg:grid-cols-[300px_minmax(0,1fr)]', fullscreen ? 'flex-1' : 'lg:h-[calc(100vh-11rem)] lg:min-h-[560px]')}
       >
         {prefs.sidebar ? (
           <Sidebar
@@ -395,7 +395,10 @@ export function CloudShell({ namespace: initialNs }: { namespace?: string } = {}
           />
         ) : null}
 
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm">
+        {/* Below lg the sidebar stacks above the workbench and the page scrolls,
+            so the workbench takes a fixed, usable height instead of sharing a
+            viewport-tall grid with the sidebar (which clipped both on a phone). */}
+        <section className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-sm', !fullscreen && 'max-lg:h-[min(36rem,80vh)]')}>
           {/* tab strip — also carries launch and the workbench controls, so the
               workbench costs exactly one row of chrome above the terminal */}
           <div className="flex items-center gap-1 border-b border-edge-default bg-surface-sunken px-1.5 py-1">
@@ -1231,8 +1234,10 @@ function WorkbenchEmpty({
   toolsReady: boolean
 }) {
   return (
-    <div className="flex min-h-0 items-center justify-center p-6">
-      <div className="w-full max-w-lg text-center">
+    // `m-auto` inside a scroller (not `items-center`) — centred when it fits,
+    // scrollable from the top when it does not, never drawn over the tab strip.
+    <div className="flex min-h-0 overflow-y-auto p-6">
+      <div className="m-auto w-full max-w-lg text-center">
         <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-emerald-300 shadow-sm ring-1 ring-black/10 dark:bg-slate-800">
           <IconPrompt />
         </span>

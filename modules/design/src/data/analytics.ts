@@ -18,7 +18,8 @@ import type { AnalyticsEvidence, Journey } from './types.ts'
 const BASE = '/api/svc/posthog/api/projects/@current'
 
 export class AnalyticsError extends Error {
-  constructor(public status: number, message: string) {
+  /** The console BFF's machine code (`upstream_unreachable`, `tool_not_configured`, …), when it sent one. */
+  constructor(public status: number, message: string, public code?: string) {
     super(message)
     this.name = 'AnalyticsError'
   }
@@ -45,7 +46,12 @@ async function ph<T>(path: string, init?: { method?: string; json?: unknown }): 
   }
   if (!res.ok) {
     const detail = (body as { detail?: string; error?: string } | undefined)?.detail ?? (body as { error?: string } | undefined)?.error ?? ''
-    throw new AnalyticsError(res.status, `PostHog HTTP ${res.status}${detail ? ` — ${detail}` : ''}`)
+    const code = (body as { error?: unknown } | undefined)?.error
+    throw new AnalyticsError(
+      res.status,
+      `PostHog HTTP ${res.status}${detail ? ` — ${detail}` : ''}`,
+      typeof code === 'string' && /^[a-z_]+$/.test(code) ? code : undefined,
+    )
   }
   if (typeof body === 'string' && /^\s*</.test(body)) {
     throw new AnalyticsError(401, 'PostHog answered with an HTML page instead of JSON — is POSTHOG_TOKEN set?')
@@ -56,7 +62,14 @@ async function ph<T>(path: string, init?: { method?: string; json?: unknown }): 
 /** A human sentence for why analytics are unavailable. */
 export function analyticsProblem(e: unknown): string {
   const s = (e as { status?: number } | null)?.status ?? 0
-  if (s === 0) return 'PostHog is not reachable from the console.'
+  const code = (e as { code?: string } | null)?.code
+  // The BFF's own failures first: a 502 it raised because nothing answered is
+  // not PostHog "starting up".
+  if (s === 0 || code === 'upstream_unreachable') return 'PostHog is not reachable from the console.'
+  if (code === 'upstream_timeout') return 'PostHog did not answer in time — try again shortly.'
+  if (code === 'tool_not_configured' || code === 'auth_not_configured' || code?.endsWith('_credentials_missing')) {
+    return 'PostHog is not configured for the console.'
+  }
   if (s === 401 || s === 403) return 'PostHog is not configured for the console (no API key).'
   if (s === 404) return 'PostHog is not installed on this platform.'
   if (s >= 502 && s <= 504) return 'PostHog is starting up — try again shortly.'

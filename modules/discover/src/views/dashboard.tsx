@@ -782,7 +782,7 @@ function Stat({ n, label, health }: { n: number; label: string; health: 'ok' | '
 function DeploysWidget({ ctx, deploys, loading, error }: { ctx: DashCtx; deploys: ReturnType<typeof deployEvents>; loading: boolean; error: unknown }) {
   return (
     <Widget title="Recent deploys" subtitle={`Argo CD sync history · ${ctx.range}${ctx.scope.namespace ? ` · ${ctx.scope.namespace}` : ''} · shown as ◆ on charts`} href="/deliver?section=apps" hrefLabel="Deliver">
-      {loading ? <Loading /> : error ? <QueryError error={error} /> : deploys.length === 0 ? (
+      {loading ? <Loading /> : error ? <QueryError error={error} tool="Argo CD" /> : deploys.length === 0 ? (
         <NoData title={`No deploys in the last ${ctx.range}`} />
       ) : (
         <ul className="divide-y divide-edge-subtle">
@@ -823,7 +823,7 @@ function ProductPulse() {
   const max = top[0]?.[1] ?? 1
   return (
     <Widget title="Product pulse" subtitle="PostHog · last 24 h" href={discoverHref('analytics')} hrefLabel="Analytics">
-      {events.isLoading ? <Loading height={80} /> : events.isError ? <QueryError error={events.error} /> : (
+      {events.isLoading ? <Loading height={80} /> : events.isError ? <QueryError error={events.error} tool="PostHog" /> : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[repeat(3,minmax(0,8rem))_1fr]">
           <PulseStat label="Active users" value={users} />
           <PulseStat label="Events" value={list.length} />

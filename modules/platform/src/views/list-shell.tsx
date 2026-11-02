@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { cn } from '@adhar/utils'
 import { Spinner } from '@adhar/shell-ui'
 
@@ -13,9 +13,9 @@ import { Spinner } from '@adhar/shell-ui'
  *
  * - `search` is controlled — the parent owns the value.
  * - `filters` is a slot for status pills (or any inline filter UI).
- * - `lastUpdatedAt` produces a live "updated 5s ago" chip.
- * - `onRefresh` shows a manual refresh button next to the chip; while a
- *   refetch is in flight, the spinner replaces the icon.
+ * - `onRefresh` shows a manual refresh button; while a refetch is in flight,
+ *   the spinner replaces the icon. (House rule: no "updated Xs ago" chrome —
+ *   lists are watch-fed, so freshness is the default, not a status.)
  */
 export interface ListShellProps {
   title?: string
@@ -26,7 +26,7 @@ export interface ListShellProps {
   loading?: boolean
   /** True while a background refetch is happening. */
   isFetching?: boolean
-  /** Epoch ms of last successful query — drives the "updated Xs ago" chip. */
+  /** @deprecated Ignored — the "updated Xs ago" chip was removed (house rule). */
   lastUpdatedAt?: number
   onRefresh?(): void
   search: string
@@ -47,7 +47,6 @@ export function ListShell({
   visible,
   loading = false,
   isFetching = false,
-  lastUpdatedAt,
   onRefresh,
   search,
   onSearchChange,
@@ -100,7 +99,6 @@ export function ListShell({
         {filters ? <div className="flex flex-wrap items-center gap-1.5">{filters}</div> : null}
 
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          {lastUpdatedAt ? <UpdatedChip at={lastUpdatedAt} /> : null}
           {onRefresh ? (
             <button
               type="button"
@@ -185,28 +183,6 @@ export function StatusFilterPills<T extends string>({
         )
       })}
     </div>
-  )
-}
-
-export function UpdatedChip({ at }: { at: number }) {
-  const [, setTick] = useState(0)
-  const ms = Date.now() - at
-  // Seconds matter only for the first minute; after that the label changes
-  // once a minute, so the (network-free) ticker slows down to match.
-  const tickMs = ms < 60_000 ? 1000 : 30_000
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((n) => n + 1), tickMs)
-    return () => window.clearInterval(id)
-  }, [tickMs, at])
-  const text = ms < 1000 ? 'just now' : ms < 60_000 ? `${Math.floor(ms / 1000)}s ago` : `${Math.floor(ms / 60_000)}m ago`
-  return (
-    <span
-      title={new Date(at).toLocaleTimeString()}
-      className="hidden items-center gap-1 rounded-md bg-surface-sunken px-2 py-1 text-[10px] font-medium text-content-subtle md:inline-flex"
-    >
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-      <span>updated {text}</span>
-    </span>
   )
 }
 

@@ -61,8 +61,8 @@ function PVCs({ namespace }: { namespace?: string }) {
           key: 'name',
           header: 'Name',
           cell: (p) => (
-            <div>
-              <div className="font-medium text-content">{p.metadata.name}</div>
+            <div className="min-w-[13rem]">
+              <div className="break-words font-medium text-content">{p.metadata.name}</div>
               <div className="text-xs text-content-muted">{p.metadata.namespace}</div>
             </div>
           ),
@@ -84,7 +84,11 @@ function PVCs({ namespace }: { namespace?: string }) {
         {
           key: 'volume',
           header: 'Volume',
-          cell: (p) => (p.spec as { volumeName?: string })?.volumeName ?? '—',
+          cell: (p) => (
+            <code className="whitespace-nowrap font-mono text-[11px] text-content-muted">
+              {(p.spec as { volumeName?: string })?.volumeName ?? '—'}
+            </code>
+          ),
         },
         {
           key: 'capacity',

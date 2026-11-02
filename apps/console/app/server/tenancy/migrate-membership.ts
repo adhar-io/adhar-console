@@ -49,8 +49,11 @@ import {
  * people did since: a tenant's grants are planned once and persisted
  * (`workspace.migration/keycloak-membership-v1-plan`), each is marked as it is
  * made, a retry makes only the ones still open — and skips every remaining
- * grant of anyone the console's audit trail shows was changed since the plan
- * (removed, demoted, added to a team…). A tenant is marked done
+ * grant of anyone the console's audit trail shows was changed since the FIRST
+ * attempt began (removed, demoted, left, added to a team…), and every grant
+ * into a team deleted since. That start is recorded before anything that can
+ * fail (`…-started`), so an attempt that fails while still planning cannot move
+ * it later. A tenant is marked done
  * (`workspace.migration/keycloak-membership-v1`) only when every planned grant
  * was made or skipped; until then the sweep retries it every five minutes.
  */
@@ -58,6 +61,8 @@ import {
 export const MIGRATION_ID = 'keycloak-membership-v1'
 /** The persisted plan of one tenant's grants, with which ones were made. */
 export const PLAN_ID = `${MIGRATION_ID}-plan`
+/** When the first attempt at a tenant began — the cut-off every plan for it uses. */
+export const STARTED_ID = `${MIGRATION_ID}-started`
 export const LEGACY_MARKER_ID = 'legacy-team-groups-v1'
 const RETRY_MS = 5 * 60_000
 const FIRST_RUN_DELAY_MS = 5_000
@@ -85,7 +90,7 @@ export interface MigrationCounts {
   ambiguousLegacy: number
   /** Team grants held back in the platform organisation (see the header). */
   withheldTeams: number
-  /** Planned grants skipped because the console changed that person since the plan. */
+  /** Planned grants skipped: the console changed that person, or deleted that team, since the first attempt. */
   skippedChanged: number
 }
 
@@ -176,7 +181,7 @@ interface Withheld {
 /** One tenant's migration, planned once and persisted — what a retry resumes. */
 interface TenantPlan {
   version: 1
-  /** When the plan was made: console changes to a person after this win over it. */
+  /** When the first attempt began (`STARTED_ID`): console changes to a person after this win over the plan. */
   startedAt: string
   orgSlug: string
   grants: PlannedGrant[]
@@ -188,10 +193,10 @@ interface TenantPlan {
   [k: string]: unknown
 }
 
-async function planTenant(kc: IdentityDirectory, store: Store, slug: string): Promise<TenantPlan> {
+async function planTenant(kc: IdentityDirectory, store: Store, slug: string, startedAt: string): Promise<TenantPlan> {
   const plan: TenantPlan = {
     version: 1,
-    startedAt: new Date().toISOString(),
+    startedAt,
     orgSlug: slug,
     grants: [],
     members: 0,
@@ -231,6 +236,23 @@ async function planTenant(kc: IdentityDirectory, store: Store, slug: string): Pr
     }
   }
   return plan
+}
+
+/**
+ * When the first attempt at this tenant began, recorded the first time it is
+ * asked — before anything that can fail. An attempt that fails while PLANNING
+ * (Keycloak unreachable at start-up, a 503 reading one member) persists no
+ * plan; if the retry's plan took its own start as the cut-off, a person
+ * removed — or who left — in between would be put back, as admin if their old
+ * document said owner. A plan an older console persisted keeps its own start.
+ */
+async function firstAttemptAt(store: Store): Promise<string> {
+  const started = await store.get<{ at?: unknown }>(KIND.migration, STARTED_ID)
+  if (typeof started?.data?.at === 'string') return started.data.at
+  const planned = await store.get<{ startedAt?: unknown }>(KIND.migration, PLAN_ID)
+  const at = typeof planned?.data?.startedAt === 'string' ? planned.data.startedAt : new Date().toISOString()
+  await store.put(KIND.migration, STARTED_ID, { at }, 'system')
+  return at
 }
 
 /**
@@ -275,20 +297,34 @@ async function migrateTenantOnce(tenant: string, deps: MigrationDeps): Promise<T
     return { status: 'unresolved', reason: clash }
   }
   const slug = entry.slug
+  const since = await firstAttemptAt(store)
   await kc.ensureOrgGroups(slug)
 
   // Plan once; a retry resumes the persisted plan instead of replaying the
   // member documents over whatever admins have done since.
   let plan = (await store.get<TenantPlan>(KIND.migration, PLAN_ID))?.data ?? null
   if (!plan || plan.orgSlug !== slug) {
-    plan = await planTenant(kc, store, slug)
+    plan = await planTenant(kc, store, slug, since)
     await store.put(KIND.migration, PLAN_ID, plan, 'system')
   }
+
+  // A team deleted since the plan is not brought back: its group went with it,
+  // and adding someone to a group that is gone CREATES it (addUserToGroup) —
+  // a group a Project may still bind, and that a new team of the same name
+  // would adopt with these people already in it.
+  const teamsNow = new Set((await store.list<TeamDoc>(KIND.team)).map((t) => t.data?.slug).filter(isStoredSlug))
+  const teamPrefix = `ws-team-${slug}.`
+  const teamGone = (group: string) => group.startsWith(teamPrefix) && !teamsNow.has(group.slice(teamPrefix.length))
 
   const skippedUsers = new Set<string>()
   const checked = new Map<string, boolean>()
   for (const g of plan.grants) {
     if (g.applied || g.skipped) continue
+    if (teamGone(g.group)) {
+      g.skipped = true
+      await store.put(KIND.migration, PLAN_ID, plan, 'system')
+      continue
+    }
     let changed = checked.get(g.userId)
     if (changed === undefined) {
       changed = await changedSince(store, g.userId, plan.startedAt)

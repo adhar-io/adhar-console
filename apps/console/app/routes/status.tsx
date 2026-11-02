@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { AppShell, Button, PageHeader, Spinner, StatusBadge, type StatusKind } from '@adhar/shell-ui'
+import { AppShell, Button, EmptyState, PageHeader, Skeleton, StatusBadge, type StatusKind } from '@adhar/shell-ui'
 import type { ServiceHealth } from '@adhar/platform-info'
 import { cn } from '@adhar/utils'
 import { PENDING_USER, useOptionalSession } from '@adhar/auth'
@@ -69,11 +69,15 @@ async function fetchStatus(): Promise<StatusSnapshot> {
   return (await res.json()) as StatusSnapshot
 }
 
-/** Re-render every second so "updated 3s ago" and uptimes keep moving. */
+/**
+ * A clock for relative times (uptime, "2m ago" in the change log). Ticks every
+ * 15s, not every second: re-rendering the whole page each second only moved a
+ * seconds counter nobody reads, and the uptime below drops seconds past a minute.
+ */
 function useNow(): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1_000)
+    const id = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(id)
   }, [])
   return now
@@ -95,7 +99,7 @@ function uptime(iso: string, now: number): string {
   const d = Math.floor(s / 86400)
   const h = Math.floor((s % 86400) / 3600)
   const m = Math.floor((s % 3600) / 60)
-  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m ${s % 60}s`
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : 'under a minute'
 }
 
 function StatusPage() {
@@ -123,10 +127,12 @@ function StatusPage() {
         title="Platform status"
         actions={
           <div className="flex items-center gap-3">
-            {d ? (
-              <span className="inline-flex items-center gap-1.5 text-[12px] text-content-subtle">
-                <span className={cn('h-1.5 w-1.5 rounded-full', q.isError ? 'bg-rose-500' : 'animate-pulse bg-emerald-500')} />
-                {q.isError ? 'Connection lost · showing last snapshot' : `Live · updated ${ago(d.generatedAt, now)}`}
+            {/* Only a lost connection is worth saying out loud; a healthy
+                feed needs no "updated …" chrome. */}
+            {d && q.isError ? (
+              <span className="inline-flex items-center gap-1.5 text-[12px] text-rose-600 dark:text-rose-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                Connection lost · showing last snapshot
               </span>
             ) : null}
             <Button size="sm" variant="secondary" onClick={() => q.refetch()} loading={q.isFetching}>
@@ -138,13 +144,18 @@ function StatusPage() {
 
       {!d ? (
         q.isError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800 dark:border-rose-500/25 dark:bg-rose-500/10 dark:text-rose-200">
-            Could not load status: {(q.error as Error).message}
-          </div>
+          <EmptyState
+            tone="error"
+            title="Couldn't load platform status"
+            description={(q.error as Error).message}
+            action={
+              <Button size="sm" variant="primary" onClick={() => q.refetch()} loading={q.isFetching}>
+                Try again
+              </Button>
+            }
+          />
         ) : (
-          <div className="flex items-center gap-2 py-16 text-sm text-content-subtle">
-            <Spinner size={14} /> Checking every component…
-          </div>
+          <StatusSkeleton />
         )
       ) : (
         <>
@@ -156,6 +167,20 @@ function StatusPage() {
         </>
       )}
     </AppShell>
+  )
+}
+
+/** The page's shape while the first snapshot is computed — no jump when it lands. */
+function StatusSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Checking every component">
+      <Skeleton className="mb-6 h-36 w-full" rounded="lg" />
+      <div className="mb-6 grid gap-3 md:grid-cols-3">
+        {[0, 1, 2].map((i) => <Skeleton key={i} className="h-44 w-full" rounded="lg" />)}
+      </div>
+      <Skeleton className="mb-3 h-4 w-48" />
+      <Skeleton className="h-48 w-full" rounded="lg" />
+    </div>
   )
 }
 

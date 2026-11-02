@@ -58,7 +58,7 @@ export function PerfReadiness() {
   // code means the results exist (or may) but could not be read.
   if (q.isError || (q.data?.error && q.data.error !== 'not_installed')) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Couldn't read the platform scorer's results"
         description={
           q.error instanceof Error

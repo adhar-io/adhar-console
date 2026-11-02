@@ -19,6 +19,7 @@
  * helper ever fills a gap with a made-up number: missing data stays missing.
  */
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { sourceErrorKind } from './source-error.ts'
 
 const BASE = '/api/svc/posthog/api/projects/@current'
 
@@ -31,10 +32,13 @@ export class PostHogError extends Error {
   }
 }
 
-/** True for the gateway answers PostHog gives while it boots / migrates. */
+/**
+ * True for the gateway answers PostHog gives while it boots / migrates. Not
+ * for the console BFF's own failures (`upstream_unreachable`, a missing
+ * token, …) — those come with a code and are not going to clear on their own.
+ */
 export function isStartingUp(e: unknown): boolean {
-  const s = (e as { status?: number } | null)?.status
-  return s === 502 || s === 503 || s === 504
+  return sourceErrorKind(e) === 'starting'
 }
 
 export async function ph<T>(path: string, init?: RequestInit & { json?: unknown }): Promise<T> {

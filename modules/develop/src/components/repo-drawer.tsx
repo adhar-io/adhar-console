@@ -580,7 +580,7 @@ function CommitsTab({ repo: r }: { repo: gitea.Repo }) {
       loading={commits.isLoading}
       actions={
         <div className='flex items-center gap-1'>
-          <select value={ref} onChange={(e) => setRef(e.target.value)} aria-label='Branch' className='h-7 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-[11px] text-content focus:outline-none'>
+          <select value={ref} onChange={(e) => setRef(e.target.value)} aria-label='Branch' className='h-7 rounded-md border border-edge-default bg-surface-raised px-2 font-mono text-[11px] text-content focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20'>
             {(branches.data ?? [{ name: r.default_branch }]).map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
           </select>
           <FullView onClick={() => go('commits', { repo: r.name, branch: ref })} />
@@ -985,7 +985,7 @@ function PeopleTab({ repo: r }: { repo: gitea.Repo }) {
                       aria-label={`Permission for ${c.login}`}
                       defaultValue='write'
                       onChange={(e) => act(`${c.login} → ${e.target.value}`, () => add.mutateAsync({ repo: r.name, user: c.login, permission: e.target.value as gitea.CollaboratorPermission }))}
-                      className='h-7 rounded-md border border-edge-default bg-surface-raised px-1.5 text-[11px] text-content focus:outline-none'
+                      className='h-7 rounded-md border border-edge-default bg-surface-raised px-1.5 text-[11px] text-content focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20'
                     >
                       {PERMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>

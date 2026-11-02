@@ -137,7 +137,7 @@ export function Environments() {
 
   if (clusters.isError) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Couldn't reach Argo CD"
         description={
           <>

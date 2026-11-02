@@ -119,7 +119,7 @@ function AppFreightList({ stage: s, freightList, max = 4 }: { stage: kargo.Stage
         const f = id ? freightList.find((x) => x.id === id) : undefined
         return (
           <li key={app} className="flex min-w-0 items-center gap-1.5 text-[10px]">
-            <span className="w-16 shrink-0 truncate text-content-muted" title={app}>{app}</span>
+            <span className="max-w-[55%] shrink-0 truncate text-content-muted" title={app}>{app}</span>
             {id
               ? <code className="truncate rounded bg-surface-sunken px-1 font-mono font-semibold text-content" title={id}>{f ? kargo.freightDisplayName(f) : id.slice(0, 12)}</code>
               : <span className="text-content-subtle">no freight</span>}
@@ -373,7 +373,7 @@ export function KargoStages() {
     )
   }
   if (stages.isError) {
-    return <EmptyState title="Couldn't reach Kargo" description={stages.error instanceof Error ? stages.error.message : 'The Kargo CRDs are not readable with your access.'} action={<Button size="sm" variant="secondary" onClick={() => stages.refetch()}>Retry</Button>} />
+    return <EmptyState tone="error" title="Couldn't reach Kargo" description={stages.error instanceof Error ? stages.error.message : 'The Kargo CRDs are not readable with your access.'} action={<Button size="sm" variant="secondary" onClick={() => stages.refetch()}>Retry</Button>} />
   }
 
   const hiddenCount = phaseF === 'all' ? 0 : stageList.filter((s) => !visibleStage(s)).length
@@ -390,7 +390,7 @@ export function KargoStages() {
               setPrefs({ project: e.target.value })
             }}
             aria-label="Kargo project"
-            className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content focus:outline-none"
+            className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[12px] text-content focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20"
           >
             {kargoProjects.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
@@ -586,7 +586,7 @@ export function KargoStages() {
               className="h-8 w-64 rounded-lg border border-edge-default bg-surface-app px-2.5 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
             {warehouseList.length > 1 ? (
-              <select value={warehouseF} onChange={(e) => setWarehouseF(e.target.value)} aria-label="Warehouse" className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content-muted focus:outline-none">
+              <select value={warehouseF} onChange={(e) => setWarehouseF(e.target.value)} aria-label="Warehouse" className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content-muted focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20">
                 <option value="all">Warehouse: all</option>
                 {warehouseList.map((w) => <option key={w.name} value={w.name}>{w.name}</option>)}
               </select>

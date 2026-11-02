@@ -77,9 +77,10 @@ const platformsOwnTeam = {
 
 // The platform's own tenancy (the adhar-supply-chain package) seeds
 // `Team/platform` by the BARE slug, and the Team composition derives the
-// Keycloak group and the Gitea team from spec.parameters — so applying a
-// second XR named `adhar-platform` with the same parameters would stand up a
-// duplicate owner for `ws-team-platform`. Nothing may be written.
+// group it publishes (`ws-team-adhar.platform`) and the Gitea team from
+// spec.parameters — so applying a second XR named `adhar-platform` with the
+// same parameters would stand up a duplicate owner for both. Nothing may be
+// written.
 Deno.test('a team the platform already declares is never written again', async () => {
   const { calls, restore } = stubApiServer({ status: 200, items: [platformsOwnTeam] })
   try {

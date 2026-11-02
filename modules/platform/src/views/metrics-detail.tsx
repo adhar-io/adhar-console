@@ -228,7 +228,7 @@ export function TrendsDetail() {
   return (
     <Section
       title="Trends"
-      hint="Prometheus · cAdvisor, kube-state-metrics and node-exporter · refreshes every 30s"
+      hint="Prometheus · cAdvisor, kube-state-metrics and node-exporter"
       actions={
         <div className="inline-flex rounded-lg border border-edge-default bg-surface-sunken p-0.5">
           {RANGES.map((r) => (

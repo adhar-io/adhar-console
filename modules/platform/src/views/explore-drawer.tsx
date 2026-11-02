@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -103,7 +103,9 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
     onError: (e) => toast.error(`Couldn't delete ${target.name}`, { description: (e as Error).message }),
   })
 
-  useOverlayDismiss(true, () => (confirming ? setConfirming(false) : onClose()))
+  const panelRef = useRef<HTMLElement>(null)
+
+  useOverlayDismiss(true, () => (confirming ? setConfirming(false) : onClose()), { focusRef: panelRef })
 
   const copy = async (text: string, what: string) => {
     try {
@@ -135,7 +137,7 @@ export function ExploreDrawer({ kind, kinds, live, target, printer, onClose, onO
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={`${kind.kind} ${target.name}`}>
       <div className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={onClose} aria-hidden />
-      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-4 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">

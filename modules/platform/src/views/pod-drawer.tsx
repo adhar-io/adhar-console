@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -15,6 +15,7 @@ import {
   type TabDef,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { client, useActiveCluster } from '../data/client.ts'
@@ -98,17 +99,10 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
       }),
   })
 
-  // Close on Esc.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (confirm) setConfirm(null)
-        else onClose()
-      }
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [confirm, onClose])
+  // Esc (topmost overlay only — the confirm dialog takes it first), page
+  // scroll lock, and focus moved in / restored to the row that opened it.
+  const panelRef = useRef<HTMLElement>(null)
+  useOverlayDismiss(true, () => (confirm ? setConfirm(null) : onClose()), { focusRef: panelRef })
 
   if (typeof document === 'undefined') return null
   return createPortal(
@@ -118,7 +112,7 @@ export function PodDrawer({ namespace, name, onClose }: Props) {
         onClick={onClose}
         aria-hidden
       />
-      <aside className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className="flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">

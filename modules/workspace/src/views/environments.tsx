@@ -368,7 +368,7 @@ function EnvironmentModal({
         {requireApproval ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Labeled label="Approvers" hint="Comma-separated roles or emails.">
-              <TextField value={approvers} onChange={setApprovers} placeholder="security, owner" />
+              <TextField value={approvers} onChange={setApprovers} placeholder="admin, alice@example.com" />
             </Labeled>
             <Labeled label="Change window (cron)" hint="Optional — restricts when changes may land.">
               <TextField value={windowsCron} onChange={setWindowsCron} placeholder="0 9-17 * * 1-5" mono />

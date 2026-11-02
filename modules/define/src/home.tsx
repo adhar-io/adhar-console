@@ -207,6 +207,7 @@ export default function DefineHome({ section }: { section?: string } = {}) {
       <div className="space-y-6">
         <PageHeader title={def.label} />
         <EmptyState
+          tone="error"
           icon={<EmptyIcon name="plug" />}
           title={status === 429 ? 'Plane is busy right now' : status === 401 || status === 403 ? 'Plane refused the console' : "Couldn't load Plane projects"}
           description={planeError(projects.error, "The console couldn't read the project list from Plane.")}

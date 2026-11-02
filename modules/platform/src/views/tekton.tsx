@@ -20,6 +20,7 @@ import {
   canResource,
   useAccessReview,
   useCan,
+  useOverlayDismiss,
 } from '@adhar/shell-ui';
 import type { GatewayGVR as GVR, KubeObject } from '@adhar/api-clients/k8s';
 import { kube } from '@adhar/api-clients/k8s';
@@ -1699,13 +1700,10 @@ function PipelineRunDrawer(
     onError: (e) => toast.error('Delete failed', { description: describeErr(e, 'Delete failed') }),
   });
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !confirmDelete) onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, confirmDelete]);
+  const runPanelRef = useRef<HTMLElement>(null);
+  useOverlayDismiss(true, () => {
+    if (!confirmDelete) onClose();
+  }, { focusRef: runPanelRef });
 
   const primary = tektonCondition(run.status?.conditions);
   const kind = tektonKind(primary);
@@ -1724,7 +1722,7 @@ function PipelineRunDrawer(
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={runPanelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col overflow-hidden outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>
@@ -1750,10 +1748,11 @@ function PipelineRunDrawer(
         </header>
 
         {/* Action bar — only the actions this user may perform; none, no bar. */}
-        {canCancel || canRerun || canDelete || deleted
+        {(canCancel && running) || canRerun || canDelete || deleted
           ? (
             <div className='flex flex-wrap items-center gap-2 border-b border-edge-default bg-surface-sunken/50 px-6 py-2.5'>
-              {canCancel
+              {/* Cancel only means something while the run is in flight. */}
+              {canCancel && running
                 ? (
                   <Button
                     size='sm'
@@ -2070,14 +2069,9 @@ function BlueOceanStages({
   const [full, setFull] = useState(false);
   const zoom = ZOOM_STEPS[zoomIdx];
 
-  useEffect(() => {
-    if (!full) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFull(false);
-    };
-    globalThis.addEventListener('keydown', onKey);
-    return () => globalThis.removeEventListener('keydown', onKey);
-  }, [full]);
+  // Full-page DAG sits on top of the run drawer: as its own overlay layer, Esc
+  // exits full page first instead of also closing the drawer underneath.
+  useOverlayDismiss(full, () => setFull(false), { lockScroll: false });
 
   const layout = useMemo(() => {
     // group by level → columns; assign a row within each column
@@ -2738,13 +2732,8 @@ function PipelineDrawer({
   const canRun = useCan(
     canResource(PIPELINERUNS_GVR, 'create', { namespace: pipeline.metadata?.namespace }),
   );
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const pipelinePanelRef = useRef<HTMLElement>(null);
+  useOverlayDismiss(true, onClose, { focusRef: pipelinePanelRef });
 
   const spec = pipeline.spec;
   const statusFor = () => ({ kind: 'info' as StatusKind, label: '' });
@@ -2758,7 +2747,7 @@ function PipelineDrawer({
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={pipelinePanelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col overflow-hidden outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>
@@ -2901,13 +2890,10 @@ function RunPipelineModal({ pipeline, onClose }: { pipeline: TektonPipelineObj; 
     },
   });
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !runMut.isPending) onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, runMut.isPending]);
+  const runDialogRef = useRef<HTMLDivElement>(null);
+  useOverlayDismiss(true, () => {
+    if (!runMut.isPending) onClose();
+  }, { focusRef: runDialogRef });
 
   if (typeof document === 'undefined') return null;
   return createPortal(
@@ -2922,7 +2908,7 @@ function RunPipelineModal({ pipeline, onClose }: { pipeline: TektonPipelineObj; 
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={() => !runMut.isPending && onClose()}
       />
-      <div className='relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-2xl'>
+      <div ref={runDialogRef} tabIndex={-1} className='relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-app shadow-2xl outline-none'>
         <header className='border-b border-edge-default bg-surface-raised px-5 py-4'>
           <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>
             Start a run
@@ -3125,13 +3111,8 @@ export function TektonTasks({ namespace }: { namespace?: string }) {
 
 function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void }) {
   const width = useDrawerWidth('platform.tekton-task', { base: 'max-w-2xl' });
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  const taskPanelRef = useRef<HTMLElement>(null);
+  useOverlayDismiss(true, onClose, { focusRef: taskPanelRef });
 
   const spec = task.spec;
   if (typeof document === 'undefined') return null;
@@ -3143,7 +3124,7 @@ function TaskDrawer({ task, onClose }: { task: TektonTaskObj; onClose(): void })
         className='absolute inset-0 bg-scrim/40 backdrop-blur-[2px]'
         onClick={onClose}
       />
-      <aside className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
+      <aside ref={taskPanelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col overflow-hidden outline-none border-l border-edge-default bg-surface-canvas shadow-2xl', width.className)}>
         <header className='flex items-start justify-between gap-4 border-b border-edge-default bg-surface-raised px-6 py-4'>
           <div className='min-w-0'>
             <div className='text-xs font-semibold uppercase tracking-wider text-content-subtle'>

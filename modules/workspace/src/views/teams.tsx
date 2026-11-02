@@ -141,7 +141,7 @@ export function Teams() {
               setPendingDelete(null)
               if (r.controlPlaneSynced === false) {
                 // The group is gone (so is the access it granted), but the
-                // Team resource — and the Gitea team it composes — is not.
+                // Team resource is not.
                 toast.warning(`Deleted ${name}, but its Team resource was left in place`, {
                   description: `${r.controlPlaneDetail ?? 'The console could not delete it.'} Its Keycloak group is gone; members keep their organization membership.`,
                 })

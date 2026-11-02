@@ -109,7 +109,8 @@ export function MetricsView() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <StatTile
           label="CPU"
-          primary={hasNodeMetrics ? `${formatCpu(totals.cpuUsed)} / ${formatCpu(totals.cpuAlloc)} cores` : `${formatCpu(totals.cpuAlloc)} cores`}
+          primary={hasNodeMetrics ? `${formatCpu(totals.cpuUsed)} / ${formatCpu(totals.cpuAlloc)}` : formatCpu(totals.cpuAlloc)}
+          unit="cores"
           secondary={hasNodeMetrics ? `${formatCpu(Math.max(0, totals.cpuAlloc - totals.cpuUsed))} free` : 'allocatable'}
           pct={hasNodeMetrics ? cpuPct : null}
         />
@@ -192,9 +193,12 @@ function StatTile({
   secondary,
   pct,
   badge,
+  unit,
 }: {
   label: string
   primary: string
+  /** Small trailing unit, kept out of the figure so the figure never truncates. */
+  unit?: string
   secondary: string
   /** Null hides the usage bar (unknown / not-a-ratio metric). */
   pct: number | null
@@ -211,8 +215,9 @@ function StatTile({
             <span className="font-mono text-xs tabular-nums text-content-muted">{pct}%</span>
           ) : null)}
         </div>
-        <div className="truncate font-mono text-lg font-semibold tabular-nums text-content">
-          {primary}
+        <div className="flex flex-wrap items-baseline gap-x-1.5 font-mono tabular-nums" title={unit ? `${primary} ${unit}` : primary}>
+          <span className="text-base font-semibold text-content xl:text-lg">{primary}</span>
+          {unit ? <span className="text-[11px] text-content-muted">{unit}</span> : null}
         </div>
         {pct !== null ? <UsageBar pct={pct} /> : null}
         <div className="text-[11px] text-content-muted">{secondary}</div>

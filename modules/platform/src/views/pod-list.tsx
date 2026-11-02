@@ -88,10 +88,11 @@ export function PodsView({ namespace }: { namespace?: string }) {
             {
               key: 'name',
               header: 'Pod',
+              value: (p) => p.metadata.name,
               cell: (p) => (
-                <div>
-                  <div className="font-medium text-content">{p.metadata.name}</div>
-                  <div className="text-xs text-content-muted">{p.metadata.namespace}</div>
+                <div className="min-w-[14rem] max-w-[24rem]">
+                  <div className="truncate font-medium text-content" title={p.metadata.name}>{p.metadata.name}</div>
+                  <div className="truncate text-xs text-content-muted">{p.metadata.namespace}</div>
                 </div>
               ),
             },
@@ -143,12 +144,17 @@ export function PodsView({ namespace }: { namespace?: string }) {
                 )
               },
             },
-            { key: 'node', header: 'Node', cell: (p) => p.spec?.nodeName ?? '—' },
+            {
+              key: 'node',
+              header: 'Node',
+              value: (p) => p.spec?.nodeName ?? '',
+              cell: (p) => <span className="whitespace-nowrap">{p.spec?.nodeName ?? '—'}</span>,
+            },
             {
               key: 'ip',
               header: 'IP',
               cell: (p) => (
-                <code className="font-mono text-[11px] text-content-muted">
+                <code className="whitespace-nowrap font-mono text-[11px] text-content-muted">
                   {p.status?.podIP ?? '—'}
                 </code>
               ),
@@ -157,12 +163,20 @@ export function PodsView({ namespace }: { namespace?: string }) {
               key: 'image',
               header: 'Image',
               cell: (p) => (
-                <code className="text-xs text-content-muted">
+                <code
+                  className="block max-w-[16rem] truncate text-xs text-content-muted"
+                  title={p.spec?.containers?.[0]?.image}
+                >
                   {shortImage(p.spec?.containers?.[0]?.image)}
                 </code>
               ),
             },
-            { key: 'age', header: 'Age', cell: (p) => age(p.metadata.creationTimestamp) },
+            {
+              key: 'age',
+              header: 'Age',
+              value: (p) => p.metadata.creationTimestamp ?? '',
+              cell: (p) => <span className="whitespace-nowrap">{age(p.metadata.creationTimestamp)}</span>,
+            },
           ]}
           rows={rows}
           rowKey={(p) => `${p.metadata.namespace}/${p.metadata.name}`}

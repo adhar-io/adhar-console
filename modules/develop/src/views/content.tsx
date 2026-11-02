@@ -113,7 +113,7 @@ export function Content() {
     return (
       <div className="space-y-4">
         {header}
-        <EmptyState title="Couldn't reach Strapi" description={strapiError(types.error)} action={<Button size="sm" variant="secondary" onClick={() => types.refetch()}>Retry</Button>} />
+        <EmptyState tone="error" title="Couldn't reach Strapi" description={strapiError(types.error)} action={<Button size="sm" variant="secondary" onClick={() => types.refetch()}>Retry</Button>} />
       </div>
     )
   }
@@ -332,7 +332,7 @@ function Entries({ ct, adminUrl }: { ct: ContentType; adminUrl: string }) {
           <Spinner size={14} /> Loading entries…
         </div>
       ) : q.isError ? (
-        <EmptyState title="Couldn't load entries from Strapi" description={strapiError(q.error)} action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>} />
+        <EmptyState tone="error" title="Couldn't load entries from Strapi" description={strapiError(q.error)} action={<Button size="sm" variant="secondary" onClick={() => q.refetch()}>Retry</Button>} />
       ) : (
         <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised shadow-sm">
           <DataTable
@@ -341,7 +341,7 @@ function Entries({ ct, adminUrl }: { ct: ContentType; adminUrl: string }) {
             rows={data?.data ?? []}
             rowKey={(e) => e.documentId}
             onRowClick={(e) => setEditing({ documentId: e.documentId })}
-            empty={<EmptyState compact title={term ? 'No matches' : 'No entries yet'} description={term ? `Nothing matches "${term}".` : 'Click New entry to add the first one.'} />}
+            empty={<EmptyState bare compact title={term ? 'No matches' : 'No entries yet'} description={term ? `Nothing matches "${term}".` : 'Click New entry to add the first one.'} />}
           />
           {pages > 1 ? (
             <div className="flex items-center justify-between border-t border-edge-subtle px-3 py-2 text-[12px] text-content-muted">
@@ -462,7 +462,7 @@ function EntryEditor({
         </div>
       ) : entry.isError ? (
         <div className="p-6">
-          <EmptyState compact title="Couldn't load the entry" description={strapiError(entry.error)} />
+          <EmptyState tone="error" compact title="Couldn't load the entry" description={strapiError(entry.error)} />
         </div>
       ) : (
         <div className="space-y-4 p-5">
@@ -690,7 +690,7 @@ function Media() {
       </div>
     )
   }
-  if (files.isError) return <EmptyState title="Couldn't load media from Strapi" description={strapiError(files.error)} action={<Button size="sm" variant="secondary" onClick={() => files.refetch()}>Retry</Button>} />
+  if (files.isError) return <EmptyState tone="error" title="Couldn't load media from Strapi" description={strapiError(files.error)} action={<Button size="sm" variant="secondary" onClick={() => files.refetch()}>Retry</Button>} />
   const list = files.data ?? []
   if (!list.length) {
     return <EmptyState title="No media yet" description="Files uploaded in Strapi's Media Library appear here." />

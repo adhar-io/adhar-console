@@ -158,7 +158,7 @@ export function ImageScans() {
   }
   if (registry.isError) {
     return (
-      <EmptyState
+      <EmptyState tone="error"
         title="Couldn't reach Harbor"
         description={registry.error instanceof Error
           ? registry.error.message
@@ -561,7 +561,7 @@ function VulnDrawer({ artifact: a, onClose }: { artifact: ScannedArtifact; onClo
             </div>
           ) : vulns.isError ? (
             <div className="px-6 py-8">
-              <EmptyState
+              <EmptyState tone="error"
                 compact
                 title="Couldn't read the report"
                 description={vulns.error instanceof Error ? vulns.error.message : 'Harbor did not return the vulnerability report for this artifact.'}

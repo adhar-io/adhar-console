@@ -28,10 +28,13 @@ export interface InstantSample {
 
 export class PromError extends Error {
   status?: number
-  constructor(message: string, status?: number) {
+  /** The error body — carries the console BFF's code (`upstream_timeout`, …) for `sourceErrorKind`. */
+  body?: unknown
+  constructor(message: string, status?: number, body?: unknown) {
     super(message)
     this.name = 'PromError'
     this.status = status
+    this.body = body
   }
 }
 
@@ -46,7 +49,7 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   const b = body as { status?: string; error?: string } | null
   if (!res.ok || (b?.status && b.status !== 'success')) {
     const msg = b?.error ?? (res.status === 503 ? 'backend is not configured for this install' : `HTTP ${res.status}`)
-    throw new PromError(msg, res.ok ? 400 : res.status)
+    throw new PromError(msg, res.ok ? 400 : res.status, body)
   }
   return body as T
 }
@@ -212,6 +215,12 @@ export interface RangeOpts {
   refreshMs?: number | false
   enabled?: boolean
   source?: 'prometheus' | 'loki'
+  /**
+   * Give up after this long (the error's `name` is `TimeoutError`). For heavy
+   * scans — a cluster-wide LogQL regex can run into the proxy's 60s deadline,
+   * and a widget spinning for a minute reads as broken.
+   */
+  timeoutMs?: number
 }
 
 /** One range query; the window slides to "now" on every refetch. */
@@ -223,7 +232,8 @@ export function useRange(query: string | null, opts: RangeOpts) {
     queryFn: ({ signal }) => {
       const end = Date.now()
       const fn = src === 'loki' ? lokiRange : promRange
-      return fn(query!, end - opts.windowMs, end, step, signal)
+      const sig = opts.timeoutMs ? AbortSignal.any([signal, AbortSignal.timeout(opts.timeoutMs)]) : signal
+      return fn(query!, end - opts.windowMs, end, step, sig)
     },
     enabled: !!query && (opts.enabled ?? true),
     refetchInterval: opts.refreshMs ?? false,

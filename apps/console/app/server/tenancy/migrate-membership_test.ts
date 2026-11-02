@@ -188,6 +188,50 @@ Deno.test('a retry never re-grants what an admin changed after the plan was made
   assertEquals(kc.groupsOf(ids.member), ['org-acme', 'ws-team-acme.payments'])
 })
 
+Deno.test('a change between an attempt that failed while planning and its retry is never undone', async () => {
+  const { kc, db, ids, deps } = setup()
+  // An older console's provisioner had put the owner, who created acme, in org-acme.
+  kc.join(ids.owner, 'org-acme')
+  // The first attempt fails while PLANNING — Keycloak answers 503 reading the
+  // owner — so it persists no plan.
+  let failing = true
+  kc.failOn = (c) => (failing && c.method === 'GET' && c.path === `/users/${ids.owner}` ? 503 : null)
+  assertEquals((await migrateTenant(ACME, deps)).status, 'failed')
+  assertEquals(await db.store(ACME).get(KIND.migration, PLAN_ID), null, 'nothing was planned')
+  // Before the retry, the owner leaves acme from the switcher (member.leave).
+  kc.leave(ids.owner, 'org-acme')
+  db.put(ACME, KIND.audit, 'a1', { actor: { type: 'user', id: ids.owner, label: 'owner' }, action: 'member.leave', target: { type: 'member', id: ids.owner, label: 'owner' }, outcome: 'success', at: new Date().toISOString() })
+  // The retry plans later still: a plan taking its own start as the cut-off
+  // would postdate the leave.
+  await new Promise((r) => setTimeout(r, 5))
+  failing = false
+  const out = await migrateTenant(ACME, deps)
+  assertEquals(out.status, 'migrated')
+  assertEquals(kc.groupsOf(ids.owner), [], 'not put back, not made admin, not in the team')
+  if (out.status === 'migrated') assertEquals(out.counts.skippedChanged, 3)
+  // Everyone else is migrated as planned.
+  assertEquals(kc.groupsOf(ids.member), ['org-acme', 'ws-team-acme.payments'])
+})
+
+Deno.test('a team deleted between attempts is not brought back by the retry', async () => {
+  const { kc, db, ids, deps } = setup()
+  // The first run stops at the owner's admin grant, before the member's
+  // payments-team grant.
+  let failing = true
+  kc.failOn = (c) => (failing && c.method === 'PUT' && c.path.startsWith(`/users/${ids.owner}/`) && kc.groups.get(c.path.split('/').pop()!)?.name === 'org-acme-admin' ? 503 : null)
+  assertEquals((await migrateTenant(ACME, deps)).status, 'failed')
+  // Meanwhile an admin deletes the payments team (its group and its document).
+  await db.store(ACME).remove(KIND.team, 't1')
+  failing = false
+  const out = await migrateTenant(ACME, deps)
+  assertEquals(out.status, 'migrated')
+  assertFalse([...kc.groups.values()].some((g) => g.name === 'ws-team-acme.payments'), 'the deleted team\'s group is not re-created')
+  assertEquals(kc.groupsOf(ids.member), ['org-acme'])
+  // Everything else finishes as planned.
+  assertEquals(kc.groupsOf(ids.owner), ['org-acme', 'org-acme-admin', 'ws-team-acme.platform'])
+  if (out.status === 'migrated') assertEquals(out.counts.skippedChanged, 1)
+})
+
 Deno.test('an organisation named <x>-admin beside <x> is never migrated into', async () => {
   const { kc, db, deps } = setup()
   const victim = kc.addUser({ username: 'v@x.test' })

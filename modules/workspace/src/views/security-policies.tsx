@@ -155,9 +155,9 @@ function PolicyEditor({ policy }: { policy: SecurityPolicyDoc }) {
       {headerActions}
       <SettingsCard
         title="Password & sign-in"
-        description="Members on SSO inherit the IdP's policy; these rules apply only to break-glass passwords."
+        description="Recorded intent only. Passwords are Keycloak's: the realm's password policy (Keycloak → Authentication → Policies) is what sign-in enforces."
       >
-        <SettingsRow label="Minimum length" description="Recommended: 14+ for break-glass owners.">
+        <SettingsRow label="Minimum length" description="Recommended: 14+ for break-glass accounts.">
           <TextField
             type="number"
             value={String(password.minLength)}
@@ -258,7 +258,7 @@ function PolicyEditor({ policy }: { policy: SecurityPolicyDoc }) {
         </SettingsRow>
         <SettingsRow
           label="Approval for bulk export"
-          description="Require Security + Owner approval before exporting audit log or tenant data outside the home region."
+          description="Require an organization admin's approval before exporting audit log or tenant data outside the home region."
         >
           <ToggleField
             checked={governance.dataExportApprovalRequired}

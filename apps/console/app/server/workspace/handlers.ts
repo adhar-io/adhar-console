@@ -1254,9 +1254,10 @@ async function deleteTeam(ctx: Ctx, id: string): Promise<Response> {
     ctx.req,
     { slug, controlPlaneSynced: controlPlane.ok },
   )
-  // Whether the Team resource (and the Gitea team it composes) went too. It
-  // can be left in place — not the console's to delete, or the delete was
-  // refused — and the page says so rather than implying it is gone.
+  // Whether the Team resource went too. It can be left in place — not the
+  // console's to delete, or the delete was refused — and the page says so
+  // rather than implying it is gone. The Gitea team stays either way: the
+  // Team composition's Job only ever creates it.
   return json({ ok: true, controlPlaneSynced: controlPlane.ok, ...(controlPlane.ok ? {} : { controlPlaneDetail: 'The Team resource was left in place; a platform admin can remove it.' }) })
 }
 

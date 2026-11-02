@@ -177,7 +177,7 @@ export function GatewaysTable({ namespace }: { namespace?: string }) {
           loading={q.isLoading}
           onRowClick={(g) => setSelected(g)}
           columns={[
-            { key: 'name', header: 'Name', cell: (g) => <div><div className="font-medium text-content">{g.metadata.name}</div><div className="text-xs text-content-muted">{g.metadata.namespace}</div></div> },
+            { key: 'name', header: 'Name', cell: (g) => <div className="min-w-[13rem]"><div className="break-words font-medium text-content">{g.metadata.name}</div><div className="text-xs text-content-muted">{g.metadata.namespace}</div></div> },
             { key: 'class', header: 'Class', cell: (g) => <code className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[11px]">{g.spec?.gatewayClassName ?? '—'}</code> },
             {
               key: 'listeners',
@@ -356,7 +356,7 @@ export function RoutesTable({ namespace }: { namespace?: string }) {
           loading={http.isLoading}
           onRowClick={(r) => setSelected(r)}
           columns={[
-            { key: 'name', header: 'Name', cell: (r) => <div><div className="font-medium text-content">{r.metadata.name}</div><div className="text-xs text-content-muted">{r.metadata.namespace} · {r.kind}</div></div> },
+            { key: 'name', header: 'Name', cell: (r) => <div className="min-w-[13rem]"><div className="break-words font-medium text-content">{r.metadata.name}</div><div className="text-xs text-content-muted">{r.metadata.namespace} · {r.kind}</div></div> },
             {
               key: 'hosts',
               header: 'Hostnames',
@@ -499,7 +499,7 @@ export function GatewayClassesTable() {
       <DataTable<GatewayClassObject>
         loading={q.isLoading}
         columns={[
-          { key: 'name', header: 'Name', cell: (c) => <div><div className="font-medium text-content">{c.metadata.name}</div>{c.spec?.description ? <div className="text-xs text-content-muted">{c.spec.description}</div> : null}</div> },
+          { key: 'name', header: 'Name', cell: (c) => <div className="min-w-[13rem]"><div className="break-words font-medium text-content">{c.metadata.name}</div>{c.spec?.description ? <div className="text-xs text-content-muted">{c.spec.description}</div> : null}</div> },
           { key: 'controller', header: 'Controller', cell: (c) => <code className="font-mono text-[11px] text-content-muted">{c.spec?.controllerName ?? '—'}</code> },
           { key: 'params', header: 'Parameters', cell: (c) => c.spec?.parametersRef ? <code className="font-mono text-[11px] text-content-muted">{c.spec.parametersRef.kind ?? ''}/{c.spec.parametersRef.name}</code> : <span className="text-content-subtle">—</span> },
           { key: 'gateways', header: 'Gateways', numeric: true, cell: (c) => gateways.filter((g) => g.spec?.gatewayClassName === c.metadata.name).length },

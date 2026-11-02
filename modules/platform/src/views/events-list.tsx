@@ -46,8 +46,8 @@ export function EventsView({ namespace }: { namespace?: string }) {
       )
       .slice()
       .sort((a, b) => {
-        const ta = new Date(a.lastTimestamp ?? 0).getTime()
-        const tb = new Date(b.lastTimestamp ?? 0).getTime()
+        const ta = new Date(seenAt(a) || 0).getTime()
+        const tb = new Date(seenAt(b) || 0).getTime()
         return tb - ta
       })
   }, [all, search, type])
@@ -110,12 +110,17 @@ export function EventsView({ namespace }: { namespace?: string }) {
             key: 'message',
             header: 'Message',
             cell: (e) => (
-              <span className="block max-w-xl truncate text-sm text-content" title={e.message}>
+              <span className="line-clamp-2 min-w-[16rem] max-w-md break-words text-sm text-content" title={e.message}>
                 {e.message}
               </span>
             ),
           },
-          { key: 'last', header: 'Last seen', cell: (e) => age(e.lastTimestamp) },
+          {
+            key: 'last',
+            header: 'Last seen',
+            value: (e) => seenAt(e),
+            cell: (e) => <span className="whitespace-nowrap">{age(seenAt(e) || undefined)}</span>,
+          },
           { key: 'count', header: 'Count', numeric: true, cell: (e) => e.count ?? 1 },
         ]}
         rows={rows}
@@ -124,4 +129,9 @@ export function EventsView({ namespace }: { namespace?: string }) {
       />
     </ListShell>
   )
+}
+
+/** When an event was last seen — `events.k8s.io` style events carry only `eventTime`. */
+function seenAt(e: { lastTimestamp?: string; eventTime?: string; metadata?: { creationTimestamp?: string } }): string {
+  return e.lastTimestamp ?? e.eventTime ?? e.metadata?.creationTimestamp ?? ''
 }

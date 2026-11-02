@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueries, useQueryClient } from '@tanstack/react-query'
 import {
@@ -320,9 +320,10 @@ export function PlatformCatalog() {
 /* ───── browse overlay — full list + drawer + topology for any kind ───── */
 
 function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
-  if (typeof document === 'undefined') return null
   const cur = curationFor(info.kind)
-  useOverlayDismiss(true, onClose)
+  const panelRef = useRef<HTMLDivElement>(null)
+  useOverlayDismiss(true, onClose, { focusRef: panelRef })
+  if (typeof document === 'undefined') return null
 
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto p-4 sm:p-8" role="dialog" aria-modal="true">
@@ -332,7 +333,7 @@ function BrowseModal({ info, onClose }: { info: XrdInfo; onClose(): void }) {
         className="fixed inset-0 bg-scrim/40 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <div className="relative flex max-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
+      <div ref={panelRef} tabIndex={-1} className="relative flex max-h-[calc(100vh-4rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl outline-none">
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-edge-default px-6 py-4">
           <div className="min-w-0">
             <div className="text-xs font-semibold uppercase tracking-wider text-content-subtle">

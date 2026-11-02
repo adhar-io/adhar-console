@@ -74,8 +74,8 @@ function ServiceAccountsTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (s) => (
-              <div>
-                <div className="font-medium text-content">{s.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{s.metadata.name}</div>
                 <div className="text-xs text-content-muted">{s.metadata.namespace}</div>
               </div>
             ),
@@ -120,8 +120,8 @@ function RolesTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (r) => (
-              <div>
-                <div className="font-medium text-content">{r.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{r.metadata.name}</div>
                 <div className="text-xs text-content-muted">{r.metadata.namespace}</div>
               </div>
             ),
@@ -166,8 +166,8 @@ function RoleBindingsTable({ namespace }: { namespace?: string }) {
             key: 'name',
             header: 'Name',
             cell: (rb) => (
-              <div>
-                <div className="font-medium text-content">{rb.metadata.name}</div>
+              <div className="min-w-[13rem]">
+                <div className="break-words font-medium text-content">{rb.metadata.name}</div>
                 <div className="text-xs text-content-muted">{rb.metadata.namespace}</div>
               </div>
             ),

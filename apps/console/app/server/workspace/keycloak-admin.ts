@@ -13,7 +13,10 @@ import { orgAdminGroup, orgMemberGroup } from '../tenancy/org-access.ts'
  * Credentials: a dedicated service account (`KEYCLOAK_ADMIN_CLIENT_ID` /
  * `KEYCLOAK_ADMIN_CLIENT_SECRET`, client-credentials grant) or — as a fallback
  * — the console's own confidential client, whose service account the realm job
- * grants manage-users, view-users, query-users, query-groups and manage-realm.
+ * grants manage-users, view-users, query-users, query-groups and view-realm
+ * (only to read whether the realm has an SMTP server). NOT manage-realm: the
+ * console changes no realm configuration, and the realm job takes it away from
+ * a service account an older release gave it to.
  *
  * EVERY method throws a typed `KcError` when Keycloak could not do what was
  * asked; nothing reports "false" and carries on. That is the opposite of the
@@ -520,7 +523,7 @@ export class KeycloakAdmin implements IdentityDirectory {
 
   async emailConfigured(): Promise<boolean> {
     if (this.#email && this.#now() - this.#email.at < EMAIL_CONFIG_TTL_MS) return this.#email.value
-    const res = await this.#call<{ smtpServer?: Record<string, unknown> }>('GET', '', { role: 'view-realm (manage-realm implies it)' })
+    const res = await this.#call<{ smtpServer?: Record<string, unknown> }>('GET', '', { role: 'view-realm' })
     const host = res.data?.smtpServer?.host
     const value = typeof host === 'string' && host.trim().length > 0
     this.#email = { at: this.#now(), value }

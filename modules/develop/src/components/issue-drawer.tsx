@@ -24,7 +24,7 @@ export function IssueDrawer({ seed, repo, index, onClose }: { seed?: RepoIssue; 
     return (
       <Drawer onClose={onClose} widthId='develop.issue' header={<div className='flex justify-between'><span className='text-sm text-content-muted'>{repo} #{index}</span><CloseButton onClick={onClose} /></div>}>
         {q.isError
-          ? <EmptyState compact title='Issue not found' description={q.error instanceof Error ? q.error.message : ''} />
+          ? <EmptyState tone="error" compact title='Issue not found' description={q.error instanceof Error ? q.error.message : ''} />
           : <ItemSkeleton label='Loading issue' />}
       </Drawer>
     );

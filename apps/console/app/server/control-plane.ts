@@ -7,8 +7,10 @@
  * console itself. The platform already describes exactly that as Crossplane
  * XRs: `Organisation` composes the home namespace, its quota, the role
  * bindings for the console's groups and the Gitea organisation; `Team`
- * composes the Keycloak group and the Gitea team (platform/controlplane,
- * ADR-0026). Two writers for one set of objects is drift waiting to happen, so
+ * composes the Gitea team and publishes the name of its Keycloak group,
+ * `ws-team-<org>.<team>`, which the console creates and fills — Keycloak is
+ * the only user store (platform/controlplane, ADR-0026). Two writers for one
+ * set of objects is drift waiting to happen, so
  * the console now declares the XR and lets the control plane do the work —
  * and every tenant it already created is back-filled as an XR the first time
  * it is listed, so "Adhar Resources" shows all of them.

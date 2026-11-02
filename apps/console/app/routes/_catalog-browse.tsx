@@ -26,8 +26,10 @@ import {
   Textarea,
   useAi,
   useDrawerWidth,
+  usePublicBaseDomain,
   usePublicUrl,
   useToast,
+  toolForInternalHost,
   useToolPublicUrl,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
@@ -77,7 +79,8 @@ import { ResourcesTab } from './_catalog-resources.tsx'
 import { drawerTabAlias } from '~/data/catalog-resources-model.ts'
 import { CatalogDeleteDialog, useEntityDeleteMode } from '~/components/catalog-delete-app.tsx'
 import { loadGiteaTemplates } from '~/data/catalog-templates.ts'
-import { isHttpUrl, isSafeLinkUrl } from '~/data/safe-url.ts'
+import { isHttpUrl } from '~/data/safe-url.ts'
+import { isBrowsableUrl, repairLinkUrl, tidyLinks, type TidyLinksOptions } from '~/data/entity-links.ts'
 import {
   CATEGORY_LABEL,
   type Check,
@@ -251,20 +254,16 @@ const URL_ANNOTATIONS = [
  * tab and widget used to be one more place a dead link could leak from.
  * Returns the same object when nothing changed so memoised consumers hold.
  */
-function publicizeEntity(e: Entity, pub: (url: string) => string): Entity {
-  let changed = false
-  const links = (e.metadata.links ?? []).flatMap((l) => {
-    // Links are user-authored data (`catalog-info.yaml`, Register form);
-    // drop anything that is not plain web navigation (`javascript:` etc.)
-    // here, once, rather than trusting every card/tab that renders one.
-    if (!isSafeLinkUrl(l.url)) {
-      changed = true
-      return []
-    }
-    const url = pub(l.url)
-    if (url !== l.url) changed = true
-    return [url !== l.url ? { ...l, url } : l]
-  })
+function publicizeEntity(e: Entity, opts: TidyLinksOptions): Entity {
+  // Links are user-authored data (`catalog-info.yaml`, Register form) merged
+  // from several sources: `tidyLinks` drops anything that is not plain web
+  // navigation (`javascript:` etc.), template placeholders and laptop
+  // defaults, moves stale/in-cluster hosts to public ones, and folds the same
+  // repository reached two ways into one link — here, once, rather than in
+  // every card/tab that renders one.
+  const links = tidyLinks(e.metadata.links, opts)
+  const linksChanged = links !== (e.metadata.links ?? links)
+  let changed = linksChanged
   const ann = e.metadata.annotations
   let annotations = ann
   if (ann) {
@@ -274,7 +273,7 @@ function publicizeEntity(e: Entity, pub: (url: string) => string): Entity {
       // `url:https://…` is Backstage's prefixed form; keep the prefix.
       const m = /^(url:\s*)?(https?:\/\/\S+)$/i.exec(raw.trim())
       if (!m) continue
-      const next = pub(m[2])
+      const next = repairLinkUrl(m[2], opts) ?? m[2]
       if (next !== m[2]) {
         if (annotations === ann) annotations = { ...ann }
         annotations![key] = `${m[1] ?? ''}${next}`
@@ -283,13 +282,20 @@ function publicizeEntity(e: Entity, pub: (url: string) => string): Entity {
     }
   }
   if (!changed) return e
-  return { ...e, metadata: { ...e.metadata, links, ...(annotations !== ann ? { annotations } : {}) } }
+  return {
+    ...e,
+    metadata: { ...e.metadata, ...(linksChanged ? { links } : {}), ...(annotations !== ann ? { annotations } : {}) },
+  }
 }
 
 export function CatalogBrowse({ search }: { search: SearchState }) {
   const q = useCatalog()
   const pub = usePublicUrl()
-  const list = useMemo(() => (q.data ?? []).map((e) => publicizeEntity(e, pub)), [q.data, pub])
+  const baseDomain = usePublicBaseDomain()
+  const list = useMemo(
+    () => (q.data ?? []).map((e) => publicizeEntity(e, { pub, baseDomain, toolFor: toolForInternalHost })),
+    [q.data, pub, baseDomain],
+  )
   const stars = useStars()
   const recents = useRecentlyViewed()
   const user = useOptionalSession()?.user ?? PENDING_USER
@@ -3696,6 +3702,15 @@ function EntityDrawer({
   // but a fallback that names the Service is still rewritten to something a
   // browser can open.
   const routeList = useMemo(() => routes.routes.map((r) => (pub(r.url) === r.url ? r : { ...r, url: pub(r.url) })), [routes.routes, pub])
+  // The header offers only what a browser can open: a route still naming a
+  // Service (`shop.apps.svc`) is listed on the Deployment tab, not as "Open".
+  const headerRoutes = useMemo(() => routeList.filter((r) => isBrowsableUrl(r.url)), [routeList])
+  const headerLinks = entity.metadata.links ?? []
+  // A library or a docs repo that runs nowhere has no workload dashboard to
+  // open — Grafana would show an empty board. A pinned dashboard still shows.
+  const runsNowhere = (entity.spec.type === 'library' || entity.spec.type === 'documentation') &&
+    deployment.apps.length === 0 && routeList.length === 0 && !entityAnnotations(entity)['adhar.io/grafana-dashboard']
+  const showMonitor = Boolean(monitorUrl) && !runsNowhere && !headerLinks.some((l) => l.icon === 'dashboard')
   const showDeploy = wantsDeploy || deployment.apps.length > 0
   const deployBadge =
     deployment.apps.length > 0
@@ -3815,22 +3830,27 @@ function EntityDrawer({
               ) : null}
             </div>
 
-            {/* Right cluster: where you are in the list, then the things you
-                can do to the drawer itself. */}
+            {/* Right cluster: where you are in the list, then what you can do
+                to the entity, then what you can do to the drawer itself. */}
             <div className="order-first flex w-full shrink-0 items-center justify-end gap-1 sm:order-none sm:w-auto">
               {position && siblings && siblings.length > 1 ? (
-                <div className="mr-1 hidden items-center gap-0.5 rounded-lg border border-edge-default bg-surface-raised p-0.5 text-[11px] text-content-muted sm:flex">
+                <div
+                  role="group"
+                  aria-label="Move through the list"
+                  className="mr-1 hidden h-8 items-center rounded-lg border border-edge-default bg-surface-raised text-[11px] text-content-muted sm:flex"
+                >
                   <button
                     type="button"
                     disabled={!position.prev}
                     onClick={() => position.prev && onNavigate?.(position.prev)}
                     aria-label="Previous entity"
+                    aria-keyshortcuts="ArrowLeft"
                     title="Previous (←)"
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-30 disabled:hover:bg-transparent"
+                    className={cn(HEADER_ICON_BTN, 'h-full w-7 rounded-r-none disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-content-subtle')}
                   >
                     <IconChevronLeft />
                   </button>
-                  <span className="px-1 font-mono tabular-nums">
+                  <span className="px-1 font-mono tabular-nums" aria-live="polite">
                     {position.index + 1}
                     <span className="text-content-subtle"> / {siblings.length}</span>
                   </span>
@@ -3839,8 +3859,9 @@ function EntityDrawer({
                     disabled={!position.next}
                     onClick={() => position.next && onNavigate?.(position.next)}
                     aria-label="Next entity"
+                    aria-keyshortcuts="ArrowRight"
                     title="Next (→)"
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content disabled:opacity-30 disabled:hover:bg-transparent"
+                    className={cn(HEADER_ICON_BTN, 'h-full w-7 rounded-l-none disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-content-subtle')}
                   >
                     <IconChevronRight />
                   </button>
@@ -3851,20 +3872,21 @@ function EntityDrawer({
                 onClick={() => askAboutEntity(ai, entity)}
                 aria-label="Ask Adhar AI about this entity"
                 title="Ask Adhar AI"
-                className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-500/10 dark:hover:text-brand-300"
+                className={cn(HEADER_ICON_BTN, 'hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-500/10 dark:hover:text-brand-300')}
               >
                 <IconSparkle />
               </button>
               <button
                 type="button"
                 onClick={() => toggleStar(ref)}
-                aria-label={starred ? 'Unstar' : 'Star'}
+                aria-pressed={starred}
+                aria-label={starred ? 'Remove from starred' : 'Add to starred'}
                 title={starred ? 'Remove from starred' : 'Add to starred'}
                 className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded-md transition',
+                  HEADER_ICON_BTN,
                   starred
-                    ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-500 ring-1 ring-amber-200'
-                    : 'text-content-subtle hover:bg-surface-sunken hover:text-amber-500',
+                    ? 'bg-amber-50 text-amber-500 ring-1 ring-inset ring-amber-200 hover:bg-amber-50 hover:text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/30 dark:hover:bg-amber-500/15'
+                    : 'hover:text-amber-500',
                 )}
               >
                 {starred ? <IconStarFilled /> : <IconStar />}
@@ -3875,19 +3897,21 @@ function EntityDrawer({
                   onClick={onDelete}
                   aria-label={deleteMode === 'application' ? 'Delete application' : 'Delete from platform'}
                   title={deleteMode === 'application' ? 'Delete application…' : 'Delete from platform…'}
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                  className={cn(HEADER_ICON_BTN, 'hover:bg-rose-50 hover:text-rose-600 focus-visible:ring-rose-500/50 dark:hover:bg-rose-500/10 dark:hover:text-rose-300')}
                 >
                   <IconTrash />
                 </button>
               ) : null}
-              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
+              <span aria-hidden className="mx-1 hidden h-5 w-px bg-edge-default lg:block" />
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} className="pointer-coarse:h-11 pointer-coarse:w-11" />
               <button
                 ref={closeBtnRef}
                 type="button"
                 onClick={onClose}
                 aria-label="Close"
+                aria-keyshortcuts="Escape"
                 title="Close (Esc)"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+                className={HEADER_ICON_BTN}
               >
                 <IconClose />
               </button>
@@ -3896,27 +3920,29 @@ function EntityDrawer({
           {/*
             The things a person opens a drawer to DO, in the frame that
             stays while the tabs change: open the running thing, go to its
-            source, its docs, its dashboard.
+            source, its docs, its dashboard. The row wraps: a scroller with
+            its scrollbar hidden put the last links past the drawer's edge
+            with nothing to say they were there.
           */}
-          {routeList.length || entity.metadata.links?.length || monitorUrl ? (
-            <div className="mt-3 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5 [scrollbar-width:none] [&>*]:shrink-0">
-              <EntityRoutesBar routes={routeList} onSeeAll={() => setTab('deploy')} />
-              {(entity.metadata.links ?? []).map((l) => (
+          {headerRoutes.length || headerLinks.length || showMonitor ? (
+            <nav aria-label="Quick links" className="mt-3 flex flex-wrap items-center gap-2">
+              <EntityRoutesBar routes={headerRoutes} onSeeAll={() => setTab('deploy')} />
+              {headerLinks.map((l) => (
                 <a
                   key={l.url}
                   href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+                  target={l.url.startsWith('/') ? undefined : '_blank'}
+                  rel={l.url.startsWith('/') ? undefined : 'noopener noreferrer'}
+                  title={l.url}
+                  className={cn(HEADER_CHIP, 'max-w-full sm:max-w-72')}
                 >
                   <LinkGlyph icon={l.icon} />
-                  {l.title}
+                  <span className="truncate">{l.title}</span>
+                  {l.url.startsWith('/') ? null : <span className="sr-only"> (opens in a new tab)</span>}
                 </a>
               ))}
-              {monitorUrl && !(entity.metadata.links ?? []).some((l) => l.icon === 'monitor' || l.icon === 'dashboard') ? (
-                <MonitorButton url={monitorUrl} />
-              ) : null}
-            </div>
+              {showMonitor ? <MonitorButton url={monitorUrl} /> : null}
+            </nav>
           ) : null}
         </header>
 
@@ -5409,7 +5435,14 @@ function argoHealthKind(status?: string): StatusKind {
 }
 
 /** A subtle copy-to-clipboard button used for clone commands. */
-function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) {
+function CopyButton({ text, label = 'Copy', ariaLabel, className, iconOnly = false }: {
+  text: string
+  label?: string
+  ariaLabel?: string
+  className?: string
+  /** Icon only; the label (and "Copied") is still read out. */
+  iconOnly?: boolean
+}) {
   const [copied, setCopied] = useState(false)
   const toast = useToast()
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -5430,10 +5463,13 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
           })
           .catch(() => toast.error('Could not copy'))
       }}
-      className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0"
+      aria-label={copied ? undefined : ariaLabel}
+      title={ariaLabel}
+      className={className ??
+        'inline-flex min-h-8 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 py-1 text-[11px] font-medium text-content-muted transition hover:border-brand-200 hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0'}
     >
       {copied ? <IconCheck /> : <IconCopy />}
-      {copied ? 'Copied' : label}
+      <span className={iconOnly ? 'sr-only' : undefined}>{copied ? 'Copied' : label}</span>
     </button>
   )
 }
@@ -5450,42 +5486,62 @@ function CopyButton({ text, label = 'Copy' }: { text: string; label?: string }) 
  * jumps to the Deployment tab, where every URL is listed in full with its route
  * and backend. A row of six equally-weighted links is not a primary action.
  */
+/*
+ * The drawer header's two button shapes, shared so the row reads as one set:
+ * every control 32px (44px under a finger), one focus ring. Links out are
+ * neutral chips — the drawer has no single primary action, and a tinted
+ * button among plain ones read as a call to action rather than one more link.
+ */
+const HEADER_FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised'
+const HEADER_ICON_BTN =
+  `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content pointer-coarse:h-11 pointer-coarse:w-11 ${HEADER_FOCUS}`
+const HEADER_CHIP =
+  `inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content-muted shadow-xs transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content pointer-coarse:h-11 ${HEADER_FOCUS}`
+
 function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll(): void }) {
   // No routes is a normal answer, not a failure: a library, a database or a
   // queue consumer has no HTTP surface. Say nothing rather than showing an
   // empty state for something that was never expected to exist.
   if (!routes.length) return null
   const [primary, ...rest] = routes
+  // A fragment: the buttons wrap with the links after them instead of
+  // travelling as one unbreakable block.
   return (
-    <div className="flex items-center gap-2">
-      <a
-        href={primary.url}
-        target="_blank"
-        rel="noreferrer"
-        className={cn(
-          'group inline-flex min-w-0 items-center gap-2 rounded-lg px-3.5 py-2 text-xs font-semibold transition-colors',
-          // Neutral, like every other action in the drawer: the drawer has no
-          // single primary action, and a tinted button among plain ones read
-          // as a call to action rather than as one more link out.
-          'border border-edge-default bg-surface-raised text-content shadow-sm hover:border-edge-strong hover:bg-surface-sunken',
-        )}
-        title={primary.url}
-      >
-        <IconGlobe />
-        <span className="truncate">Open {routeLabel(primary)}</span>
-        <IconArrowUpRight />
-      </a>
-      <CopyButton text={primary.url} />
+    <>
+      {/* Open and Copy travel together: a copy button wrapped onto the next
+          line on its own no longer says what it copies. */}
+      <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+        <a
+          href={primary.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(HEADER_CHIP, 'shrink font-semibold text-content')}
+          title={primary.url}
+        >
+          <IconGlobe />
+          <span className="truncate">Open {routeLabel(primary)}</span>
+          <IconArrowUpRight />
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+        <CopyButton
+          text={primary.url}
+          label="Copy URL"
+          ariaLabel={`Copy ${primary.url}`}
+          iconOnly
+          className={cn(HEADER_CHIP, 'w-8 justify-center px-0 pointer-coarse:w-11')}
+        />
+      </span>
       {rest.length ? (
         <button
           type="button"
           onClick={onSeeAll}
-          className="rounded-lg border border-edge-default bg-surface-raised px-3 py-2 text-xs font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/25 dark:hover:text-brand-300"
+          title="List every endpoint on the Deployment tab"
+          className={HEADER_CHIP}
         >
           +{rest.length} more {rest.length === 1 ? 'endpoint' : 'endpoints'}
         </button>
       ) : null}
-    </div>
+    </>
   )
 }
 

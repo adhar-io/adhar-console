@@ -218,8 +218,8 @@ function CommitRow({ commit: c, active, onOpen, onAuthor }: { commit: gitea.Comm
         </div>
         {expanded ? <pre className='mt-1 whitespace-pre-wrap font-sans text-[12px] text-content-muted'>{body}</pre> : null}
         <div className='mt-0.5 text-[11px] text-content-subtle'>
-          <button type='button' onClick={(e) => { e.stopPropagation(); onAuthor(); }} className='font-medium text-content-muted hover:text-content hover:underline'>{c.author.login}</button>
-           committed <span title={c.created}>{formatRelative(c.created)}</span>
+          <button type='button' onClick={(e) => { e.stopPropagation(); onAuthor(); }} className='font-medium text-content-muted hover:text-content hover:underline'>{c.author.login}</button> committed{' '}
+          <span title={c.created}>{formatRelative(c.created)}</span>
         </div>
       </div>
       {c.stats ? <span className='mt-0.5 hidden sm:block'><DiffStat add={c.stats.additions} del={c.stats.deletions} /></span> : null}

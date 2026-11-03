@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.169",
+    "date": "2026-11-03",
+    "changes": [
+      {
+        "type": "improvement",
+        "text": "Enhance ux"
+      }
+    ]
+  },
+  {
     "version": "0.1.168",
-    "date": "2026-11-02",
+    "date": "2026-11-03",
     "changes": [
       {
         "type": "improvement",
@@ -470,41 +480,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "change",
         "text": "CI/CD runs: task progress from Tekton's own tally, not '0/N'"
-      }
-    ]
-  },
-  {
-    "version": "0.1.129",
-    "date": "2026-10-14",
-    "changes": [
-      {
-        "type": "change",
-        "text": "Catalog improvements"
-      },
-      {
-        "type": "change",
-        "scope": "overview widgets",
-        "text": "Real platform signals (Cilium/Hubble, Tekton, Gitea, Falco, Tetragon)"
-      },
-      {
-        "type": "change",
-        "scope": "overview hero",
-        "text": "Open Platform + Customize only; desktop polish"
-      },
-      {
-        "type": "fix",
-        "scope": "mobile style review",
-        "text": "Overflow, stacked layouts and dark-mode fixes"
-      },
-      {
-        "type": "change",
-        "scope": "mobile",
-        "text": "Search overlays don't raise the keyboard on open"
-      },
-      {
-        "type": "change",
-        "scope": "catalog coverage tiles",
-        "text": "Progress bar pinned to the bottom edge"
       }
     ]
   }

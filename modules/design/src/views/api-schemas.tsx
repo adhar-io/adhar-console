@@ -330,7 +330,7 @@ export function ApiSchemas() {
             title="Design APIs contract-first"
             description="Write OpenAPI, AsyncAPI or JSON Schema with live validation, browse endpoints with generated examples and request snippets, and track breaking changes between versions."
             action={
-              <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
+              <Button size="sm" leading={<Icon name="plus" />} onClick={() => setNewOpen(true)}>New spec</Button>
             }
           />
         )

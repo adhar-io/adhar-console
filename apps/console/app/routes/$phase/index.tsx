@@ -1,8 +1,15 @@
-import { createFileRoute, Navigate, useSearch } from '@tanstack/react-router'
+import { createFileRoute, redirect, useSearch } from '@tanstack/react-router'
 import { RemoteModule } from '@adhar/mf-utils'
 import type { Phase } from '@adhar/shell-ui'
+import { legacyRedirect } from '~/data/legacy-redirects.ts'
 
 export const Route = createFileRoute('/$phase/')({
+  // Moved pages are redirected before render — see legacy-redirects.ts for
+  // why not with a rendered <Navigate>.
+  beforeLoad: ({ params, search }) => {
+    const r = legacyRedirect((params as { phase: string }).phase, search as Record<string, unknown>)
+    if (r) throw redirect({ to: r.to, search: r.search as never, replace: true })
+  },
   component: PhaseLanding,
 })
 
@@ -19,31 +26,9 @@ const PHASE_LABEL: Record<Phase, string> = {
 function PhaseLanding() {
   const { phase } = Route.useParams() as { phase: Phase }
   const search = useSearch({ from: '/$phase' }) as { section?: string }
-  // Builds moved from Platform to Develop. Old links (bookmarks, notification
-  // hrefs) still say /platform?section=ci — send them to the new home.
-  if (phase === 'platform' && search.section === 'ci') {
-    return <Navigate to="/develop" search={{ section: 'builds' } as never} replace />
-  }
-  // Code Builder was retired; the Visual Designer in Design replaces it.
-  if (phase === 'develop' && search.section === 'codebuilder') {
-    return <Navigate to="/design" search={{ section: 'builder' } as never} replace />
-  }
-  // The Performance Center moved from Develop to Deliver.
-  if (phase === 'develop' && search.section === 'performance') {
-    return <Navigate to="/deliver" search={{ ...(search as Record<string, unknown>), section: 'performance' } as never} replace />
-  }
   // Owned by the Develop module (k6 runner, test suite), shown under Deliver.
   if (phase === 'deliver' && search.section === 'performance') {
     return <RemoteModule key="performance" loader={loadPerformance} label="Performance Center" />
-  }
-  // Functions live in Develop only; the old Deliver link (and bookmarks to it)
-  // land there.
-  if (phase === 'deliver' && search.section === 'functions') {
-    return <Navigate to="/develop" search={{ ...(search as Record<string, unknown>), section: 'functions' } as never} replace />
-  }
-  // Chaos Engineering moved from Platform to Deliver.
-  if (phase === 'platform' && search.section === 'chaos') {
-    return <Navigate to="/deliver" search={{ section: 'chaos' } as never} replace />
   }
   // Owned by the Platform module (Litmus CRDs, cluster picker), shown under Deliver.
   if (phase === 'deliver' && search.section === 'chaos') {

@@ -133,7 +133,7 @@ export function Wireframes() {
           title={all.items.length ? `No wireframes in ${scope.label}` : 'No wireframes yet'}
           description="Sketch a screen — pick a template, describe it to Adhar AI, or start blank. Editing opens in the Visual Designer."
           action={
-            <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>New frame</Button>
+            <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus />}>New frame</Button>
           }
         />
       ) : (

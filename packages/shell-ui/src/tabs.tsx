@@ -126,13 +126,15 @@ export function Tabs<T extends string>({
       {/* The scroller is masked at its right edge: on a phone the tab list is
           wider than the screen, and a hard cut at the bezel gives no hint that
           more tabs exist. The mask fades the last one instead. */}
-      <div className="relative flex items-end justify-between gap-4 border-b border-edge-default">
+      {/* With actions, a phone stacks them above the tab list (which keeps
+          the full width to scroll) instead of squeezing both into one row. */}
+      <div className="relative flex flex-col-reverse gap-1 border-b border-edge-default sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         <nav
           role="tablist"
           aria-label={ariaLabel}
           aria-orientation="horizontal"
           onKeyDown={onKeyDown}
-          className="-mb-px flex gap-0.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none] sm:[mask-image:none] [&::-webkit-scrollbar]:hidden"
+          className="-mb-px flex min-w-0 gap-0.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none] sm:[mask-image:none] [&::-webkit-scrollbar]:hidden"
         >
           {visibleTabs.map((t) => {
             const isActive = t.id === active
@@ -165,7 +167,7 @@ export function Tabs<T extends string>({
             )
           })}
         </nav>
-        {actions ? <div className="pb-2">{actions}</div> : null}
+        {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 pb-1 sm:pb-2">{actions}</div> : null}
       </div>
       <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
         {children?.(active)}

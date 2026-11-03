@@ -106,7 +106,7 @@ export function Views({
         <EmptyState icon={<EmptyIcon name="view" />}
           title={views.length ? 'No views match' : 'No saved views yet'}
           description={views.length ? 'Try another tab or search.' : 'Build a query on Issues and press Save view, or create one here with WQL.'}
-          action={!views.length ? <Button size="sm" variant="primary" onClick={() => setEditing('new')}>New view</Button> : undefined}
+          action={!views.length ? <Button size="sm" onClick={() => setEditing('new')}>New view</Button> : undefined}
         />
       ) : (
         <ul className="divide-y divide-edge-subtle overflow-hidden rounded-xl border border-edge-default bg-surface-raised">

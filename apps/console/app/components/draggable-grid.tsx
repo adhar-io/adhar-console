@@ -416,11 +416,15 @@ export function DraggableGrid<T extends { id: string }>({
                   }}
                   style={{ touchAction: 'none' }}
                   className={cn(
-                    // Top-centre edge, not the top-right corner: panel headers
-                    // put their labels and actions on the right, and the grip
-                    // sat on top of them ("CHANGE FAIL RATE" on the DORA tile).
-                    'absolute left-1/2 top-0 z-10 flex h-5 w-12 -translate-x-1/2 cursor-grab items-center justify-center rounded-b-md text-content-subtle transition-opacity hover:bg-surface-sunken active:cursor-grabbing [@media(hover:none)]:h-6 [@media(hover:none)]:w-14',
-                    isDragging ? 'opacity-0' : 'opacity-35 group-hover:opacity-100 [@media(hover:none)]:opacity-70',
+                    'absolute z-10 flex cursor-grab items-center justify-center text-content-subtle transition-opacity active:cursor-grabbing',
+                    // Phone: a round chip on the card's top-right corner, just
+                    // outside the content — panel headers put labels on the
+                    // right ("CHANGE FAIL RATE" on the DORA tile), so a grip
+                    // inside the corner covered them.
+                    '-right-1.5 -top-1.5 h-7 w-7 rounded-full border border-edge-default bg-surface-raised shadow-sm',
+                    // sm and up: a quiet strip on the top-centre edge.
+                    'sm:left-1/2 sm:right-auto sm:top-0 sm:h-5 sm:w-12 sm:-translate-x-1/2 sm:rounded-none sm:rounded-b-md sm:border-0 sm:bg-transparent sm:shadow-none sm:hover:bg-surface-sunken',
+                    isDragging ? 'opacity-0' : 'opacity-90 sm:opacity-35 sm:group-hover:opacity-100 sm:[@media(hover:none)]:opacity-70',
                   )}
                 >
                   <DragHandleGlyph />
@@ -515,7 +519,24 @@ function DropArrowGlyph() {
 
 function DragHandleGlyph() {
   return (
-    <svg width="18" height="10" viewBox="0 0 24 12" fill="currentColor" aria-hidden>
+    <>
+      {/* Vertical dots in the phone's round corner chip, horizontal on the edge strip. */}
+      <svg className="sm:hidden" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+        <circle cx="9" cy="6" r="1.8" />
+        <circle cx="15" cy="6" r="1.8" />
+        <circle cx="9" cy="12" r="1.8" />
+        <circle cx="15" cy="12" r="1.8" />
+        <circle cx="9" cy="18" r="1.8" />
+        <circle cx="15" cy="18" r="1.8" />
+      </svg>
+      <HorizontalGrip />
+    </>
+  )
+}
+
+function HorizontalGrip() {
+  return (
+    <svg className="hidden sm:block" width="18" height="10" viewBox="0 0 24 12" fill="currentColor" aria-hidden>
       <circle cx="6" cy="3.5" r="1.6" />
       <circle cx="12" cy="3.5" r="1.6" />
       <circle cx="18" cy="3.5" r="1.6" />

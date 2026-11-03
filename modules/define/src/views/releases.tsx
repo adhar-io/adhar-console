@@ -99,7 +99,7 @@ export function Releases({ projectId }: { projectId?: string }) {
         <Button variant="primary" onClick={() => setCreating(true)}>New release</Button>
       </div>
       {all.length === 0
-        ? <EmptyState icon={<EmptyIcon name="release" />} title="No releases yet" description="A release groups the work items that ship together, tracks its date and generates release notes." action={<Button variant="primary" size="sm" onClick={() => setCreating(true)}>New release</Button>} />
+        ? <EmptyState icon={<EmptyIcon name="release" />} title="No releases yet" description="A release groups the work items that ship together, tracks its date and generates release notes." action={<Button size="sm" onClick={() => setCreating(true)}>New release</Button>} />
         : <DataTable tableId="define-releases" columns={columns} rows={rows} rowKey={(r) => r.id} onRowClick={(r) => params({ release: r.id }, { push: true })} empty={<EmptyState compact title="No releases in this view" />} />}
       {creating ? <ReleaseForm projectId={projectId} onClose={() => setCreating(false)} onSaved={(id) => params({ release: id }, { push: true })} /> : null}
       {open ? <ReleaseDetail projectId={projectId} release={open} items={items} plan={issues.data ?? []} onClose={() => params({ release: undefined })} /> : null}

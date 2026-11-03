@@ -250,7 +250,7 @@ export function Personas() {
           title={all.items.length ? `No personas in ${scope.label}` : 'No personas yet'}
           description="Personas keep the whole team designing for real people. Create one blank, from a template, or drafted by Adhar AI from your research."
           action={
-            <Button size="sm" variant="primary" onClick={() => setTemplatesOpen(true)} leading={<IconPlus size={12} />}>
+            <Button size="sm" onClick={() => setTemplatesOpen(true)} leading={<IconPlus size={12} />}>
               New persona
             </Button>
           }

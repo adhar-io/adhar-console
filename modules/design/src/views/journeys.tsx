@@ -178,7 +178,7 @@ export function Journeys() {
             title="No journey maps yet"
             description="Map how a persona moves through your product — what they do, think and feel at each stage — to find the pain points worth fixing."
             action={
-              <Button size="sm" variant="primary" onClick={() => setCreateOpen(true)} leading={<IconPlus size={12} />}>
+              <Button size="sm" onClick={() => setCreateOpen(true)} leading={<IconPlus size={12} />}>
                 New journey
               </Button>
             }

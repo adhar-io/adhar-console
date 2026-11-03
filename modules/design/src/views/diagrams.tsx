@@ -274,7 +274,7 @@ export function Diagrams() {
             description="Write Mermaid — flowcharts, sequences, C4, ER, state machines — and see it render live. Generate C4, deployment and tenancy views from your live platform, or start from a template."
             action={
               <div className="flex flex-wrap items-center justify-center gap-2">
-                <Button size="sm" variant="primary" onClick={() => setGenerateOpen(true)}>
+                <Button size="sm" onClick={() => setGenerateOpen(true)}>
                   Generate from platform
                 </Button>
                 <Button size="sm" onClick={() => setGalleryOpen(true)} leading={<Icon name="template" />}>

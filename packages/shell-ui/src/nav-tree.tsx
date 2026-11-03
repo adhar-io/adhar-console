@@ -375,7 +375,7 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'decide.databases', label: 'Databases', to: '/decide', search: 'databases' },
           {
             id: 'decide.pulses',
-            label: 'Pulses & Alerts',
+            label: 'Subscriptions & Alerts',
             to: '/decide',
             search: 'pulses',
           },

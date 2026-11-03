@@ -279,7 +279,7 @@ function PagesHome({ pages, onOpen, onNew, projectName, loading }: { pages: Page
             </ul>
           </section>
         )
-        : <EmptyState icon={<EmptyIcon name="page" />} title={`No pages in ${projectName ?? 'this project'} yet`} description="Start a wiki: PRDs, RFCs, runbooks, meeting notes. Pages are stored by the console and can be exported to the project's repository." action={<Button variant="primary" onClick={() => onNew()}>New page</Button>} />}
+        : <EmptyState icon={<EmptyIcon name="page" />} title={`No pages in ${projectName ?? 'this project'} yet`} description="Start a wiki: PRDs, RFCs, runbooks, meeting notes. Pages are stored by the console and can be exported to the project's repository." action={<Button onClick={() => onNew()}>New page</Button>} />}
     </div>
   )
 }

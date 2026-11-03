@@ -266,19 +266,31 @@ class LiveClient {
   }
 }
 
-export const liveClient = new LiveClient()
+/**
+ * ONE client per page, whichever copy of shell-ui asks. shell-ui is not in the
+ * federation share scope, so the host and every remote bundle their own copy
+ * of this module — and a plain module-level `new LiveClient()` meant one
+ * socket (with its own watches and BFF polls) per loaded module. The first
+ * copy to load creates the client on `globalThis`; every later copy reuses it
+ * and skips re-registering the window listeners.
+ */
+const LIVE_KEY = '__adharLiveClient'
+const g = globalThis as unknown as Record<string, LiveClient | undefined>
+const existing = g[LIVE_KEY]
+export const liveClient: LiveClient = existing ?? (g[LIVE_KEY] = new LiveClient())
 
 // Recover immediately when the environment says something changed: the tab
 // coming back to the foreground (laptop woken, tab re-selected) or the network
 // coming back. Each of these leaves a socket that is already dead but whose
 // backoff timer may be tens of seconds away, which the user experiences as a
-// page that has simply stopped updating.
-if (typeof document !== 'undefined') {
+// page that has simply stopped updating. Registered once, by the copy that
+// created the client.
+if (!existing && typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     liveClient.setHidden(document.visibilityState === 'hidden')
   })
 }
-if (typeof globalThis.addEventListener === 'function') {
+if (!existing && typeof globalThis.addEventListener === 'function') {
   globalThis.addEventListener('online', () => liveClient.reconnectNow())
   // A socket can stay half-open after a network change: the browser never sees
   // a close, so nothing triggers a reconnect. `focus` is a cheap extra nudge.

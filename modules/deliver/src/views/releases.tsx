@@ -346,7 +346,7 @@ function ContentRow({ content: c }: { content: ReleaseContent }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-baseline gap-x-2">
-          <code className="font-mono text-[12px] font-medium text-content">{c.title}</code>
+          <code className="max-w-full truncate font-mono text-[12px] font-medium text-content" title={c.title}>{c.title}</code>
           <span className="truncate text-[11px] text-content-muted">{c.source}</span>
           {c.branch ? <span className="text-[11px] text-content-subtle">@ {c.branch}</span> : null}
         </span>

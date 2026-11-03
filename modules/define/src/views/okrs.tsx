@@ -213,7 +213,7 @@ export function Okrs({ projectId }: { projectId?: string }) {
                   title={`No objectives for ${quarter}`}
                   description='Set a few ambitious objectives with measurable key results. Link key results to Plane epics or issues and their progress updates itself.'
                   action={
-                    <Button variant='primary' onClick={() => setEditing('new')}>
+                    <Button onClick={() => setEditing('new')}>
                       New objective
                     </Button>
                   }

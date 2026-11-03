@@ -417,7 +417,7 @@ export function Adrs() {
           title="Record your first architecture decision"
           description="ADRs capture why the platform looks the way it does — the context, the options you weighed, and the consequences you accepted. Use the MADR template, move decisions through proposed → accepted → superseded, and commit them to docs/adr in Gitea."
           action={
-            <Button size="sm" variant="primary" leading={<Icon name="plus" />} onClick={() => setCreateOpen(true)}>
+            <Button size="sm" leading={<Icon name="plus" />} onClick={() => setCreateOpen(true)}>
               New ADR
             </Button>
           }

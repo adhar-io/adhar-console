@@ -138,11 +138,19 @@ async function serveStatic(pathname: string): Promise<Response | null> {
   }
 }
 
-let indexHtmlCache: string | null = null
+// Re-read when the file changes: a local rebuild rewrites index.html with new
+// hashed asset names, and a copy held for the life of the process kept
+// serving the previous build (its old bundle) until the server restarted. In a
+// container dist never changes, so this is one stat per page load.
+let indexHtmlCache: { mtime: number; html: string } | null = null
 async function serveIndex(): Promise<Response> {
   try {
-    if (indexHtmlCache === null) indexHtmlCache = await Deno.readTextFile(join(DIST, 'index.html'))
-    return new Response(indexHtmlCache, {
+    const path = join(DIST, 'index.html')
+    const mtime = (await Deno.stat(path)).mtime?.getTime() ?? 0
+    if (indexHtmlCache === null || indexHtmlCache.mtime !== mtime) {
+      indexHtmlCache = { mtime, html: await Deno.readTextFile(path) }
+    }
+    return new Response(indexHtmlCache.html, {
       headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' },
     })
   } catch {

@@ -264,11 +264,11 @@ export function Functions({ mode = 'develop' }: { mode?: FunctionsMode } = {}) {
         : (
           <>
             <div className='grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5'>
-              <StatTile label='Functions' value={groups.length} hint={`${cells.length} deployed across ${columns.length} environments`} />
-              <StatTile label='Ready' value={count.ready} tone='emerald' on={(facetValues.status ?? []).includes('ready')} onClick={() => toggleStatus(['ready'])} />
-              <StatTile label='Deploying' value={count.deploying} tone='info' on={(facetValues.status ?? []).includes('deploying')} onClick={() => toggleStatus(['deploying'])} />
-              <StatTile label='Failing' value={count.failing} tone='amber' hint='failed or degraded' on={['failed', 'degraded'].every((s) => (facetValues.status ?? []).includes(s))} onClick={() => toggleStatus(['failed', 'degraded'])} />
-              <StatTile label='Scaled to zero' value={index.podsUnknown ? '—' : count.zero} tone='violet' hint='next request cold-starts' on={(facetValues.status ?? []).includes('scaled-to-zero')} onClick={() => toggleStatus(['scaled-to-zero'])} />
+              <StatTile label='Functions' value={loading ? '…' : groups.length} hint={loading ? undefined : `${cells.length} deployed across ${columns.length} environments`} />
+              <StatTile label='Ready' value={loading ? '…' : count.ready} tone='emerald' on={(facetValues.status ?? []).includes('ready')} onClick={() => toggleStatus(['ready'])} />
+              <StatTile label='Deploying' value={loading ? '…' : count.deploying} tone='info' on={(facetValues.status ?? []).includes('deploying')} onClick={() => toggleStatus(['deploying'])} />
+              <StatTile label='Failing' value={loading ? '…' : count.failing} tone='amber' hint='failed or degraded' on={['failed', 'degraded'].every((s) => (facetValues.status ?? []).includes(s))} onClick={() => toggleStatus(['failed', 'degraded'])} />
+              <StatTile label='Scaled to zero' value={loading ? '…' : index.podsUnknown ? '—' : count.zero} tone='violet' hint='next request cold-starts' on={(facetValues.status ?? []).includes('scaled-to-zero')} onClick={() => toggleStatus(['scaled-to-zero'])} />
             </div>
 
             <FilterBar

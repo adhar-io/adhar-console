@@ -577,13 +577,13 @@ export function KargoStages() {
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <h2 className="text-sm font-semibold text-content">Freight inventory</h2>
           <span className="text-[11px] text-content-subtle">{filteredFreight.length === freightList.length ? `${freightList.length} bundle${freightList.length === 1 ? '' : 's'}` : `${filteredFreight.length} of ${freightList.length}`}</span>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search alias, id, image tag, commit…"
               aria-label="Search freight"
-              className="h-8 w-64 rounded-lg border border-edge-default bg-surface-app px-2.5 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
+              className="h-8 min-w-0 flex-1 sm:w-64 sm:flex-none rounded-lg border border-edge-default bg-surface-app px-2.5 text-[12px] text-content placeholder:text-content-subtle focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20"
             />
             {warehouseList.length > 1 ? (
               <select value={warehouseF} onChange={(e) => setWarehouseF(e.target.value)} aria-label="Warehouse" className="h-8 rounded-lg border border-edge-default bg-surface-raised px-2 text-[11px] text-content-muted focus:outline-none focus-visible:border-brand-400 focus-visible:ring-2 focus-visible:ring-brand-400/20">

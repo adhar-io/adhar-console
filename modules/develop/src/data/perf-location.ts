@@ -6,7 +6,7 @@
  * ---------------------------------------------------------------------------
  * Every service a template creates arrives with a k6 test in its own repo:
  *
- *   perf/load.js     — the k6 script
+ *   perf/load.ts     — the k6 script, in TypeScript (k6 >= 1.0 runs it as it is)
  *   perf/test.json   — everything that is not the script
  *
  * The Performance Center used to keep a second copy of that pair in a
@@ -18,19 +18,35 @@
  *
  * Naming keeps every result the old layout produced attributable:
  *
- *   perf/{load.js,test.json}          → `<repo>-load`   (what the scaffolder named it)
- *   perf/<test>/{load.js,test.json}   → `<repo>-<test>` (any further tests)
+ *   perf/{load.ts,test.json}          → `<repo>-load`   (what the scaffolder named it)
+ *   perf/<test>/{load.ts,test.json}   → `<repo>-<test>` (any further tests)
  *
  * The name labels the TestRun, the artefact ConfigMap (`k6-<name>`) and every
  * kept result, so it must not change for a test that already has history.
+ *
+ * ---------------------------------------------------------------------------
+ * TYPESCRIPT, AND THE JAVASCRIPT TESTS THAT CAME BEFORE IT
+ * ---------------------------------------------------------------------------
+ * Templates ship `load.ts`. A repository scaffolded before they did holds
+ * `load.js`, and that is still its test's script: discovery accepts either
+ * name, and a test reports the file it actually has (`script`), so it is read,
+ * committed and run under that name. The console never renames a user's file
+ * — an edited `load.js` is committed back as `load.js`; only a test the
+ * console creates is written as `load.ts`. A directory holding BOTH runs
+ * `load.ts`, and names the other one (`ignoredScript`) so the page can say
+ * which file is the test rather than leave a stale script looking live.
  *
  * Pure: no network, no React. Discovery takes the directory lister as an
  * argument so the mapping can be tested without Gitea.
  */
 
 export const PERF_DIR = 'perf'
-/** The script file in an application repo (the artefact ConfigMap key is still `script.js`). */
-export const REPO_SCRIPT_FILE = 'load.js'
+/** The script of a test the console creates: TypeScript, which k6 (>= 1.0) transpiles itself. */
+export const REPO_SCRIPT_FILE = 'load.ts'
+/** The script of a test committed before the templates moved to TypeScript. Still read, committed and run as itself. */
+export const LEGACY_SCRIPT_FILE = 'load.js'
+/** Every name a test's script may have, the one that wins when a directory holds both first. */
+export const REPO_SCRIPT_FILES: readonly string[] = [REPO_SCRIPT_FILE, LEGACY_SCRIPT_FILE]
 export const REPO_CONFIG_FILE = 'test.json'
 /** Suffix of an app's default test — the one directly under `perf/`. */
 export const DEFAULT_TEST = 'load'
@@ -92,17 +108,42 @@ export interface PerfTestLocation {
   branch: string
   /** `perf` or `perf/<test>`. */
   dir: string
+  /**
+   * The script's file name in `dir`, as committed: `load.ts`, or `load.js` for
+   * a test that predates the TypeScript templates. Everything that touches the
+   * script — reading, committing, deleting, the run's mount — uses this name.
+   * A directory with only a `test.json` gets `load.ts`: that is where the
+   * console writes its script.
+   */
+  script: string
+  /**
+   * A second script in the same directory that is NOT run: `load.js` left
+   * beside `load.ts`. Named so the page can say which file is the test.
+   */
+  ignoredScript?: string
   /** Repository web URL as Gitea reports it (callers make it public). */
   repoUrl?: string
 }
 
-export function locationOf(org: string, repo: RepoLike, test?: string): PerfTestLocation {
+/** Which script files a test directory holds: the one the test runs, and one it ignores. */
+export interface TestScripts {
+  script: string
+  ignoredScript?: string
+}
+
+/**
+ * A test's location. Without `scripts` it is a NEW test, whose script the
+ * console writes as `load.ts`.
+ */
+export function locationOf(org: string, repo: RepoLike, test?: string, scripts?: TestScripts): PerfTestLocation {
   return {
     name: perfTestName(repo.name, test),
     org,
     repo: repo.name,
     branch: repo.default_branch || 'main',
     dir: perfTestDir(test),
+    script: scripts?.script || REPO_SCRIPT_FILE,
+    ...(scripts?.ignoredScript ? { ignoredScript: scripts.ignoredScript } : {}),
     repoUrl: repo.html_url,
   }
 }
@@ -117,11 +158,55 @@ export function applicationOf(loc: Pick<PerfTestLocation, 'repo'> | undefined): 
   return loc && LABEL_VALUE.test(loc.repo) ? loc.repo : undefined
 }
 
-export const scriptPathOf = (loc: Pick<PerfTestLocation, 'dir'>) => `${loc.dir}/${REPO_SCRIPT_FILE}`
+type ScriptOf = Pick<PerfTestLocation, 'dir'> & Partial<Pick<PerfTestLocation, 'script'>>
+
+/** The test's script as committed — `perf/load.ts`, or `perf/load.js` for an older test. */
+export const scriptPathOf = (loc: ScriptOf) => `${loc.dir}/${loc.script || REPO_SCRIPT_FILE}`
 export const configPathOf = (loc: Pick<PerfTestLocation, 'dir'>) => `${loc.dir}/${REPO_CONFIG_FILE}`
+/** The script beside the test's own that is not run (`perf/load.js` next to `perf/load.ts`), if any. */
+export const ignoredScriptPathOf = (loc: Pick<PerfTestLocation, 'dir' | 'ignoredScript'>) =>
+  loc.ignoredScript ? `${loc.dir}/${loc.ignoredScript}` : undefined
+
+/**
+ * Every file of the test in git, for a delete: its script, the ignored script
+ * beside it, its config. Leaving the ignored `load.js` behind would bring the
+ * test straight back — as the JavaScript it had been shadowing.
+ */
+export function testFilePathsOf(loc: Pick<PerfTestLocation, 'dir' | 'script' | 'ignoredScript'>): string[] {
+  const ignored = ignoredScriptPathOf(loc)
+  return [scriptPathOf(loc), ...(ignored ? [ignored] : []), configPathOf(loc)]
+}
+
+/**
+ * A script is JavaScript only when its file says so (`.js`); anything else —
+ * `.ts`, or a test whose file is not known yet — is TypeScript, the language
+ * the console writes. Erring that way is safe: k6 transpiles JavaScript as
+ * TypeScript without complaint, but parses TypeScript as JavaScript and fails.
+ */
+export const isJavaScriptFile = (file: string | undefined) => /\.js$/i.test(file ?? '')
+
+/** The editor language for a test's script — TypeScript unless the committed file is `.js`. */
+export function scriptLanguageOf(loc: Partial<Pick<PerfTestLocation, 'script'>> | undefined): 'typescript' | 'javascript' {
+  return isJavaScriptFile(loc?.script) ? 'javascript' : 'typescript'
+}
+
+/** What the editor's Download saves the script as: its real path, or `<test>.ts` for a test not read from git. */
+export function scriptDownloadName(loc: ScriptOf | undefined, test: string): string {
+  return loc ? scriptPathOf(loc) : `${test}.ts`
+}
+
+/**
+ * What the page says when a test's folder holds both scripts: which one runs.
+ * Undefined when there is nothing to say.
+ */
+export function ignoredScriptNote(loc: Pick<PerfTestLocation, 'dir' | 'script' | 'ignoredScript'>): string | undefined {
+  const ignored = ignoredScriptPathOf(loc)
+  if (!ignored) return undefined
+  return `This test runs ${scriptPathOf(loc)}. ${ignored} is in the same folder and is not run — delete it, or move it to ${PERF_DIR}/<name>/ to keep it as a test of its own.`
+}
 
 /** Where the test's files are in Gitea's web UI. */
-export function filesUrlOf(loc: PerfTestLocation): string | undefined {
+export function filesUrlOf(loc: Pick<PerfTestLocation, 'repoUrl' | 'branch' | 'dir'>): string | undefined {
   if (!loc.repoUrl) return undefined
   return `${loc.repoUrl.replace(/\/+$/, '')}/src/branch/${encodeURIComponent(loc.branch)}/${loc.dir}`
 }
@@ -138,9 +223,17 @@ export type ListDir = (repo: string, branch: string, path: string) => Promise<Di
 
 const base = (path: string) => path.split('/').pop() ?? ''
 
-/** A directory is a test when it holds the script or the config. */
-function holdsTest(entries: DirEntry[]): boolean {
-  return entries.some((e) => e.type === 'blob' && (base(e.path) === REPO_SCRIPT_FILE || base(e.path) === REPO_CONFIG_FILE))
+/**
+ * The test a directory holds, or null when it holds none. A directory is a
+ * test when it holds a script — `load.ts` or `load.js` — or the config. Its
+ * script is the file that is there, `load.ts` when both are (the other is
+ * reported as ignored), and `load.ts` when only the config is.
+ */
+export function testScriptsIn(entries: readonly DirEntry[]): TestScripts | null {
+  const blobs = new Set(entries.filter((e) => e.type === 'blob').map((e) => base(e.path)))
+  const scripts = REPO_SCRIPT_FILES.filter((f) => blobs.has(f))
+  if (!scripts.length && !blobs.has(REPO_CONFIG_FILE)) return null
+  return { script: scripts[0] ?? REPO_SCRIPT_FILE, ...(scripts[1] ? { ignoredScript: scripts[1] } : {}) }
 }
 
 /** A sub-directory name usable as a test suffix (it names Kubernetes objects). */
@@ -156,12 +249,13 @@ export async function perfTestsInRepo(org: string, repo: RepoLike, list: ListDir
   const top = await list(repo.name, branch, PERF_DIR)
   if (!top) return []
   const out: PerfTestLocation[] = []
-  if (holdsTest(top)) out.push(locationOf(org, repo))
+  const own = testScriptsIn(top)
+  if (own) out.push(locationOf(org, repo, undefined, own))
   const subs = top.filter((e) => e.type === 'tree' && TEST_SEGMENT.test(base(e.path)) && base(e.path) !== DEFAULT_TEST)
   const listed = await Promise.all(subs.map((s) => list(repo.name, branch, `${PERF_DIR}/${base(s.path)}`).catch(() => null)))
   subs.forEach((s, i) => {
-    const entries = listed[i]
-    if (entries && holdsTest(entries)) out.push(locationOf(org, repo, base(s.path)))
+    const scripts = listed[i] ? testScriptsIn(listed[i]!) : null
+    if (scripts) out.push(locationOf(org, repo, base(s.path), scripts))
   })
   return out
 }

@@ -7,9 +7,9 @@ import {
   LABEL_MANAGED,
   LABEL_TEST,
   type PerfTestConfig,
-  SCRIPT_FILE,
   targetApplication,
 } from './perf-format.ts'
+import { isJavaScriptFile } from './perf-location.ts'
 import { LABEL_RUNNER, LABEL_SCHEDULE, LABEL_TRIGGER } from './perf-results.ts'
 
 /**
@@ -27,7 +27,7 @@ import { LABEL_RUNNER, LABEL_SCHEDULE, LABEL_TRIGGER } from './perf-results.ts'
  * The script is not copied into each caller. It is materialised into the
  * test's script ConfigMap (`k6-<test>`) beside everything else a run needs:
  *
- *   script.js     the k6 script, as committed
+ *   script.ts     the k6 script, as committed (`script.js` for a `load.js` test)
  *   testrun.json  the TestRun to create, with the run name left as a token
  *   gate.env      the gate and baseline from test.json, as shell variables
  *   run.sh        this runner
@@ -52,6 +52,38 @@ export const TRIGGER_TOKEN = '__TRIGGER__'
 
 /** `checkout-load` → `k6-checkout-load`, the generated ConfigMap. */
 export const artefactName = (test: string) => `k6-${test}`.slice(0, 253)
+
+/*
+ * ---------------------------------------------------------------------------
+ * THE SCRIPT IS MOUNTED UNDER ITS OWN EXTENSION
+ * ---------------------------------------------------------------------------
+ * The operator mounts the artefact at /test and runs `k6 archive` (the
+ * initializer) and `k6 run` (each runner) on `/test/<file>`, and k6 picks its
+ * loader from that file's extension: a `.ts` file is transpiled — k6 >= 1.0
+ * strips the types itself — and a `.js` one is parsed as JavaScript. A
+ * TypeScript `load.ts` mounted as `script.js` therefore fails at the
+ * initializer on its first type annotation, and the run never starts.
+ *
+ * So the key follows the committed file: `load.ts` → `script.ts`, the legacy
+ * `load.js` → `script.js`. The ConfigMap key and the TestRun's `file` come
+ * from the same function, so they cannot disagree. A test whose file is not
+ * known is TypeScript — what the console writes — which is also the safe
+ * side: k6 loads plain JavaScript as TypeScript fine, never the reverse. The
+ * artefact is server-side applied, so the key a test no longer uses is
+ * dropped when its language changes.
+ */
+export const ARTEFACT_SCRIPT_TS = 'script.ts'
+export const ARTEFACT_SCRIPT_JS = 'script.js'
+
+/** The artefact ConfigMap key — and TestRun file — for a test's script: `load.ts` → `script.ts`, `load.js` → `script.js`. */
+export function artefactScriptKey(scriptFile?: string): string {
+  return isJavaScriptFile(scriptFile) ? ARTEFACT_SCRIPT_JS : ARTEFACT_SCRIPT_TS
+}
+
+/** The TestRun's `spec.script` for a test: its artefact ConfigMap, under the script's own extension. */
+export function scriptRef(test: string, scriptFile?: string) {
+  return { configMap: { name: artefactName(test), file: artefactScriptKey(scriptFile) } }
+}
 
 /* ─────────────────────────── the runner script ─────────────────────────── */
 
@@ -295,7 +327,15 @@ exit 0
  * The TestRun a runner creates. `__RUN_NAME__` and `__TRIGGER__` are filled
  * in by the script; everything else comes from the committed config.
  */
-export function testRunTemplate(input: { test: string; config: PerfTestConfig; commit?: string; application?: string; script?: string }) {
+export function testRunTemplate(input: {
+  test: string
+  config: PerfTestConfig
+  commit?: string
+  application?: string
+  script?: string
+  /** The committed script's file name (`load.ts` / `load.js`) — it decides the mount's extension. */
+  scriptFile?: string
+}) {
   const { test, config } = input
   const commit = (input.commit ?? '').slice(0, 40)
   // The repo the test lives in names the app; the selector is the fallback
@@ -321,7 +361,7 @@ export function testRunTemplate(input: { test: string; config: PerfTestConfig; c
     // Scheduled and CI runs ask for p(99) too (k6-trend-stats.ts).
     spec: withTrendStats(withPinnedImages({
       parallelism: config.parallelism,
-      script: { configMap: { name: artefactName(test), file: SCRIPT_FILE } },
+      script: scriptRef(test, input.scriptFile),
       // The CRD defaults `paused` to the STRING "true".
       paused: 'false',
       ...(config.arguments ? { arguments: config.arguments } : {}),
@@ -332,9 +372,17 @@ export function testRunTemplate(input: { test: string; config: PerfTestConfig; c
 
 /** The whole artefact ConfigMap for one test. */
 export function artefactConfigMap(
-  input: { test: string; config: PerfTestConfig; script: string; commit?: string; application?: string },
+  input: {
+    test: string
+    config: PerfTestConfig
+    script: string
+    commit?: string
+    application?: string
+    /** The committed script's file name (`load.ts` / `load.js`): the key is `script.ts` / `script.js`. */
+    scriptFile?: string
+  },
 ) {
-  const { test, config } = input
+  const { test, config, scriptFile } = input
   const ns = config.namespace || 'default'
   const commit = (input.commit ?? '').slice(0, 40)
   const application = input.application ?? targetApplication(config)
@@ -351,8 +399,8 @@ export function artefactConfigMap(
       },
     },
     data: {
-      [SCRIPT_FILE]: input.script,
-      [TESTRUN_KEY]: `${JSON.stringify(testRunTemplate({ test, config, commit, application, script: input.script }), null, 2)}\n`,
+      [artefactScriptKey(scriptFile)]: input.script,
+      [TESTRUN_KEY]: `${JSON.stringify(testRunTemplate({ test, config, commit, application, script: input.script, scriptFile }), null, 2)}\n`,
       [GATE_KEY]: gateEnv({
         test,
         namespace: ns,
@@ -363,6 +411,67 @@ export function artefactConfigMap(
       }),
       [RUNNER_KEY]: RUN_SCRIPT,
     },
+  }
+}
+
+/**
+ * The TestRun "Run test" creates from the console: the committed test, started
+ * now, labelled with the commit and the application it measures, mounting the
+ * artefact under the script's own extension (the same `scriptRef` the
+ * schedule/CI template uses).
+ */
+export function consoleRunManifest(input: {
+  test: string
+  config: PerfTestConfig
+  runName: string
+  /** The committed script's file name (`load.ts` / `load.js`). */
+  scriptFile?: string
+  /** The script's source, so a script that sets its own trend stats keeps them. */
+  script?: string
+  commit?: string
+  application?: string
+}) {
+  const { test, config, commit, application } = input
+  return {
+    apiVersion: 'k6.io/v1alpha1',
+    kind: 'TestRun',
+    metadata: {
+      name: input.runName,
+      namespace: config.namespace || 'default',
+      labels: {
+        [LABEL_MANAGED]: 'adhar-console',
+        [LABEL_TEST]: test,
+        [LABEL_TRIGGER]: 'console',
+        ...(commit ? { [LABEL_COMMIT]: commit.slice(0, 63) } : {}),
+        // The app the test lives with — what the harvester copies onto the
+        // result and the scorecard joins on.
+        ...(application ? { [LABEL_APPLICATION]: application } : {}),
+      },
+    },
+    // p(99) is requested on the runner's env (k6-trend-stats.ts): k6's
+    // default summary has none, and the summary is the kept result.
+    spec: withTrendStats(withPinnedImages({
+      parallelism: config.parallelism,
+      script: scriptRef(test, input.scriptFile),
+      // The CRD defaults `paused` to the STRING "true", so a TestRun
+      // created without it never leaves `initialization` — "Run test"
+      // produced a run that sat there forever with no explanation. Say
+      // "false" explicitly; pausing stays a deliberate act in the drawer.
+      paused: 'false',
+      ...(config.arguments ? { arguments: config.arguments } : {}),
+      // No `cleanup: 'post'`: with it the operator deletes the TestRun —
+      // and with it the runner pods — the moment the run finishes, before
+      // the console can harvest the summary into a durable result. The
+      // harvester stamps the run once its result is kept, and the Runs
+      // tab clears harvested runs in one action.
+      ...(Object.keys(config.env).length
+        ? {
+          runner: {
+            env: Object.entries(config.env).map(([name, value]) => ({ name, value })),
+          },
+        }
+        : {}),
+    }), { script: input.script }),
   }
 }
 

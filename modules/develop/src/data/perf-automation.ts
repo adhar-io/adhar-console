@@ -288,13 +288,24 @@ export function harvestedRuns(runs: TestRun[]): TestRun[] {
 
 /* ─────────────────────────── the artefact ─────────────────────────── */
 
-/** Write `k6-<test>` — script, TestRun template, gate and runner — to the cluster. */
+/**
+ * Write `k6-<test>` — script, TestRun template, gate and runner — to the
+ * cluster, the script under its committed extension (`script.ts` for
+ * `load.ts`, `script.js` for a legacy `load.js`).
+ */
 export function materialiseArtefact(
   test: Pick<PerfTest, 'name' | 'config' | 'script' | 'location'>,
   commit?: string,
 ) {
   return kube.apply(
-    artefactConfigMap({ test: test.name, config: test.config, script: test.script, commit, application: applicationOf(test.location) }),
+    artefactConfigMap({
+      test: test.name,
+      config: test.config,
+      script: test.script,
+      commit,
+      application: applicationOf(test.location),
+      scriptFile: test.location?.script,
+    }),
   )
 }
 

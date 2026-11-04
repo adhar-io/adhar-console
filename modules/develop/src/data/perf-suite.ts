@@ -3,19 +3,11 @@ import { useGiteaOrg } from '@adhar/shell-ui'
 import { kube } from '@adhar/api-clients/k8s'
 import type { gitea } from '@adhar/api-clients'
 import { giteaClient } from './git.ts'
-import { artefactConfigMap, artefactName } from './perf-runner.ts'
-import { withPinnedImages } from './k6-images.ts'
-import { withTrendStats } from './k6-trend-stats.ts'
-import { LABEL_TRIGGER } from './perf-results.ts'
+import { artefactConfigMap, artefactName, consoleRunManifest } from './perf-runner.ts'
 import {
   DEFAULT_CONFIG,
-  LABEL_APPLICATION,
-  LABEL_COMMIT,
-  LABEL_MANAGED,
-  LABEL_TEST,
   parseConfig,
   type PerfTestConfig,
-  SCRIPT_FILE,
   serialiseConfig,
   type Starter,
 } from './perf-format.ts'
@@ -27,8 +19,8 @@ import {
   locationOf,
   type PerfTestLocation,
   REPO_CONFIG_FILE,
-  REPO_SCRIPT_FILE,
   scriptPathOf,
+  testFilePathsOf,
 } from './perf-location.ts'
 
 export type { PerfTestLocation } from './perf-location.ts'
@@ -60,6 +52,7 @@ export interface PerfTest {
   config: PerfTestConfig
   /** Raw `test.json`, so the editor can show exactly what is committed. */
   configRaw: string
+  /** The script's source — `location.script` names its file (`load.ts`, or a legacy `load.js`). */
   script: string
   /** Blob sha of each file — Gitea needs it to accept an update. */
   scriptSha?: string
@@ -108,7 +101,10 @@ export function findTest(suite: PerfSuite | undefined, name: string | null | und
   return name ? suite?.tests.find((t) => t.name === name) : undefined
 }
 
-/** Where a new test would go: `perf/` for the app's default test, `perf/<test>/` otherwise. */
+/**
+ * Where a new test would go: `perf/` for the app's default test, `perf/<test>/`
+ * otherwise. Its script is `load.ts` — the console writes new tests in TypeScript.
+ */
 export function newTestLocation(suite: PerfSuite, app: string, test?: string): PerfTestLocation {
   const repo = suite.apps.find((a) => a.name === app)
   if (!repo) throw new Error(`${app} is not an application repository in ${suite.org}.`)
@@ -259,9 +255,11 @@ export function useSavePerfTest(suite: PerfSuite | undefined) {
       let commit: string | undefined
 
       if (input.script !== undefined) {
+        // Under the file the test already has — an edited `load.js` stays
+        // `load.js`; a new test's location says `load.ts`.
         const res = await giteaClient.saveFile(loc.org, loc.repo, loc.branch, scriptPathOf(loc), {
           content: b64(input.script),
-          message: `${message} (${REPO_SCRIPT_FILE})`,
+          message: `${message} (${loc.script})`,
           sha: input.scriptSha,
         })
         commit = res.commit?.sha
@@ -311,14 +309,18 @@ export function useCreatePerfTest(suite: PerfSuite | undefined) {
   })
 }
 
-/** Delete both files. Gitea has no directory delete; the dir goes when empty. */
+/**
+ * Delete the test's files — its script, any ignored script beside it (or the
+ * test would come back as that script), and its config. Gitea has no
+ * directory delete; the dir goes when empty.
+ */
 export function useDeletePerfTest(suite: PerfSuite | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (name: string) => {
       const loc = findTest(suite, name)
       if (!loc) return
-      for (const path of [scriptPathOf(loc), configPathOf(loc)]) {
+      for (const path of testFilePathsOf(loc)) {
         try {
           const f = await giteaClient.getFile(loc.org, loc.repo, loc.branch, path)
           await giteaClient.deleteFile(loc.org, loc.repo, loc.branch, path, {
@@ -368,6 +370,10 @@ export const scriptConfigMapName = artefactName
  * TestRun names the application (the repo the test lives in). That is the
  * whole point of routing through git: a month later, a result still says
  * which script produced it, and the script is still there to read.
+ *
+ * The script is mounted under the extension it was committed with —
+ * `script.ts` for `load.ts`, `script.js` for a legacy `load.js` — because k6
+ * transpiles a file only when its name says TypeScript (perf-runner.ts).
  */
 export function useRunPerfTest() {
   const qc = useQueryClient()
@@ -375,59 +381,21 @@ export function useRunPerfTest() {
     mutationFn: async (input: { test: PerfTest; commit?: string; runName?: string }) => {
       const { test } = input
       const ns = test.config.namespace || 'default'
+      const config = { ...test.config, namespace: ns }
       const commit = (input.commit ?? test.commit ?? '').slice(0, 40)
-      const cmName = scriptConfigMapName(test.name)
       const application = applicationOf(test.location)
+      const scriptFile = test.location?.script
 
       // The artefact: the script exactly as committed, plus the TestRun
       // template, gate and runner script that schedules and CI reuse.
       await kube.apply(
-        artefactConfigMap({ test: test.name, config: { ...test.config, namespace: ns }, script: test.script, commit, application }),
+        artefactConfigMap({ test: test.name, config, script: test.script, commit, application, scriptFile }),
       )
 
       const runName = input.runName ?? `${test.name}-${stamp()}`
-      const run = await kube.apply<{ metadata: { name: string; namespace?: string } }>({
-        apiVersion: 'k6.io/v1alpha1',
-        kind: 'TestRun',
-        metadata: {
-          name: runName,
-          namespace: ns,
-          labels: {
-            [LABEL_MANAGED]: 'adhar-console',
-            [LABEL_TEST]: test.name,
-            [LABEL_TRIGGER]: 'console',
-            ...(commit ? { [LABEL_COMMIT]: commit.slice(0, 63) } : {}),
-            // The app the test lives with — what the harvester copies onto the
-            // result and the scorecard joins on.
-            ...(application ? { [LABEL_APPLICATION]: application } : {}),
-          },
-        },
-        // p(99) is requested on the runner's env (k6-trend-stats.ts): k6's
-        // default summary has none, and the summary is the kept result.
-        spec: withTrendStats(withPinnedImages({
-          parallelism: test.config.parallelism,
-          script: { configMap: { name: cmName, file: SCRIPT_FILE } },
-          // The CRD defaults `paused` to the STRING "true", so a TestRun
-          // created without it never leaves `initialization` — "Run test"
-          // produced a run that sat there forever with no explanation. Say
-          // "false" explicitly; pausing stays a deliberate act in the drawer.
-          paused: 'false',
-          ...(test.config.arguments ? { arguments: test.config.arguments } : {}),
-          // No `cleanup: 'post'`: with it the operator deletes the TestRun —
-          // and with it the runner pods — the moment the run finishes, before
-          // the console can harvest the summary into a durable result. The
-          // harvester stamps the run once its result is kept, and the Runs
-          // tab clears harvested runs in one action.
-          ...(Object.keys(test.config.env).length
-            ? {
-              runner: {
-                env: Object.entries(test.config.env).map(([name, value]) => ({ name, value })),
-              },
-            }
-            : {}),
-        }), { script: test.script }),
-      })
-      return run
+      return await kube.apply<{ metadata: { name: string; namespace?: string } }>(
+        consoleRunManifest({ test: test.name, config, runName, scriptFile, script: test.script, commit, application }),
+      )
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['k6'] })

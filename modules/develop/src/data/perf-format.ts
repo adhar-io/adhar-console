@@ -18,8 +18,12 @@
  * Layout, one directory per test in the application's own repository
  * (perf-location.ts maps directories to names):
  *
- *   perf/load.js     — the k6 script        (`perf/<test>/load.js` for more tests)
+ *   perf/load.ts     — the k6 script        (`perf/<test>/load.ts` for more tests)
  *   perf/test.json   — everything that is not the script
+ *
+ * The script is TypeScript, which k6 (>= 1.0) transpiles itself — there is no
+ * build step. A test committed before the templates moved to TypeScript has
+ * `perf/load.js` instead and keeps it; perf-location.ts finds either.
  *
  * This module is pure: no network, no React. The parsing and the defaults are
  * the part worth testing, because a malformed config must degrade to a usable
@@ -34,9 +38,6 @@ import {
   serialiseBaseline,
   serialiseGate,
 } from './perf-gate.ts'
-
-/** The script's key in the generated artefact ConfigMap (not a repository path). */
-export const SCRIPT_FILE = 'script.js'
 
 /** Labels the console stamps on generated ConfigMaps and TestRuns. */
 export const LABEL_TEST = 'adhar.io/perf-test'
@@ -276,6 +277,10 @@ export interface Starter {
  * Every one declares thresholds, because a load test without them measures
  * rather than judges — it produces a number and no verdict, and the whole
  * point of running it in CI is the verdict.
+ *
+ * They are TypeScript, in the same shape as the templates' `perf/load.ts`
+ * (`import type { Options }`, a typed `options`): a new test is committed as
+ * `load.ts`, and k6 strips the types when it loads it.
  */
 export const STARTERS: Starter[] = [
   {
@@ -283,13 +288,15 @@ export const STARTERS: Starter[] = [
     label: 'Smoke test',
     blurb: 'One user, a handful of requests — proves the script and the target work at all.',
     script: () =>
-      `import http from 'k6/http'
+      `// TypeScript: k6 (>= 1.0) runs it as it is — there is no build step.
+import http from 'k6/http'
 import { check, sleep } from 'k6'
+import type { Options } from 'k6/options'
 
 // A smoke test answers one question: does this work at all? Keep it tiny —
 // it runs on every change, and it is the thing that tells you a failure is
 // real rather than a broken script.
-export const options = {
+export const options: Options = {
   vus: 1,
   duration: '30s',
   thresholds: {
@@ -298,9 +305,9 @@ export const options = {
   },
 }
 
-const BASE = __ENV.BASE_URL || 'http://localhost:8080'
+const BASE: string = __ENV.BASE_URL || 'http://localhost:8080'
 
-export default function () {
+export default function (): void {
   const res = http.get(\`\${BASE}/\`)
   check(res, {
     'status is 200': (r) => r.status === 200,
@@ -323,13 +330,15 @@ export default function () {
     label: 'Load test',
     blurb: 'Ramp to a steady level and hold — what normal busy looks like.',
     script: () =>
-      `import http from 'k6/http'
+      `// TypeScript: k6 (>= 1.0) runs it as it is — there is no build step.
+import http from 'k6/http'
 import { check, sleep } from 'k6'
+import type { Options } from 'k6/options'
 
 // Ramp UP, HOLD, ramp DOWN. The hold is the part that matters: steady state
 // is where queues fill, caches settle and leaks show. A test that only ramps
 // measures the ramp.
-export const options = {
+export const options: Options = {
   stages: [
     { duration: '30s', target: 20 },
     { duration: '2m', target: 20 },
@@ -341,9 +350,9 @@ export const options = {
   },
 }
 
-const BASE = __ENV.BASE_URL || 'http://localhost:8080'
+const BASE: string = __ENV.BASE_URL || 'http://localhost:8080'
 
-export default function () {
+export default function (): void {
   const res = http.get(\`\${BASE}/\`)
   check(res, { 'status is 200': (r) => r.status === 200 })
   // Think time keeps this a load test rather than a benchmark of your own
@@ -366,13 +375,15 @@ export default function () {
     label: 'Stress test',
     blurb: 'Climb past comfortable until something gives — finds the ceiling.',
     script: () =>
-      `import http from 'k6/http'
+      `// TypeScript: k6 (>= 1.0) runs it as it is — there is no build step.
+import http from 'k6/http'
 import { check } from 'k6'
+import type { Options } from 'k6/options'
 
 // A stress test is SUPPOSED to break something. The thresholds are therefore
 // deliberately loose: you are looking for the point where they stop holding,
 // not asserting that they always do.
-export const options = {
+export const options: Options = {
   stages: [
     { duration: '1m', target: 50 },
     { duration: '1m', target: 100 },
@@ -386,9 +397,9 @@ export const options = {
   },
 }
 
-const BASE = __ENV.BASE_URL || 'http://localhost:8080'
+const BASE: string = __ENV.BASE_URL || 'http://localhost:8080'
 
-export default function () {
+export default function (): void {
   const res = http.get(\`\${BASE}/\`)
   check(res, { 'not a server error': (r) => r.status < 500 })
 }
@@ -405,13 +416,15 @@ export default function () {
     label: 'API journey',
     blurb: 'A sequence of calls that carries state — closer to what a client does.',
     script: () =>
-      `import http from 'k6/http'
+      `// TypeScript: k6 (>= 1.0) runs it as it is — there is no build step.
+import http from 'k6/http'
 import { check, group, sleep } from 'k6'
+import type { Options } from 'k6/options'
 
 // Real clients do not hammer one endpoint; they follow a journey and carry
 // state between steps. Grouping makes the summary report each step's timing
 // separately, which is what tells you WHICH call got slower.
-export const options = {
+export const options: Options = {
   vus: 10,
   duration: '2m',
   thresholds: {
@@ -421,17 +434,17 @@ export const options = {
   },
 }
 
-const BASE = __ENV.BASE_URL || 'http://localhost:8080'
+const BASE: string = __ENV.BASE_URL || 'http://localhost:8080'
 const params = { headers: { 'content-type': 'application/json' } }
 
-export default function () {
-  let firstId
+export default function (): void {
+  let firstId: string | undefined
 
   group('list', () => {
     const res = http.get(\`\${BASE}/api/items\`, params)
     check(res, { 'list ok': (r) => r.status === 200 })
     try {
-      firstId = res.json('0.id')
+      firstId = res.json('0.id') as string | undefined
     } catch {
       // A body that is not the shape we expect is a finding, not a crash.
     }

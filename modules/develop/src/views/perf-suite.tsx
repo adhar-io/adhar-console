@@ -28,7 +28,20 @@ import {
   type Threshold,
 } from '../data/perf-format.ts'
 import { usePublicGiteaUrl } from '../data/git.ts'
-import { filesUrlOf, newTestProblem, PERF_DIR, perfTestDir, perfTestName, type PerfTestLocation } from '../data/perf-location.ts'
+import {
+  filesUrlOf,
+  ignoredScriptNote,
+  newTestProblem,
+  PERF_DIR,
+  perfTestDir,
+  perfTestName,
+  type PerfTestLocation,
+  REPO_CONFIG_FILE,
+  REPO_SCRIPT_FILE,
+  scriptDownloadName,
+  scriptLanguageOf,
+  scriptPathOf,
+} from '../data/perf-location.ts'
 import {
   canAuthorPerf,
   findTest,
@@ -255,7 +268,7 @@ function TestList({
                       )}
                     >
                       <span className="block truncate font-mono text-[12px] text-content">{t}</span>
-                      <span className="block truncate font-mono text-[10px] text-content-subtle">{loc.repo}/{loc.dir}</span>
+                      <span className="block truncate font-mono text-[10px] text-content-subtle">{loc.repo}/{scriptPathOf(loc)}</span>
                       <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-content-subtle">
                         {run
                           ? (
@@ -483,6 +496,9 @@ function TestWorkbench({
               : null}
           </div>
         </div>
+        {ignoredNote
+          ? <div className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">{ignoredNote}</div>
+          : null}
         <div className="mt-2 flex gap-1">
           {(Object.keys(TAB_LABEL) as Tab[]).map((t) => (
             <button
@@ -504,11 +520,14 @@ function TestWorkbench({
           ? (
             <CodeEditor
               value={liveScript}
-              language="javascript"
+              // The file the test runs — `load.ts`, or a legacy `load.js` —
+              // named in the toolbar and highlighted as what it is.
+              title={where ? scriptPathOf(where) : undefined}
+              language={scriptLanguageOf(where)}
               readOnly={!canEdit}
               onChange={setScript}
               onSave={canEdit ? doSave : undefined}
-              filename={where ? `${where.dir}/load.js` : `${name}.js`}
+              filename={scriptDownloadName(where, name)}
               height={520}
               wordWrap
             />

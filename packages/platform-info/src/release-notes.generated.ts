@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.170",
+    "date": "2026-11-04",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Service map live view implementation"
+      }
+    ]
+  },
+  {
     "version": "0.1.169",
-    "date": "2026-11-03",
+    "date": "2026-11-04",
     "changes": [
       {
         "type": "improvement",
@@ -456,30 +466,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "overview",
         "text": "Pack panels into full rows for any layout"
-      }
-    ]
-  },
-  {
-    "version": "0.1.130",
-    "date": "2026-10-14",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix organisation seeding"
-      },
-      {
-        "type": "change",
-        "scope": "cloud shell",
-        "text": "Landing page follows the theme; only live shells are dark"
-      },
-      {
-        "type": "change",
-        "scope": "overview",
-        "text": "Default layout in full-width rows"
-      },
-      {
-        "type": "change",
-        "text": "CI/CD runs: task progress from Tekton's own tally, not '0/N'"
       }
     ]
   }

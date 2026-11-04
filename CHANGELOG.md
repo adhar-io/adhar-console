@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.170] - 2026-11-04
+
+### Changed
+
+- Service map live view implementation
+
 ## [0.1.169] - 2026-11-03
 
 ### Improved

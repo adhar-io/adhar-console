@@ -655,6 +655,29 @@ export function scaffoldWorkload(
   return family === 'function' ? 'function' : undefined
 }
 
+/* ─────────────── the template's performance test ─────────────── */
+
+/**
+ * The scripts a template's Performance Center test may ship, the one the
+ * Performance Center runs first: `perf/load.ts` (the TypeScript templates),
+ * then `perf/load.js` (templates from before them). The same order as the
+ * Performance Center's own discovery (modules/develop perf-location.ts), which
+ * this server module cannot import.
+ */
+export const PERF_TEST_SCRIPTS = ['perf/load.ts', 'perf/load.js'] as const
+export const PERF_TEST_CONFIG = 'perf/test.json'
+
+/**
+ * The template's performance test in what a scaffold committed: the script
+ * the test runs, `perf/test.json` when the template shipped only the config,
+ * or null when it shipped neither. Anything non-null is a test the
+ * Performance Center lists as `<name>-load` — so the wizard reports it.
+ */
+export function committedPerfTest(paths: ReadonlySet<string>): string | null {
+  for (const script of PERF_TEST_SCRIPTS) if (paths.has(script)) return script
+  return paths.has(PERF_TEST_CONFIG) ? PERF_TEST_CONFIG : null
+}
+
 /* ─────────────── template source resolution ─────────────── */
 
 /**

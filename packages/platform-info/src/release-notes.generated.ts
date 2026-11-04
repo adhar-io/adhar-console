@@ -4,6 +4,24 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.171",
+    "date": "2026-11-04",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Update scaffoler"
+      },
+      {
+        "type": "change",
+        "text": "Update"
+      },
+      {
+        "type": "fix",
+        "text": "Fix typescript"
+      }
+    ]
+  },
+  {
     "version": "0.1.170",
     "date": "2026-11-04",
     "changes": [
@@ -451,21 +469,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
         "type": "change",
         "scope": "platform",
         "text": "Quota & Limits page"
-      }
-    ]
-  },
-  {
-    "version": "0.1.131",
-    "date": "2026-10-14",
-    "changes": [
-      {
-        "type": "fix",
-        "text": "Fix scaffolder"
-      },
-      {
-        "type": "change",
-        "scope": "overview",
-        "text": "Pack panels into full rows for any layout"
       }
     ]
   }

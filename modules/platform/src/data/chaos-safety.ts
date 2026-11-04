@@ -1,3 +1,5 @@
+import { isPlatformNamespace, PLATFORM_NAMESPACES } from '@adhar/utils'
+
 /**
  * Safety rails for starting chaos from the console.
  *
@@ -26,29 +28,9 @@ export const MAX_GAMEDAY_SECONDS = 3600
 /**
  * Namespaces chaos may never target from the console: the cluster's own, and
  * the platform's control plane — the operator that would recover the fault
- * lives in one of them.
+ * lives in one of them. Shared with the rest of the console (@adhar/utils).
  */
-export const PROTECTED_NAMESPACES = [
-  'kube-system',
-  'kube-public',
-  'kube-node-lease',
-  'adhar-system',
-  'argocd',
-  'litmus',
-  'cert-manager',
-  'keycloak',
-  'cilium',
-  'monitoring',
-  'kyverno',
-  'kargo',
-  'gitea',
-  'harbor',
-  'tekton-pipelines',
-  'argo',
-  'argo-rollouts',
-  'external-secrets',
-  'crossplane-system',
-]
+export const PROTECTED_NAMESPACES = PLATFORM_NAMESPACES
 
 export type GuardLevel = 'block' | 'confirm' | 'warn'
 
@@ -59,7 +41,7 @@ export interface Guard {
 
 /** True for the namespaces the console refuses to target. */
 export function isProtectedNamespace(ns: string): boolean {
-  return PROTECTED_NAMESPACES.includes(ns) || ns.startsWith('kube-') || ns.startsWith('openshift-')
+  return isPlatformNamespace(ns)
 }
 
 /** A namespace that looks like production: `prod`, `production`, `*-prod`, or labelled so. */

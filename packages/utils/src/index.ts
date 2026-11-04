@@ -1,5 +1,6 @@
 export { cn } from './cn.ts'
 export { globalSingleton } from './global-singleton.ts'
+export { isPlatformNamespace, PLATFORM_NAMESPACES } from './platform-namespaces.ts'
 export { formatRelative, formatAbsolute, formatDuration } from './time.ts'
 export { invariant, assertNever } from './invariant.ts'
 export { env, requireEnv } from './env.ts'

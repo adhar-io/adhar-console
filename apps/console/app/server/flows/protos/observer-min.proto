@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Authors of Hubble
+//
+// Minimal vendored subset of cilium/cilium api/v1/observer/observer.proto and
+// api/v1/flow/flow.proto (v1.20.0). It is the REFERENCE for the hand-written
+// wire codec in ../proto-wire.ts: only the fields the console requests (via
+// the GetFlowsRequest field mask) or sends are listed, with their upstream
+// field numbers unchanged. Protobuf skips unknown fields, so a newer relay
+// stays compatible. Request headers (flow.HTTP.headers = 5) are deliberately
+// absent: they carry credentials and are never requested.
+//
+// Upstream: https://github.com/cilium/cilium/tree/v1.20.0/api/v1
+
+syntax = "proto3";
+
+package observer;
+
+service Observer {
+  rpc GetFlows(GetFlowsRequest) returns (stream GetFlowsResponse) {}
+}
+
+message FieldMask { repeated string paths = 1; }          // google.protobuf.FieldMask
+message Timestamp { int64 seconds = 1; int32 nanos = 2; } // google.protobuf.Timestamp
+message BoolValue { bool value = 1; }                    // google.protobuf.BoolValue
+
+message GetFlowsRequest {
+  uint64 number = 1;
+  bool follow = 3;
+  repeated FlowFilter blacklist = 5;
+  repeated FlowFilter whitelist = 6;
+  Timestamp since = 7;
+  FieldMask field_mask = 10;
+}
+
+message FlowFilter {
+  repeated string source_label = 10;
+  repeated string destination_label = 11;
+}
+
+message GetFlowsResponse {
+  oneof response_types {
+    Flow flow = 1;
+    NodeStatusEvent node_status = 2;
+    LostEvent lost_events = 3;
+  }
+  string node_name = 1000;
+  Timestamp time = 1001;
+}
+
+message NodeStatusEvent {}
+message LostEvent { uint64 num_events_lost = 2; }
+
+enum Verdict { VERDICT_UNKNOWN = 0; FORWARDED = 1; DROPPED = 2; ERROR = 3; AUDIT = 4; REDIRECTED = 5; TRACED = 6; TRANSLATED = 7; }
+enum FlowType { UNKNOWN_TYPE = 0; L3_L4 = 1; L7 = 2; SOCK = 3; }
+enum L7FlowType { UNKNOWN_L7_TYPE = 0; REQUEST = 1; RESPONSE = 2; SAMPLE = 3; }
+enum TrafficDirection { TRAFFIC_DIRECTION_UNKNOWN = 0; INGRESS = 1; EGRESS = 2; }
+
+message Flow {
+  Timestamp time = 1;
+  Verdict verdict = 2;
+  IP IP = 5;
+  Layer4 l4 = 6;
+  Endpoint source = 8;
+  Endpoint destination = 9;
+  FlowType Type = 10;
+  string node_name = 11;
+  repeated string source_names = 13;
+  repeated string destination_names = 14;
+  Layer7 l7 = 15;
+  Service source_service = 20;
+  Service destination_service = 21;
+  TrafficDirection traffic_direction = 22;
+  uint32 drop_reason_desc = 25; // flow.DropReason enum
+  BoolValue is_reply = 26;
+}
+
+message IP { string source = 1; string destination = 2; }
+
+message Layer4 {
+  oneof protocol { TCP TCP = 1; UDP UDP = 2; ICMP ICMPv4 = 3; ICMP ICMPv6 = 4; SCTP SCTP = 5; }
+}
+message TCP { uint32 source_port = 1; uint32 destination_port = 2; TCPFlags flags = 3; }
+message UDP { uint32 source_port = 1; uint32 destination_port = 2; }
+message SCTP { uint32 source_port = 1; uint32 destination_port = 2; }
+message ICMP { uint32 type = 1; uint32 code = 2; }
+message TCPFlags { bool FIN = 1; bool SYN = 2; bool RST = 3; bool PSH = 4; bool ACK = 5; }
+
+message Endpoint {
+  uint32 ID = 1;
+  uint32 identity = 2;
+  string namespace = 3;
+  repeated string labels = 4;
+  string pod_name = 5;
+  repeated Workload workloads = 6;
+}
+message Workload { string name = 1; string kind = 2; }
+message Service { string name = 1; string namespace = 2; }
+
+message Layer7 {
+  L7FlowType type = 1;
+  uint64 latency_ns = 2;
+  DNS dns = 100;
+  HTTP http = 101;
+  Kafka kafka = 102;
+}
+message HTTP { uint32 code = 1; string method = 2; string url = 3; string protocol = 4; }
+message DNS { string query = 1; uint32 rcode = 6; repeated string qtypes = 7; }
+message Kafka { int32 error_code = 1; string api_key = 3; string topic = 5; }

@@ -311,14 +311,20 @@ export function useDiscoverSlos() {
  * that query returns a single unlabelled series.
  */
 const HUBBLE_BY = 'destination_namespace, destination_workload'
+/**
+ * Hubble's `http` metric publishes status codes on `hubble_http_responses_total`;
+ * `httpV2` (the platform's setting since it added source/destination context)
+ * has no responses series and puts `status` on `hubble_http_requests_total`.
+ * Each side prefers the v1 series and falls back to v2, so the tiles work on
+ * either install.
+ */
+const hubbleStatus = (sel: string, by = '') =>
+  `(sum${by}(rate(hubble_http_responses_total${sel}[5m])) or sum${by}(rate(hubble_http_requests_total${sel || '{status!=""}'}[5m])))`
 export const GOLDEN_QUERIES = {
   rps: 'sum(rate(hubble_http_requests_total[5m]))',
-  errors:
-    '100 * sum(rate(hubble_http_responses_total{status=~"5.."}[5m])) / sum(rate(hubble_http_responses_total[5m]))',
+  errors: `100 * ${hubbleStatus('{status=~"5.."}')} / ${hubbleStatus('')}`,
   p95: '1000 * histogram_quantile(0.95, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[5m])))',
-  errorsByWorkload:
-    `100 * sum by (${HUBBLE_BY}) (rate(hubble_http_responses_total{status=~"5.."}[5m]))` +
-    ` / sum by (${HUBBLE_BY}) (rate(hubble_http_responses_total[5m]))`,
+  errorsByWorkload: `100 * ${hubbleStatus('{status=~"5.."}', ` by (${HUBBLE_BY}) `)} / ${hubbleStatus('', ` by (${HUBBLE_BY}) `)}`,
 } as const
 
 export function useGoldenSignals() {

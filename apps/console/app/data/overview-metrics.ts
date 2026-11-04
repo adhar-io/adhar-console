@@ -28,10 +28,19 @@ export function useMeshSecurityMetrics() {
 
 /* ─────────── Hubble traffic (L3/L4 flows + L7 HTTP) ─────────── */
 
+/**
+ * Requests by status class. Hubble `http` metrics carry status on
+ * `hubble_http_responses_total`; `httpV2` drops that series and labels
+ * `hubble_http_requests_total` instead — prefer v1, fall back to v2.
+ */
+const HUBBLE_STATUS_CLASS =
+  'sum by (class) (label_replace(rate(hubble_http_responses_total[5m]), "class", "${1}xx", "status", "(.).."))' +
+  ' or sum by (class) (label_replace(rate(hubble_http_requests_total{status!=""}[5m]), "class", "${1}xx", "status", "(.).."))'
+
 export const HUBBLE_QUERIES = {
   l7Rps: 'sum(rate(hubble_http_requests_total[5m]))',
   statusClass:
-    'sum by (class) (label_replace(rate(hubble_http_responses_total[5m]), "class", "${1}xx", "status", "(.).."))',
+    HUBBLE_STATUS_CLASS,
   methods: 'sum by (method) (rate(hubble_http_requests_total[5m]))',
   p50: '1000 * histogram_quantile(0.5, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[5m])))',
   p95: '1000 * histogram_quantile(0.95, sum by (le) (rate(hubble_http_request_duration_seconds_bucket[5m])))',
@@ -59,7 +68,7 @@ export function useHubbleTrafficStream() {
     queryKey: ['ov', 'hubble', 'stream'],
     queryFn: () =>
       promRange(
-        'sum by (class) (label_replace(rate(hubble_http_responses_total[5m]), "class", "${1}xx", "status", "(.).."))',
+        HUBBLE_STATUS_CLASS,
         3_600_000,
         60,
       ),

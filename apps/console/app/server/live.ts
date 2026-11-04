@@ -4,6 +4,8 @@ import { getRequestUser } from './request-user.ts'
 import { proxyToolRequest } from './proxy.ts'
 import { onAuditWrite, openStore } from './workspace/store.ts'
 import { NOTIFICATION_KIND, type NotificationDoc } from './notify.ts'
+import { subscribeFlows } from './flows/subscribe.ts'
+import { flowsStats } from './flows/hub.ts'
 
 /**
  * `/api/live` — ONE multiplexed WebSocket per browser tab that replaces
@@ -28,6 +30,13 @@ import { NOTIFICATION_KIND, type NotificationDoc } from './notify.ts'
  *   audit          pushes `invalidate` when this replica writes an audit event
  *                  for the tenant — in-process, no DB polling. (Another
  *                  replica's writes reach the page through its 60s fallback.)
+ *   flows          live network traffic for the Service map: ONE shared
+ *                  Hubble Relay `GetFlows(follow)` stream per process,
+ *                  aggregated into rolling 1-second buckets; each subscriber
+ *                  gets a compact `frame` every ~1.5 s with only the
+ *                  namespaces it may `list pods` in (flows/hub.ts). Emits
+ *                  `status` with `unavailable` when no relay is configured,
+ *                  so the page falls back to metrics.
  *
  * Auth: session cookie (same as every API), origin-checked; a subscription
  * never sees more than the user could fetch themselves. Heartbeat every 25 s;
@@ -113,6 +122,9 @@ export async function handleLive(req: Request): Promise<Response> {
           break
         case 'notifications':
           subs.set(sid, watchNotifications(sid, auth.activeTenant, auth.user.id, send))
+          break
+        case 'flows':
+          subs.set(sid, subscribeFlows(sid, id, params, send))
           break
         case 'audit': {
           // The push only says "something changed"; the refetch it triggers
@@ -544,10 +556,16 @@ function watchNotifications(sid: string, tenant: string, userId: string, send: (
 }
 
 /** Exposed for diagnostics (`/api/live` is WS-only; this reports hub load). */
-export function liveStats(): { pollers: number; watches: number; watchSubscribers: number; notificationChecks: number } {
+export function liveStats(): {
+  pollers: number
+  watches: number
+  watchSubscribers: number
+  notificationChecks: number
+  flows: ReturnType<typeof flowsStats>
+} {
   let watchSubscribers = 0
   for (const w of k8sWatchers.values()) watchSubscribers += w.subscribers.size
-  return { pollers: pollers.size, watches: k8sWatchers.size, watchSubscribers, notificationChecks: notifWatchers.size }
+  return { pollers: pollers.size, watches: k8sWatchers.size, watchSubscribers, notificationChecks: notifWatchers.size, flows: flowsStats() }
 }
 
 // Keep `env` referenced for future tunables without unused-import churn.

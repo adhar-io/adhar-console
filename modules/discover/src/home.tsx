@@ -47,7 +47,7 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
   },
   servicemap: {
     label: 'Service Map',
-    description: 'OpenTelemetry-derived service topology with RPS, error %, p95.',
+    description: 'Live traffic between workloads from Cilium Hubble — request flow, errors, latency and drops.',
   },
   alerts: {
     label: 'Alerts',
@@ -98,6 +98,9 @@ export default function DiscoverHome({ section }: { section?: string } = {}) {
    * repeating a word that is on screen twice already.
    */
   if (active === 'logs') return <Logs />
+  // The service map is a live workbench too: it renders its own header so the
+  // Live/Pause and feed controls sit on the right of the title.
+  if (active === 'servicemap') return <ServiceMap />
 
   return (
     <div className="space-y-6">
@@ -105,7 +108,6 @@ export default function DiscoverHome({ section }: { section?: string } = {}) {
       {active === 'dashboard' && <Dashboard />}
       {active === 'metrics' && <Metrics />}
       {active === 'traces' && <Traces />}
-      {active === 'servicemap' && <ServiceMap />}
       {active === 'alerts' && <Alerts />}
       {active === 'slos' && <Slos />}
       {active === 'dashboards' && <Dashboards />}

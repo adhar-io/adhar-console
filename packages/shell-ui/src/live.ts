@@ -12,6 +12,7 @@ import { applyEvent, nextDelay, sameSnapshot, type Snapshot, snapshotOf } from '
  *   useLiveInvalidate(topic, params, queryKeys)     → invalidate React-Query keys on push
  *   useWatchSignal(watch, queryKeys, opts)          → invalidate only on real object changes
  *   useLivePoll(tool, path, ms, queryKey, map?)     → server-side change detection feeding a query
+ *   useLiveFlows(params, opts)                      → live network-traffic frames (Service map)
  *   usePollingInterval(ms)                          → `ms` while offline, `false` while live
  *   pollEvery(ms)                                   → `ms` raised to the poll floor
  *
@@ -26,7 +27,7 @@ import { applyEvent, nextDelay, sameSnapshot, type Snapshot, snapshotOf } from '
  */
 
 export type LiveStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
-export type LiveTopic = 'k8s' | 'poll' | 'notifications' | 'audit'
+export type LiveTopic = 'k8s' | 'poll' | 'notifications' | 'audit' | 'flows'
 
 type Handler = (msg: Record<string, unknown>) => void
 
@@ -696,4 +697,81 @@ export function useLivePoll<T = unknown>(
     })
     return unsub
   }, [tool, path, intervalMs, windowMs, enabled, keyStr, qc])
+}
+
+/* ─────────── flows: live network traffic (Service map) ─────────── */
+
+export type LiveFlowsState = 'connecting' | 'live' | 'reconnecting' | 'unavailable' | 'paused' | 'error'
+
+export interface LiveFlows<F, R> {
+  /** Latest frame pushed by the hub (kept while paused or reconnecting). */
+  frame: F | null
+  /** Recent feed rows, newest first, accumulated across frames (capped). */
+  feed: R[]
+  state: LiveFlowsState
+  /** Why: relay status text, or the reason code when `unavailable`. */
+  message?: string
+  reason?: string
+  /** Bumped on every applied frame — handy as an animation clock. */
+  version: number
+}
+
+/**
+ * Subscribe to the hub's `flows` topic: one shared Hubble Relay stream on the
+ * BFF, aggregated server side and pushed as a compact frame every ~1.5 s,
+ * filtered to the namespaces this user may list pods in. No polling — the
+ * frame IS the push. `enabled: false` (Pause) unsubscribes and keeps the last
+ * frame on screen; resuming paints immediately because the hub keeps a
+ * rolling window.
+ *
+ * Frame and feed shapes are owned by the consumer (`F`, `R`); feed rows must
+ * carry a numeric `seq`.
+ */
+export function useLiveFlows<F extends { feed?: R[] } = Record<string, unknown>, R extends { seq: number } = { seq: number }>(
+  params: Record<string, unknown>,
+  opts: { enabled?: boolean; feedMax?: number } = {},
+): LiveFlows<F, R> {
+  const { enabled = true, feedMax = 400 } = opts
+  const [st, setSt] = useState<LiveFlows<F, R>>({ frame: null, feed: [], state: enabled ? 'connecting' : 'paused', version: 0 })
+  const socket = useLiveStatus()
+  const paramsKey = JSON.stringify(params)
+  useEffect(() => {
+    if (!enabled) {
+      setSt((s) => ({ ...s, state: 'paused' }))
+      return
+    }
+    setSt((s) => ({ ...s, state: s.frame ? s.state === 'paused' ? 'live' : s.state : 'connecting' }))
+    const unsub = liveClient.subscribe('flows', JSON.parse(paramsKey), (msg) => {
+      if (msg.op === 'frame') {
+        const frame = msg.frame as F
+        const rows = (frame.feed ?? []) as R[]
+        setSt((s) => {
+          const seen = s.feed.length ? s.feed[0].seq : 0
+          const fresh = rows.filter((r) => r.seq > seen)
+          return {
+            frame,
+            feed: fresh.length ? [...fresh, ...s.feed].slice(0, feedMax) : s.feed,
+            state: 'live',
+            message: undefined,
+            reason: undefined,
+            version: s.version + 1,
+          }
+        })
+      } else if (msg.op === 'status') {
+        const state = String(msg.state ?? '')
+        setSt((s) => ({
+          ...s,
+          state: state === 'unavailable' ? 'unavailable' : state === 'reconnecting' ? 'reconnecting' : state === 'live' ? (s.frame ? 'live' : 'connecting') : 'connecting',
+          message: typeof msg.message === 'string' ? msg.message : undefined,
+          reason: typeof msg.reason === 'string' ? msg.reason : undefined,
+        }))
+      } else if (msg.op === 'error') {
+        setSt((s) => ({ ...s, state: 'error', message: String(msg.message ?? 'live error') }))
+      }
+    })
+    return unsub
+  }, [paramsKey, enabled, feedMax])
+  // The socket itself dropping trumps whatever the hub last said.
+  if (enabled && st.state === 'live' && socket !== 'live') return { ...st, state: 'reconnecting' }
+  return st
 }

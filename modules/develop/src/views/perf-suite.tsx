@@ -177,7 +177,7 @@ export function PerfSuite({
             <CardBody className="py-12">
               <EmptyState
                 title="No tests yet"
-                description={`None of the ${suite.apps.length} application repositor${suite.apps.length === 1 ? 'y has' : 'ies have'} a ${PERF_DIR}/ folder. A performance test is a k6 script plus its configuration, committed next to the code it measures. Start from a template — every one of them declares thresholds, so the run produces a verdict rather than just a number.`}
+                description={`None of the ${suite.apps.length} application repositor${suite.apps.length === 1 ? 'y has' : 'ies have'} a ${PERF_DIR}/ folder. A performance test is a k6 script (${REPO_SCRIPT_FILE}, TypeScript) plus its configuration, committed next to the code it measures. Start from a template — every one of them declares thresholds, so the run produces a verdict rather than just a number.`}
                 action={canEdit ? <Button variant="primary" onClick={() => setCreating(true)}>New test</Button> : undefined}
               />
             </CardBody>
@@ -376,6 +376,9 @@ function TestWorkbench({
   const test = q.data
   const where = findTest(suite, name)
   const filesUrl = where ? publicUrl(filesUrlOf(where)) : undefined
+  // A folder holding both load.ts and load.js runs load.ts — say so, rather
+  // than leave the other script looking like the test.
+  const ignoredNote = where ? ignoredScriptNote(where) : undefined
   const liveScript = script ?? test?.script ?? ''
   const liveConfig = config ?? test?.config ?? DEFAULT_CONFIG
   const dirty = (script !== null && script !== test?.script) ||
@@ -787,6 +790,8 @@ function ThresholdList({
 function History({ suite, name }: { suite: Suite; name: string }) {
   const q = usePerfTestHistory(suite, name)
   const commits = q.data ?? []
+  // The test's own script file — load.ts, or load.js for an older test.
+  const script = findTest(suite, name)?.script ?? REPO_SCRIPT_FILE
   if (q.isLoading) return <div className="flex justify-center py-10"><Spinner /></div>
   if (!commits.length) {
     return (
@@ -794,7 +799,7 @@ function History({ suite, name }: { suite: Suite; name: string }) {
         <EmptyState
           compact
           title="No commits found for this test"
-          description="Commits that touched this test's load.js or test.json in its application repository are listed here."
+          description={`Commits that touched this test's ${script} or ${REPO_CONFIG_FILE} in its application repository are listed here.`}
         />
       </div>
     )
@@ -862,7 +867,7 @@ function NewTestDialog({
         <div className="border-b border-edge-default px-5 py-3">
           <div id="new-perf-test-title" className="text-sm font-semibold text-content">New performance test</div>
           <div className="text-[11px] text-content-subtle">
-            Committed to {suite.org}/{app || '…'} · {perfTestDir(sub)}/
+            Committed to {suite.org}/{app || '…'} · {perfTestDir(sub)}/{REPO_SCRIPT_FILE} + {REPO_CONFIG_FILE}
           </div>
         </div>
         <div className="space-y-3 px-5 py-4">

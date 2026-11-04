@@ -481,11 +481,12 @@ async function scaffold(
       // Nothing to register: the Performance Center reads tests straight from
       // each application repo's perf/ folder, so the files just committed ARE
       // the test (named <name>-load). Reported so the wizard says it exists.
-      if (committedPaths.has('perf/test.json') || committedPaths.has('perf/load.js')) {
+      const perfFile = committedPerfTest(committedPaths)
+      if (perfFile) {
         step({
           name: 'performance-test',
           ok: true,
-          detail: `Performance Center test ${name}-load in perf/ (targets app=${name}; its verdicts count on the scorecard)`,
+          detail: `Performance Center test ${name}-load (${perfFile}) — targets app=${name}; its verdicts count on the scorecard`,
         })
       }
     }

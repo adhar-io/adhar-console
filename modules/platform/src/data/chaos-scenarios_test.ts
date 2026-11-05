@@ -267,10 +267,13 @@ Deno.test('the application a selector names is stamped on every engine', () => {
  * reply is what the step's jsonpath prints, `verdict|phase|score|probe
  * verdicts`; `engine.exists`, `get.fail`, `delete.fail`, `create.fail` and
  * `warn` switch the matching behaviour on, and `engine.stuck` names an engine
- * whose deletion times out. Every call is appended to `calls.log`.
+ * whose deletion times out. Every call is appended to `calls.log`, and the
+ * engine argument of every get/patch/delete of a ChaosEngine — exactly as
+ * kubectl received it — to `engine-args.log`.
  */
 const FAKE_KUBECTL = `#!/bin/sh
 echo "kubectl $*" >>"$FAKE/calls.log"
+case "$3 $4" in "get chaosengine"|"patch chaosengine"|"delete chaosengine") echo "$5" >>"$FAKE/engine-args.log" ;; esac
 [ -f "$FAKE/warn" ] && echo "E1105 memcache.go:265] couldn't get current server API group list: the server is currently unable to handle the request" >&2
 next() {  # the n-th scripted line on the n-th call; the last one repeats (shell builtins only: fast)
   n=0; [ -f "$FAKE/$1.n" ] && read -r n <"$FAKE/$1.n"; n=$((n + 1)); echo "$n" >"$FAKE/$1.n"
@@ -360,6 +363,7 @@ async function runStep(script: string, fake: Fake = {}) {
       stderr: new TextDecoder().decode(out.stderr),
       message: await read('termination-log'),
       calls: (await read('calls.log')).trim().split('\n').filter(Boolean),
+      engineArgs: (await read('engine-args.log')).split('\n').filter(Boolean),
       files: (await Array.fromAsync(Deno.readDir(dir))).map((e) => e.name),
     }
   } finally {
@@ -383,6 +387,15 @@ Deno.test('step: a failed hypothesis fails the step, and the reason reaches the 
   const r = await runStep(firstScenario(), { results: ['Awaited|Running|Awaited|Awaited', 'Fail|Completed_With_Probe_Failure|40|Passed Failed'] })
   assertEquals(r.code, 1)
   assertEquals(r.message, 'the hypothesis did not hold (verdict Fail, phase Completed_With_Probe_Failure, probe success 40%)')
+})
+
+Deno.test('step: a verdict ends the wait at once, whichever it is', async () => {
+  for (const reply of ['Pass|Completed|100|Passed', 'Fail|Completed|0|Failed', 'Stopped|Stopped|0|Failed', 'Stopped|Stopped|0|Awaited', 'Error|Error|0|N/A']) {
+    const r = await runStep(firstScenario(), { results: [reply], states: ['initialized'] })
+    assertEquals(r.calls.filter((c) => c.includes('get chaosresult')).length, 1, reply)
+    assertEquals(r.calls.filter((c) => c.startsWith('sleep')).length, 0, reply)
+    assertEquals(r.code, reply.startsWith('Pass|') ? 0 : 1, reply)
+  }
 })
 
 Deno.test('step: a stopped or errored experiment is not a pass', async () => {
@@ -456,14 +469,19 @@ Deno.test('step: refusals say why and inject nothing', async () => {
 })
 
 Deno.test('step: a name is data, never shell', async () => {
-  const hostile = `gd'; touch "$FAKE/pwned"; echo '`
-  const wf = buildGameDay({ name: hostile, target, scenarios: ['pod-delete-one'], strategy: 'serial', recoverySeconds: 0 }) as unknown as GameDay
-  for (const t of containers(wf)) {
-    const r = await runStep(t.container.args[0], { results: ['Pass|Completed|100|Passed'] })
-    assertEquals(r.code, 0, `${t.name}: ${r.stdout}${r.stderr}`)
-    assertEquals(r.files.includes('pwned'), false, `${t.name}: a quote in the name broke out of its string`)
-    // kubectl received the name whole, as one argument.
-    assert(r.calls.some((c) => c.includes(`${hostile}-1-pod-delete`)), r.calls.join('\n'))
+  // Each name breaks a different quoting mistake: naive single quotes, no
+  // quotes at all, and command substitution inside double quotes.
+  const hostiles = [`gd'; touch "$FAKE/pwned"; echo '`, `gd;touch "$FAKE/pwned";x`, 'gd $(touch "$FAKE/pwned") `touch "$FAKE/pwned"`']
+  for (const hostile of hostiles) {
+    const wf = buildGameDay({ name: hostile, target, scenarios: ['pod-delete-one'], strategy: 'serial', recoverySeconds: 0 }) as unknown as GameDay
+    for (const t of containers(wf)) {
+      const r = await runStep(t.container.args[0], { results: ['Pass|Completed|100|Passed'] })
+      assertEquals(r.code, 0, `${t.name}: ${r.stdout}${r.stderr}`)
+      assertEquals(r.files.includes('pwned'), false, `${t.name}: ${hostile} broke out of its string`)
+      // Every engine call received the name whole and unchanged, as one argument.
+      assert(r.engineArgs.length > 0, r.calls.join('\n'))
+      for (const arg of r.engineArgs) assertEquals(arg, `${hostile}-1-pod-delete`, t.name)
+    }
   }
 })
 

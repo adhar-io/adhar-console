@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.172",
+    "date": "2026-11-05",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Test improvements"
+      }
+    ]
+  },
+  {
     "version": "0.1.171",
-    "date": "2026-11-04",
+    "date": "2026-11-05",
     "changes": [
       {
         "type": "change",
@@ -426,49 +436,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "change",
         "text": "Develop redesign"
-      }
-    ]
-  },
-  {
-    "version": "0.1.132",
-    "date": "2026-10-15",
-    "changes": [
-      {
-        "type": "improvement",
-        "text": "Database resource enhancement"
-      },
-      {
-        "type": "change",
-        "text": "Update template renderer"
-      },
-      {
-        "type": "improvement",
-        "text": "Template render enhancement"
-      },
-      {
-        "type": "change",
-        "scope": "platform",
-        "text": "Explore redesigned as a full resource browser"
-      },
-      {
-        "type": "change",
-        "scope": "platform",
-        "text": "Rename CI / CD to Builds"
-      },
-      {
-        "type": "change",
-        "scope": "platform",
-        "text": "Knowledge Graph — lenses, path tracing, health view, new overview"
-      },
-      {
-        "type": "change",
-        "scope": "platform",
-        "text": "Custom Resources redesigned with top tabs"
-      },
-      {
-        "type": "change",
-        "scope": "platform",
-        "text": "Quota & Limits page"
       }
     ]
   }

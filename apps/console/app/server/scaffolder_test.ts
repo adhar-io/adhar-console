@@ -1,5 +1,8 @@
 import { assertEquals } from 'jsr:@std/assert@^1.0.0'
-import { resolveTemplateSource } from './scaffolder.ts'
+import { committedPerfTest, PERF_TEST_CONFIG, PERF_TEST_SCRIPTS, resolveTemplateSource } from './scaffolder.ts'
+// The Performance Center's discovery — a pure module the server cannot import
+// at runtime, read here only to hold the two lists of script names together.
+import { PERF_DIR, REPO_CONFIG_FILE, REPO_SCRIPT_FILES } from '../../../../modules/develop/src/data/perf-location.ts'
 
 // The curated template collection, mirrored from
 // github.com/adhar-io/adhar-templates by the `adhar-libraries` package.
@@ -74,4 +77,35 @@ Deno.test('exactly one of the two paths is ever selected', () => {
     // Never both — that contradiction is what produced an empty repo.
     assertEquals(r.isBackstage && r.goldenPath !== undefined, false)
   }
+})
+
+/* ─────────── the template's performance test ─────────── */
+
+Deno.test('a TypeScript template\'s perf/load.ts is reported as the service\'s Performance Center test', () => {
+  // What the templates ship since they moved to TypeScript.
+  assertEquals(committedPerfTest(new Set(['src/index.ts', 'perf/load.ts', 'perf/test.json', 'catalog-info.yaml'])), 'perf/load.ts')
+  assertEquals(committedPerfTest(new Set(['perf/load.ts'])), 'perf/load.ts')
+})
+
+Deno.test('a template from before TypeScript still reports its perf/load.js test', () => {
+  assertEquals(committedPerfTest(new Set(['perf/load.js', 'perf/test.json'])), 'perf/load.js')
+  assertEquals(committedPerfTest(new Set(['perf/load.js'])), 'perf/load.js')
+})
+
+Deno.test('a scaffold carrying both scripts reports load.ts — the one the Performance Center runs', () => {
+  assertEquals(committedPerfTest(new Set(['perf/load.js', 'perf/load.ts', 'perf/test.json'])), 'perf/load.ts')
+})
+
+Deno.test('a config alone is still the test; no perf files, a sub-test or a look-alike is not the template\'s test', () => {
+  assertEquals(committedPerfTest(new Set(['perf/test.json'])), 'perf/test.json')
+  assertEquals(committedPerfTest(new Set()), null)
+  assertEquals(committedPerfTest(new Set(['README.md', 'src/perf/load.ts', 'perf/smoke/load.ts', 'perf/load.tsx', 'perf/load.mjs'])), null)
+})
+
+Deno.test('the scaffolder and the Performance Center agree on the script names and which one wins', () => {
+  // The scaffolder reports `<name>-load` when it committed what discovery will
+  // find as that test; two lists that drift apart would report a test the
+  // Performance Center does not list, or miss one it does.
+  assertEquals([...PERF_TEST_SCRIPTS], REPO_SCRIPT_FILES.map((f) => `${PERF_DIR}/${f}`))
+  assertEquals(PERF_TEST_CONFIG, `${PERF_DIR}/${REPO_CONFIG_FILE}`)
 })

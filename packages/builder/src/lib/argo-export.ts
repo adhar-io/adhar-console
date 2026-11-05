@@ -11,8 +11,20 @@
  *   placeholder to replace with the team's real image.
  *
  * Triggers do not become tasks: a webhook/event trigger is how the template
- * gets submitted (Argo Events, the CLI, the console), a schedule becomes the
- * CronWorkflow.
+ * gets submitted (Argo Events, the CLI, the console), and every Schedule
+ * trigger becomes one entry of the CronWorkflow's `schedules` list.
+ *
+ * The output is for Argo Workflows v4 (the platform pins v4.1.6), which
+ * enforces two rules a v3-era export broke:
+ *
+ *   • `spec.schedule` on a CronWorkflow is gone: v4 reads only the
+ *     `spec.schedules` list. The platform installs the MINIMAL CRDs, so the
+ *     API server stores an old `schedule` key without complaint, the
+ *     controller drops it when it decodes the object, and then refuses the
+ *     CronWorkflow with "cron workflow must have at least one schedule" — it
+ *     is accepted and never runs.
+ *   • A DAG task that has `dependencies` may not start with a digit, so a
+ *     step called "2FA check" is exported as `step-2fa-check-<n>`.
  *
  * YAML is emitted with JSON-quoted scalars, which is valid YAML and needs no
  * serializer dependency.
@@ -37,8 +49,13 @@ const CURL_IMAGE = 'curlimages/curl:8.10.1'
 const SHELL_IMAGE = 'alpine:3.20'
 const CRON = /^\s*(\S+\s+){4}\S+\s*$/
 
+/**
+ * A DNS-safe object name: lowercase letters, digits and inner hyphens, at
+ * most 52 characters. The trailing hyphen is trimmed AFTER the cut, because a
+ * cut can land on one and Kubernetes refuses a name that ends with a hyphen.
+ */
 export function slug(s: string, fallback = 'workflow'): string {
-  const v = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 52)
+  const v = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+/, '').slice(0, 52).replace(/-+$/, '')
   return v || fallback
 }
 
@@ -48,6 +65,38 @@ function delaySeconds(cfg: Record<string, unknown>): string {
   const n = Number(cfg.delayValue ?? 5) || 5
   const unit = String(cfg.delayUnit ?? 'seconds')
   return unit.startsWith('min') ? `${n}m` : unit.startsWith('hour') ? `${n}h` : unit.startsWith('day') ? `${n * 24}h` : `${n}s`
+}
+
+/**
+ * The DAG task (and template) name of the `i`-th step: DNS-safe, at most 63
+ * characters, and never starting with a digit — Argo refuses a task named
+ * like that once it has `dependencies` ("name cannot begin with a digit when
+ * using either 'depends' or 'dependencies'"), and the index suffix keeps two
+ * steps with the same label apart.
+ */
+function taskNameFor(s: Step, i: number): string {
+  const suffix = `-${i + 1}`
+  const base = slug(s.name, 'step')
+  const lead = /^[0-9]/.test(base) ? `step-${base}` : base
+  return `${lead.slice(0, 63 - suffix.length).replace(/-+$/, '')}${suffix}`
+}
+
+/**
+ * Every distinct cron expression the workflow's triggers carry, in canvas
+ * order. A v4 CronWorkflow fires on each entry of `schedules`, so two
+ * Schedule triggers on one canvas become one CronWorkflow with two entries
+ * (the v3 export kept only the first). Whitespace is normalised so the same
+ * schedule typed twice is listed once.
+ */
+function cronSchedules(steps: Step[]): string[] {
+  const out: string[] = []
+  for (const s of steps) {
+    const cron = s.type === 'trigger' ? s.config?.schedule : undefined
+    if (typeof cron !== 'string' || !CRON.test(cron)) continue
+    const normal = cron.trim().replace(/\s+/g, ' ')
+    if (!out.includes(normal)) out.push(normal)
+  }
+  return out
 }
 
 export function workflowToArgo(content: string, name: string): string | null {
@@ -62,9 +111,11 @@ export function workflowToArgo(content: string, name: string): string | null {
   const tasks = steps.filter((s) => s.type !== 'trigger')
   if (tasks.length === 0) return null
 
+  // At most 52 characters (`slug` caps it): a CronWorkflow's runs are named
+  // `<name>-<unix time>`, and Argo refuses a CronWorkflow name over 52.
   const wfName = slug(name)
   const taskName = new Map<string, string>()
-  tasks.forEach((s, i) => taskName.set(s.id, `${slug(s.name, 'step')}-${i + 1}`))
+  tasks.forEach((s, i) => taskName.set(s.id, taskNameFor(s, i)))
 
   // A task depends on the nearest non-trigger ancestors along the connections.
   const depsOf = (id: string, seen = new Set<string>()): string[] => {
@@ -120,8 +171,8 @@ export function workflowToArgo(content: string, name: string): string | null {
     }
   }
 
-  const schedule = steps.find((s) => s.type === 'trigger' && typeof s.config?.schedule === 'string' && CRON.test(String(s.config.schedule)))
-  if (schedule) {
+  const schedules = cronSchedules(steps)
+  if (schedules.length) {
     L.push('---')
     L.push('apiVersion: argoproj.io/v1alpha1')
     L.push('kind: CronWorkflow')
@@ -130,7 +181,8 @@ export function workflowToArgo(content: string, name: string): string | null {
     L.push('  labels:')
     L.push('    app.kubernetes.io/managed-by: "adhar-builder"')
     L.push('spec:')
-    L.push(`  schedule: ${q(schedule.config!.schedule)}`)
+    // v4: a list. The singular `schedule` was removed (see the header).
+    L.push(`  schedules: [${schedules.map(q).join(', ')}]`)
     L.push('  concurrencyPolicy: "Forbid"')
     L.push('  workflowSpec:')
     L.push('    workflowTemplateRef:')

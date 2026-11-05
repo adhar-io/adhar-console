@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useLiveRefetch, useWatchSignal } from '@adhar/shell-ui'
 import { k8s } from '@adhar/api-clients'
 import { kube } from '@adhar/api-clients/k8s'
-import { rerunName } from './k6-summary.ts'
+import { rerunName, rerunScriptFile } from './k6-summary.ts'
 import { LABEL_TEST } from './perf-format.ts'
 import { LABEL_RUNNER, LABEL_SCHEDULE, LABEL_TRIGGER } from './perf-results.ts'
 import { withPinnedImages } from './k6-images.ts'
@@ -285,14 +285,20 @@ export interface NewTestRun {
   paused?: boolean
 }
 
+/** A ConfigMap's data, best effort: `undefined` when it cannot be read. */
+async function configMapData(namespace: string | undefined, name: string | undefined): Promise<Record<string, string> | undefined> {
+  if (!namespace || !name) return undefined
+  const obj = await kube.get<{ data?: Record<string, string> }>(CONFIG_MAPS_GVR, namespace, name).catch(() => null)
+  return obj ? (obj.data ?? {}) : undefined
+}
+
 /**
  * The k6 source a run points at, best effort — `withTrendStats` reads it to
  * leave a script that sets its own `summaryTrendStats` alone.
  */
 async function scriptSource(namespace: string | undefined, cm: { name: string; file?: string } | undefined): Promise<string | undefined> {
-  if (!namespace || !cm?.name) return undefined
-  const obj = await kube.get<{ data?: Record<string, string> }>(CONFIG_MAPS_GVR, namespace, cm.name).catch(() => null)
-  return cm.file ? obj?.data?.[cm.file] : undefined
+  const data = await configMapData(namespace, cm?.name)
+  return cm?.file ? data?.[cm.file] : undefined
 }
 
 export async function createTestRun(input: NewTestRun): Promise<TestRun> {
@@ -372,7 +378,16 @@ export function deleteTestRun(namespace: string, name: string): Promise<unknown>
  * again" means a new object with the same spec and a fresh name.
  */
 export async function rerunTestRun(run: TestRun): Promise<TestRun> {
-  const script = await scriptSource(run.metadata.namespace, run.spec?.script?.configMap)
+  const cm = run.spec?.script?.configMap
+  const data = await configMapData(run.metadata.namespace, cm?.name)
+  // The key the original named — or, when its test's script has changed
+  // language since and the artefact now holds it under the other extension,
+  // that key (`rerunScriptFile`): a verbatim copy would fail in the
+  // initializer on a file the ConfigMap no longer has.
+  const file = rerunScriptFile(cm?.file, data && Object.keys(data))
+  const script = file ? data?.[file] : undefined
+  const spec = rerunSpec(run.spec)
+  if (cm && file !== cm.file) spec.script = { ...run.spec?.script, configMap: { ...cm, file } }
   return kube.apply<TestRun>({
     apiVersion: 'k6.io/v1alpha1',
     kind: 'TestRun',
@@ -387,7 +402,7 @@ export async function rerunTestRun(run: TestRun): Promise<TestRun> {
     // not repeat its `:latest` denial (k6-images.ts).
     // And asked for p(99) (k6-trend-stats.ts), so a rerun of an old run
     // records the percentile its original did not.
-    spec: withTrendStats(withPinnedImages({ ...rerunSpec(run.spec), paused: 'false' }), { script }),
+    spec: withTrendStats(withPinnedImages({ ...spec, paused: 'false' }), { script }),
   })
 }
 /* ─────────── derivations ─────────── */

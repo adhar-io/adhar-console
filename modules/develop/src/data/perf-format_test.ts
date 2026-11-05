@@ -148,3 +148,14 @@ Deno.test('starter configs merge into a valid config', () => {
 Deno.test('starter ids are unique — they key the picker', () => {
   assertEquals(new Set(STARTERS.map((s) => s.id)).size, STARTERS.length)
 })
+
+Deno.test('every starter is TypeScript, the language a new test is committed in (load.ts)', () => {
+  // Shaped like the templates' perf/load.ts: typed options from the k6 types,
+  // which k6 (>= 1.0) strips when it loads the file — mounted as script.ts.
+  for (const s of STARTERS) {
+    const script = s.script('demo')
+    assertEquals(script.includes(`import type { Options } from 'k6/options'`), true, `${s.id} imports the k6 option types`)
+    assertEquals(script.includes('export const options: Options = {'), true, `${s.id} types its options`)
+    assertEquals(script.includes('export default function (): void {'), true, `${s.id} types its entry point`)
+  }
+})

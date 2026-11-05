@@ -1,42 +1,9 @@
-import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert@1'
-import { workflowToArgo, slug } from './argo-export.ts'
+import { assertEquals } from 'jsr:@std/assert@1'
 import { defaultProjectFor, normalizeProject } from './project.ts'
 import { extractFence } from './html-to-nodes.ts'
 import { designThemeVars } from './design-theme.ts'
 
-Deno.test('workflow → Argo WorkflowTemplate DAG, triggers skipped, deps follow connections', () => {
-  const yaml = workflowToArgo(
-    JSON.stringify({
-      steps: [
-        { id: 't', type: 'trigger', name: 'Schedule', config: { schedule: '*/5 * * * *' } },
-        { id: 'a', type: 'action', name: 'HTTP Request', config: { method: 'POST', url: 'https://x.test/hook' } },
-        { id: 'd', type: 'delay', name: 'Delay', config: { delayValue: 2, delayUnit: 'minutes' } },
-      ],
-      connections: [{ from: 't', to: 'a' }, { from: 'a', to: 'd' }],
-    }),
-    'Nightly Sync',
-  )!
-  assertStringIncludes(yaml, 'kind: WorkflowTemplate')
-  assertStringIncludes(yaml, 'name: "nightly-sync"')
-  assertStringIncludes(yaml, 'template: "http-request-1"')
-  assertStringIncludes(yaml, 'dependencies: ["http-request-1"]')
-  assertStringIncludes(yaml, 'duration: "2m"')
-  assertStringIncludes(yaml, '"-X", "POST", "https://x.test/hook"')
-  // The cron trigger becomes a CronWorkflow pointing at the template.
-  assertStringIncludes(yaml, 'kind: CronWorkflow')
-  assertStringIncludes(yaml, 'schedule: "*/5 * * * *"')
-  assert(!yaml.includes('schedule-'), 'triggers are not tasks')
-})
-
-Deno.test('workflow with only triggers or bad JSON exports nothing', () => {
-  assertEquals(workflowToArgo('{"steps":[{"id":"t","type":"trigger","name":"Webhook"}]}', 'x'), null)
-  assertEquals(workflowToArgo('{not json', 'x'), null)
-})
-
-Deno.test('slug is DNS-safe', () => {
-  assertEquals(slug('  My  Flow!! v2 '), 'my-flow-v2')
-  assertEquals(slug('***'), 'workflow')
-})
+// The Argo export's tests live beside it, in argo-export_test.ts.
 
 Deno.test('normalizeProject accepts the standalone builder file array and rejects junk', () => {
   const arr = defaultProjectFor('workflow').files

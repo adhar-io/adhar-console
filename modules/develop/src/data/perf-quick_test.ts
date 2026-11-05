@@ -42,6 +42,13 @@ Deno.test('the script declares stages, thresholds and one check per request', ()
   assertStringIncludes(s, 'sleep(1)')
 })
 
+Deno.test('the generated script is TypeScript — a quick test is a new test, committed as load.ts', () => {
+  const s = generateScript(base)
+  assertStringIncludes(s, `import type { Options } from 'k6/options'`)
+  assertStringIncludes(s, 'export const options: Options = {')
+  assertStringIncludes(s, 'export default function (): void {')
+})
+
 Deno.test('bodies and headers are quoted safely', () => {
   const s = generateScript({
     ...base,

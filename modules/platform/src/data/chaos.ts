@@ -373,12 +373,18 @@ export function createChaosEngine(input: NewChaosEngine, cluster?: string): Prom
 /* ─────────────────────────── game days ─────────────────────────── */
 
 /**
- * A game day is an Argo `Workflow`. Argo Workflows is an OPTIONAL package on
- * this platform, so game days need it installed —
- * whose steps each create a ChaosEngine and wait for its ChaosResult, with
- * recovery pauses between them. This is the same shape Litmus's own Chaos
- * Center generates (`litmus-checker` per step), so a game day made here is
- * also readable there.
+ * A game day is an Argo `Workflow` (`buildGameDay`) whose steps each create a
+ * ChaosEngine and wait for the verdict in its ChaosResult, with recovery
+ * pauses between them and a revert step at the end. It runs on the
+ * platform's own Argo Workflows — the `argo-workflows` package, which not
+ * every install enables — so where Argo's CRDs are absent the list below
+ * reports "not installed" (a 404) instead of an empty list.
+ *
+ * Game days made here are NOT visible in Litmus's ChaosCenter. ChaosCenter
+ * lists the runs of a chaos infrastructure enrolled into it (its subscriber
+ * reports them), and the platform enrols none: enrolling one installs
+ * Litmus's own Argo workflow controller beside the platform's, and the
+ * platform runs exactly one. This page is where game days are run and read.
  *
  * Progress lives in `status.nodes`: one entry per step, with a phase and
  * timestamps. That is the real record; the workflow's own phase only says

@@ -1,9 +1,14 @@
 import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert@^1'
+import { K6_RUNNER_IMAGE, K6_STARTER_IMAGE } from './k6-images.ts'
 import { DEFAULT_CONFIG, type PerfTestConfig } from './perf-format.ts'
 import { DEFAULT_TOLERANCE, evaluateGate, gateEnv, type PerfBaseline, type PerfGate } from './perf-gate.ts'
 import { extractSummary, joinRunnerSummaries, readStoredSummary } from './perf-results.ts'
 import {
+  ARTEFACT_SCRIPT_JS,
+  ARTEFACT_SCRIPT_TS,
   artefactConfigMap,
+  artefactScriptKey,
+  consoleRunManifest,
   cronJobManifest,
   defaultScheduleName,
   kargoAnalysisTemplate,
@@ -13,6 +18,7 @@ import {
   runnerRbac,
   scheduleFromCronJob,
   scheduleNameError,
+  scriptRef,
   tektonTask,
   testRunTemplate,
 } from './perf-runner.ts'
@@ -87,6 +93,8 @@ async function runScript(opts: {
   env?: Record<string, string>
   noArtefact?: boolean
   log?: string
+  /** The committed script's file name the artefact was generated for. */
+  scriptFile?: string
 }): Promise<Outcome> {
   const dir = await Deno.makeTempDir({ prefix: 'perf-runner-test-' })
   try {
@@ -97,7 +105,7 @@ async function runScript(opts: {
     if (!opts.noArtefact) {
       await write('gate.env', gateEnv({ test: 'checkout', namespace: 'perf', commit: 'abc1234', gate: opts.gate, baseline: opts.baseline }))
     }
-    await write('testrun.json', JSON.stringify(testRunTemplate({ test: 'checkout', config, commit: 'abc1234' })))
+    await write('testrun.json', JSON.stringify(testRunTemplate({ test: 'checkout', config, commit: 'abc1234', scriptFile: opts.scriptFile })))
     await write('runner.log', opts.log ?? RUNNER_LOG)
     await write('exit2', `${opts.exit2 ?? '0'}\n`)
     await write('stage', `${opts.stage ?? 'finished'}\n`)
@@ -226,6 +234,16 @@ Deno.test('runner: a missing artefact is an infrastructure error, not a verdict'
   assertStringIncludes(r.stdout, 'not found')
 })
 
+Deno.test('runner: the TestRun a schedule or CI step creates mounts the script under its committed extension', async () => {
+  // The runner copies the template's `script` through untouched — the key it
+  // names is the one the artefact holds the script under.
+  for (const [scriptFile, file] of [['load.ts', 'script.ts'], ['load.js', 'script.js']] as const) {
+    const r = await runScript({ gate, scriptFile })
+    assertEquals(r.code, 0, r.stdout)
+    assertEquals((r.created.spec as { script: unknown }).script, { configMap: { name: 'k6-checkout', file } }, scriptFile)
+  }
+})
+
 Deno.test('runner and console agree on the verdict for the same numbers', async () => {
   const stored = readStoredSummary(joinRunnerSummaries([
     { pod: 'a', summary: extractSummary(RUNNER_LOG) },
@@ -254,10 +272,13 @@ Deno.test('runner and console agree on the verdict for the same numbers', async 
 /* ─────────────────────────── manifests ─────────────────────────── */
 
 Deno.test('the artefact carries script, template, gate and runner', () => {
-  const cm = artefactConfigMap({ test: 'checkout', config: { ...config, gate }, script: 'export default () => {}', commit: 'abc' })
+  const cm = artefactConfigMap({ test: 'checkout', config: { ...config, gate }, script: 'export default () => {}', commit: 'abc', scriptFile: 'load.ts' })
   assertEquals(cm.metadata.name, 'k6-checkout')
   assertEquals(cm.metadata.namespace, 'perf')
-  assertEquals(Object.keys(cm.data).sort(), ['gate.env', 'run.sh', 'script.js', 'testrun.json'])
+  // The templates' load.ts is mounted as script.ts — k6 transpiles it only
+  // when the file it is given says TypeScript.
+  assertEquals(Object.keys(cm.data).sort(), ['gate.env', 'run.sh', 'script.ts', 'testrun.json'])
+  assertEquals(cm.data['script.ts'], 'export default () => {}')
   assertStringIncludes(cm.data['gate.env'], "GATE_P95_MS='500'")
   const tr = JSON.parse(cm.data['testrun.json'])
   assertEquals(tr.spec.parallelism, 2)
@@ -267,6 +288,76 @@ Deno.test('the artefact carries script, template, gate and runner', () => {
   assertEquals(tr.spec.runner.env, [{ name: 'BASE_URL', value: 'http://checkout' }, { name: 'K6_SUMMARY_TREND_STATS', value: 'avg,min,med,max,p(90),p(95),p(99)' }])
   // No cleanup: 'post' — the operator would delete the TestRun before its result was harvested.
   assertEquals('cleanup' in tr.spec, false)
+})
+
+Deno.test('the script is mounted under the extension it was committed with', () => {
+  // k6 picks its loader from the file name it is handed: a TypeScript load.ts
+  // mounted as script.js is parsed as JavaScript and the initializer fails on
+  // the first type annotation; the legacy load.js stays script.js. A test
+  // whose file is not known is TypeScript, what the console writes.
+  const cases = [['load.ts', ARTEFACT_SCRIPT_TS], ['load.js', ARTEFACT_SCRIPT_JS], ['perf/smoke/load.JS', ARTEFACT_SCRIPT_JS], [undefined, ARTEFACT_SCRIPT_TS]] as const
+  assertEquals([ARTEFACT_SCRIPT_TS, ARTEFACT_SCRIPT_JS], ['script.ts', 'script.js'])
+  for (const [scriptFile, key] of cases) {
+    const why = `scriptFile ${scriptFile}`
+    assertEquals(artefactScriptKey(scriptFile), key, why)
+    assertEquals(scriptRef('checkout', scriptFile), { configMap: { name: 'k6-checkout', file: key } }, why)
+
+    const cm = artefactConfigMap({ test: 'checkout', config, script: 'export default () => {}', scriptFile })
+    // ONE script key, so the artefact never offers a stale copy in the other language.
+    assertEquals(Object.keys(cm.data).filter((k) => /\.(js|ts)$/.test(k)), [key], why)
+    // The template schedules and CI create TestRuns from points at that key…
+    assertEquals(JSON.parse(cm.data['testrun.json']).spec.script, { configMap: { name: 'k6-checkout', file: key } }, why)
+    assertEquals(testRunTemplate({ test: 'checkout', config, scriptFile }).spec.script.configMap.file, key, why)
+    // …and so does the TestRun "Run test" creates.
+    const run = consoleRunManifest({ test: 'checkout', config, runName: 'checkout-20261105-101500', scriptFile })
+    assertEquals(run.spec.script, { configMap: { name: 'k6-checkout', file: key } }, why)
+  }
+})
+
+Deno.test('"Run test" creates the committed test\'s TestRun: labelled, pinned, started, never cleaned up early', () => {
+  const run = consoleRunManifest({
+    test: 'checkout-load',
+    config,
+    runName: 'checkout-load-20261105-101500',
+    scriptFile: 'load.ts',
+    script: 'export default function (): void {}',
+    commit: 'c0ffee'.repeat(12),
+    application: 'checkout',
+  })
+  assertEquals(run.kind, 'TestRun')
+  assertEquals(run.metadata.name, 'checkout-load-20261105-101500')
+  assertEquals(run.metadata.namespace, 'perf')
+  assertEquals(run.metadata.labels, {
+    'app.kubernetes.io/managed-by': 'adhar-console',
+    'adhar.io/perf-test': 'checkout-load',
+    'adhar.io/perf-trigger': 'console',
+    // A label value is at most 63 characters.
+    'adhar.io/perf-commit': 'c0ffee'.repeat(12).slice(0, 63),
+    // What the harvester copies onto the result and the scorecard joins on.
+    'adhar.io/application': 'checkout',
+  })
+  assertEquals(run.spec.script, { configMap: { name: 'k6-checkout-load', file: 'script.ts' } })
+  // The CRD defaults `paused` to the STRING "true".
+  assertEquals(run.spec.paused, 'false')
+  assertEquals(run.spec.parallelism, 2)
+  assertEquals(run.spec.arguments, '--vus 10')
+  assertEquals('cleanup' in run.spec, false)
+  assertEquals(run.spec.runner.image, K6_RUNNER_IMAGE)
+  assertEquals(run.spec.starter.image, K6_STARTER_IMAGE)
+  assertEquals(run.spec.runner.env, [{ name: 'BASE_URL', value: 'http://checkout' }, { name: 'K6_SUMMARY_TREND_STATS', value: 'avg,min,med,max,p(90),p(95),p(99)' }])
+
+  // No commit and no application: no empty labels.
+  const bare = consoleRunManifest({ test: 'checkout-load', config: { ...config, namespace: '', env: {} }, runName: 'r' })
+  assertEquals(bare.metadata.namespace, 'default')
+  assertEquals(Object.keys(bare.metadata.labels).sort(), ['adhar.io/perf-test', 'adhar.io/perf-trigger', 'app.kubernetes.io/managed-by'])
+})
+
+Deno.test('the TypeScript runner image is a k6 that transpiles TypeScript (>= 1.0)', () => {
+  // TestRuns name this image for the initializer and every runner
+  // (k6-images.ts); a k6 older than 1.0 would parse load.ts as JavaScript.
+  const m = /^grafana\/k6:(\d+)\.(\d+)\.(\d+)$/.exec(K6_RUNNER_IMAGE)
+  assert(m, `${K6_RUNNER_IMAGE} is a pinned grafana/k6 release`)
+  assert(Number(m[1]) >= 1, `${K6_RUNNER_IMAGE} predates k6 1.0, which runs TypeScript without a build step`)
 })
 
 Deno.test('the runner script contains no unexpanded template placeholders', () => {

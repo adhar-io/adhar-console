@@ -167,6 +167,32 @@ export function rerunName(name: string): string {
   return `${base}-r${next}`.slice(0, 253)
 }
 
+/**
+ * The ConfigMap key a rerun mounts its script from, given the keys the
+ * ConfigMap holds now (`undefined` when it could not be read).
+ *
+ * A Performance Center run names its artefact's key by the extension its
+ * test's file had (`script.ts` for `load.ts`, `script.js` for a legacy
+ * `load.js` — perf-runner.ts), and the artefact keeps ONE script key. Once a
+ * test's file changes language — a `load.js` renamed to `load.ts`, or a
+ * TypeScript test first run by a console that mounted every script as
+ * `script.js` — and the test is run from its page again, the key an older
+ * run names is gone, and a rerun copied verbatim fails in the initializer on
+ * a file that does not exist. Pointed at the same name with the other
+ * extension it runs what the ConfigMap holds now, which is all "Run again"
+ * ever ran: the artefact is rewritten in place.
+ *
+ * Only that one swap: a key that is still there, a ConfigMap that could not
+ * be read, or a name without a `.js`/`.ts` extension stays as the run had it.
+ */
+export function rerunScriptFile(file: string | undefined, keys: readonly string[] | undefined): string | undefined {
+  if (!file || !keys || keys.includes(file)) return file
+  const m = /^(.*)\.(js|ts)$/.exec(file)
+  if (!m) return file
+  const other = `${m[1]}.${m[2] === 'js' ? 'ts' : 'js'}`
+  return keys.includes(other) ? other : file
+}
+
 export function durationSecs(startedAt?: string, finishedAt?: string): number | undefined {
   if (!startedAt) return undefined
   const start = new Date(startedAt).getTime()

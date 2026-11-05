@@ -88,6 +88,14 @@ function notFound(e: unknown): boolean {
   return (e as { status?: number } | null)?.status === 404
 }
 
+/**
+ * The Gitea calls reading, committing and deleting a test make: `giteaClient`
+ * in the console, a fake in the tests — which is how the file each read and
+ * write lands on (`load.ts`, or a legacy test's own `load.js`) is checked
+ * without a Gitea.
+ */
+export type PerfGitClient = Pick<gitea.GiteaClient, 'getFile' | 'saveFile' | 'deleteFile' | 'listCommits'>
+
 /** May the user commit to the repository holding `name` (or, with no name, to any app repo)? */
 export function canAuthorPerf(suite: PerfSuite | undefined, name?: string | null): boolean {
   if (!suite) return false
@@ -153,21 +161,28 @@ export function usePerfSuite() {
 export function usePerfTest(suite: PerfSuite | undefined, name: string | null) {
   const loc = findTest(suite, name)
   return useQuery<PerfTest>({
-    queryKey: ['perf', 'test', loc?.org, loc?.repo, loc?.dir, name],
+    // The script's file is part of the key: a `load.js` renamed to `load.ts`
+    // in git is a different file, and the editor must not keep showing — and
+    // offer to commit over — the one that is gone.
+    queryKey: ['perf', 'test', loc?.org, loc?.repo, loc?.dir, loc?.script, name],
     queryFn: () => fetchPerfTest(suite!, name!),
     enabled: Boolean(loc),
     retry: false,
   })
 }
 
-/** Read one test fresh from git — script, config, the shas an update needs and its latest commit. */
-export async function fetchPerfTest(suite: PerfSuite, name: string): Promise<PerfTest> {
+/**
+ * Read one test fresh from git — script, config, the shas an update needs and
+ * its latest commit. The script is read from the file the test has
+ * (`location.script`): `load.ts`, or a legacy test's `load.js`.
+ */
+export async function fetchPerfTest(suite: PerfSuite, name: string, client: PerfGitClient = giteaClient): Promise<PerfTest> {
   const loc = findTest(suite, name)
   if (!loc) throw new Error(`No application repository has a performance test called ${name}.`)
   const [script, config, commits] = await Promise.all([
-    readFile(loc, scriptPathOf(loc)),
-    readFile(loc, configPathOf(loc)),
-    testCommits(loc, 1).catch(() => []),
+    readFile(loc, scriptPathOf(loc), client),
+    readFile(loc, configPathOf(loc), client),
+    testCommits(loc, 1, client).catch(() => []),
   ])
   const configRaw = config?.text ?? ''
   return {
@@ -195,9 +210,10 @@ export async function fetchPerfTestConfig(suite: PerfSuite, name: string): Promi
 async function readFile(
   loc: PerfTestLocation,
   path: string,
+  client: PerfGitClient = giteaClient,
 ): Promise<{ text: string; sha?: string } | null> {
   try {
-    const f = await giteaClient.getFile(loc.org, loc.repo, loc.branch, path)
+    const f = await client.getFile(loc.org, loc.repo, loc.branch, path)
     return { text: decode(f.content, f.encoding), sha: f.sha }
   } catch (e) {
     if (notFound(e)) return null
@@ -210,10 +226,10 @@ async function readFile(
  * than per directory: the default test's directory is `perf/` itself, and
  * a commit to `perf/smoke/` did not change it.
  */
-async function testCommits(loc: PerfTestLocation, limit: number): Promise<gitea.Commit[]> {
+async function testCommits(loc: PerfTestLocation, limit: number, client: PerfGitClient = giteaClient): Promise<gitea.Commit[]> {
   const lists = await Promise.all(
     [scriptPathOf(loc), configPathOf(loc)].map((path) =>
-      giteaClient.listCommits(loc.org, loc.repo, loc.branch, limit, { path }).catch((e) => {
+      client.listCommits(loc.org, loc.repo, loc.branch, limit, { path }).catch((e) => {
         if (notFound(e)) return [] as gitea.Commit[]
         throw e
       })
@@ -244,35 +260,46 @@ export interface SaveTestInput {
  * failure leaves the repository in the more useful half-state: the script
  * saved, the config not, rather than a config describing a script that was
  * never written.
+ *
+ * The script goes to the file the location names, never to a fixed name: an
+ * edited `load.js` is committed back as `load.js` (the console does not
+ * rename a user's file), and a new test — whose location `newTestLocation`
+ * built — is written as `load.ts`.
  */
+export async function commitPerfTest(
+  loc: PerfTestLocation,
+  input: Omit<SaveTestInput, 'location'>,
+  client: PerfGitClient = giteaClient,
+): Promise<{ commit?: string; location: PerfTestLocation }> {
+  const message = input.message ?? `perf: update ${input.name}`
+  let commit: string | undefined
+
+  if (input.script !== undefined) {
+    const res = await client.saveFile(loc.org, loc.repo, loc.branch, scriptPathOf(loc), {
+      content: b64(input.script),
+      message: `${message} (${loc.script})`,
+      sha: input.scriptSha,
+    })
+    commit = res.commit?.sha
+  }
+  if (input.config !== undefined) {
+    const res = await client.saveFile(loc.org, loc.repo, loc.branch, configPathOf(loc), {
+      content: b64(serialiseConfig(input.config)),
+      message: `${message} (${REPO_CONFIG_FILE})`,
+      sha: input.configSha,
+    })
+    commit = res.commit?.sha ?? commit
+  }
+  return { commit, location: loc }
+}
+
 export function useSavePerfTest(suite: PerfSuite | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: SaveTestInput) => {
       const loc = input.location ?? findTest(suite, input.name)
       if (!loc) throw new Error(`No application repository has a performance test called ${input.name}.`)
-      const message = input.message ?? `perf: update ${input.name}`
-      let commit: string | undefined
-
-      if (input.script !== undefined) {
-        // Under the file the test already has — an edited `load.js` stays
-        // `load.js`; a new test's location says `load.ts`.
-        const res = await giteaClient.saveFile(loc.org, loc.repo, loc.branch, scriptPathOf(loc), {
-          content: b64(input.script),
-          message: `${message} (${loc.script})`,
-          sha: input.scriptSha,
-        })
-        commit = res.commit?.sha
-      }
-      if (input.config !== undefined) {
-        const res = await giteaClient.saveFile(loc.org, loc.repo, loc.branch, configPathOf(loc), {
-          content: b64(serialiseConfig(input.config)),
-          message: `${message} (${REPO_CONFIG_FILE})`,
-          sha: input.configSha,
-        })
-        commit = res.commit?.sha ?? commit
-      }
-      return { commit, location: loc }
+      return await commitPerfTest(loc, input)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['perf'] }),
   })
@@ -312,25 +339,29 @@ export function useCreatePerfTest(suite: PerfSuite | undefined) {
 /**
  * Delete the test's files — its script, any ignored script beside it (or the
  * test would come back as that script), and its config. Gitea has no
- * directory delete; the dir goes when empty.
+ * directory delete; the dir goes when empty. A file already gone is not an
+ * error.
  */
+export async function deletePerfTestFiles(loc: PerfTestLocation, name: string, client: PerfGitClient = giteaClient): Promise<void> {
+  for (const path of testFilePathsOf(loc)) {
+    try {
+      const f = await client.getFile(loc.org, loc.repo, loc.branch, path)
+      await client.deleteFile(loc.org, loc.repo, loc.branch, path, {
+        message: `perf: remove ${name}`,
+        sha: f.sha,
+      })
+    } catch (e) {
+      if (!notFound(e)) throw e
+    }
+  }
+}
+
 export function useDeletePerfTest(suite: PerfSuite | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (name: string) => {
       const loc = findTest(suite, name)
-      if (!loc) return
-      for (const path of testFilePathsOf(loc)) {
-        try {
-          const f = await giteaClient.getFile(loc.org, loc.repo, loc.branch, path)
-          await giteaClient.deleteFile(loc.org, loc.repo, loc.branch, path, {
-            message: `perf: remove ${name}`,
-            sha: f.sha,
-          })
-        } catch (e) {
-          if (!notFound(e)) throw e
-        }
-      }
+      if (loc) await deletePerfTestFiles(loc, name)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['perf'] }),
   })
@@ -342,7 +373,8 @@ export function useDeletePerfTest(suite: PerfSuite | undefined) {
 export function usePerfTestHistory(suite: PerfSuite | undefined, name: string | null) {
   const loc = findTest(suite, name)
   return useQuery({
-    queryKey: ['perf', 'history', loc?.org, loc?.repo, loc?.dir, name],
+    // Keyed on the script's file too: the history is that file's commits.
+    queryKey: ['perf', 'history', loc?.org, loc?.repo, loc?.dir, loc?.script, name],
     // Every commit that touched the test's files — hand-made ones too.
     queryFn: () => testCommits(loc!, 30),
     enabled: Boolean(loc),
@@ -359,9 +391,7 @@ const TEST_RUNS = { group: 'k6.io', version: 'v1alpha1', resource: 'testruns', n
 export const scriptConfigMapName = artefactName
 
 /**
- * Run a committed test.
- *
- * Two objects, in order:
+ * What running a committed test applies — two objects, in order:
  *   1. the artefact ConfigMap: the script exactly as committed, plus the
  *      runner, TestRun template and gate that schedules and CI reuse, and
  *   2. a TestRun pointing at it.
@@ -375,27 +405,32 @@ export const scriptConfigMapName = artefactName
  * `script.ts` for `load.ts`, `script.js` for a legacy `load.js` — because k6
  * transpiles a file only when its name says TypeScript (perf-runner.ts).
  */
+export function consoleRunObjects(test: PerfTest, opts: { commit?: string; runName: string }) {
+  const ns = test.config.namespace || 'default'
+  const config = { ...test.config, namespace: ns }
+  const commit = (opts.commit ?? test.commit ?? '').slice(0, 40)
+  const application = applicationOf(test.location)
+  // The file the test has — it decides the mount's extension.
+  const scriptFile = test.location?.script
+  return {
+    // The artefact: the script exactly as committed, plus the TestRun
+    // template, gate and runner script that schedules and CI reuse.
+    artefact: artefactConfigMap({ test: test.name, config, script: test.script, commit, application, scriptFile }),
+    run: consoleRunManifest({ test: test.name, config, runName: opts.runName, scriptFile, script: test.script, commit, application }),
+  }
+}
+
+/** Run a committed test: apply its `consoleRunObjects`, artefact first. */
 export function useRunPerfTest() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: { test: PerfTest; commit?: string; runName?: string }) => {
-      const { test } = input
-      const ns = test.config.namespace || 'default'
-      const config = { ...test.config, namespace: ns }
-      const commit = (input.commit ?? test.commit ?? '').slice(0, 40)
-      const application = applicationOf(test.location)
-      const scriptFile = test.location?.script
-
-      // The artefact: the script exactly as committed, plus the TestRun
-      // template, gate and runner script that schedules and CI reuse.
-      await kube.apply(
-        artefactConfigMap({ test: test.name, config, script: test.script, commit, application, scriptFile }),
-      )
-
-      const runName = input.runName ?? `${test.name}-${stamp()}`
-      return await kube.apply<{ metadata: { name: string; namespace?: string } }>(
-        consoleRunManifest({ test: test.name, config, runName, scriptFile, script: test.script, commit, application }),
-      )
+      const { artefact, run } = consoleRunObjects(input.test, {
+        commit: input.commit,
+        runName: input.runName ?? `${input.test.name}-${stamp()}`,
+      })
+      await kube.apply(artefact)
+      return await kube.apply<{ metadata: { name: string; namespace?: string } }>(run)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['k6'] })

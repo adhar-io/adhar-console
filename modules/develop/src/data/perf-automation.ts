@@ -289,24 +289,31 @@ export function harvestedRuns(runs: TestRun[]): TestRun[] {
 /* ─────────────────────────── the artefact ─────────────────────────── */
 
 /**
- * Write `k6-<test>` — script, TestRun template, gate and runner — to the
- * cluster, the script under its committed extension (`script.ts` for
- * `load.ts`, `script.js` for a legacy `load.js`).
+ * `k6-<test>` — script, TestRun template, gate and runner — for a committed
+ * test, the script under its committed extension (`script.ts` for `load.ts`,
+ * `script.js` for a legacy `load.js`): what schedules, the CI tab and a
+ * pinned baseline write to the cluster.
  */
+export function artefactOf(
+  test: Pick<PerfTest, 'name' | 'config' | 'script' | 'location'>,
+  commit?: string,
+) {
+  return artefactConfigMap({
+    test: test.name,
+    config: test.config,
+    script: test.script,
+    commit,
+    application: applicationOf(test.location),
+    scriptFile: test.location?.script,
+  })
+}
+
+/** Write `artefactOf(test)` to the cluster. */
 export function materialiseArtefact(
   test: Pick<PerfTest, 'name' | 'config' | 'script' | 'location'>,
   commit?: string,
 ) {
-  return kube.apply(
-    artefactConfigMap({
-      test: test.name,
-      config: test.config,
-      script: test.script,
-      commit,
-      application: applicationOf(test.location),
-      scriptFile: test.location?.script,
-    }),
-  )
+  return kube.apply(artefactOf(test, commit))
 }
 
 /** ServiceAccount, Role and RoleBinding the runner uses, in the test namespace. */

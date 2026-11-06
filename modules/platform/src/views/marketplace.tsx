@@ -19,12 +19,13 @@ import {
   useToast,
   useOverlayDismiss,
 } from '@adhar/shell-ui'
-import { cn } from '@adhar/utils'
+import { cn, type PackagePhase, type PackageState } from '@adhar/utils'
 import {
   APPSET_NAMESPACE,
   SOURCE_LABEL,
   appCategoryLabel,
   chartByIdMap,
+  statusBucket,
   useMarketplaceApps,
   useToggleApp,
   type ArgoHealth,
@@ -57,7 +58,7 @@ export function MarketplaceView() {
     return m
   }, [apps])
 
-  const enabledCount = useMemo(() => apps.filter((a) => a.enabled).length, [apps])
+  const enabledCount = useMemo(() => apps.filter((a) => statusBucket(a) === 'enabled').length, [apps])
 
   const visible = useMemo(
     () =>
@@ -65,11 +66,9 @@ export function MarketplaceView() {
         .filter((a) =>
           status === 'all'
             ? true
-            : status === 'enabled'
-              ? a.enabled
-              : status === 'healthy'
-                ? a.enabled && a.live?.health === 'Healthy'
-                : !a.enabled
+            : status === 'healthy'
+              ? a.enabled && a.live?.health === 'Healthy'
+              : statusBucket(a) === status
         )
         .filter((a) => category === 'all' || a.category === category)
         .filter((a) => {
@@ -172,7 +171,7 @@ export function MarketplaceView() {
         ) : (
           <div className="space-y-6">
             {grouped.map(([cat, items]) => {
-              const on = items.filter((a) => a.enabled).length
+              const on = items.filter((a) => statusBucket(a) === 'enabled').length
               return (
                 <section key={cat} className="space-y-2.5">
                   <header className="flex items-baseline justify-between gap-2 border-b border-edge-subtle pb-1.5">
@@ -241,7 +240,7 @@ function SkeletonGrid() {
 
 /* ─────────────────────────── toolbar (hero · stats · search · filters) ─────────────────────────── */
 
-type StatusFilter = 'enabled' | 'disabled' | 'healthy' | 'all'
+type StatusFilter = 'enabled' | 'disabled' | 'changing' | 'healthy' | 'all'
 
 function MarketplaceToolbar({
   apps,
@@ -275,14 +274,13 @@ function MarketplaceToolbar({
   onCategoryChange(c: string): void
 }) {
   const total = apps.length
-  const disabledCount = total - enabledCount
+  const disabledCount = apps.filter((a) => statusBucket(a) === 'disabled').length
+  const changingCount = apps.filter((a) => statusBucket(a) === 'changing').length
   const categories = Object.keys(categoryCounts).sort()
-  // Health of what's switched on — "attention" is anything enabled that isn't
-  // Healthy/Progressing (including enabled apps ArgoCD hasn't materialised yet).
+  // Health of what's switched on — "attention" is anything that failed or got
+  // stuck, in the same words the card uses.
   const healthy = apps.filter((a) => a.enabled && a.live?.health === 'Healthy').length
-  const attention = apps.filter(
-    (a) => a.enabled && a.live?.health !== 'Healthy' && a.live?.health !== 'Progressing',
-  ).length
+  const attention = apps.filter((a) => a.state.phase === 'failed').length
   const enabledPct = total ? Math.round((enabledCount / total) * 100) : 0
   const isFiltered = !!search || status !== 'all' || category !== 'all'
 
@@ -368,7 +366,7 @@ function MarketplaceToolbar({
           label="Enabled"
           value={loading && !total ? '—' : enabledCount}
           tone="emerald"
-          hint={`${enabledPct}% of the catalogue`}
+          hint={changingCount ? `${changingCount} in progress` : `${enabledPct}% of the catalogue`}
           active={status === 'enabled'}
           onClick={() => onStatusChange(status === 'enabled' ? 'all' : 'enabled')}
         />
@@ -444,8 +442,9 @@ function MarketplaceToolbar({
                 { value: 'enabled', label: 'Enabled', count: enabledCount, dot: 'bg-emerald-500' },
                 { value: 'healthy', label: 'Healthy', count: healthy, dot: 'bg-sky-500' },
                 { value: 'disabled', label: 'Disabled', count: disabledCount, dot: 'bg-slate-400' },
+                { value: 'changing', label: 'In progress', count: changingCount, dot: 'bg-amber-500' },
               ] as Array<{ value: StatusFilter; label: string; count: number; dot?: string }>
-            ).map((o) => {
+            ).filter((o) => o.value !== 'changing' || o.count > 0 || status === 'changing').map((o) => {
               const on = status === o.value
               return (
                 <button
@@ -498,7 +497,7 @@ function MarketplaceToolbar({
             </span>
             {search ? <FilterToken label={`“${search}”`} onClear={() => onSearchChange('')} /> : null}
             {status !== 'all' ? (
-              <FilterToken label={status === 'enabled' ? 'Enabled' : status === 'healthy' ? 'Healthy' : 'Disabled'} onClear={() => onStatusChange('all')} />
+              <FilterToken label={{ enabled: 'Enabled', healthy: 'Healthy', disabled: 'Disabled', changing: 'In progress' }[status]} onClear={() => onStatusChange('all')} />
             ) : null}
             {category !== 'all' ? (
               <FilterToken label={appCategoryLabel(category)} onClear={() => onCategoryChange('all')} />
@@ -652,7 +651,8 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
   const chart = app.chart
   const toggle = useToggleApp()
   const toast = useToast()
-  const busy = toggle.isPending
+  const { state } = app
+  const busy = isChanging(state)
   const tags = (chart?.tags ?? []).slice(0, 2)
 
   return (
@@ -661,7 +661,8 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
       interactive
       className={cn(
         'group relative flex h-full flex-col focus-within:ring-2 focus-within:ring-brand-400/30',
-        app.enabled && 'border-emerald-200 dark:border-emerald-500/25',
+        state.phase === 'enabled' && 'border-emerald-200 dark:border-emerald-500/25',
+        state.phase === 'failed' && 'border-rose-200 dark:border-rose-500/25',
         busy && 'opacity-90',
       )}
     >
@@ -692,7 +693,7 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
               {chart ? <SourceChip source={chart.source} /> : null}
             </div>
           </div>
-          <EnabledPill enabled={app.enabled} />
+          <PackageStatePill state={state} />
         </div>
 
         {chart?.description ? (
@@ -730,12 +731,12 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
         <span
           className={cn(
             'inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium',
-            app.enabled ? 'text-emerald-700 dark:text-emerald-400' : 'text-content-subtle',
+            FOOTER_TONE[state.phase],
           )}
-          title="Managed by GitOps — ArgoCD reconciles the ApplicationSet"
+          title={state.detail ?? 'Managed by GitOps — ArgoCD reconciles the ApplicationSet'}
         >
           <IconGit size={12} />
-          <span className="truncate">{app.enabled ? 'Installed via GitOps' : 'Not installed'}</span>
+          <span className="truncate">{FOOTER_TEXT[state.phase]}</span>
         </span>
         {/* POST /api/platform/appset/toggle is authorized as `update packages`. */}
         <Can check={CONSOLE_PERMISSIONS.packagesToggle}>
@@ -752,7 +753,7 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
               })
             }}
           >
-            {busy ? 'Committing…' : app.enabled ? 'Disable' : 'Enable'}
+            {busy ? state.label : app.enabled ? 'Disable' : 'Enable'}
           </Button>
         </Can>
       </div>
@@ -760,15 +761,55 @@ function AppCard({ app, onOpen }: { app: MarketplaceApp; onOpen(): void }) {
   )
 }
 
-function EnabledPill({ enabled }: { enabled: boolean }) {
-  return enabled ? (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200 dark:ring-emerald-500/25">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-      Enabled
-    </span>
-  ) : (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-sunken px-2 py-0.5 text-[10px] font-semibold text-content-subtle ring-1 ring-edge-subtle">
-      Disabled
+/** Still on its way somewhere, by itself: the button waits for it. */
+function isChanging(state: PackageState): boolean {
+  return state.phase === 'enabling' || state.phase === 'disabling'
+}
+
+const FOOTER_TONE: Record<PackagePhase, string> = {
+  disabled: 'text-content-subtle',
+  enabling: 'text-brand-700 dark:text-brand-300',
+  enabled: 'text-emerald-700 dark:text-emerald-400',
+  updating: 'text-amber-700 dark:text-amber-400',
+  failed: 'text-rose-700 dark:text-rose-400',
+  disabling: 'text-brand-700 dark:text-brand-300',
+}
+
+const FOOTER_TEXT: Record<PackagePhase, string> = {
+  disabled: 'Not installed',
+  enabling: 'Applying via GitOps',
+  enabled: 'Installed via GitOps',
+  updating: 'Installed via GitOps',
+  failed: 'Needs attention',
+  disabling: 'Removing via GitOps',
+}
+
+const PILL_TONE: Record<PackagePhase, string> = {
+  disabled: 'bg-surface-sunken text-content-subtle ring-edge-subtle',
+  enabling: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/25',
+  enabled: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-emerald-200 dark:ring-emerald-500/25',
+  updating: 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 ring-amber-200 dark:ring-amber-500/25',
+  failed: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 ring-rose-200 dark:ring-rose-500/25',
+  disabling: 'bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 ring-brand-200 dark:ring-brand-500/25',
+}
+
+const PILL_DOT: Partial<Record<PackagePhase, string>> = {
+  enabled: 'bg-emerald-500',
+  updating: 'bg-amber-500',
+  failed: 'bg-rose-500',
+}
+
+function PackageStatePill({ state }: { state: PackageState }) {
+  return (
+    <span
+      title={state.detail}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1',
+        PILL_TONE[state.phase],
+      )}
+    >
+      {state.settling ? <Spinner size={10} /> : PILL_DOT[state.phase] ? <span className={cn('h-1.5 w-1.5 rounded-full', PILL_DOT[state.phase])} /> : null}
+      {state.label}
     </span>
   )
 }
@@ -796,6 +837,7 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
 
   const result = toggle.data
   const err = toggle.error as Error | undefined
+  const changing = isChanging(app.state)
 
   if (typeof document === 'undefined') return null
   return createPortal(
@@ -821,7 +863,7 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                   <h2 className="truncate text-xl font-semibold text-content">
                     {chart?.title ?? app.name}
                   </h2>
-                  <EnabledPill enabled={app.enabled} />
+                  <PackageStatePill state={app.state} />
                   {chart ? <SourceChip source={chart.source} /> : null}
                 </div>
                 <div className="mt-0.5 text-[12px] text-content-muted">
@@ -856,7 +898,8 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-content">
-                  {app.enabled ? 'Enabled' : 'Disabled'} via GitOps
+                  {app.state.label}
+                  {app.state.phase === 'enabled' || app.state.phase === 'disabled' ? ' via GitOps' : null}
                 </h3>
                 <p className="mt-0.5 text-[12px] leading-relaxed text-content-muted">
                   {app.enabled ? 'Disabling' : 'Enabling'} commits{' '}
@@ -869,12 +912,12 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
                 <Button
                   variant={app.enabled ? 'secondary' : 'primary'}
                   size="sm"
-                  disabled={toggle.isPending}
+                  disabled={changing}
                   onClick={() => toggle.mutate({ app, enabled: !app.enabled })}
                 >
-                  {toggle.isPending ? (
+                  {changing ? (
                     <span className="inline-flex items-center gap-1.5">
-                      <Spinner size={12} /> Committing…
+                      <Spinner size={12} /> {app.state.label}
                     </span>
                   ) : app.enabled ? (
                     'Disable'
@@ -885,14 +928,23 @@ function AppDrawer({ app, onClose }: { app: MarketplaceApp; onClose(): void }) {
               </Can>
             </div>
 
-            {toggle.isPending ? (
+            {app.state.settling && app.state.phase !== 'updating' ? (
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-brand-50 dark:bg-brand-500/10 px-3 py-2 text-[12px] text-brand-800 dark:text-brand-300">
-                <Spinner size={12} /> Syncing via GitOps — committing to Gitea; ArgoCD will reconcile shortly.
+                <Spinner size={12} /> {toggle.isPending ? 'Committing to Gitea…' : app.state.detail ?? 'Argo CD is reconciling this change.'}
               </div>
             ) : null}
-            {result?.ok && !toggle.isPending ? (
-              <div className="mt-3 rounded-lg border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50/70 dark:bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-800 dark:text-emerald-300">
-                {result.note ?? 'Change committed. ArgoCD will reconcile shortly.'}
+            {app.state.phase === 'failed' ? (
+              <div className="mt-3 rounded-lg border border-rose-200 dark:border-rose-500/25 bg-rose-50/70 dark:bg-rose-500/10 px-3 py-2 text-[12px] text-rose-800 dark:text-rose-300">
+                <div className="font-semibold">{app.state.label}</div>
+                {app.state.detail ? <div className="mt-0.5 wrap-break-word">{app.state.detail}</div> : null}
+                <div className="mt-1 opacity-80">This clears by itself if Argo CD converges.</div>
+              </div>
+            ) : null}
+            {result?.ok && changing && !toggle.isPending ? (
+              <div className="mt-3 rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2 text-[12px] text-content-muted">
+                {result.refreshed === false
+                  ? 'Committed. Argo CD could not be asked to look now, so it may take up to two minutes to notice.'
+                  : 'Committed. This becomes final once Argo CD has applied it.'}
                 {result.commitUrl ? (
                   <>
                     {' '}

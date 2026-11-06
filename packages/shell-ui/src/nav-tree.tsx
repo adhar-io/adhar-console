@@ -272,6 +272,7 @@ export const DEFAULT_NAV: NavSection[] = [
           { id: 'develop.builds', label: 'Builds', to: '/develop', search: 'builds' },
           { id: 'develop.pipelines', label: 'Pipelines', to: '/develop', search: 'pipelines' },
           { id: 'develop.functions', label: 'Functions', to: '/develop', search: 'functions' },
+          { id: 'develop.batch', label: 'Batch', to: '/develop', search: 'batch', roles: BUILDER_ROLES },
           { id: 'develop.content', label: 'Content', to: '/develop', search: 'content' },
         ],
       },

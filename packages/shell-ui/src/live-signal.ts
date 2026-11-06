@@ -78,3 +78,12 @@ export function applyEvent(snap: Snapshot, type: string, obj: unknown, extraIgno
 export function nextDelay(now: number, last: number, throttleMs: number, debounceMs = 250): number {
   return Math.max(debounceMs, last + throttleMs - now)
 }
+
+/**
+ * Delay for a TRAILING debounce: `debounceMs` after this event, but never past
+ * `maxWaitMs` after the first event still waiting, so a steady stream of changes
+ * cannot postpone the refetch forever.
+ */
+export function trailingDelay(now: number, firstPendingAt: number, debounceMs: number, maxWaitMs: number): number {
+  return Math.max(0, Math.min(debounceMs, firstPendingAt + maxWaitMs - now))
+}

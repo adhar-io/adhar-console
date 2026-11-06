@@ -31,7 +31,8 @@ export type DevelopSection =
   | 'pipelines'
   | 'performance'
   | 'content'
-  | 'functions';
+  | 'functions'
+  | 'batch';
 
 export interface DevelopParams {
   /** Repository name (bare, within the configured org). */
@@ -61,9 +62,13 @@ export interface DevelopParams {
   app?: string;
   /** Functions: the open drawer (`<namespace>/<name>`, or `app:<name>` for a function app not deployed yet). */
   fn?: string;
+  /** Batch: the open job drawer (`<namespace>/<name>`). `run` is its open run, in the same form. */
+  job?: string;
+  /** Batch: the open run drawer's tab, beside the job drawer's `tab` so closing a run returns to where it was opened. */
+  runTab?: string;
 }
 
-const KEYS = ['repo', 'tab', 'pr', 'issue', 'sha', 'branch', 'state', 'conn', 'view', 'suite', 'run', 'report', 'app', 'fn'] as const;
+const KEYS = ['repo', 'tab', 'pr', 'issue', 'sha', 'branch', 'state', 'conn', 'view', 'suite', 'run', 'report', 'app', 'fn', 'job', 'runTab'] as const;
 
 function clean(o: Record<string, unknown>): Record<string, string> {
   const out: Record<string, string> = {};

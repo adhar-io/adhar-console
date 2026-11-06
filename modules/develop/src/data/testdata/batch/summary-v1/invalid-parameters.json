@@ -1,0 +1,1 @@
+{"v":1,"job":"importJob","batchJob":"importer","exitCode":2,"exitDescription":"parameter region: value 'xx' is not one of [sg, my]","outcome":"invalid","reason":"parameters","trigger":"manual","start":"2026-11-03T17:30:04Z","end":"2026-11-03T17:30:05Z","image":"sha256:7f3c1a9d2e4b5f60718293a4b5c6d7e8f9001122334455667788990011223344"}

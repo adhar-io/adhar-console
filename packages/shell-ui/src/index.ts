@@ -267,6 +267,8 @@ export {
   toolForInternalHost,
   toPublicUrl,
   APP_CONFIG_DEFAULTS,
+  APP_CONFIG_QUERY_KEY,
+  useLiveAppConfig,
   type AppConfig,
 } from './app-config.ts'
 export { notifyUnauthorized, subscribeUnauthorized, UNAUTHORIZED_EVENT } from './unauthorized.ts'

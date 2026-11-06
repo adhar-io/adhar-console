@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { useQueryClient, type QueryKey } from '@tanstack/react-query'
-import { applyEvent, nextDelay, sameSnapshot, type Snapshot, snapshotOf } from './live-signal.ts'
+import { type QueryClient, useQueryClient, type QueryKey } from '@tanstack/react-query'
+import { applyEvent, nextDelay, sameSnapshot, type Snapshot, snapshotOf, trailingDelay } from './live-signal.ts'
 
 /**
  * Live client — the browser side of `/api/live`, one multiplexed WebSocket
@@ -522,6 +522,30 @@ export interface WatchSignalOpts {
   throttleMs?: number
   /** Extra noise keys for this resource (e.g. Kyverno's per-result `timestamp`). */
   ignore?: readonly string[]
+  /**
+   * Refetch this long after the LAST change (at most `throttleMs` after the
+   * first), for a query whose server caches its answer briefly: anything shorter
+   * than that cache can read a list taken before the change it is reacting to.
+   */
+  settleMs?: number
+}
+
+const IN_FLIGHT_RECHECK_MS = 500
+
+/**
+ * Invalidate `keys`, unless one of them is mid-fetch; returns whether it did.
+ *
+ * A fetch already running may have read the list before the change this is
+ * reacting to. Invalidating then does nothing useful: the running fetch answers
+ * for the new one (`cancelRefetch: false`), clears the invalidated flag and
+ * delivers the old data, and no further event may ever arrive to correct it. An
+ * app's last status change, the one that turns it Healthy, was lost exactly like
+ * this. So wait for that fetch to finish rather than abort it.
+ */
+export function invalidateIfIdle(qc: QueryClient, keys: readonly QueryKey[]): boolean {
+  if (keys.some((k) => qc.isFetching({ queryKey: k }) > 0)) return false
+  for (const k of keys) void qc.invalidateQueries({ queryKey: k }, { cancelRefetch: false })
+  return true
 }
 
 /**
@@ -534,7 +558,7 @@ export function useWatchSignal(
   queryKeys: QueryKey[],
   opts: WatchSignalOpts = {},
 ): number | false {
-  const { enabled = true, fallbackMs = POLL_FLOOR_MS, throttleMs = 5_000, ignore = [] } = opts
+  const { enabled = true, fallbackMs = POLL_FLOOR_MS, throttleMs = 5_000, ignore = [], settleMs = 0 } = opts
   const qc = useQueryClient()
   const status = useLiveStatus()
   const [refused, setRefused] = useState(false)
@@ -550,22 +574,28 @@ export function useWatchSignal(
     let snap: Snapshot | null = null
     let timer: number | undefined
     let last = 0
+    let firstPendingAt = 0
     const subscribedAt = Date.now()
 
-    const invalidate = () => {
-      for (const k of keysRef.current) {
-        // `cancelRefetch: false` — never abort a fetch already in flight just
-        // to start the same one again.
-        void qc.invalidateQueries({ queryKey: k }, { cancelRefetch: false })
+    const fire = () => {
+      timer = undefined
+      if (!invalidateIfIdle(qc, keysRef.current)) {
+        timer = setTimeout(fire, IN_FLIGHT_RECHECK_MS) as unknown as number
+        return
       }
+      firstPendingAt = 0
+      last = Date.now()
     }
     const bump = () => {
+      if (settleMs > 0) {
+        const now = Date.now()
+        if (timer !== undefined) clearTimeout(timer)
+        if (!firstPendingAt) firstPendingAt = now
+        timer = setTimeout(fire, trailingDelay(now, firstPendingAt, settleMs, throttleMs)) as unknown as number
+        return
+      }
       if (timer !== undefined) return
-      timer = setTimeout(() => {
-        timer = undefined
-        last = Date.now()
-        invalidate()
-      }, nextDelay(Date.now(), last, throttleMs)) as unknown as number
+      timer = setTimeout(fire, nextDelay(Date.now(), last, throttleMs)) as unknown as number
     }
 
     const unsub = liveClient.subscribe('k8s', JSON.parse(watchKey), (msg) => {
@@ -597,7 +627,7 @@ export function useWatchSignal(
       if (timer !== undefined) clearTimeout(timer)
       unsub()
     }
-  }, [watchKey, ignoreKey, enabled, throttleMs, qc])
+  }, [watchKey, ignoreKey, enabled, throttleMs, settleMs, qc])
 
   if (!enabled) return false
   if (!watchKey || refused || status !== 'live') return pollEvery(fallbackMs)

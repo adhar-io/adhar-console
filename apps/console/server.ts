@@ -31,7 +31,7 @@ import { publicConfigResponse } from './app/server/public-config.ts'
 import { handleDocuments, handlePreferences } from './app/server/api-handlers.ts'
 import { handleNotificationsApi } from './app/server/notifications.ts'
 import { handleScaffold } from './app/server/scaffolder.ts'
-import { handleAppsetToggle } from './app/server/appset.ts'
+import { handleAppsetDesired, handleAppsetToggle } from './app/server/appset.ts'
 import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
 import { handleScorecardFix } from './app/server/scorecard-fix.ts'
@@ -494,6 +494,9 @@ async function route(req: Request): Promise<Response> {
   // Marketplace enable/disable: flip an app's `enabled` in the Adhar
   // ApplicationSet YAML in Gitea (GitOps) — ArgoCD reconciles the change.
   if (path === '/api/platform/appset/toggle') return handleAppsetToggle(req)
+  // What those toggles asked for, from Git: the Marketplace compares it with the
+  // live Application to say "Enabling…" until the app is really there.
+  if (path === '/api/platform/appset/desired') return handleAppsetDesired(req)
 
   // Workspace / Organization management (org settings, members, teams,
   // projects, api-tokens, approvals, audit). Members and team membership ARE

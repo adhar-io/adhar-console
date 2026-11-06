@@ -73,8 +73,30 @@ export function isFunctionTemplate(name: string, tags: readonly string[]): boole
   return /^function(-|$)/.test(name.trim().toLowerCase()) || tags.some((t) => t.trim().toLowerCase() === 'function')
 }
 
-/** Infer a template family from its name + tags (all are `spec.type: service`). */
-export function inferFamily(name: string, tags: string[]): string {
+/** The label a template declares what it deploys with. The CLI reads it too (`cmd/apps/deploy.go`). */
+const WORKLOAD_LABEL = 'adhar.io/workload'
+
+/**
+ * A template that scaffolds a Spring Batch job: labelled `adhar.io/workload:
+ * batch`, named `springboot-batch-*`, or tagged `batch`. Checked before the name
+ * regexes in `inferFamily`, because a batch template is routinely tagged `etl`,
+ * which would land it among Data & ML, and named `*-service` or `*-worker`,
+ * which would land it among the backends (design 0025 §7.5).
+ */
+export function isBatchTemplate(name: string, tags: readonly string[], labels: Readonly<Record<string, unknown>> = {}): boolean {
+  return labels[WORKLOAD_LABEL] === 'batch' ||
+    /^springboot-batch(-|$)/.test(name.trim().toLowerCase()) ||
+    tags.some((t) => t.trim().toLowerCase() === 'batch')
+}
+
+/**
+ * Infer a template family from its name + tags (all are `spec.type: service`).
+ * What a template DECLARES comes first: its `adhar.io/workload` label beats
+ * anything its name happens to say.
+ */
+export function inferFamily(name: string, tags: string[], labels: Readonly<Record<string, unknown>> = {}): string {
+  if (labels[WORKLOAD_LABEL] === 'function') return 'function'
+  if (isBatchTemplate(name, tags, labels)) return 'batch'
   if (isFunctionTemplate(name, tags)) return 'function'
   const hay = `${name} ${tags.join(' ')}`.toLowerCase()
   // Backend services FIRST — otherwise "*-web-service" gets mis-caught by the
@@ -132,6 +154,17 @@ function functionActions() {
   ]
 }
 
+function batchActions() {
+  return [
+    { title: 'Create repository', duration: 0.8 },
+    { title: 'Render template skeleton', duration: 0.9 },
+    { title: 'Commit rendered files', duration: 0.7 },
+    { title: 'Register catalog-info.yaml', duration: 0.3 },
+    { title: 'Build the image on push (app-ci: buildpacks → Harbor)', duration: 0.6 },
+    { title: 'Register the Application (type batch): a BatchJob per environment, run on its schedule or on demand', duration: 0.6 },
+  ]
+}
+
 const asObj = (v: YamlValue | undefined): Record<string, YamlValue> =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, YamlValue>) : {}
 
@@ -145,7 +178,7 @@ export function templateFamilyOf(doc: unknown): string | undefined {
   const name = typeof metadata.name === 'string' ? metadata.name : undefined
   if (!name) return undefined
   const tags = Array.isArray(metadata.tags) ? metadata.tags.map(String) : []
-  return inferFamily(name, tags)
+  return inferFamily(name, tags, asObj(metadata.labels))
 }
 
 /** Translate one Backstage parameter property into a wizard field. */
@@ -257,7 +290,7 @@ function buildTemplate(
   if (!name) return null
 
   const tags = Array.isArray(metadata.tags) ? metadata.tags.map(String) : []
-  const family = inferFamily(name, tags)
+  const family = inferFamily(name, tags, asObj(metadata.labels))
   const language = inferLanguage(name, tags)
   const specType = typeof spec.type === 'string' ? spec.type : 'service'
   const steps = buildSteps(spec.parameters)
@@ -285,7 +318,7 @@ function buildTemplate(
     // wizard-native translation the Create form actually renders.
     parameters: spec.parameters ?? [],
     steps,
-    actions: family === 'function' ? functionActions() : defaultActions(),
+    actions: family === 'function' ? functionActions() : family === 'batch' ? batchActions() : defaultActions(),
     scaffold: {
       // Backstage templates own their catalog descriptor + deploy/ + GitOps, so
       // GitOps is ON: generate repo → render skeleton → kpack build → Argo CD.

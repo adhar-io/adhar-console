@@ -89,6 +89,8 @@ export type TemplateFamily =
   | 'service'
   /** A serverless Function (Knative, scale-to-zero) — managed under Develop → Functions. */
   | 'function'
+  /** A Spring Batch job (a BatchJob per environment) — managed under Develop → Batch. */
+  | 'batch'
   | 'website'
   | 'library'
   | 'api'
@@ -1638,6 +1640,7 @@ export interface GiteaTemplateStatus {
 const VALID_FAMILIES = new Set<string>([
   'service',
   'function',
+  'batch',
   'website',
   'library',
   'api',

@@ -1,7 +1,7 @@
-import { env } from '@adhar/utils'
+import { env, parseYaml } from '@adhar/utils'
 import { getRequestUser, unauthorized } from './request-user.ts'
-import { getTool } from './tool-registry.ts'
-import { apiServerFetch, resolveIdentity } from './k8s/gateway.ts'
+import { getK8sServiceToken, getTool } from './tool-registry.ts'
+import { apiServerFetch, type K8sIdentity, resolveIdentity } from './k8s/gateway.ts'
 import { requirePermission } from './k8s/access.ts'
 import { CONSOLE_PERMISSIONS } from '@adhar/auth/server'
 
@@ -89,7 +89,16 @@ export function resolvePackageName(
  *   4. GETs the file from Gitea, performs a **scoped** edit — it locates the
  *      `- name: "<name>"` (or `- packageName: "<name>"`) block and rewrites only
  *      that block's `enabled:` line, preserving all other YAML formatting and
- *      comments — and PUTs it back (a commit) with the service token.
+ *      comments — and PUTs it back (a commit) with the service token;
+ *   5. asks Argo CD to look now (`requestArgoRefresh`), because a Gitea push does
+ *      not: the webhook names the repo by its public URL, every Application names
+ *      it by the in-cluster Service, nothing matches, and the change would sit
+ *      for the 120 s reconciliation period.
+ *
+ * `GET /api/platform/appset/desired` reads the same file back. The live
+ * ApplicationSet object only changes once Argo CD has synced that commit, so for
+ * those seconds Git is the only place that knows what was asked for, and it is
+ * what lets a reload or a second tab show "Enabling…" instead of "Disabled".
  *
  * Environment (all optional — used for discovery fallback / overrides):
  *   - `ADHAR_APPSET_NAMESPACE` — namespace of the ApplicationSet(s). Default
@@ -225,6 +234,8 @@ interface DiscoveredSource {
   repo: string // owner/name
   path?: string // path inside the repo (dir or file)
   branch?: string
+  /** The Argo CD Application that syncs the ApplicationSet from Git. */
+  app?: string
 }
 
 /** Parse a git repoURL into a Gitea `<owner>/<repo>` (strips host + `.git`). */
@@ -293,13 +304,215 @@ async function discoverAppsetSource(
       if (r.ok) {
         const app = await r.json()
         const src = sourceOf(app)
-        if (src) return src
+        if (src) return { ...src, app: trackingApp }
       }
     } catch {
       /* ignore */
     }
   }
   return undefined
+}
+
+/* ─────────────── what Git says ─────────────── */
+
+/** Every element's `enabled`, read the way the generator reads it: anything but `"true"` is off. */
+export function readElementsEnabled(yaml: string): Record<string, boolean> {
+  const doc = parseYaml(yaml) as
+    | {
+      spec?: {
+        generators?: Array<{
+          list?: { elements?: RawYamlElement[] }
+          matrix?: { generators?: Array<{ list?: { elements?: RawYamlElement[] } }> }
+        }>
+      }
+    }
+    | null
+  const out: Record<string, boolean> = {}
+  for (const g of doc?.spec?.generators ?? []) {
+    const lists = [g.list?.elements, ...(g.matrix?.generators ?? []).map((m) => m.list?.elements)]
+    for (const els of lists) {
+      for (const e of els ?? []) {
+        const name = e.name ?? e.packageName
+        if (name) out[name] = String(e.enabled) === 'true'
+      }
+    }
+  }
+  return out
+}
+
+interface RawYamlElement {
+  name?: string
+  packageName?: string
+  enabled?: unknown
+}
+
+export interface DesiredState {
+  appset: string
+  repo: string
+  path: string
+  /** When the file last changed, which is when any toggle in it was last asked for. */
+  changedAt?: string
+  elements: Record<string, boolean>
+}
+
+/**
+ * Brief, so one watch burst across several tabs is one Gitea read. A toggle on
+ * this replica clears it; another replica's toggle shows after this long.
+ */
+const DESIRED_TTL_MS = 3_000
+const desiredCache = new Map<string, { at: number; state: DesiredState }>()
+
+export async function handleAppsetDesired(req: Request): Promise<Response> {
+  if (req.method.toUpperCase() !== 'GET') return new Response('Method Not Allowed', { status: 405 })
+  const auth = await getRequestUser(req)
+  if (!auth) return unauthorized()
+  const reply = (body: unknown, status = 200) =>
+    withCookie(Response.json(body, { status, headers: { 'cache-control': 'no-store' } }), auth.refreshedCookie)
+
+  const appset = (new URL(req.url).searchParams.get('appset') ?? '').trim()
+  if (!appset || !APPSET_NAME.test(appset) || appset.includes('..')) return reply({ error: 'invalid_appset' }, 400)
+
+  const cached = desiredCache.get(appset)
+  if (cached && Date.now() - cached.at < DESIRED_TTL_MS) return reply(cached.state)
+
+  const gitea = getTool('gitea')
+  if (!gitea?.baseUrl || !gitea.serviceToken) return reply({ error: 'gitea_not_configured' }, 503)
+  const api = (path: string) =>
+    fetch(`${gitea.baseUrl}/api/v1${path}`, {
+      headers: { authorization: `token ${gitea.serviceToken}`, accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    })
+
+  const at = Date.now()
+  const { repoSpec, owner, repoName, ref, candidates } = await resolveAppsetFiles(req, appset)
+  if (!owner || !repoName) return reply({ error: 'appset_repo_unresolved', detail: `bad repo "${repoSpec}"` }, 500)
+  const repoPath = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}`
+
+  try {
+    for (const cand of candidates) {
+      const res = await api(`${repoPath}/contents/${cand}?ref=${encodeURIComponent(ref)}`)
+      if (!res.ok) {
+        await res.body?.cancel()
+        continue
+      }
+      const meta = (await res.json().catch(() => ({}))) as { content?: string; encoding?: string }
+      if (!meta.content) continue
+      const elements = readElementsEnabled(meta.encoding === 'base64' ? fromBase64(meta.content) : meta.content)
+      if (Object.keys(elements).length === 0) continue
+      const state: DesiredState = {
+        appset,
+        repo: repoSpec,
+        path: cand,
+        changedAt: await lastCommitDate(api, repoPath, cand, ref),
+        elements,
+      }
+      desiredCache.set(appset, { at, state })
+      return reply(state)
+    }
+  } catch (e) {
+    return reply({ error: 'gitea_unreachable', detail: e instanceof Error ? e.message : '' }, 502)
+  }
+  return reply({ error: 'appset_file_not_found', repo: repoSpec, tried: candidates }, 404)
+}
+
+/** Best effort: without it a transition simply has no clock until Argo CD starts one. */
+async function lastCommitDate(
+  api: (path: string) => Promise<Response>,
+  repoPath: string,
+  file: string,
+  ref: string,
+): Promise<string | undefined> {
+  try {
+    const res = await api(
+      `${repoPath}/commits?sha=${encodeURIComponent(ref)}&path=${encodeURIComponent(file)}&limit=1&stat=false&verification=false&files=false`,
+    )
+    if (!res.ok) {
+      await res.body?.cancel()
+      return undefined
+    }
+    const commits = (await res.json()) as Array<{ commit?: { committer?: { date?: string } }; created?: string }>
+    return commits[0]?.commit?.committer?.date ?? commits[0]?.created
+  } catch {
+    return undefined
+  }
+}
+
+/* ─────────────── asking Argo CD to look ─────────────── */
+
+/** Syncs `applicationset.yaml` into the live ApplicationSet; used when the owner cannot be discovered. */
+const DEFAULT_APPSET_APP = 'adhar-platform-applicationset'
+
+/**
+ * Annotate the Application that syncs the ApplicationSet, so the commit is
+ * picked up in seconds rather than at the next reconciliation.
+ *
+ * Tried as the signed-in user first, so the audit log names them, then as the
+ * console: a person allowed to toggle packages (`update packages`) need not have
+ * `patch applications`. Best effort. If both are refused the change still lands,
+ * only slower, and the Marketplace shows "Enabling…" for that long.
+ */
+export async function requestArgoRefresh(
+  namespace: string,
+  application: string,
+  identities: Array<K8sIdentity | string | null | undefined>,
+  call: typeof apiServerFetch = apiServerFetch,
+): Promise<boolean> {
+  const path = `/apis/argoproj.io/v1alpha1/namespaces/${encodeURIComponent(namespace)}/applications/${encodeURIComponent(application)}`
+  const init = {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/merge-patch+json' },
+    body: JSON.stringify({ metadata: { annotations: { 'argocd.argoproj.io/refresh': 'normal' } } }),
+  }
+  for (const auth of identities) {
+    if (!auth) continue
+    try {
+      const res = await call(auth, path, init)
+      await res.body?.cancel()
+      if (res.ok) return true
+    } catch {
+      /* try the next identity */
+    }
+  }
+  return false
+}
+
+/* ─────────────── locating the file ─────────────── */
+
+/** The repo and the files to try for an ApplicationSet (discovery → env → conventional names). */
+async function resolveAppsetFiles(req: Request, appset: string | undefined) {
+  const namespace = env('ADHAR_APPSET_NAMESPACE') ?? DEFAULT_NAMESPACE
+  const branch = env('ADHAR_APPSET_BRANCH') ?? DEFAULT_BRANCH
+  const discovered = appset ? await discoverAppsetSource(req, namespace, appset) : undefined
+  const repoSpec = discovered?.repo || env('ADHAR_APPSET_REPO') || DEFAULT_REPO
+  const [owner, repoName] = repoSpec.split('/')
+
+  // Candidate file paths, in priority order. A discovered `path` may be a
+  // directory (ArgoCD tracks a dir) or a file; env override wins; otherwise we
+  // probe conventional appset filenames and use the first that holds the element.
+  const candidates: string[] = []
+  const pushUnique = (p?: string) => {
+    if (p && !candidates.includes(p)) candidates.push(p)
+  }
+  pushUnique(env('ADHAR_APPSET_FILE'))
+  // `.` is the repo root, which is what the conventional names below already mean.
+  const dp = discovered?.path?.replace(/\/+$/, '')
+  if (dp && dp !== '.') {
+    if (/\.(ya?ml)$/i.test(dp)) pushUnique(dp)
+    else {
+      for (const f of appsetFileGuesses(appset)) pushUnique(`${dp}/${f}`)
+    }
+  }
+  for (const f of appsetFileGuesses(appset)) pushUnique(f)
+
+  return {
+    namespace,
+    repoSpec,
+    owner,
+    repoName,
+    ref: discovered?.branch || branch,
+    candidates,
+    application: discovered?.app ?? env('ADHAR_APPSET_APPLICATION') ?? DEFAULT_APPSET_APP,
+  }
 }
 
 /* ─────────────── handler ─────────────── */
@@ -367,9 +580,6 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
     )
   }
 
-  const namespace = env('ADHAR_APPSET_NAMESPACE') ?? DEFAULT_NAMESPACE
-  const branch = env('ADHAR_APPSET_BRANCH') ?? DEFAULT_BRANCH
-
   const gitea_api = (path: string, init?: RequestInit) =>
     fetch(`${gitea.baseUrl}/api/v1${path}`, {
       ...init,
@@ -382,35 +592,19 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
     })
 
   // ── resolve repo + candidate file paths (discovery → env fallback) ──
-  const discovered = appset ? await discoverAppsetSource(req, namespace, appset) : undefined
-  const envRepo = env('ADHAR_APPSET_REPO')
-  const envFile = env('ADHAR_APPSET_FILE')
-  const repoSpec = discovered?.repo || envRepo || DEFAULT_REPO
-  const [owner, repoName] = repoSpec.split('/')
+  const { namespace, repoSpec, owner, repoName, ref, candidates, application } = await resolveAppsetFiles(req, appset)
   if (!owner || !repoName) {
     return withCookie(
       Response.json({ error: 'appset_repo_unresolved', detail: `bad repo "${repoSpec}"` }, { status: 500 }),
       auth.refreshedCookie,
     )
   }
-  const ref = discovered?.branch || branch
-
-  // Candidate file paths, in priority order. A discovered `path` may be a
-  // directory (ArgoCD tracks a dir) or a file; env override wins; otherwise we
-  // probe conventional appset filenames and use the first that holds the element.
-  const candidates: string[] = []
-  const pushUnique = (p?: string) => {
-    if (p && !candidates.includes(p)) candidates.push(p)
+  // After the commit, and on the no-op path too: "already enabled in Git" is
+  // exactly what a second click sees while Argo CD has not noticed the first one.
+  const settled = async () => {
+    desiredCache.clear()
+    return await requestArgoRefresh(namespace, application, [await resolveIdentity(req), getK8sServiceToken()])
   }
-  pushUnique(envFile)
-  const dp = discovered?.path?.replace(/\/+$/, '')
-  if (dp) {
-    if (/\.(ya?ml)$/i.test(dp)) pushUnique(dp)
-    else {
-      for (const f of appsetFileGuesses(appset)) pushUnique(`${dp}/${f}`)
-    }
-  }
-  for (const f of appsetFileGuesses(appset)) pushUnique(f)
 
   // ── GET the file that actually contains the element ──
   let filePath: string | undefined
@@ -496,6 +690,7 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
         enabled,
         gitops: true,
         changed: false,
+        refreshed: await settled(),
         repo: repoSpec,
         path: filePath,
         note: `"${name}" is already ${enabled ? 'enabled' : 'disabled'} in ${repoSpec}/${filePath}.`,
@@ -542,6 +737,7 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
       enabled,
       gitops: true,
       changed: true,
+      refreshed: await settled(),
       repo: repoSpec,
       path: filePath,
       commit: commit.commit?.sha,

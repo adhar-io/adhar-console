@@ -1,8 +1,15 @@
-import { useMemo } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useMutationState, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { k8s } from '@adhar/api-clients'
-import { notifyUnauthorized, useLiveRefetch } from '@adhar/shell-ui'
-import { client, useActiveCluster } from './client.ts'
+import { notifyUnauthorized, useLiveAppConfig, useLiveRefetch } from '@adhar/shell-ui'
+import {
+  derivePackageState,
+  packageApplication,
+  type PackageApplication,
+  type PackageState,
+  type RawArgoApplication,
+} from '@adhar/utils'
+import { client, clusterParam, useActiveCluster } from './client.ts'
 import { watchOf } from './live.ts'
 
 /**
@@ -17,6 +24,11 @@ import { watchOf } from './live.ts'
  * is a GitOps change — the toggle flips that element's `enabled` value in the
  * ApplicationSet YAML in Gitea (via the `/api/platform/appset/toggle` BFF
  * endpoint), and ArgoCD reconciles it.
+ *
+ * What a card SAYS is derived, on every render, from what is asked for against
+ * what is there (`packageStates`), so a reload, a second tab and another
+ * operator's click all read the same thing. A successful commit changes only
+ * what is asked for, so it can never read as "Enabled" on its own.
  *
  * The curated chart catalogue below is retained only as **optional enrichment**
  * (icon, publisher, description, values fields) matched to an app by name — it is
@@ -1162,6 +1174,8 @@ export interface AppLiveStatus {
   createdAt?: string
   repoURL?: string
   path?: string
+  /** The same Application, in the shape `derivePackageState` reads. */
+  application: PackageApplication
 }
 
 export interface MarketplaceApp extends AppsetElement {
@@ -1169,6 +1183,8 @@ export interface MarketplaceApp extends AppsetElement {
   id: string
   /** Live ArgoCD Application status, when a matching Application exists. */
   live?: AppLiveStatus
+  /** What this package is actually doing right now: `enabled` here is only what is asked for. */
+  state: PackageState
   /** Optional curated-catalogue enrichment matched by name. */
   chart?: MarketplaceChart
 }
@@ -1192,14 +1208,9 @@ interface RawAppSet {
   metadata?: { name?: string; namespace?: string }
   spec?: { generators?: RawListGen[] }
 }
-interface RawApplication {
-  metadata?: { name?: string; namespace?: string; creationTimestamp?: string }
+interface RawApplication extends RawArgoApplication {
+  metadata?: RawArgoApplication['metadata'] & { namespace?: string }
   spec?: { source?: { repoURL?: string; path?: string } }
-  status?: {
-    health?: { status?: string; message?: string }
-    sync?: { status?: string }
-    operationState?: { phase?: string; message?: string }
-  }
 }
 
 function elementsFromAppSet(as: RawAppSet): AppsetElement[] {
@@ -1241,6 +1252,7 @@ function liveFromApplication(app: RawApplication): AppLiveStatus {
     createdAt: app.metadata?.creationTimestamp,
     repoURL: app.spec?.source?.repoURL,
     path: app.spec?.source?.path,
+    application: packageApplication(app),
   }
 }
 
@@ -1248,6 +1260,82 @@ function liveFromApplication(app: RawApplication): AppLiveStatus {
 export function appsetsQueryKey(cluster: string) {
   return ['marketplace', 'appsets', cluster] as const
 }
+
+/** What Git asks for, from `GET /api/platform/appset/desired`. */
+export interface DesiredState {
+  /** When the ApplicationSet file last changed, the start of any transition it holds. */
+  changedAt?: string
+  elements: Record<string, boolean>
+}
+
+/** Query key for what Git asks for; the watches and the toggle invalidate it. */
+export function desiredQueryKey(cluster: string, appset?: string) {
+  return (appset ? ['marketplace', 'desired', cluster, appset] : ['marketplace', 'desired', cluster]) as readonly string[]
+}
+
+const TOGGLE_MUTATION_KEY = ['marketplace', 'toggle'] as const
+
+interface ToggleVars {
+  app: Pick<AppsetElement, 'name' | 'appset'>
+  enabled: boolean
+}
+
+/**
+ * Cross-reference ApplicationSet elements with what is asked for and what is
+ * there. Pure, so the whole read path can be tested without React.
+ *
+ * Git wins over the live object: the live ApplicationSet only changes once Argo
+ * CD has synced the commit, so reading it alone flips a just-clicked card back
+ * to "Disabled" for those seconds, and shows the same to a second tab. A click
+ * still in flight wins over both, which is what makes the status change at once.
+ */
+export function packageStates(
+  elements: AppsetElement[],
+  desired: ReadonlyMap<string, DesiredState>,
+  live: ReadonlyMap<string, AppLiveStatus>,
+  pending: readonly ToggleVars[],
+  now: number = Date.now(),
+): MarketplaceApp[] {
+  const seen = new Set<string>()
+  const out: MarketplaceApp[] = []
+  for (const el of elements) {
+    const id = `${el.appset}/${el.name}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    const git = desired.get(el.appset)
+    const clicked = pending.filter((p) => p.app.appset === el.appset && p.app.name === el.name).at(-1)
+    const enabled = clicked?.enabled ?? git?.elements[el.name] ?? el.enabled
+    const appLive = live.get(el.name)
+    out.push({
+      ...el,
+      enabled,
+      id,
+      live: appLive,
+      chart: enrichApp(el.name),
+      state: derivePackageState(
+        {
+          desired: enabled,
+          app: appLive?.application,
+          // A click has no commit yet, and is by definition recent.
+          desiredSince: clicked ? new Date(now).toISOString() : git?.changedAt,
+        },
+        now,
+      ),
+    })
+  }
+  return out
+}
+
+/** How the toolbar's filters sort a package: settled one way, the other, or on its way. */
+export function statusBucket(app: Pick<MarketplaceApp, 'enabled' | 'state'>): 'enabled' | 'disabled' | 'changing' {
+  if (app.state.phase === 'enabling' || app.state.phase === 'disabling') return 'changing'
+  if (app.state.phase === 'disabled') return 'disabled'
+  // A package that failed on its way out is not "enabled", whatever else it is.
+  return app.enabled ? 'enabled' : 'changing'
+}
+
+/** How often a settling state re-derives, so "stuck" arrives without any cluster event. */
+const STATE_CLOCK_MS = 30_000
 
 /**
  * The marketplace, read live from the cluster: every `helm-charts-*`
@@ -1258,13 +1346,21 @@ export function useMarketplaceApps() {
   const { cluster } = useActiveCluster()
 
   // Both lists are Argo CD objects: pushed by apiserver watches, never polled.
+  // Either changing can mean Git moved on (the live ApplicationSet changes after
+  // a commit syncs), so both also re-read what Git asks for.
   const appsetsKey = appsetsQueryKey(cluster)
+  const anyDesiredKey = desiredQueryKey(cluster)
+  const appsetsRefetch = useLiveRefetch(
+    watchOf(APPLICATIONSETS_GVR, { namespace: APPSET_NAMESPACE, cluster }),
+    [appsetsKey, anyDesiredKey],
+    60_000,
+  )
   const appsetsQ = useQuery({
     queryKey: appsetsKey,
     queryFn: () =>
       client.listGeneric(cluster, APPLICATIONSETS_GVR, APPSET_NAMESPACE) as Promise<RawAppSet[]>,
     staleTime: 5 * 60_000,
-    refetchInterval: useLiveRefetch(watchOf(APPLICATIONSETS_GVR, { namespace: APPSET_NAMESPACE, cluster }), [appsetsKey], 60_000),
+    refetchInterval: appsetsRefetch,
     retry: false,
   })
 
@@ -1275,11 +1371,15 @@ export function useMarketplaceApps() {
       client.listGeneric(cluster, APPLICATIONS_GVR, APPSET_NAMESPACE) as Promise<RawApplication[]>,
     refetchInterval: useLiveRefetch(
       watchOf(APPLICATIONS_GVR, { namespace: APPSET_NAMESPACE, cluster }),
-      [appsKey],
+      [appsKey, anyDesiredKey],
       60_000,
     ),
     retry: false,
   })
+
+  // An app applied or removed from here should reach every other view of the
+  // platform's apps (the drawer's list, tool links on other pages) as it happens.
+  useLiveAppConfig()
 
   const appsets = appsetsQ.data ?? []
   const argoApps = appsQ.data ?? []
@@ -1293,29 +1393,63 @@ export function useMarketplaceApps() {
     return m
   }, [argoApps])
 
-  const apps = useMemo<MarketplaceApp[]>(() => {
+  const elements = useMemo<AppsetElement[]>(() => {
     // Prefer the curated `helm-charts-*` ApplicationSets; if none are present
     // fall back to every ApplicationSet in the namespace so the list stays real.
     const helmCharts = appsets.filter((a) => (a.metadata?.name ?? '').startsWith('helm-charts'))
-    const source = helmCharts.length ? helmCharts : appsets
-    const seen = new Set<string>()
-    const out: MarketplaceApp[] = []
-    for (const as of source) {
-      for (const el of elementsFromAppSet(as)) {
-        const id = `${el.appset}/${el.name}`
-        if (seen.has(id)) continue
-        seen.add(id)
-        out.push({
-          ...el,
-          id,
-          live: liveByName.get(el.name),
-          chart: enrichApp(el.name),
-        })
-      }
-    }
+    return (helmCharts.length ? helmCharts : appsets).flatMap(elementsFromAppSet)
+  }, [appsets])
+
+  const appsetIds = useMemo(() => [...new Set(elements.map((e) => e.appset))].sort(), [elements])
+
+  // What Git asks for, per ApplicationSet. The toggle writes to the platform's
+  // own Gitea, so this only describes the platform's own cluster; a failure just
+  // leaves the live ApplicationSet to answer.
+  const desiredQs = useQueries({
+    queries: appsetIds.map((appset) => ({
+      queryKey: desiredQueryKey(cluster, appset),
+      queryFn: () => fetchDesired(appset),
+      enabled: !clusterParam(cluster),
+      refetchInterval: appsetsRefetch,
+      retry: false,
+    })),
+  })
+  const desiredData = desiredQs.map((q) => q.data)
+  const desiredKey = desiredQs.map((q) => q.dataUpdatedAt).join(',')
+  const desired = useMemo(() => {
+    const m = new Map<string, DesiredState>()
+    appsetIds.forEach((appset, i) => {
+      const d = desiredData[i]
+      if (d) m.set(appset, d)
+    })
+    return m
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appsetIds, desiredKey])
+
+  const pending = useMutationState<ToggleVars>({
+    filters: { mutationKey: TOGGLE_MUTATION_KEY, status: 'pending' },
+    select: (m) => m.state.variables as ToggleVars,
+  })
+  const pendingKey = JSON.stringify(pending.map((p) => [p.app.appset, p.app.name, p.enabled]))
+
+  const [clock, setClock] = useState(0)
+  const apps = useMemo<MarketplaceApp[]>(() => {
+    const out = packageStates(elements, desired, liveByName, pending)
     out.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name))
     return out
-  }, [appsets, liveByName])
+    // `clock` re-derives a settling state; `pendingKey` stands in for `pending`,
+    // a new array every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elements, desired, liveByName, pendingKey, clock])
+
+  // Only a clock, no fetch: "stuck past the limit" must appear even if the
+  // cluster has gone quiet, which is exactly when a package is stuck.
+  const settling = apps.some((a) => a.state.settling)
+  useEffect(() => {
+    if (!settling) return
+    const t = setInterval(() => setClock((c) => c + 1), STATE_CLOCK_MS)
+    return () => clearInterval(t)
+  }, [settling])
 
   const appsetNames = useMemo(
     () => appsets.map((a) => a.metadata?.name ?? '').filter(Boolean),
@@ -1353,19 +1487,38 @@ export interface ToggleResult {
   commit?: string
   commitUrl?: string
   note?: string
+  /** Argo CD was asked to look now; when false it notices at its next reconciliation (up to 2 min). */
+  refreshed?: boolean
+}
+
+/** `GET /api/platform/appset/desired`; rejects so the query keeps what it has. */
+async function fetchDesired(appset: string): Promise<DesiredState> {
+  const res = await fetch(`/api/platform/appset/desired?appset=${encodeURIComponent(appset)}`, {
+    credentials: 'include',
+    headers: { accept: 'application/json' },
+  })
+  if (!res.ok) {
+    if (res.status === 401) notifyUnauthorized()
+    throw new Error(`desired state unavailable (${res.status})`)
+  }
+  return (await res.json()) as DesiredState
 }
 
 /**
  * Flip an app's `enabled` state in the Adhar ApplicationSet YAML in Gitea —
  * a GitOps change applied by the `/api/platform/appset/toggle` BFF endpoint
- * (which holds the Gitea service token). Optimistically patches the
- * ApplicationSet cache, then invalidates so the reconciled state re-loads.
+ * (which holds the Gitea service token).
+ *
+ * The status changes the moment this starts, and for every card and drawer on
+ * the page, because `useMarketplaceApps` reads the pending mutation. When the
+ * commit lands that hands over to what Git says, with no gap in between.
  */
 export function useToggleApp() {
   const qc = useQueryClient()
   const { cluster } = useActiveCluster()
 
-  return useMutation<ToggleResult, Error, { app: MarketplaceApp; enabled: boolean }>({
+  return useMutation<ToggleResult, Error, ToggleVars>({
+    mutationKey: TOGGLE_MUTATION_KEY,
     mutationFn: async ({ app, enabled }) => {
       const res = await fetch('/api/platform/appset/toggle', {
         method: 'POST',
@@ -1380,50 +1533,19 @@ export function useToggleApp() {
       }
       return body
     },
-    onMutate: async ({ app, enabled }) => {
-      const key = appsetsQueryKey(cluster)
+    onSuccess: async (result, { app }) => {
+      // Before the mutation stops being pending, so a card never falls back to
+      // the old answer. Cancel first: a read that started before the commit must
+      // not land on top of this.
+      const key = desiredQueryKey(cluster, app.appset)
       await qc.cancelQueries({ queryKey: key })
-      const previous = qc.getQueryData<RawAppSet[]>(key)
-      // Optimistically flip the element's `enabled` in the cached ApplicationSet.
-      qc.setQueryData<RawAppSet[]>(key, (old) =>
-        (old ?? []).map((as) => {
-          if ((as.metadata?.name ?? '') !== app.appset) return as
-          const patchEls = (els?: RawElement[]) =>
-            (els ?? []).map((e) =>
-              (e.name ?? e.packageName) === app.name ? { ...e, enabled: String(enabled) } : e,
-            )
-          return {
-            ...as,
-            spec: {
-              ...as.spec,
-              generators: (as.spec?.generators ?? []).map((g) => ({
-                ...g,
-                ...(g.list ? { list: { ...g.list, elements: patchEls(g.list.elements) } } : {}),
-                ...(g.matrix
-                  ? {
-                      matrix: {
-                        ...g.matrix,
-                        generators: (g.matrix.generators ?? []).map((mg) => ({
-                          ...mg,
-                          ...(mg.list
-                            ? { list: { ...mg.list, elements: patchEls(mg.list.elements) } }
-                            : {}),
-                        })),
-                      },
-                    }
-                  : {}),
-              })),
-            },
-          }
-        }),
-      )
-      return { previous }
-    },
-    onError: (_err, _vars, context) => {
-      const ctx = context as { previous?: RawAppSet[] } | undefined
-      if (ctx?.previous) qc.setQueryData(appsetsQueryKey(cluster), ctx.previous)
+      qc.setQueryData<DesiredState>(key, (old) => ({
+        changedAt: result.changed ? new Date().toISOString() : old?.changedAt,
+        elements: { ...old?.elements, [result.name]: result.enabled },
+      }))
     },
     onSettled: () => {
+      qc.invalidateQueries({ queryKey: desiredQueryKey(cluster) })
       qc.invalidateQueries({ queryKey: appsetsQueryKey(cluster) })
       qc.invalidateQueries({ queryKey: ['marketplace', 'argo-apps', cluster] })
     },

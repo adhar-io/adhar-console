@@ -1,5 +1,7 @@
 import { assert, assertEquals, assertNotEquals } from 'jsr:@std/assert@^1'
-import { applyEvent, fingerprint, nextDelay, objectKey, sameSnapshot, snapshotOf } from './live-signal.ts'
+import { QueryClient } from '@tanstack/react-query'
+import { applyEvent, fingerprint, nextDelay, objectKey, sameSnapshot, snapshotOf, trailingDelay } from './live-signal.ts'
+import { invalidateIfIdle } from './live.ts'
 
 const app = (rv: string, reconciledAt: string, sync = 'Synced') => ({
   metadata: { uid: 'u1', name: 'web', namespace: 'argocd', resourceVersion: rv, managedFields: [{ x: rv }] },
@@ -43,4 +45,48 @@ Deno.test('nextDelay debounces and throttles', () => {
   assertEquals(nextDelay(10_000, 0, 5_000), 250)
   assertEquals(nextDelay(10_000, 9_000, 5_000), 4_000)
   assertEquals(nextDelay(10_000, 9_900, 5_000, 250), 4_900)
+})
+
+Deno.test('a trailing debounce waits after the last event, up to the max wait', () => {
+  // A lone event, and one arriving while another waits: the full settle time.
+  assertEquals(trailingDelay(1000, 1000, 2500, 15000), 2500)
+  assertEquals(trailingDelay(5000, 1000, 2500, 15000), 2500)
+  // A steady stream cannot postpone the refetch forever.
+  assertEquals(trailingDelay(15000, 1000, 2500, 15000), 1000)
+  assertEquals(trailingDelay(99000, 1000, 2500, 15000), 0)
+})
+
+Deno.test('a change arriving during a fetch is not answered by that fetch', async () => {
+  // The cluster at the time of each read. The first read starts before the change.
+  let cluster = 'Progressing'
+  let release = () => {}
+  const qc = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+  const key = ['apps']
+  const observer = qc.getQueryCache().build(qc, {
+    queryKey: key,
+    queryFn: async () => {
+      const seen = cluster
+      await new Promise<void>((r) => (release = r))
+      return seen
+    },
+  })
+  const first = observer.fetch()
+  await Promise.resolve()
+
+  cluster = 'Healthy' // the watch event, while that read is in flight
+  assertEquals(invalidateIfIdle(qc, [key]), false, 'must not hand this change to the running fetch')
+  release()
+  await first
+  assertEquals(qc.getQueryData(key), 'Progressing')
+
+  // The retry, once it has finished. An active query refetches on invalidation;
+  // this one has no observer, so ask for the refetch the hook's query would do.
+  assertEquals(invalidateIfIdle(qc, [key]), true)
+  assertEquals(qc.getQueryState(key)?.isInvalidated, true)
+  const second = qc.refetchQueries({ queryKey: key })
+  await Promise.resolve()
+  release()
+  await second
+  assertEquals(qc.getQueryData(key), 'Healthy')
+  qc.clear()
 })

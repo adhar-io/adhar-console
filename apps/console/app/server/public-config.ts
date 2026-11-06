@@ -146,7 +146,7 @@ export async function buildPublicConfig(): Promise<Record<string, unknown>> {
     consoleUrl: consolePublicUrl(),
     // What the gateway exposes under the base domain, for the launcher and
     // for diagnosing "why isn't app X showing up" (`namespace/route`).
-    discoveredApps: discovered.map(({ id, url, route }) => ({ id, url, route })),
+    discoveredApps: discovered.map(({ id, url, route, category, ui }) => ({ id, url, route, category, ui })),
   }
 }
 

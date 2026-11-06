@@ -10,6 +10,7 @@ import { Pipelines } from './views/pipelines.tsx'
 import { Performance } from './views/performance.tsx'
 import { Content } from './views/content.tsx'
 import { Functions } from './views/functions.tsx'
+import { Batch } from './views/batch.tsx'
 
 type Section =
   | 'dashboard'
@@ -23,6 +24,7 @@ type Section =
   | 'performance'
   | 'content'
   | 'functions'
+  | 'batch'
 
 const SECTIONS: Record<Section, { label: string; description: string }> = {
   dashboard: {
@@ -71,10 +73,15 @@ const SECTIONS: Record<Section, { label: string; description: string }> = {
     description:
       'Every serverless Function across environments — status, revisions, scale, logs, metrics, builds, delivery and invoke. New functions come from templates.',
   },
+  batch: {
+    label: 'Batch',
+    description:
+      'Every Spring Batch job across environments — schedules, runs, summaries, logs, and run, stop, resume, restart and hold. New jobs come from templates.',
+  },
 }
 
 /** Views that render their own PageHeader — they put a repo picker or actions in it. */
-const SELF_HEADED = new Set<Section>(['repos', 'branches', 'environments', 'commits', 'prs', 'issues', 'pipelines', 'performance', 'functions'])
+const SELF_HEADED = new Set<Section>(['repos', 'branches', 'environments', 'commits', 'prs', 'issues', 'pipelines', 'performance', 'functions', 'batch'])
 
 export default function DevelopHome({ section }: { section?: string } = {}) {
   const active = (SECTIONS[section as Section] ? (section as Section) : 'dashboard') as Section
@@ -93,6 +100,7 @@ export default function DevelopHome({ section }: { section?: string } = {}) {
       {active === 'performance' && <Performance />}
       {active === 'content' && <Content />}
       {active === 'functions' && <Functions />}
+      {active === 'batch' && <Batch />}
     </div>
   )
 }

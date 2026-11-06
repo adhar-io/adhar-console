@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { type LiveWatchRef, useWatchSignal } from './live.ts'
 
 /**
  * Non-secret runtime configuration served by the BFF at `/api/config`.
@@ -19,8 +20,12 @@ export interface AppConfig {
    */
   selfRegistration: boolean
   tools: Record<string, { configured: boolean; url: string; explicit?: boolean }>
-  /** What the cluster's gateway actually routes under the base domain (empty when unknown). */
-  discoveredApps?: Array<{ id: string; url: string; route?: string }>
+  /**
+   * What the cluster's gateway routes under the base domain and is applied right
+   * now (empty when unknown). `category` is the owning package's; `ui: false`
+   * means what answers there is an API rather than something to open.
+   */
+  discoveredApps?: Array<{ id: string; url: string; route?: string; category?: string; ui?: boolean }>
   version: string
   /** Gitea org that owns the platform's repos (single-tenant per install). */
   giteaOrg: string
@@ -68,18 +73,52 @@ export function useIntegration(tool: 'plane' | 'strapi'): boolean | undefined {
   return cfg.data.integrations?.[tool] ?? true
 }
 
-export function useAppConfig() {
+export const APP_CONFIG_QUERY_KEY = ['app-config'] as const
+
+export function useAppConfig(opts: { refetchInterval?: number | false } = {}) {
   return useQuery<AppConfig>({
-    queryKey: ['app-config'],
+    queryKey: APP_CONFIG_QUERY_KEY,
     queryFn: async () => {
       const r = await fetch('/api/config', { credentials: 'include' })
       if (!r.ok) throw new Error(`/api/config ${r.status}`)
       return { ...APP_CONFIG_DEFAULTS, ...(await r.json()) }
     },
     // Install config only changes with an upgrade (which reloads the page);
-    // every module reads it, so it is fetched once per session.
+    // every module reads it, so it is fetched once per session. `discoveredApps`
+    // is the one part that moves, and `useLiveAppConfig` invalidates this when
+    // it does.
     staleTime: 30 * 60_000,
+    refetchInterval: opts.refetchInterval,
   })
+}
+
+/**
+ * Longer than the BFF caches its route list (`TTL_MS` in app-discovery.ts), so
+ * the refetch a watch event triggers cannot be answered from a list taken before
+ * that event. Trailing, because no further event would ever correct it.
+ */
+export const APP_CONFIG_SETTLE_MS = 2_500
+/** A sync rewrites Application status constantly; one refetch per this window is plenty. */
+const APP_CONFIG_THROTTLE_MS = 15_000
+const PLATFORM_NAMESPACE = 'adhar-system'
+
+const ROUTES_WATCH: LiveWatchRef = { group: 'gateway.networking.k8s.io', version: 'v1', resource: 'httproutes', namespace: PLATFORM_NAMESPACE }
+const APPLICATIONS_WATCH: LiveWatchRef = { group: 'argoproj.io', version: 'v1alpha1', resource: 'applications', namespace: PLATFORM_NAMESPACE }
+
+/**
+ * Keep the app list in `/api/config` current while `active`, on the live socket.
+ *
+ * Both resources are needed: a route appears partway through a sync, and the app
+ * becomes offerable when its Application turns Healthy, with no route change at
+ * all. Returns the `refetchInterval` for the query, which is `false` while both
+ * watches hold and a (≥60 s) fallback when one is refused, as it is for people
+ * with no RBAC on those resources.
+ */
+export function useLiveAppConfig(active = true): number | false {
+  const opts = { enabled: active, settleMs: APP_CONFIG_SETTLE_MS, throttleMs: APP_CONFIG_THROTTLE_MS }
+  const routes = useWatchSignal(ROUTES_WATCH, [APP_CONFIG_QUERY_KEY], opts)
+  const applications = useWatchSignal(APPLICATIONS_WATCH, [APP_CONFIG_QUERY_KEY], opts)
+  return routes || applications
 }
 
 /** The Gitea org, with the real default while config loads. */

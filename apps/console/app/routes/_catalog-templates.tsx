@@ -56,6 +56,7 @@ import {
 const FAMILY_LABEL: Record<string, string> = {
   service: 'Backend services',
   function: 'Functions (serverless)',
+  batch: 'Batch jobs',
   website: 'Frontends & websites',
   library: 'Shared libraries',
   api: 'API contracts',
@@ -68,6 +69,7 @@ const FAMILY_LABEL: Record<string, string> = {
 const FAMILY_ORDER = [
   'service',
   'function',
+  'batch',
   'website',
   'library',
   'api',
@@ -854,6 +856,7 @@ function TemplateDetail({
                 <div className="mt-1 font-mono text-[11px] text-content-subtle">
                   produces {template.produces.kind.toLowerCase()}:{String(template.produces.type)}
                   {template.family === 'function' ? ' · serverless Function in every environment (scale-to-zero)' : null}
+                  {template.family === 'batch' ? ' · a batch job in every environment (on a schedule, or on demand)' : null}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -1652,6 +1655,7 @@ function ScaffoldWizard({
         <span className="font-mono text-[11px]">
           produces {template.produces.kind.toLowerCase()}:{String(template.produces.type)}
           {template.family === 'function' ? ' · a Function (Knative, scale-to-zero) in each environment' : null}
+          {template.family === 'batch' ? ' · a BatchJob in each environment (on a schedule, or on demand)' : null}
         </span>
       }
       width="xl"
@@ -1698,6 +1702,9 @@ function ScaffoldWizard({
             onOpenCatalog={onComplete}
             functionsHref={template.family === 'function'
               ? `/develop?section=functions&app=${encodeURIComponent(registered.metadata.name)}`
+              : undefined}
+            batchHref={template.family === 'batch'
+              ? `/develop?section=batch&app=${encodeURIComponent(registered.metadata.name)}`
               : undefined}
           />
         )}
@@ -2345,11 +2352,13 @@ function SuccessStep({
   entity,
   onOpenCatalog,
   functionsHref,
+  batchHref,
 }: {
   entity: Entity
   onOpenCatalog(): void
   /** A function template: where its Functions are managed once it deploys. */
   functionsHref?: string
+  batchHref?: string
 }) {
   const ann = entity.metadata.annotations ?? {}
   const repoUrl = ann['adhar.io/git-repo']
@@ -2384,6 +2393,7 @@ function SuccessStep({
               <OutputLink href="/deliver?section=apps" label={`GitOps app · ${appName}`} />
             ) : null}
             {functionsHref ? <OutputLink href={functionsHref} label="Manage in Functions" /> : null}
+            {batchHref ? <OutputLink href={batchHref} label="Manage in Batch" /> : null}
             <button
               type="button"
               onClick={onOpenCatalog}
@@ -2684,6 +2694,7 @@ function IconTrash() {
 const FAMILY_OPTIONS: { value: TemplateFamily; label: string }[] = [
   { value: 'service', label: 'Service' },
   { value: 'function', label: 'Function (serverless)' },
+  { value: 'batch', label: 'Batch job' },
   { value: 'website', label: 'Website / Frontend' },
   { value: 'library', label: 'Library' },
   { value: 'api', label: 'API' },

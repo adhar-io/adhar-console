@@ -1,0 +1,1 @@
+{"v":1,"job":"importJob","batchJob":"importer","instanceId":42,"executionId":97,"status":"COMPLETED","exitCode":0,"exitDescription":"","outcome":"completed","trigger":"schedule","businessDate":"2026-1

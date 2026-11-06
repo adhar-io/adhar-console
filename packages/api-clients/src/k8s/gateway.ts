@@ -348,6 +348,18 @@ export const kube = {
     return req(`${resourcePath(gvr, { namespace, name })}${s ? `?${s}` : ''}`, { method: 'DELETE' })
   },
 
+  /**
+   * POST a new object. Unlike `apply`, it refuses a name that already exists
+   * (409 AlreadyExists), which is what a run named for its identity relies on.
+   */
+  create<T = KubeObject>(gvr: GVR, namespace: string | undefined, body: unknown, opts: { cluster?: string } = {}): Promise<T> {
+    return req(`${resourcePath(gvr, { namespace })}${clusterQ(opts.cluster)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  },
+
   /** JSON-merge patch (e.g. scale, annotate). */
   patch<T = KubeObject>(
     gvr: GVR,

@@ -112,7 +112,7 @@ export const DEFAULT_PROJECT = 'adhar'
  * console never writes those itself.
  */
 /** Dashboard templates the Application composition knows (apps.xrd.yaml enum). */
-export const DASHBOARD_TYPES = ['backend-jvm', 'backend-generic', 'frontend', 'fullstack'] as const
+export const DASHBOARD_TYPES = ['backend-jvm', 'backend-generic', 'frontend', 'fullstack', 'batch-jvm'] as const
 export type DashboardType = (typeof DASHBOARD_TYPES)[number]
 
 /**
@@ -139,24 +139,27 @@ export function dashboardTypeOf(templateDoc: unknown): DashboardType | undefined
  *
  * A function template's app is `function` whatever its dashboard says: the
  * Application composition then deploys a Function XR per environment from
- * `deploy/envs/<env>` (Knative, scale-to-zero) instead of a Rollout.
+ * `deploy/envs/<env>` (Knative, scale-to-zero) instead of a Rollout. A batch
+ * template's app is `batch`: the same overlays, deploying a BatchJob. No
+ * Rollout and no Service: the job's scheduling and runs are the BatchJob's.
  */
 export function applicationTypeOf(
   dashboardType: DashboardType | undefined,
   workload?: Workload,
-): 'web' | 'function' | undefined {
+): 'web' | 'function' | 'batch' | undefined {
   if (workload === 'function') return 'function'
+  if (workload === 'batch') return 'batch'
   return dashboardType === 'frontend' || dashboardType === 'fullstack' ? 'web' : undefined
 }
 
 /** What a scaffolded application deploys, when it is not an ordinary container service. */
-export type Workload = 'function'
+export type Workload = 'function' | 'batch'
 
 /**
- * Says what an Application deploys (`function`), so lists — Develop →
- * Functions among them — can tell a function app apart from a service. A
- * label, like the dashboard type, so it survives a control plane whose XRD
- * still refuses `type: function` (applyApplication drops `type` there).
+ * Says what an Application deploys (`function`, `batch`), so lists — Develop →
+ * Functions and Develop → Batch among them — can tell it apart from a service.
+ * A label, like the dashboard type, so it survives a control plane whose XRD
+ * still refuses that `type` (applyApplication drops `type` there).
  */
 export const WORKLOAD_LABEL = 'adhar.io/workload'
 
@@ -203,7 +206,8 @@ export function applicationManifest(
  * The same retry covers a control plane whose `type` enum predates `function`
  * ("spec.parameters.type: Unsupported value: \"function\"", HTTP 422): the app
  * is created as a default `service` and the adhar.io/workload label keeps
- * saying it is a function.
+ * saying it is a function. The same is true of `batch` on a control plane older
+ * than the BatchJob XRD.
  */
 export async function applyApplication(m: XrManifest, token: string | undefined = getK8sServiceToken()): Promise<ApplyOutcome> {
   const out = await applyXr(m, token)

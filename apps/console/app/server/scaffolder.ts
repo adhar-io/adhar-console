@@ -613,6 +613,8 @@ async function scaffold(
       detail: outcome.ok
         ? workload === 'function'
           ? `Application ${name} (function) in project ${project}: a Function in each environment from ${manifestPath}/envs/<env>, scale-to-zero; dev → test promote automatically, prod on release`
+          : workload === 'batch'
+          ? `Application ${name} (batch) in project ${project}: a BatchJob in each environment from ${manifestPath}/envs/<env>; dev → test promote automatically, prod on release`
           : `Application ${name} in project ${project}: dev → test promote automatically, prod on release`
         : `Application ${name}: ${outcome.detail ?? 'control plane refused the write'}`,
     })
@@ -639,7 +641,9 @@ async function scaffold(
 /**
  * The workload a scaffolded app deploys. A function template (tagged
  * `function`, or named `function-*`) becomes an Application of type
- * `function`, which the control plane deploys as a Function per environment.
+ * `function`, which the control plane deploys as a Function per environment;
+ * a batch template (`isBatchTemplate`) becomes one of type `batch`, deployed as
+ * a BatchJob per environment.
  *
  * The template's own `template.yaml` decides. The wizard's copy of it (the
  * request's templateId + tags) is only consulted when the template could not
@@ -652,7 +656,7 @@ export function scaffoldWorkload(
 ): Workload | undefined {
   const family = (templateDoc ? templateFamilyOf(templateDoc) : undefined) ??
     inferFamily(request.templateId ?? '', Array.isArray(request.tags) ? request.tags.map(String) : [])
-  return family === 'function' ? 'function' : undefined
+  return family === 'function' || family === 'batch' ? family : undefined
 }
 
 /* ─────────────── the template's performance test ─────────────── */

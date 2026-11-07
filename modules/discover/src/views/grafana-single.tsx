@@ -29,7 +29,6 @@ import { seriesColor } from './viz.tsx'
 
 type Frames = Array<{ fields: ResolvedField[] }>
 
-const TONE_ICON: Record<ThresholdTone, string> = { ok: '●', warn: '▲', bad: '■', info: '●', neutral: '' }
 const TONE_LABEL: Record<ThresholdTone, string> = { ok: 'OK', warn: 'Warning', bad: 'Critical', info: '', neutral: '' }
 
 function items(panel: GrafanaPanel, frames: Frames): DisplayItem[] {
@@ -107,9 +106,6 @@ function StatTile({
         {showName ? <div className={cn('max-w-full truncate text-[11px]', bg ? '' : 'text-content-subtle')} title={item.name}>{item.name}</div> : null}
         {showVal ? (
           <div className={cn('flex items-baseline gap-1 font-semibold leading-tight tabular-nums', bg ? '' : 'text-content')} style={{ fontSize: size, color: bg ? undefined : fg }}>
-            {colorMode !== 'none' && !bg && d.color && d.tone !== 'neutral' && d.tone !== 'info' ? (
-              <span aria-hidden className="text-[0.45em]">{TONE_ICON[d.tone]}</span>
-            ) : null}
             <span className="truncate">{d.text}</span>
           </div>
         ) : null}
@@ -277,7 +273,7 @@ function Gauge({ item, w, h, markers, labels, named }: { item: DisplayItem; w: n
         {warn
           ? (
             <text x={g.cx} y={g.statusY} textAnchor="middle" fontSize={g.statusFont} fontWeight="500" fill={textColor}>
-              {TONE_ICON[d.tone]} {TONE_LABEL[d.tone]}
+              {TONE_LABEL[d.tone]}
             </text>
           )
           : null}

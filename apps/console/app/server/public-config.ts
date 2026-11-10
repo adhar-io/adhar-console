@@ -95,7 +95,8 @@ export function isExplicitToolUrl(url: string, base: string): boolean {
   if (!base) return true
   try {
     const host = new URL(url).hostname.toLowerCase()
-    const b = base.toLowerCase().replace(/^\./, '')
+    // `hostname` carries no port and a local base does (`adhar.localtest.me:8443`).
+    const b = base.toLowerCase().replace(/^\./, '').replace(/:\d+$/, '')
     return host !== b && !host.endsWith(`.${b}`)
   } catch {
     return false

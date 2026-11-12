@@ -29,7 +29,7 @@
       
           "@tanstack/react-query": {
             name: "@tanstack/react-query",
-            version: "5.105.0",
+            version: "5.99.1",
             scope: ["default"],
             loaded: false,
             from: "__mfe_internal__develop",
@@ -54,14 +54,14 @@
             },
             shareConfig: {
               singleton: true,
-              requiredVersion: "^5.105.0",
+              requiredVersion: "^5.99.1",
               
             }
           }
         ,
           "@tanstack/react-router": {
             name: "@tanstack/react-router",
-            version: "1.170.46",
+            version: "1.168.23",
             scope: ["default"],
             loaded: false,
             from: "__mfe_internal__develop",
@@ -86,7 +86,7 @@
             },
             shareConfig: {
               singleton: true,
-              requiredVersion: "^1.170.46",
+              requiredVersion: "^1.168.23",
               
             }
           }

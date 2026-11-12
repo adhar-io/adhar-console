@@ -417,14 +417,15 @@ export function DraggableGrid<T extends { id: string }>({
                   style={{ touchAction: 'none' }}
                   className={cn(
                     'absolute z-10 flex cursor-grab items-center justify-center text-content-subtle transition-opacity active:cursor-grabbing',
-                    // Phone: a round chip on the card's top-right corner, just
-                    // outside the content — panel headers put labels on the
-                    // right ("CHANGE FAIL RATE" on the DORA tile), so a grip
-                    // inside the corner covered them.
-                    '-right-1.5 -top-1.5 h-7 w-7 rounded-full border border-edge-default bg-surface-raised shadow-sm',
+                    // Phone: part of the card — a small grip tucked into its
+                    // top-right padding, no frame of its own. Kept to 24px at a
+                    // 6px inset so it ends ~30px from the edge, clear of
+                    // right-hand header labels ("CHANGE FAIL RATE" ends ~34px
+                    // in). A long-press anywhere on the card also drags.
+                    'right-1.5 top-1.5 h-6 w-6 rounded-md active:bg-surface-sunken',
                     // sm and up: a quiet strip on the top-centre edge.
-                    'sm:left-1/2 sm:right-auto sm:top-0 sm:h-5 sm:w-12 sm:-translate-x-1/2 sm:rounded-none sm:rounded-b-md sm:border-0 sm:bg-transparent sm:shadow-none sm:hover:bg-surface-sunken',
-                    isDragging ? 'opacity-0' : 'opacity-90 sm:opacity-35 sm:group-hover:opacity-100 sm:[@media(hover:none)]:opacity-70',
+                    'sm:left-1/2 sm:right-auto sm:top-0 sm:h-5 sm:w-12 sm:-translate-x-1/2 sm:rounded-none sm:rounded-b-md sm:hover:bg-surface-sunken',
+                    isDragging ? 'opacity-0' : 'opacity-60 sm:opacity-35 sm:group-hover:opacity-100 sm:[@media(hover:none)]:opacity-70',
                   )}
                 >
                   <DragHandleGlyph />

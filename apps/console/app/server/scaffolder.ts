@@ -12,6 +12,8 @@ import { inferFamily, templateFamilyOf, templatesLocation } from './templates.ts
 import { computeValues, renderContent, renderPath, skeletonDir } from './template-render.ts'
 import { platformDomain, toolPublicUrl, toPublicToolUrl } from './domain.ts'
 import { platformRouteHost, routeHostnames, SCAFFOLD_ENVIRONMENT } from './scaffold-hosts.ts'
+import { apiSpecRegistrations, decodeScaffoldedFile, registerApiSpecs } from './design-api-specs.ts'
+import { openStore } from './workspace/store.ts'
 import {
   applicationManifest,
   applyApplication,
@@ -375,12 +377,7 @@ async function scaffold(
       dashboardType = dashboardTypeOf(doc)
       const dir = skeletonDir(doc)
       skelPrefix = `${templatePath}/${dir}/`
-      const treeRes = await gitea_api(
-        `/repos/${encodeURIComponent(tplOwner)}/${encodeURIComponent(tplRepo)}/git/trees/main?recursive=true`,
-      )
-      if (!treeRes.ok) throw new Error(`git tree ${treeRes.status}`)
-      const tree = (await treeRes.json().catch(() => ({}))) as { tree?: TreeEntry[] }
-      entries = (tree.tree ?? []).filter((e) => e.type === 'blob' && e.path && e.path.startsWith(skelPrefix))
+      entries = (await templateTree(gitea_api, tplOwner, tplRepo)).filter((e) => e.type === 'blob' && e.path && e.path.startsWith(skelPrefix))
       step({ name: 'render-skeleton', ok: true, detail: `${templatePath} — ${entries.length} files` })
     } catch (e) {
       step({ name: 'render-skeleton', ok: false, detail: e instanceof Error ? e.message : String(e) })
@@ -476,6 +473,44 @@ async function scaffold(
           ? `${committed} files committed to main in one commit`
           : `${committed} committed, ${failed} failed — ${firstError ?? ''}`,
       })
+
+      /* ── 2a. the API contract the skeleton declares → Design → API & Schemas ── */
+      // From the files just rendered, not a second read of Gitea: every
+      // `kind: API` in catalog-info.yaml whose `$text` definition was committed
+      // becomes a spec in the Design library, linked to the catalog entity and
+      // the repository file. A template without an API entity registers nothing
+      // and shows no step.
+      if (committed > 0) {
+        const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined)
+        const specs = apiSpecRegistrations(
+          rendered.filter((f) => !BINARY_EXT.has(extOf(f.path))).map((f) => decodeScaffoldedFile(f.path, f.base64)),
+          {
+            catalogInfoPath,
+            repo: name,
+            branch: 'main',
+            source: `scaffold:${templatePath}`,
+            project: text(params.project),
+            team: text(params.team),
+            by: auth.user.name,
+            now: new Date().toISOString(),
+          },
+        )
+        if (specs.length) {
+          try {
+            const store = await openStore(auth.activeTenant)
+            if (!store) throw new Error('the console database is not available')
+            const { created, existing } = await registerApiSpecs(store, specs, auth.user.id)
+            step({
+              name: 'api-spec',
+              ok: true,
+              detail: `Design → API & Schemas: ${created.map((r) => r.name).join(', ') || 'nothing new'}` +
+                (existing.length ? ` (${existing.map((r) => r.name).join(', ')} already there, left as is)` : ''),
+            })
+          } catch (e) {
+            step({ name: 'api-spec', ok: false, detail: `Design → API & Schemas: ${e instanceof Error ? e.message : String(e)}` })
+          }
+        }
+      }
 
       /* ── 2a. the template's performance test ── */
       // Nothing to register: the Performance Center reads tests straight from
@@ -634,6 +669,63 @@ async function scaffold(
     }),
     auth.refreshedCookie,
   )
+}
+
+/* ─────────────── the templates repository's tree ─────────────── */
+
+/**
+ * Bounds `templateTree`: a hundred of Gitea's thousand-entry pages is far past
+ * any templates collection, and a server that never stops answering
+ * `truncated` must not hold a scaffold forever.
+ */
+export const TEMPLATE_TREE_MAX_PAGES = 100
+
+/**
+ * Every entry of the templates repository's tree on `main`.
+ *
+ * Gitea answers a recursive tree listing in pages of at most its
+ * `DEFAULT_GIT_TREES_PER_PAGE` (1000): a larger `per_page` is capped and each
+ * page but the last says `truncated`. This used to read the first page only,
+ * so once the collection passed 1000 entries every template whose files fell
+ * past the page was rendered WITHOUT them — and the scaffold reported success.
+ * `transaction-service` (2026-11-12) came out of `springboot-web-service` with
+ * 35 files and no `src/`: the mirror had 1142 entries, the skeleton's sources
+ * were on page 2, and app-ci built an empty jar ("Unable to find main class").
+ * The CLI's scaffolder had been fixed the same way a week earlier
+ * (cmd/apps/scaffold.go templatesTree).
+ *
+ * Every page after the first is asked for by the tree SHA the first one
+ * resolved, so a mirror sync landing between two pages cannot mix two
+ * commits. A listing that ends short of the total it announced, or runs past
+ * it (a server or proxy that ignores `page` answers page 1 every time), is an
+ * error, not a template with missing or doubled files.
+ */
+export async function templateTree(
+  api: (path: string) => Promise<Response>,
+  owner: string,
+  repo: string,
+): Promise<TreeEntry[]> {
+  const base = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/`
+  let ref = 'main'
+  let total = 0
+  const entries: TreeEntry[] = []
+  for (let page = 1;; page++) {
+    if (page > TEMPLATE_TREE_MAX_PAGES) throw new Error(`the ${owner}/${repo} tree is still truncated after ${TEMPLATE_TREE_MAX_PAGES} pages`)
+    const res = await api(`${base}${encodeURIComponent(ref)}?recursive=true&per_page=1000&page=${page}`)
+    if (!res.ok) throw new Error(`git tree ${res.status} (page ${page})`)
+    const tree = (await res.json().catch(() => ({}))) as { sha?: string; tree?: TreeEntry[]; truncated?: boolean; total_count?: number }
+    if (page === 1 && tree.sha) ref = tree.sha
+    if ((tree.total_count ?? 0) > total) total = tree.total_count!
+    const got = tree.tree ?? []
+    entries.push(...got)
+    if (total > 0 && entries.length > total) {
+      throw new Error(`the ${owner}/${repo} tree listing returned more than the ${total} entries it announced (is the page parameter ignored?)`)
+    }
+    // The empty page past the end stops a server that keeps saying `truncated` there too.
+    if (!tree.truncated || got.length === 0) break
+  }
+  if (entries.length < total) throw new Error(`the ${owner}/${repo} tree lists ${total} entries but only ${entries.length} were returned`)
+  return entries
 }
 
 /* ─────────────── what the scaffold deploys ─────────────── */

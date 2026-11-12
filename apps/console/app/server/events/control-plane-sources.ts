@@ -37,6 +37,7 @@ export const XR_KINDS: ReadonlyArray<{ kind: string; plural: string }> = [
   { kind: 'Application', plural: 'applications' },
   { kind: 'AuthStack', plural: 'authstacks' },
   { kind: 'BackupPolicy', plural: 'backuppolicies' },
+  { kind: 'BatchJob', plural: 'batchjobs' },
   { kind: 'Bucket', plural: 'buckets' },
   { kind: 'Cache', plural: 'caches' },
   { kind: 'Cluster', plural: 'clusters' },

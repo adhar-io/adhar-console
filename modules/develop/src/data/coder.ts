@@ -346,7 +346,12 @@ export interface EnsureRepoWorkspaceInput {
 export async function ensureRepoWorkspace(input: EnsureRepoWorkspaceInput): Promise<coder.Workspace> {
   const name = workspaceNameFor(input.repo)
   const templates = await coderClient.listTemplates()
-  const tpl = templates.find((t) => t.name === 'kubernetes') ?? templates[0]
+  // The platform seeds two templates (application/coder in the adhar repo):
+  // `devcontainer` builds the repository's own .devcontainer (toolchain,
+  // extensions, IntelliJ plugins, postCreateCommand) and is preferred;
+  // `kubernetes` is the stock-image one it replaces, kept for platforms whose
+  // coder package predates it. Both take `git_repo` and open /home/coder/<repo>.
+  const tpl = templates.find((t) => t.name === 'devcontainer') ?? templates.find((t) => t.name === 'kubernetes') ?? templates[0]
   if (!tpl?.active_version_id) throw new Error('No Coder template is available to create an environment from.')
   const params = await coderClient.listTemplateParameters(tpl.active_version_id)
   if (!params.some((p) => p.name === REPO_PARAM)) {

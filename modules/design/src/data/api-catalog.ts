@@ -5,8 +5,9 @@
  * client generated from an OpenAPI document.
  */
 
-import { deref, extractOperations, type OpenApiDoc, type Operation, type RawSchema, serversOf, type SpecDiff } from './openapi.ts'
-import type { PEntity } from './platform-model.ts'
+import { deref, detectKind, extractOperations, type OpenApiDoc, type Operation, parseSpec, type RawSchema, serversOf, type SpecDiff, type SpecKind } from './openapi.ts'
+import { type PEntity, refOf } from './platform-model.ts'
+import type { ApiSpec } from './types.ts'
 
 export type SpecSource =
   | { type: 'repo'; repo: string; path: string; branch?: string }
@@ -28,6 +29,72 @@ export function describeSource(s: SpecSource | null): string {
   if (s.type === 'repo') return `${s.repo}/${s.path}`
   if (s.type === 'url') return s.url
   return 'Inline in catalog-info.yaml'
+}
+
+/* ───────────────────────── catalog → library ───────────────────────── */
+
+/**
+ * The document id a catalog API's spec lives at. The SAME derivation as the
+ * server's `specIdFor` (apps/console/app/server/design-api-specs.ts), which
+ * registers a spec the moment a template is scaffolded; this side registers
+ * the ones the catalog already had (CLI-scaffolded, pre-existing repos). One
+ * id, so the two paths land on one document instead of a pair.
+ */
+export function catalogSpecId(entityRef: string): string {
+  return `catalog-${entityRef.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`.slice(0, 120)
+}
+
+/**
+ * Catalog APIs the library should hold and does not yet: a readable
+ * definition (a repository file or inline text — a URL is cross-origin and
+ * stays a manual import) and no spec linked to the entity.
+ */
+export function catalogSpecsToRegister(entities: readonly PEntity[], specs: readonly { entity?: string }[]): PEntity[] {
+  const linked = new Set(specs.map((s) => s.entity).filter(Boolean))
+  return entities.filter((e) => {
+    if (e.kind !== 'API' || linked.has(refOf(e))) return false
+    const t = specSource(e)?.type
+    return t === 'repo' || t === 'inline'
+  })
+}
+
+export type CatalogSpecDoc = ApiSpec & {
+  kind: SpecKind
+  source: string
+  entity: string
+  git?: { repo: string; branch: string; path: string; at: string }
+  project?: string
+  team?: string
+  updated_by?: string
+}
+
+/** The library document for a catalog API's definition, at its deterministic id. */
+export function catalogSpecDoc(
+  api: PEntity,
+  document: string,
+  meta: { source: string; git?: CatalogSpecDoc['git']; by?: string; project?: string; team?: string; now?: string },
+): CatalogSpecDoc {
+  const { doc } = parseSpec(document)
+  const info = (doc?.info ?? {}) as { version?: string; description?: string }
+  const now = meta.now ?? new Date().toISOString()
+  const entity = refOf(api)
+  return {
+    id: catalogSpecId(entity),
+    // What the Catalog tab's manual Import names it: the entity, not the document.
+    name: api.title ?? api.name,
+    version: info.version !== undefined ? String(info.version) : '0.1.0',
+    description: api.description ?? info.description?.split('\n')[0] ?? '',
+    document,
+    kind: detectKind(doc),
+    source: meta.source,
+    entity,
+    created_at: now,
+    updated_at: now,
+    ...(meta.by ? { updated_by: meta.by } : {}),
+    ...(meta.git ? { git: meta.git } : {}),
+    ...(meta.project ? { project: meta.project } : {}),
+    ...(meta.team ? { team: meta.team } : {}),
+  }
 }
 
 export type Bump = 'major' | 'minor' | 'patch' | 'none'

@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, EmptyState, Markdown, Modal, StatusBadge, useOptionalUser, useToast } from '@adhar/shell-ui'
+import { Button, EmptyState, Markdown, Modal, StatusBadge, useGiteaOrg, useOptionalUser, useToast } from '@adhar/shell-ui'
 import { formatRelative } from '@adhar/utils'
 import { KIND, type Listed, newId, useCollection, useCreate, useRemove, useUpdate } from '../data/store.ts'
 import { ErrorBlock, LoadingBlock } from '../components/async-states.tsx'
@@ -37,8 +37,10 @@ import { copyText, downloadText, pickTextFile } from '../components/export.ts'
 import { useAutosave } from '../components/use-autosave.ts'
 import { Icon, Menu, SaveDot, SearchBox, Segmented, useConfirm } from '../components/ui-bits.tsx'
 import { slugify } from '../data/mermaid-util.ts'
-import { type DesignScope, useNotifyOrg, usePlatformCatalog, useDesignScope } from '../data/platform.ts'
+import { type DesignScope, readRepoFile, useNotifyOrg, usePlatformCatalog, useDesignScope } from '../data/platform.ts'
 import { scopeFilter, type Scoped } from '../data/scope.ts'
+import { catalogSpecDoc, catalogSpecsToRegister, describeSource, specSource } from '../data/api-catalog.ts'
+import { refOf } from '../data/platform-model.ts'
 import { CatalogApis, ClientPanel, RepoPanel } from '../components/api-platform.tsx'
 import { AskAiModal, SparkIcon } from '../components/ai-draft.tsx'
 import { EntityChip } from '../components/catalog-bits.tsx'
@@ -138,9 +140,55 @@ export function ApiSchemas() {
   const [aiOpen, setAiOpen] = useState(false)
   const scope = useDesignScope()
   const listTab = !params.spec && params.tab === 'catalog' ? 'catalog' : 'specs'
-  const catalog = usePlatformCatalog(listTab === 'catalog' || !!params.spec)
+  // Always, not only on the Catalog tab: the catalog is what the library
+  // registers from (below), so the Specs tab must know it too.
+  const catalog = usePlatformCatalog(true)
   useNewFlag(() => setNewOpen(true), !isLoading)
   const scoped = useMemo(() => scopeFilter(list, scope.lens).shown, [list, scope.lens])
+
+  // The catalog's APIs register themselves. A scaffold registers its contract
+  // the moment it is committed (server, design-api-specs.ts); this covers what
+  // that cannot see — an app scaffolded from the CLI, a repository that
+  // predates the registration, an API someone added to catalog-info by hand.
+  // Each is tried once per visit, at the same id the server would use, and a
+  // spec that already exists is never touched (catalogSpecsToRegister skips
+  // every linked entity). Best effort: a definition that cannot be read or
+  // parsed stays a Catalog-tab row with its reason, as before.
+  const putSpec = useUpdate<SpecDoc>(KIND.apiSpec)
+  const org = useGiteaOrg()
+  const registering = useRef(new Set<string>())
+  useEffect(() => {
+    if (isLoading || catalog.isLoading) return
+    const missing = catalogSpecsToRegister(catalog.entities, list).filter((a) => !registering.current.has(refOf(a)))
+    if (!missing.length) return
+    for (const a of missing) registering.current.add(refOf(a))
+    void (async () => {
+      let n = 0
+      for (const api of missing) {
+        const src = specSource(api)
+        if (!src || src.type === 'url') continue
+        try {
+          let document = ''
+          let git: SpecDoc['git']
+          if (src.type === 'inline') document = src.text
+          else {
+            const branch = src.branch ?? 'main'
+            const f = await readRepoFile(org, src.repo, branch, src.path)
+            if (!f) continue
+            document = f.text
+            git = { repo: src.repo, branch, path: src.path, at: new Date().toISOString() }
+          }
+          if (parseSpec(document).error) continue
+          await putSpec.mutateAsync(catalogSpecDoc(api, document, { source: describeSource(src), git, by: user?.name, ...scope.initial }))
+          n++
+        } catch {
+          // The Catalog tab still offers Import for this one.
+        }
+      }
+      if (n) toast.success(`${n} catalog API${n === 1 ? '' : 's'} registered`, { description: 'Specs from the service catalog now appear in the library.' })
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, catalog.isLoading, catalog.entities, list])
 
   const open = (id: string | undefined) => setParams({ spec: id, op: undefined, tab: undefined }, { push: true })
 

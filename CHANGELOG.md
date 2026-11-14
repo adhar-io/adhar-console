@@ -6,6 +6,16 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.178] - 2026-11-14
+
+### Fixed
+
+- Fix the autoscale error
+
+### Changed
+
+- Volcano added
+
 ## [0.1.177] - 2026-11-14
 
 ### Improved

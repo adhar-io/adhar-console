@@ -175,7 +175,8 @@ export function AutoscalingView({ namespace }: { namespace?: string }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
 
-  const all = live.data as unknown as Hpa[]
+  // `data` is undefined until the first list lands (and after a failed one).
+  const all = useMemo(() => (live.data ?? []) as unknown as Hpa[], [live.data])
   const rows = useMemo(
     () =>
       all.filter(

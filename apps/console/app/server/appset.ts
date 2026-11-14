@@ -228,6 +228,50 @@ export function flipElementEnabled(
   return { ok: false, reason: `element "${name}" has no enabled: field to flip` }
 }
 
+/**
+ * ApplicationSet elements that are one package split in two, switched on and off
+ * TOGETHER. `adhar-batch-volcano` carries the policies naming Volcano's kinds (the
+ * queue binding, Volcano run integrity, prod-only classes); it is a separate element
+ * only because Kyverno refuses a policy whose kind the cluster does not serve.
+ * Enabling `volcano` alone would run Volcano with no queue binding — any team could
+ * name any queue. Mirrors `companions` in the adhar CLI's cmd/stack/profile.go.
+ */
+export const COMPANION_ELEMENTS: Readonly<Record<string, readonly string[]>> = {
+  volcano: ['adhar-batch-volcano'],
+  'adhar-batch-volcano': ['volcano'],
+}
+
+/**
+ * Flip `name` and every companion this file declares, in one edit, so they land
+ * in one commit. A companion the file does not wire is skipped (an older stack
+ * still toggles the package); one that exists but cannot be flipped fails the
+ * whole edit rather than committing half a package.
+ */
+export function flipElementWithCompanions(
+  yaml: string,
+  name: string,
+  enabled: boolean,
+): { ok: true; text: string; changed: boolean; companions: string[] } | { ok: false; reason: string } {
+  const first = flipElementEnabled(yaml, name, enabled)
+  if (!first.ok) return first
+  let text = first.text
+  let changed = first.changed
+  const companions: string[] = []
+  for (const c of COMPANION_ELEMENTS[name] ?? []) {
+    const edit = flipElementEnabled(text, c, enabled)
+    if (!edit.ok) {
+      if (edit.reason.endsWith('not found in ApplicationSet')) continue
+      return { ok: false, reason: `${c} (switched with ${name}): ${edit.reason}` }
+    }
+    text = edit.text
+    if (edit.changed) {
+      changed = true
+      companions.push(c)
+    }
+  }
+  return { ok: true, text, changed, companions }
+}
+
 /* ─────────────── ArgoCD-driven repo/path discovery ─────────────── */
 
 interface DiscoveredSource {
@@ -674,7 +718,8 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
   }
 
   // ── scoped edit ──
-  const edit = flipElementEnabled(original, name, enabled)
+  // Companions (volcano ↔ adhar-batch-volcano) go in the same commit.
+  const edit = flipElementWithCompanions(original, name, enabled)
   if (!edit.ok) {
     return withCookie(
       Response.json({ error: 'edit_failed', detail: edit.reason }, { status: 422 }),
@@ -708,7 +753,7 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
         method: 'PUT',
         body: JSON.stringify({
           content: toBase64(edit.text),
-          message: `chore(marketplace): ${enabled ? 'enable' : 'disable'} ${name} via Adhar Console`,
+          message: `chore(marketplace): ${enabled ? 'enable' : 'disable'} ${[name, ...edit.companions].join(', ')} via Adhar Console`,
           sha: fileSha,
           branch: ref,
         }),
@@ -742,6 +787,7 @@ export async function handleAppsetToggle(req: Request): Promise<Response> {
       path: filePath,
       commit: commit.commit?.sha,
       commitUrl: commit.commit?.html_url,
+      companions: edit.companions,
       note: `Committed to ${repoSpec}/${filePath}. ArgoCD will reconcile the ApplicationSet and ${enabled ? 'deploy' : 'remove'} ${name} shortly.`,
     }),
     auth.refreshedCookie,

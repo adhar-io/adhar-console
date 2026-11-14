@@ -62,6 +62,8 @@ import {
 import { JobDrawer, type JobTab } from '../components/batch/job-drawer.tsx'
 import { RunDrawer, type RunTab } from '../components/batch/run-drawer.tsx'
 import { useVolcanoInstalled } from '../data/batch-queues.ts'
+import { useBatchSchedules } from '../data/batch-schedules.ts'
+import { InServiceSchedules, ScheduleWatches } from '../components/batch/in-service-schedules.tsx'
 import { BatchQueues } from './batch-queues.tsx'
 
 /**
@@ -76,6 +78,11 @@ import { BatchQueues } from './batch-queues.tsx'
  * Four page states are told apart on purpose (`pageStateOf`): the API not
  * installed, the caller not allowed, nothing there yet, and the request failing.
  * Each has its own words, and none of them is an empty table.
+ *
+ * Beside the BatchJobs, the Jobs view shows the in-service schedules (§5.20.8):
+ * jobs a service runs on its own Quartz scheduler, read from the schedule
+ * reports in the same namespaces. They have no BatchJob, so a page whose only
+ * jobs are in-service is not empty, and none of them carries an action.
  */
 
 type View = 'jobs' | 'runs' | 'queues'
@@ -114,8 +121,14 @@ export function Batch() {
     [list?.items, runs, projects.envByNamespace, nextByCronJob, now],
   )
   const pending = useMemo(() => pendingApplications(apps.data, rows), [apps.data, rows])
+  // The schedule reports live in the services' own namespaces: the same
+  // environments the BatchJobs are looked for in, plus any a cluster-wide list found.
+  const scheduleNamespaces = useMemo(() => [...new Set([...candidates, ...(list?.namespaces ?? [])])].filter(Boolean).sort(), [candidates, list?.namespaces])
+  const schedules = useBatchSchedules(scheduleNamespaces, { envByNamespace: projects.envByNamespace })
 
-  const state = pageStateOf({ list, isLoading: listQ.isLoading, isError: listQ.isError }, pending.length)
+  const listed = pageStateOf({ list, isLoading: listQ.isLoading, isError: listQ.isError }, pending.length + schedules.services.length)
+  // "Empty" is a claim about the schedule reports too, so it waits until every namespace has answered.
+  const state = listed === 'empty' && schedules.loading ? 'loading' : listed
   const volcanoQ = useVolcanoInstalled()
   const queuesServed = Boolean(volcanoQ.data?.queues)
   const view: View = params.view === 'runs' ? 'runs' : params.view === 'queues' && queuesServed ? 'queues' : 'jobs'
@@ -141,15 +154,28 @@ export function Batch() {
     <div className='space-y-4'>
       <PageHeader title='Batch' actions={empty || state === 'not-installed' || state === 'forbidden' ? undefined : newJob} />
       {list?.scope === 'namespaces' ? <LiveWatches list={list} volcano={Boolean(runsQ.data?.volcano)} /> : null}
+      <ScheduleWatches namespaces={scheduleNamespaces} />
 
-      {state === 'not-installed'
-        ? <BatchNotInstalled />
-        : state === 'forbidden'
-        ? <BatchForbidden denied={list?.denied ?? []} />
-        : state === 'error'
-        ? <BatchLoadError error={listQ.error} onRetry={() => listQ.refetch()} />
+      {state === 'not-installed' || state === 'forbidden' || state === 'error'
+        ? (
+          <>
+            {state === 'not-installed'
+              ? <BatchNotInstalled />
+              : state === 'forbidden'
+              ? <BatchForbidden denied={list?.denied ?? []} />
+              : <BatchLoadError error={listQ.error} onRetry={() => listQ.refetch()} />}
+            {/* In-service schedules need no BatchJob API: what the caller may read is still shown. */}
+            <InServiceSchedules namespaces={scheduleNamespaces} envByNamespace={projects.envByNamespace} />
+          </>
+        )
         : state === 'empty'
-        ? <BatchEmpty action={newJob} />
+        ? (
+          <>
+            <BatchEmpty action={newJob} />
+            {/* Renders only a namespace whose reports could not be read: the empty claim does not cover it. */}
+            <InServiceSchedules namespaces={scheduleNamespaces} envByNamespace={projects.envByNamespace} />
+          </>
+        )
         : (
           <>
             {list?.scope === 'namespaces' && list.denied.length
@@ -172,6 +198,9 @@ export function Batch() {
                         runsLoading={runsQ.isLoading}
                         now={now}
                         initialQuery={params.app}
+                        scheduleNamespaces={scheduleNamespaces}
+                        envByNamespace={projects.envByNamespace}
+                        inService={schedules.services.length}
                         onOpen={(r) => setParams({ job: r.key, tab: '' })}
                       />
                     )
@@ -263,6 +292,9 @@ function JobsView({
   runsLoading,
   now,
   initialQuery,
+  scheduleNamespaces,
+  envByNamespace,
+  inService,
   onOpen,
 }: {
   rows: readonly JobRow[]
@@ -273,6 +305,11 @@ function JobsView({
   now: number
   /** `?app=` (the Create New success link) starts the search on that application. */
   initialQuery?: string
+  /** Where the in-service schedule reports are read (§5.20.8). */
+  scheduleNamespaces: readonly string[]
+  envByNamespace?: ReadonlyMap<string, string>
+  /** How many services report in-service schedules: with some, no BatchJob is not an empty page. */
+  inService: number
   onOpen(r: JobRow): void
 }) {
   const [query, setQuery] = useState(initialQuery ?? '')
@@ -302,8 +339,10 @@ function JobsView({
     const cur = values[id] ?? []
     setValues({ ...values, [id]: cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v] })
   }
-  const filtering = Boolean(query) || Object.values(values).some((v) => v.length)
+  const faceted = Object.values(values).some((v) => v.length)
+  const filtering = Boolean(query) || faceted
   const scheduled = rows.filter((r) => r.schedule.cron).length
+  const noMatch = <EmptyState compact title='No jobs match' description='Nothing matches the search and filters. Clear them to see every job.' />
 
   return (
     <>
@@ -326,8 +365,10 @@ function JobsView({
       />
 
       {!loading && !groups.length && !pending.length
-        ? filtering
-          ? <EmptyState compact title='No jobs match' description='Nothing matches the search and filters. Clear them to see every job.' />
+        ? inService > 0 && !faceted
+          ? null // the in-service group below answers, or says nothing matches
+          : filtering
+          ? noMatch
           : <BatchEmpty compact />
         : (
           <div className='overflow-x-auto rounded-xl border border-edge-default bg-surface-raised'>
@@ -382,6 +423,11 @@ function JobsView({
             </table>
           </div>
         )}
+
+      {/* The facets describe BatchJobs (status, SLA, project); the in-service group follows the search alone, and steps aside while a facet is set. */}
+      {faceted
+        ? null
+        : <InServiceSchedules namespaces={scheduleNamespaces} envByNamespace={envByNamespace} query={query} empty={!groups.length && !pending.length && query ? noMatch : undefined} />}
     </>
   )
 }

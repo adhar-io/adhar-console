@@ -10,6 +10,7 @@ import type { RunList } from '../data/batch-api.ts'
 import { BatchLoadError } from '../components/batch/bits.tsx'
 import { JobActionsBar } from '../components/batch/job-drawer.tsx'
 import { RunActionsBar } from '../components/batch/run-drawer.tsx'
+import { schedulesKey } from '../data/batch-schedules.ts'
 
 /**
  * The page itself, rendered from a seeded query cache: what a person sees in each
@@ -51,7 +52,11 @@ Deno.test('state: forbidden is not "no jobs"', () => {
 })
 
 Deno.test('state: an empty cluster points at the templates', () => {
-  const html = page((qc) => seedList(qc, list()))
+  // Empty only once the in-service schedule reports have answered too (none here).
+  const html = page((qc) => {
+    seedList(qc, list())
+    for (const ns of CANDIDATES.split(',')) qc.setQueryData(schedulesKey(ns), { namespace: ns, state: 'read', items: [] })
+  })
   assertStringIncludes(html, 'No batch jobs yet')
   assertStringIncludes(html, '/catalog?section=create')
 })

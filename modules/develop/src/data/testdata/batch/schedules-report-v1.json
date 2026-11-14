@@ -1,0 +1,8 @@
+{"v":1,"engine":"quartz","scheduler":"importer","updated":"2026-11-14T09:00:05Z","truncated":false,
+ "instances":[{"id":"importer-6c9f7d-x2k4p1731574800123","checkin":"2026-11-14T09:00:01Z"}],
+ "jobs":[{"job":"importJob","name":"import-job",
+   "triggers":[{"key":"adhar-batch-config.import-job.nightly","kind":"cron","expression":"0 30 1 ? * *",
+                "timeZone":"Asia/Singapore","calendar":"sg-business","misfire":"latest",
+                "state":"NORMAL","previous":"2026-11-13T17:30:00Z","next":"2026-11-16T17:30:00Z"}],
+   "lastRun":{"run":"import-job-09932cb3","executionId":97,"status":"COMPLETED","outcome":"completed",
+              "trigger":"adhar-batch-config.import-job.nightly","start":"2026-11-13T17:30:00Z","end":"2026-11-13T17:41:12Z"}}]}

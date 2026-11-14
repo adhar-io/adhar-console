@@ -53,6 +53,8 @@ export const LABEL = {
   nativeIndex: 'batch.kubernetes.io/job-completion-index',
   volcanoJob: 'volcano.sh/job-name',
   volcanoIndex: 'volcano.sh/task-index',
+  /** The task a Volcano Job pod belongs to (`manager` / `worker` in §4.5's shape); Volcano stamps it on every pod. */
+  volcanoTask: 'volcano.sh/task-spec',
 } as const
 
 export const ANNOTATION = {
@@ -542,8 +544,20 @@ export function podsOfRun(run: RunObject, pods: readonly RunPod[]): RunPod[] {
     .sort((a, b) => (b.metadata.creationTimestamp ?? '').localeCompare(a.metadata.creationTimestamp ?? ''))
 }
 
-export const podRole = (p: RunPod) => p.metadata.labels?.[LABEL.role]
-export const podIndex = (p: RunPod) => p.metadata.labels?.[LABEL.nativeIndex] ?? p.metadata.labels?.[LABEL.volcanoIndex]
+/**
+ * A pod's role in its run: the `adhar.io/batch-role` label the composition
+ * writes, else the Volcano task it belongs to. A Volcano Job numbers each task
+ * from 0, so worker-0 also has task index 0 — without the task it would read
+ * as the manager (the CLI's `podRole`, cmd/batch/gang.go).
+ */
+export const podRole = (p: RunPod): string | undefined => p.metadata.labels?.[LABEL.role] || p.metadata.labels?.[LABEL.volcanoTask] || undefined
+
+/** The completion index of an Indexed Job, else Volcano's task index: a label on current releases, an annotation on all. */
+export const podIndex = (p: RunPod): string | undefined =>
+  p.metadata.labels?.[LABEL.nativeIndex] || p.metadata.labels?.[LABEL.volcanoIndex] || p.metadata.annotations?.[LABEL.volcanoIndex] || undefined
+
+/** A pod a Volcano Job created. Its task index counts within its task, so index 0 is not the manager. */
+const isVolcanoPod = (p: RunPod) => Boolean(p.metadata.labels?.[LABEL.volcanoJob])
 
 /**
  * The pod whose summary speaks for the run: the manager when there is one (in
@@ -553,7 +567,7 @@ export const podIndex = (p: RunPod) => p.metadata.labels?.[LABEL.nativeIndex] ??
  */
 export function speakerPod(pods: readonly RunPod[]): RunPod | undefined {
   const notWorkers = pods.filter((p) => podRole(p) !== 'worker')
-  const managers = notWorkers.filter((p) => podRole(p) === 'manager' || podIndex(p) === '0')
+  const managers = notWorkers.filter((p) => podRole(p) === 'manager' || (podIndex(p) === '0' && !isVolcanoPod(p)))
   const set = managers.length ? managers : notWorkers.length ? notWorkers : pods
   return set.find((p) => parseSummary(terminationOf(p)?.message) !== null) ?? set.find((p) => terminationOf(p)) ?? set[0]
 }
@@ -677,8 +691,17 @@ export interface RunActions {
   restart: boolean
 }
 
-/** Stop while it can still stop, resume what was stopped, restart what failed. */
-export function runActionsOf(phase: RunPhase): RunActions {
+/**
+ * A run carries `adhar.io/batch-job`. A Job or Volcano Job without it (a team's
+ * own training job, opened by a deep link) is not one, and nothing here may
+ * stop, resume or restart it — stop would send a Volcano Job an AbortJob. The
+ * CLI refuses it the same way (`getRun`, cmd/batch/batch.go).
+ */
+export const isBatchRun = (run: Pick<RunObject, 'metadata'>): boolean => Boolean(run.metadata.labels?.[LABEL.batchJob])
+
+/** Stop while it can still stop, resume what was stopped, restart what failed — and nothing for what is not a batch run. */
+export function runActionsOf(phase: RunPhase, batchRun = true): RunActions {
+  if (!batchRun) return { stop: false, resume: false, restart: false }
   return {
     stop: phase === 'pending' || phase === 'running',
     resume: phase === 'stopped',
@@ -942,7 +965,25 @@ export function resolveParams(fields: readonly ParamField[], values: Readonly<Re
 
 /** What may be shown of a parameter's value. */
 export function displayParam(field: Pick<ParamField, 'sensitive'> | undefined, value: string): string {
-  return field?.sensitive ? '••••••' : value
+  return field?.sensitive ? MASKED : value
+}
+
+const MASKED = '••••••'
+
+/**
+ * The names of a run's sensitive parameters, from its BatchJob and its run
+ * template (sensitive in either counts). Undefined when neither declares its
+ * parameters readably: a read that failed is not a list of nothing sensitive.
+ */
+export function sensitiveParams(job: BatchJobXR | undefined, template: Pick<RunTemplate, 'fields' | 'paramsError'> | undefined): ReadonlySet<string> | undefined {
+  const sources = [job ? fieldsOfJob(job) : undefined, template && !template.paramsError ? template.fields : undefined].filter((f) => f !== undefined)
+  if (!sources.length) return undefined
+  return new Set(sources.flat().filter((f) => f.sensitive).map((f) => f.name))
+}
+
+/** A run's parameter value as shown: masked when it is sensitive, and every value when that is unknown. */
+export function maskParam(sensitive: ReadonlySet<string> | undefined, name: string, value: string): string {
+  return !sensitive || sensitive.has(name) ? MASKED : value
 }
 
 /* ─────────────────────────── the run template (§6.5) ─────────────────────────── */

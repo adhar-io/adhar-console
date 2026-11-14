@@ -19,6 +19,7 @@ import {
   isBatchApplication,
   jobRows,
   jobStatusOf,
+  maskParam,
   JOBS_GVR,
   nextRestartName,
   nextRunOf,
@@ -54,6 +55,7 @@ import {
   runRows,
   type RunTemplate,
   scheduleOf,
+  sensitiveParams,
   slaStateOf,
   speakerPod,
   stopRequest,
@@ -395,6 +397,21 @@ Deno.test('form: tolerates absence, refuses garbage in words', () => {
   assertStringIncludes(paramFormOf('{"a":1}').error!, 'not a list')
   // XRD defaults apply to anything the document leaves out.
   assertEquals(paramFormOf('[{"name":"a"},{"noName":true}]').fields, [{ name: 'a', type: 'string', identifying: true, required: false, source: 'input', sensitive: false }])
+})
+
+Deno.test('form: sensitive in the BatchJob or its run template is masked; unknown masks every value', () => {
+  const job: BatchJobXR = { metadata: { name: 'importer', namespace: 'prod' }, spec: { parameters: { parameters: [{ name: 'token', sensitive: true }, { name: 'day' }] } } }
+  const template = { fields: [F({ name: 'day' }), F({ name: 'key', sensitive: true })] }
+  assertEquals([...sensitiveParams(job, undefined)!], ['token'])
+  assertEquals([...sensitiveParams(undefined, template)!], ['key'])
+  assertEquals([...sensitiveParams(job, template)!].sort(), ['key', 'token'])
+  assertEquals(sensitiveParams(undefined, { ...template, paramsError: 'cannot be read' }), undefined)
+  assertEquals(sensitiveParams(undefined, undefined), undefined)
+  // A job that declares no parameters has none sensitive: known, not unknown.
+  assertEquals(sensitiveParams({ metadata: { name: 'x', namespace: 'p' } }, undefined)?.size, 0)
+  const known = sensitiveParams(job, template)
+  assertEquals([maskParam(known, 'token', 's'), maskParam(known, 'day', '2026-11-03')], ['••••••', '2026-11-03'])
+  assertEquals(maskParam(undefined, 'day', '2026-11-03'), '••••••')
 })
 
 Deno.test('form: defaults apply before hashing, so a typed default is the same run', () => {

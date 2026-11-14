@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node peek.mjs \"\\(\\(\\) => { const b = [...document.querySelectorAll\\('button'\\)].find\\(\\(x\\) => x.textContent.includes\\('Continue as demo user'\\)\\); b?.click\\(\\); return Boolean\\(b\\) }\\)\\(\\)\")",
+      "Bash(node peek.mjs \"location.href + ' | ' + document.body.innerText.slice\\(0, 600\\)\")",
+      "Bash(node peek.mjs \"\\(\\(\\) => { const d = document.querySelector\\('[role=dialog], aside'\\); const s = document.querySelector\\('section[aria-labelledby=scaling-title]'\\); return 'dialog:' + Boolean\\(d\\) + ' scaling:' + Boolean\\(s\\) + ' | ' + \\(s ? s.innerText.slice\\(0,1500\\) : \\(d ? d.innerText.slice\\(0, 800\\) : ''\\)\\) }\\)\\(\\)\" shots/peek.png)",
+      "Bash(curl -s --max-time 20 \"http://127.0.0.1:5383/api/k8s/apis/argoproj.io/v1alpha1/namespaces/adhar-system/applications\")",
+      "Bash(python3 -)",
+      "Bash(node peek.mjs \"\\(\\(\\) => { const t = [...document.querySelectorAll\\('section'\\)].map\\(\\(s\\) => s.innerText.slice\\(0, 160\\).replace\\(/\\\\\\\\n/g,' / '\\)\\); return t.join\\('\\\\\\\\n---\\\\\\\\n'\\).slice\\(0, 3000\\) }\\)\\(\\)\")",
+      "Bash(node peek.mjs \"location.href + ' sections=' + document.querySelectorAll\\('section'\\).length + ' ' + \\(document.querySelector\\('[role=dialog]'\\)?.innerText ?? 'NO DIALOG'\\).slice\\(0, 1500\\)\")",
+      "Bash(timeout 170 node shot.mjs live light 1440 shots/live-light-1440.png)",
+      "Bash(timeout 170 node shot.mjs live light 1440 shots/01-live-light-1440.png)",
+      "Bash(timeout 170 node shot.mjs live dark 1440 shots/02-live-dark-1440.png)",
+      "Bash(timeout 170 node shot.mjs live light 390 shots/03-live-light-390.png)",
+      "Bash(timeout 170 node shot.mjs fixed light 1440 shots/04-fixed-dirty-light-1440.png)",
+      "Bash(timeout 170 node shot.mjs dialog light 1440 shots/05-dialog-off-light-1440.png)",
+      "Bash(git checkout *)"
+    ]
+  }
+}

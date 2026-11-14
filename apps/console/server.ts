@@ -36,6 +36,7 @@ import { handleListTemplates } from './app/server/templates.ts'
 import { handleScorecardHistory, handleScorecardRerun, handleScorecards } from './app/server/scorecards.ts'
 import { handleScorecardFix } from './app/server/scorecard-fix.ts'
 import { handleEntityRoutes } from './app/server/entity-routes.ts'
+import { handleScaling } from './app/server/scaling.ts'
 import { handleTeardown } from './app/server/teardown.ts'
 import { handleAppDelete } from './app/server/app-delete.ts'
 import { handleFunctionInvoke } from './app/server/function-invoke.ts'
@@ -463,6 +464,13 @@ async function route(req: Request): Promise<Response> {
   // the entity's Service. Powers the drawer's "Open" button and the full URLs
   // on its Deployment tab.
   if (path === '/api/catalog/routes') return handleEntityRoutes(req)
+
+  // Instances and autoscaling per environment (catalog drawer → Scaling):
+  // committed to the app's kustomize overlay, rolled out by a Kargo promotion
+  // as the user. RBAC-gated (update application-scaling.console.adhar.io in
+  // the environment's namespace). See app/server/scaling.ts.
+  const scaling = path.match(/^\/api\/catalog\/scaling(\/.*)?$/)
+  if (scaling) return handleScaling(req, scaling[1] ?? '')
 
   // Remove an entity from the platform: Argo CD apps (cascading), kpack
   // Image, PipelineRuns, optionally its namespace and Gitea repository.

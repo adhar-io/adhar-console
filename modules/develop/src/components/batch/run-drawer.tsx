@@ -1,16 +1,16 @@
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ComponentProps, type ComponentType, type ReactNode, useMemo, useState } from 'react'
 import { Button, canResource, LogConsole, Spinner, StatusBadge, type TabDef, Tabs, TimeSeriesChart, useAccessReview, useLogStream, useToolPublicUrl } from '@adhar/shell-ui'
 import { cn, formatDuration } from '@adhar/utils'
 import { CloseButton, Drawer } from '../list-kit.tsx'
 import { usePrometheusReachable } from '../../data/perf-metrics.ts'
-import { useBatchGate, useRun, useRunEvents, useRunMetrics, useRunPods } from '../../data/batch.ts'
+import { useBatchGate, useRun, useRunEvents, useRunMetrics, useRunPods, useRunTemplate } from '../../data/batch.ts'
 import {
   BATCH_CONTAINER,
   type BatchJobXR,
-  displayParam,
   exitMeaning,
-  fieldsOfJob,
   isActivePhase,
+  isBatchRun,
+  maskParam,
   observabilityLinks,
   outcomeLabel,
   podIndex,
@@ -23,6 +23,7 @@ import {
   runParams,
   type RunRow,
   runRow,
+  sensitiveParams,
   speakerPod,
   summaryOf,
   terminationOf,
@@ -30,6 +31,7 @@ import {
 import { ExternalLink, Facts, Note, Section } from '../../views/function-bits.tsx'
 import { ConditionsTable, DurationText, ErrorLine, ExitCode, Loading, RunBadge, TABLE, TD, TH, useNow, When } from './bits.tsx'
 import { RestartDialog, ResumeDialog, StopDialog } from './dialogs.tsx'
+import { RunGang } from './gang.tsx'
 
 /**
  * Develop → Batch → one run: its phase and conditions, the pods behind it (the
@@ -40,6 +42,9 @@ import { RestartDialog, ResumeDialog, StopDialog } from './dialogs.tsx'
  */
 
 export type RunTab = 'overview' | 'pods' | 'events' | 'metrics'
+
+/** The drawer's chrome. The app has one, `Drawer`; its portal cannot be server-rendered, so tests pass a plain frame. */
+export type DrawerFrame = ComponentType<ComponentProps<typeof Drawer>>
 
 const TABS: TabDef<RunTab>[] = [
   { id: 'overview', label: 'Overview' },
@@ -58,6 +63,7 @@ export function RunDrawer({
   onTab,
   onClose,
   onOpenRun,
+  Frame = Drawer,
 }: {
   namespace: string
   name: string
@@ -69,6 +75,7 @@ export function RunDrawer({
   onTab(tab: RunTab): void
   onClose(): void
   onOpenRun(name: string): void
+  Frame?: DrawerFrame
 }) {
   const live = useRun(namespace, name, kind)
   const pods = useRunPods(namespace, name, kind)
@@ -78,7 +85,7 @@ export function RunDrawer({
   const current: RunTab = TABS.some((t) => t.id === tab) ? (tab as RunTab) : 'overview'
 
   return (
-    <Drawer
+    <Frame
       onClose={onClose}
       width='max-w-5xl'
       widthId='develop.batch.run'
@@ -126,14 +133,14 @@ export function RunDrawer({
             )}
           </Tabs>
         )}
-    </Drawer>
+    </Frame>
   )
 }
 
 /* ─────────────────────────── actions ─────────────────────────── */
 
 export function RunActionsBar({ row, job, existingNames, onOpenRun }: { row: RunRow; job?: BatchJobXR; existingNames: readonly string[]; onOpenRun(name: string): void }) {
-  const can = runActionsOf(row.phase)
+  const can = runActionsOf(row.phase, isBatchRun(row.raw))
   const target = { namespace: row.namespace, name: row.name, kind: row.kind }
   const stop = useBatchGate('stop', target)
   const resume = useBatchGate('resume', target)
@@ -172,8 +179,10 @@ const count = (n: number | undefined) => (n === undefined ? '—' : n.toLocaleSt
 function OverviewTab({ row, job, forbiddenPods }: { row: RunRow; job?: BatchJobXR; forbiddenPods?: boolean }) {
   const s = row.summary
   const params = runParams(row.raw)
-  const fields = job ? fieldsOfJob(job) : []
   const paramRows = Object.entries(params)
+  // Without the BatchJob, its run template says which parameters are sensitive.
+  const read = useRunTemplate(row.namespace, row.batchJob, undefined, !job && paramRows.length > 0)
+  const sensitive = sensitiveParams(job, read.data?.state === 'ok' ? read.data.template : undefined)
   const conditions = row.raw.status?.conditions ?? []
   const grafana = useToolPublicUrl('grafana')
   const links = observabilityLinks(grafana, { application: row.application ?? row.batchJob ?? row.name, namespace: row.namespace, name: row.batchJob ?? row.name, run: row.name })
@@ -184,6 +193,13 @@ function OverviewTab({ row, job, forbiddenPods }: { row: RunRow; job?: BatchJobX
         : null}
       {forbiddenPods
         ? <Note tone='warn'>You may not list pods in {row.namespace}, so this run’s exit code and summary cannot be read.</Note>
+        : null}
+      {!isBatchRun(row.raw)
+        ? (
+          <Note tone='warn'>
+            This {row.kind === 'VolcanoJob' ? 'Volcano Job' : 'Job'} carries no <span className='font-mono'>adhar.io/batch-job</span> label, so it is not a batch run: it cannot be stopped, resumed or restarted from here.
+          </Note>
+        )
         : null}
 
       <Section title='Run'>
@@ -206,10 +222,15 @@ function OverviewTab({ row, job, forbiddenPods }: { row: RunRow; job?: BatchJobX
         />
       </Section>
 
+      <RunGang namespace={row.namespace} run={row.name} uid={row.raw.metadata.uid} />
+
       {paramRows.length
         ? (
           <Section title='Parameters'>
-            <Facts rows={paramRows.map(([k, v]) => [k, <span key={k} className='font-mono text-[12px]'>{displayParam(fields.find((f) => f.name === k), v)}</span>] as [string, ReactNode])} />
+            {!sensitive && !read.isLoading
+              ? <Note>Values are hidden: neither the BatchJob nor its run template could be read, and they say which parameters are sensitive.</Note>
+              : null}
+            <Facts rows={paramRows.map(([k, v]) => [k, <span key={k} className='font-mono text-[12px]'>{maskParam(sensitive, k, v)}</span>] as [string, ReactNode])} />
           </Section>
         )
         : null}

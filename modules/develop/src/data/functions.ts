@@ -91,6 +91,8 @@ export interface ProjectInfo {
   environments: string[]
   /** Project → its environments, in order. */
   byProject: Map<string, kargo.ProjectEnv[]>
+  /** The Project XRs themselves (their organisation and team name a team's batch queues). */
+  items: kargo.ProjectLike[]
 }
 
 /** Project XRs → where each environment lives. `[]` when unreadable or not installed. */
@@ -124,7 +126,7 @@ export function useProjects() {
       }
     }
     order.sort((a, b) => kargo.envOrder(a) - kargo.envOrder(b))
-    return { envByNamespace, envNamespaces: [...envByNamespace.keys()], environments: order, byProject }
+    return { envByNamespace, envNamespaces: [...envByNamespace.keys()], environments: order, byProject, items: q.data ?? [] }
   }, [q.data])
   return { ...info, isLoading: q.isLoading }
 }

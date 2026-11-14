@@ -88,6 +88,7 @@ import {
 import { withExpectedEnvs } from '~/data/catalog-deployment-model.ts'
 import type { KObj } from '~/data/catalog-composition-model.ts'
 import { isSafeLinkUrl } from '~/data/safe-url.ts'
+import { ScalingSection } from './catalog-scaling-section.tsx'
 
 /**
  * The catalog drawer's Deployment tab.
@@ -95,7 +96,8 @@ import { isSafeLinkUrl } from '~/data/safe-url.ts'
  * Read top to bottom it answers, in order: is it running and healthy
  * (Rollout), is the control plane delivering it (Delivery — shown whenever it
  * is not fully set up), where and at which version in each environment
- * (Environments, with the rollout's own state), what was released when and by
+ * (Environments, with the rollout's own state), how many instances run and
+ * what decides that (Scaling), what was released when and by
  * whom (Releases), how often it ships (Deploy frequency, Sync history), how
  * Argo CD is configured to deliver it (GitOps), where it answers (Endpoints),
  * what it is built from (Repository), how the build is doing (Pipeline runs)
@@ -214,6 +216,7 @@ export function CatalogDeploymentTab({ entity, deployment, repoUrl, routes, moni
           <RolloutSummary ctx={ctx} primary={p} stagesLoading={stages.isLoading} />
           {diagnosis && diagnosis.phase !== 'ready' ? delivery : null}
           {rows.length ? <EnvironmentsSection ctx={ctx} /> : null}
+          {rows.length ? <ScalingSection appName={appName} rows={rows} workloads={ctx.workloads} kargoProject={kargoProject} repoRef={repoRef} /> : null}
           {kenvs.length ? <ReleasesSection ctx={ctx} /> : null}
           {deployment.unscoped.length ? <OtherAppsSection ctx={ctx} titled={rows.length > 0} /> : null}
           <div className="grid min-w-0 grid-cols-1 items-start gap-5 lg:grid-cols-2">

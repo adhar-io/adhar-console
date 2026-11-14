@@ -29,6 +29,8 @@ import {
 import { ExternalLink, Facts, Note, Section } from '../../views/function-bits.tsx'
 import { ConditionsTable, DurationText, ErrorLine, ExitCode, jobSubtitle, Loading, RunBadge, SlaBadge, TABLE, TD, TH, Until, When } from './bits.tsx'
 import { HoldDialog, ReleaseDialog, RunNowDialog } from './dialogs.tsx'
+import { JobScheduling } from './gang.tsx'
+import type { DrawerFrame } from './run-drawer.tsx'
 
 /**
  * Develop → Batch → one job: its definition (from the XR and the run template),
@@ -57,6 +59,7 @@ export function JobDrawer({
   onTab,
   onClose,
   onOpenRun,
+  Frame = Drawer,
 }: {
   row: JobRow
   applications?: readonly ApplicationXR[]
@@ -65,6 +68,7 @@ export function JobDrawer({
   onTab(tab: JobTab): void
   onClose(): void
   onOpenRun(name: string): void
+  Frame?: DrawerFrame
 }) {
   const live = useBatchJob(row.namespace, row.name)
   const gone = live.data === null
@@ -74,7 +78,7 @@ export function JobDrawer({
   const existingNames = useMemo(() => row.runs.map((r) => r.name), [row.runs])
 
   return (
-    <Drawer
+    <Frame
       onClose={onClose}
       width='max-w-5xl'
       widthId='develop.batch.job'
@@ -131,7 +135,7 @@ export function JobDrawer({
       {dialog === 'run' ? <RunNowDialog job={job} existingNames={existingNames} onClose={() => setDialog(null)} onOpenRun={onOpenRun} /> : null}
       {dialog === 'hold' ? <HoldDialog job={job} onClose={() => setDialog(null)} /> : null}
       {dialog === 'release' ? <ReleaseDialog job={job} reason={row.held?.reason ?? ''} onClose={() => setDialog(null)} /> : null}
-    </Drawer>
+    </Frame>
   )
 }
 
@@ -162,6 +166,7 @@ function OverviewTab({ row, job, now }: { row: JobRow; job: BatchJobXR; now: num
   const grafana = useToolPublicUrl('grafana')
   const links = observabilityLinks(grafana, { application: row.application, namespace: row.namespace, name: row.name })
   const conditions = job.status?.conditions ?? []
+  const runNames = useMemo(() => row.runs.map((r) => r.name), [row.runs])
   const s = row.schedule
   return (
     <div className='space-y-5'>
@@ -206,6 +211,8 @@ function OverviewTab({ row, job, now }: { row: JobRow; job: BatchJobXR; now: num
           ]}
         />
       </Section>
+
+      <JobScheduling job={job} runs={runNames} now={now} />
 
       {conditions.length
         ? <Section title='Conditions'><ConditionsTable conditions={conditions} /></Section>

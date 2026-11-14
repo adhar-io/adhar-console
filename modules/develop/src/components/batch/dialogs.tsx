@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { type ComponentProps, type ComponentType, useMemo, useState } from 'react'
 import { Button, Field, Input, Modal, Select, Spinner, Textarea, useToast } from '@adhar/shell-ui'
 import { useRestartRun, useResumeRun, useRunNow, useRunTemplate, useSetHold, useStopRun } from '../../data/batch.ts'
 import {
   type BatchJobXR,
   displayParam,
   initialParamValues,
+  maskParam,
   type ParamField,
   resolveParams,
   restartPlan,
@@ -12,6 +13,7 @@ import {
   type RunRow,
   runName,
   scheduleOf,
+  sensitiveParams,
 } from '../../data/batch-model.ts'
 import { Note } from '../../views/function-bits.tsx'
 
@@ -23,6 +25,9 @@ import { Note } from '../../views/function-bits.tsx'
  */
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/** The dialog's chrome. The app has one, `Modal`; its portal cannot be server-rendered, so tests pass a plain frame. */
+export type DialogFrame = ComponentType<ComponentProps<typeof Modal>>
 
 const INVALID_RUN = 'Kyverno compares every run with its template. If this was refused, the template changed underneath the page, or your role does not cover this job.'
 
@@ -65,11 +70,13 @@ export function RunNowDialog({
   existingNames,
   onClose,
   onOpenRun,
+  Frame = Modal,
 }: {
   job: BatchJobXR
   existingNames: readonly string[]
   onClose(): void
   onOpenRun(name: string): void
+  Frame?: DialogFrame
 }) {
   const namespace = job.metadata.namespace ?? ''
   const name = job.metadata.name
@@ -100,7 +107,7 @@ export function RunNowDialog({
   }
 
   return (
-    <Modal
+    <Frame
       open
       onClose={onClose}
       title={`Run ${name}`}
@@ -158,7 +165,7 @@ export function RunNowDialog({
           </div>
         )
         : null}
-    </Modal>
+    </Frame>
   )
 }
 
@@ -170,17 +177,20 @@ export function RestartDialog({
   existingNames,
   onClose,
   onOpenRun,
+  Frame = Modal,
 }: {
   run: RunRow
   job?: BatchJobXR
   existingNames: readonly string[]
   onClose(): void
   onOpenRun(name: string): void
+  Frame?: DialogFrame
 }) {
   const batchJob = run.batchJob ?? ''
   const read = useRunTemplate(run.namespace, batchJob, job?.status?.runTemplate)
   const template = read.data?.state === 'ok' ? read.data.template : undefined
   const plan = useMemo(() => (template ? restartPlan(batchJob, run, template, existingNames) : undefined), [template, batchJob, run, existingNames])
+  const sensitive = sensitiveParams(job, template)
   const restart = useRestartRun()
   const toast = useToast()
   const warning = restartWarning(run.exitCode)
@@ -199,7 +209,7 @@ export function RestartDialog({
   }
 
   return (
-    <Modal
+    <Frame
       open
       onClose={onClose}
       title={`Restart ${run.name}`}
@@ -228,7 +238,7 @@ export function RestartDialog({
               ? (
                 <ul className='space-y-0.5 rounded-lg bg-surface-sunken px-3 py-2 font-mono text-[12px]'>
                   {Object.entries(plan.params ?? {}).map(([k, v]) => (
-                    <li key={k}>{k} = {displayParam(template?.fields.find((f) => f.name === k), v)}</li>
+                    <li key={k}>{k} = {maskParam(sensitive, k, v)}</li>
                   ))}
                 </ul>
               )
@@ -246,7 +256,7 @@ export function RestartDialog({
           </div>
         )
         : null}
-    </Modal>
+    </Frame>
   )
 }
 

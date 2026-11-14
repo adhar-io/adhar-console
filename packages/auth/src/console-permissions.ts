@@ -124,6 +124,11 @@ export const CONSOLE_PERMISSIONS = Object.freeze({
   // Gitea credentials; deleting can delete that repository with them.
   applicationsCreate: p('applications', 'create', 'Create applications from golden-path templates.'),
   applicationsDelete: p('applications', 'delete', 'Delete applications, including their source repository.'),
+  // Scaling: the change is committed to the application's GitOps overlay with
+  // the console's Gitea credentials, so the console asks — in the
+  // environment's namespace, like resilienceRun — who may make it. The
+  // rollout itself (Kargo promotion, scale subresource) runs as the user.
+  appScale: p('application-scaling', 'update', 'Change how many instances an application runs in an environment, and its autoscaling (committed to its GitOps overlay).'),
 } as const)
 
 export type ConsolePermissionName = keyof typeof CONSOLE_PERMISSIONS

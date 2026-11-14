@@ -91,6 +91,7 @@ permissions **by name**, never by re-typing the strings.
 | `aiKnowledgeRate` | `update ai-knowledge` | `POST /api/ai/feedback` |
 | `applicationsCreate` | `create applications` | `POST /api/scaffold` |
 | `applicationsDelete` | `delete applications` | `POST /api/apps/delete`; repository step of `/api/catalog/teardown` |
+| `appScale` | `update application-scaling` (in the environment's namespace) | `POST /api/catalog/scaling` (commit to the app's overlay) and `POST /api/catalog/scaling/settle`; the Kargo Promotion and the scale write that follow run as the user, so `create promotions.kargo.akuity.io` in the project and `patch rollouts/scale` (or `deployments/scale`) apply too |
 
 Checks are cluster-scoped unless a namespace is added (`consoleCheck(perm, ns)`).
 A ClusterRoleBinding satisfies both; a namespaced RoleBinding satisfies only
@@ -159,7 +160,8 @@ Shipped in the platform repo at
 | `oidc:super-admin` | everything (`adhar-console-admin`) |
 | `system:authenticated` (every signed-in user) | `adhar-console-member`: `update scorecards`; `create scan-waivers`; `create, update ai-knowledge`; `create applications, organizations` — what every member could do before these checks existed (its `get billing, audit` no longer matters: those are organisation-scoped) |
 | `oidc:application-admin` | `create resilience-runs`, `delete applications` |
-| `admin` (aggregated; bound per team namespace) | `create resilience-runs` in that namespace |
+| `oidc:application-admin` | also `update application-scaling` (every namespace) |
+| `admin` (aggregated; bound per team namespace) | `create resilience-runs`, `update application-scaling` in that namespace |
 | `oidc:security-reviewer`, `oidc:security-admin` | `approve scan-waivers` |
 | `oidc:security-admin` | `update scan-policies` |
 

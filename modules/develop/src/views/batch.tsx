@@ -61,6 +61,8 @@ import {
 } from '../components/batch/bits.tsx'
 import { JobDrawer, type JobTab } from '../components/batch/job-drawer.tsx'
 import { RunDrawer, type RunTab } from '../components/batch/run-drawer.tsx'
+import { useVolcanoInstalled } from '../data/batch-queues.ts'
+import { BatchQueues } from './batch-queues.tsx'
 
 /**
  * Develop → Batch (design 0025 §7): every BatchJob the signed-in user can see,
@@ -76,9 +78,11 @@ import { RunDrawer, type RunTab } from '../components/batch/run-drawer.tsx'
  * Each has its own words, and none of them is an empty table.
  */
 
-type View = 'jobs' | 'runs'
+type View = 'jobs' | 'runs' | 'queues'
 
 const VIEWS: TabDef<View>[] = [{ id: 'jobs', label: 'Jobs' }, { id: 'runs', label: 'Runs' }]
+/** Volcano's queues (Phase 2): a tab only where discovery says Volcano is installed. */
+const VIEWS_WITH_QUEUES: TabDef<View>[] = [...VIEWS, { id: 'queues', label: 'Queues' }]
 
 const BUTTON_PRIMARY =
   'inline-flex h-9 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 text-[13px] font-semibold text-white shadow-sm transition-colors hover:bg-brand-700 hover:text-white visited:text-white'
@@ -112,7 +116,9 @@ export function Batch() {
   const pending = useMemo(() => pendingApplications(apps.data, rows), [apps.data, rows])
 
   const state = pageStateOf({ list, isLoading: listQ.isLoading, isError: listQ.isError }, pending.length)
-  const view: View = params.view === 'runs' ? 'runs' : 'jobs'
+  const volcanoQ = useVolcanoInstalled()
+  const queuesServed = Boolean(volcanoQ.data?.queues)
+  const view: View = params.view === 'runs' ? 'runs' : params.view === 'queues' && queuesServed ? 'queues' : 'jobs'
 
   const createAccess = useAccessReview(CONSOLE_PERMISSIONS.applicationsCreate)
   const newJob = createAccess.allowed ? <a href={NEW_JOB_HREF} className={BUTTON_PRIMARY}>New batch job</a> : null
@@ -153,7 +159,7 @@ export function Batch() {
                 </p>
               )
               : null}
-            <Tabs<View> ariaLabel='Batch' value={view} onChange={(v) => setParams({ view: v })} tabs={VIEWS}>
+            <Tabs<View> ariaLabel='Batch' value={view} onChange={(v) => setParams({ view: v })} tabs={queuesServed ? VIEWS_WITH_QUEUES : VIEWS}>
               {(t) => (
                 <div className='space-y-4 pt-4'>
                   {t === 'jobs'
@@ -169,6 +175,8 @@ export function Batch() {
                         onOpen={(r) => setParams({ job: r.key, tab: '' })}
                       />
                     )
+                    : t === 'queues'
+                    ? <BatchQueues list={list} projects={projects.items} onOpenRun={openRunIn} />
                     : (
                       <RunsView
                         rows={runs}

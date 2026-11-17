@@ -2,8 +2,8 @@ import { tryParseYaml } from '@adhar/utils'
 import { nextRuns } from './perf-cron.ts'
 import { MAX_RESTARTS } from './batch-naming.ts'
 import {
-  batchRef,
   type BatchJobXR,
+  batchRef,
   type ConfigMapLike,
   dateInZone,
   ENV,
@@ -90,8 +90,12 @@ export type HistoryRead =
 /** The BFF's answer, checked: a body this page cannot read is unavailable, never an empty history. */
 export function parseHistory(body: unknown): HistoryRead {
   const o = obj(body)
-  if (o?.state === 'unavailable') return { state: 'unavailable', reason: str(o.reason) ?? 'unreachable', detail: str(o.detail) ?? 'The event stream could not be read.' }
-  if (o?.state !== 'read' || !Array.isArray(o.events)) return { state: 'unavailable', reason: 'unreadable', detail: 'The console answered with something that is not a batch history.' }
+  if (o?.state === 'unavailable') {
+    return { state: 'unavailable', reason: str(o.reason) ?? 'unreachable', detail: str(o.detail) ?? 'The event stream could not be read.' }
+  }
+  if (o?.state !== 'read' || !Array.isArray(o.events)) {
+    return { state: 'unavailable', reason: 'unreadable', detail: 'The console answered with something that is not a batch history.' }
+  }
   const events = o.events.filter((e): e is BatchEvent => typeof obj(e)?.type === 'string' && typeof obj(e)?.subject === 'string')
   return { state: 'read', events, total: num(o.total) ?? events.length, truncated: o.truncated === true, degraded: o.degraded === true }
 }
@@ -280,7 +284,16 @@ export function dlqEntries(runs: readonly RunRow[], events: readonly BatchEvent[
     const id = r.summary?.executionId
     if (id !== undefined) seenExec.add(execKey(r.namespace, r.batchJob, id))
     seenRun.add(r.key)
-    out.push({ namespace: r.namespace, job: r.batchJob, run: r.name, businessDate: r.businessDate, executionId: id, deadLettered: dead, ended: r.finishedAt, source: 'run' })
+    out.push({
+      namespace: r.namespace,
+      job: r.batchJob,
+      run: r.name,
+      businessDate: r.businessDate,
+      executionId: id,
+      deadLettered: dead,
+      ended: r.finishedAt,
+      source: 'run',
+    })
   }
   for (const e of events) {
     if (!END_EVENTS.has(e.type)) continue
@@ -299,7 +312,16 @@ export function dlqEntries(runs: readonly RunRow[], events: readonly BatchEvent[
     if ((id !== undefined && seenExec.has(execKey(namespace, job, id))) || (name && seenRun.has(batchRef(namespace, name)))) continue
     if (id !== undefined) seenExec.add(execKey(namespace, job, id))
     if (name) seenRun.add(batchRef(namespace, name))
-    out.push({ namespace, job, run: name, businessDate: str(spring?.businessDate), executionId: id, deadLettered: dead, ended: str(d.end) ?? e.time, source: 'event' })
+    out.push({
+      namespace,
+      job,
+      run: name,
+      businessDate: str(spring?.businessDate),
+      executionId: id,
+      deadLettered: dead,
+      ended: str(d.end) ?? e.time,
+      source: 'event',
+    })
   }
   // Each execution's latest replay, from the ops Jobs the cluster holds.
   const latest = new Map<string, RunRow>()
@@ -351,8 +373,16 @@ export type ReplayPlan =
  * `-r<n>` (the CLI's `--wait` rule). An entry with no execution id cannot be
  * replayed from here: the kit's command acts on an execution.
  */
-export function replayPlan(entry: Pick<DlqEntry, 'job' | 'namespace' | 'executionId'>, runs: readonly Pick<RunRow, 'namespace' | 'name' | 'phase'>[]): ReplayPlan {
-  if (entry.executionId === undefined) return { action: 'refused', reason: 'This run reported no execution id, so there is nothing to name the replay after. `adhar batch dlq --replay --execution <id>` takes one.' }
+export function replayPlan(
+  entry: Pick<DlqEntry, 'job' | 'namespace' | 'executionId'>,
+  runs: readonly Pick<RunRow, 'namespace' | 'name' | 'phase'>[],
+): ReplayPlan {
+  if (entry.executionId === undefined) {
+    return {
+      action: 'refused',
+      reason: 'This run reported no execution id, so there is nothing to name the replay after. `adhar batch dlq --replay --execution <id>` takes one.',
+    }
+  }
   const base = opsRunName(entry.job, OPS_DLQ_REPLAY, entry.executionId)
   const { names, latest } = chainOf(base, runs.filter((r) => r.namespace === entry.namespace))
   if (!latest) return { action: 'create', name: base }
@@ -394,7 +424,13 @@ const dateList = (v: unknown, key: string): { dates: string[]; error?: string } 
 
 /** A calendar ConfigMap, read. One that cannot be read keeps its name and says why. */
 export function parseCalendar(cm: ConfigMapLike): Calendar {
-  const base = { namespace: cm.metadata?.namespace ?? '', name: cm.metadata?.name ?? '', weekendDays: ['SATURDAY', 'SUNDAY'], holidays: [] as string[], businessDays: [] as string[] }
+  const base = {
+    namespace: cm.metadata?.namespace ?? '',
+    name: cm.metadata?.name ?? '',
+    weekendDays: ['SATURDAY', 'SUNDAY'],
+    holidays: [] as string[],
+    businessDays: [] as string[],
+  }
   const text = cm.data?.[CALENDAR_KEY]
   if (!text || !text.trim()) return { ...base, error: `It has no ${CALENDAR_KEY}.` }
   const parsed = tryParseYaml(text)
@@ -410,7 +446,14 @@ export function parseCalendar(cm: ConfigMapLike): Calendar {
   const holidays = dateList(doc.holidays, 'holidays')
   const businessDays = dateList(doc.businessDays, 'businessDays')
   const error = holidays.error ?? businessDays.error
-  return { ...base, ...(str(doc.timeZone) ? { timeZone: str(doc.timeZone) } : {}), weekendDays, holidays: holidays.dates, businessDays: businessDays.dates, ...(error ? { error } : {}) }
+  return {
+    ...base,
+    ...(str(doc.timeZone) ? { timeZone: str(doc.timeZone) } : {}),
+    weekendDays,
+    holidays: holidays.dates,
+    businessDays: businessDays.dates,
+    ...(error ? { error } : {}),
+  }
 }
 
 /**
@@ -428,7 +471,11 @@ export function calendarOf(job: BatchJobXR, calendars: readonly Calendar[]): { n
   const name = job.spec?.parameters?.schedule?.calendar
   if (!name) return undefined
   const ns = job.metadata.namespace ?? ''
-  return { name, calendar: calendars.find((c) => c.name === name && c.namespace === ns) ?? calendars.find((c) => c.name === name && c.namespace === PLATFORM_CALENDAR_NAMESPACE) }
+  return {
+    name,
+    calendar: calendars.find((c) => c.name === name && c.namespace === ns) ??
+      calendars.find((c) => c.name === name && c.namespace === PLATFORM_CALENDAR_NAMESPACE),
+  }
 }
 
 export interface CalendarRow {
@@ -556,7 +603,11 @@ function verdictOf(job: BatchJobXR, calendars: readonly Calendar[], businessDate
   if (!named.calendar) {
     // Not found is a claim about every place it could be: one this person may not list is not "absent".
     const hidden = [job.metadata.namespace ?? '', PLATFORM_CALENDAR_NAMESPACE].filter((ns) => unread.includes(ns))
-    return { state: 'unknown', calendar: named.name, why: hidden.length ? `you may not read the calendars of ${hidden.join(' or ')}` : 'not found in this namespace or among the platform’s calendars' }
+    return {
+      state: 'unknown',
+      calendar: named.name,
+      why: hidden.length ? `you may not read the calendars of ${hidden.join(' or ')}` : 'not found in this namespace or among the platform’s calendars',
+    }
   }
   if (named.calendar.error) return { state: 'unknown', calendar: named.name, why: named.calendar.error }
   if (!businessDate) return { state: 'unknown', calendar: named.name, why: 'the business date could not be worked out' }
@@ -707,7 +758,11 @@ export function dependencyChains(jobs: readonly BatchJobXR[], runs: readonly Run
       job: j.metadata.name,
       after,
       ...(started ? { lastDependencyRun: { name: started.name, phase: started.phase, businessDate: started.businessDate } } : {}),
-      state: after.some((l) => !l.known) ? 'unknown' : after.every((l) => (l.sameBusinessDate ? l.lastSuccessDate !== undefined : l.lastPhase === 'succeeded')) ? 'ready' : 'waiting',
+      state: after.some((l) => !l.known)
+        ? 'unknown'
+        : after.every((l) => (l.sameBusinessDate ? l.lastSuccessDate !== undefined : l.lastPhase === 'succeeded'))
+        ? 'ready'
+        : 'waiting',
     })
   }
   return out.sort((a, b) => a.key.localeCompare(b.key))
@@ -792,7 +847,9 @@ export function backfillPlan(
   const { namespace, job } = target
   if (template.paramsError) return { error: `The run template’s parameters cannot be read: ${template.paramsError}` }
   const field = businessDateField(template.fields)
-  if (!field) return { error: `${job} declares no business-date parameter (businessDate, or a date its schedule supplies), so there is nothing to backfill by.` }
+  if (!field) {
+    return { error: `${job} declares no business-date parameter (businessDate, or a date its schedule supplies), so there is nothing to backfill by.` }
+  }
   if (field.name in extra) return { error: `${field.name} is the business date: the first and last date give it.` }
   const mine = runs.filter((r) => r.namespace === namespace && r.batchJob === job)
   const items: BackfillItem[] = []
@@ -818,7 +875,9 @@ export function backfillPlan(
       items.push({ businessDate: date, run: latest.name, action: backfillState(latest) === 'stopped' ? 'stopped' : 'exists', params: resolved.params })
     }
   }
-  if (refused.length) return { error: `Parameters refused. ${refused.slice(0, 3).join(' | ')}${refused.length > 3 ? ` (and ${refused.length - 3} more dates)` : ''}` }
+  if (refused.length) {
+    return { error: `Parameters refused. ${refused.slice(0, 3).join(' | ')}${refused.length > 3 ? ` (and ${refused.length - 3} more dates)` : ''}` }
+  }
   return { items, volcano: runKindOf(template.manifest) === 'VolcanoJob', field: field.name }
 }
 
@@ -842,7 +901,13 @@ export interface BackfillProgress {
  * this page already released, so a list that has not caught up yet cannot make
  * it release a second batch.
  */
-export function backfillProgress(runNames: readonly string[], runs: readonly RunRow[], parallel: number, volcano: boolean, released: ReadonlySet<string> = new Set()): BackfillProgress {
+export function backfillProgress(
+  runNames: readonly string[],
+  runs: readonly RunRow[],
+  parallel: number,
+  volcano: boolean,
+  released: ReadonlySet<string> = new Set(),
+): BackfillProgress {
   const by = new Map(runs.map((r) => [r.name, r]))
   const out: BackfillProgress = { release: [], inFlight: 0, queued: 0, done: 0, stopped: 0, gone: 0, settled: false }
   const waiting: RunRow[] = []

@@ -1,4 +1,4 @@
-import { assert, assertEquals } from 'jsr:@std/assert'
+import { assert, assertEquals } from 'jsr:@std/assert@^1.0.0'
 import {
   type BatchEvent,
   BRIDGE_PROXY_PATH,
@@ -6,8 +6,8 @@ import {
   type BridgeFetch,
   consumerPath,
   handleBatchHistory,
-  type HistoryDeps,
   historyCheck,
+  type HistoryDeps,
   matching,
   parseSince,
   readTopic,
@@ -51,7 +51,9 @@ function fakeBridge(polls: unknown[][], over: Partial<Record<string, () => Respo
     if (method === 'POST' && path.endsWith('/subscription')) return Promise.resolve(new Response(null, { status: 204 }))
     if (method === 'POST') {
       const name = (JSON.parse(init.body ?? '{}') as { name: string }).name
-      return Promise.resolve(Response.json({ instance_id: name, base_uri: `http://adhar-events-bridge-service.adhar-system.svc:8080${path}/instances/${name}` }))
+      return Promise.resolve(
+        Response.json({ instance_id: name, base_uri: `http://adhar-events-bridge-service.adhar-system.svc:8080${path}/instances/${name}` }),
+      )
     }
     if (method === 'DELETE') return Promise.resolve(new Response(null, { status: 204 }))
     return Promise.resolve(Response.json(polls[i++] ?? []))
@@ -75,7 +77,13 @@ Deno.test('readTopic: creates a consumer from the beginning that commits nothing
 
   assertEquals(calls[0].method, 'POST')
   assertEquals(calls[0].path, '/consumers/adhar-console-x1')
-  assertEquals(calls[0].body, { name: 'history-x1', format: 'json', 'auto.offset.reset': 'earliest', 'enable.auto.commit': false, 'consumer.request.timeout.ms': 60_000 })
+  assertEquals(calls[0].body, {
+    name: 'history-x1',
+    format: 'json',
+    'auto.offset.reset': 'earliest',
+    'enable.auto.commit': false,
+    'consumer.request.timeout.ms': 60_000,
+  })
   assertEquals(calls[1], { method: 'POST', path: '/consumers/adhar-console-x1/instances/history-x1/subscription', body: { topics: ['adhar.batch'] } })
   // One empty poll between two records does not end the read; two in a row do.
   assertEquals(calls.filter((c) => c.method === 'GET').length, 5)
@@ -147,7 +155,13 @@ Deno.test('readTopic: a refused proxy call names the grant; a broken bridge is u
 Deno.test('consumerPath: only the path of the consumer that was asked for is taken from base_uri', () => {
   const own = '/consumers/g/instances/n'
   assertEquals(consumerPath('g', 'n', { instance_id: 'n', base_uri: 'http://bridge:8080/consumers/g/instances/n' }), own)
-  assertEquals(consumerPath('g', 'n', { instance_id: 'n', base_uri: 'https://kubernetes.default.svc/api/v1/namespaces/adhar-system/services/x:8080/proxy/consumers/g/instances/n/' }), own)
+  assertEquals(
+    consumerPath('g', 'n', {
+      instance_id: 'n',
+      base_uri: 'https://kubernetes.default.svc/api/v1/namespaces/adhar-system/services/x:8080/proxy/consumers/g/instances/n/',
+    }),
+    own,
+  )
   assertEquals(consumerPath('g', 'n', {}), own)
   // A base_uri naming another consumer, or another host's idea of a path, is not followed.
   assertEquals(consumerPath('g', 'n', { instance_id: 'n', base_uri: 'http://evil.example/consumers/other/instances/victim' }), own)
@@ -172,9 +186,16 @@ Deno.test('matching: exactly the job and the namespace, and an unreadable time i
     ev('prod/importer', 'run.failed', 'not a time'),
     ev('prod/importer', 'run.succeeded', '2026-11-05T00:00:00Z'),
   ]
-  assertEquals(matching(events, { namespace: 'prod', job: 'importer', limit: 10 }).map((e) => e.type), ['io.adhar.batch.run.started', 'io.adhar.batch.run.failed', 'io.adhar.batch.run.succeeded'])
+  assertEquals(matching(events, { namespace: 'prod', job: 'importer', limit: 10 }).map((e) => e.type), [
+    'io.adhar.batch.run.started',
+    'io.adhar.batch.run.failed',
+    'io.adhar.batch.run.succeeded',
+  ])
   assertEquals(matching(events, { job: 'importer', limit: 10 }).length, 4)
-  assertEquals(matching(events, { namespace: 'prod', job: 'importer', sinceMs: Date.parse('2026-11-03T00:00:00Z'), limit: 10 }).map((e) => e.type), ['io.adhar.batch.run.failed', 'io.adhar.batch.run.succeeded'])
+  assertEquals(matching(events, { namespace: 'prod', job: 'importer', sinceMs: Date.parse('2026-11-03T00:00:00Z'), limit: 10 }).map((e) => e.type), [
+    'io.adhar.batch.run.failed',
+    'io.adhar.batch.run.succeeded',
+  ])
 })
 
 Deno.test('sharedRead: concurrent callers share one read, and the next one within the window reuses it', async () => {
@@ -272,7 +293,13 @@ Deno.test('handler: namespace, job, since and limit narrow it; limit keeps the n
 
 Deno.test('handler: signed out is 401 and reads nothing', async () => {
   let read = false
-  const res = await get('', deps({ identity: () => Promise.resolve(null), read: () => ((read = true), Promise.resolve({ state: 'read', events: STREAM, foreign: 0, truncated: false })) }))
+  const res = await get(
+    '',
+    deps({
+      identity: () => Promise.resolve(null),
+      read: () => ((read = true), Promise.resolve({ state: 'read', events: STREAM, foreign: 0, truncated: false })),
+    }),
+  )
   assertEquals(res.status, 401)
   assert(!read)
 })

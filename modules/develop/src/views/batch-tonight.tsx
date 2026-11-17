@@ -2,7 +2,7 @@ import { type ReactNode, useMemo, useState } from 'react'
 import { Button, EmptyState, Modal, Spinner, StatusBadge, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { useBatchGate, useRunTemplate } from '../data/batch.ts'
-import { batchRef, type BatchJobXR, dateInZone, PHASE_BADGE, PHASE_LABEL, runKindOfJob, type RunRow } from '../data/batch-model.ts'
+import { type BatchJobXR, batchRef, dateInZone, PHASE_BADGE, PHASE_LABEL, runKindOfJob, type RunRow } from '../data/batch-model.ts'
 import { useBatchHistory, useCalendars, useReplayDeadLetters } from '../data/batch-history.ts'
 import {
   type BatchEvent,
@@ -148,7 +148,9 @@ export function TonightView({
       ? 'This cluster has no event bus, so expected ends and dead-letter counts come only from the runs the cluster still holds (seven days by default).'
       : `The batch history could not be read (${history.detail}), so expected ends and dead-letter counts come only from the runs the cluster still holds.`
     : historyError && !history
-    ? `The batch history could not be read (${errorText(historyError)}), so expected ends and dead-letter counts come only from the runs the cluster still holds.`
+    ? `The batch history could not be read (${
+      errorText(historyError)
+    }), so expected ends and dead-letter counts come only from the runs the cluster still holds.`
     : history?.state === 'read' && (history.truncated || history.degraded)
     ? 'Part of the batch history could not be read, so an expected end may rest on fewer runs than there were.'
     : undefined
@@ -205,16 +207,38 @@ function CalendarCell({ verdict }: { verdict: CalendarVerdict }) {
 function SlaCell({ row }: { row: TonightRow }) {
   if (row.sla === 'none') return <span className='text-content-subtle'>{row.finishBy && row.calendar.state === 'skipped' ? 'nothing due' : '—'}</span>
   const by = <span className='font-mono text-[11px] text-content-subtle'>by {row.finishBy}</span>
-  if (row.sla === 'unknown') return <span title='No successful run to estimate from, so the end cannot be forecast.'><StatusBadge kind='unknown'>No estimate</StatusBadge> {by}</span>
+  if (row.sla === 'unknown') {
+    return (
+      <span title='No successful run to estimate from, so the end cannot be forecast.'>
+        <StatusBadge kind='unknown'>No estimate</StatusBadge> {by}
+      </span>
+    )
+  }
   const slack = durationWords(Math.abs(row.slackMs ?? 0))
   return row.sla === 'at-risk'
-    ? <span title={`Expected to end ${slack} after the deadline.`}><StatusBadge kind='failed'>At risk</StatusBadge> {by} <span className='text-[11px] text-rose-700 dark:text-rose-300'>{slack} late</span></span>
-    : <span title={`Expected to end ${slack} before the deadline.`}><StatusBadge kind='healthy'>On time</StatusBadge> {by}</span>
+    ? (
+      <span title={`Expected to end ${slack} after the deadline.`}>
+        <StatusBadge kind='failed'>At risk</StatusBadge> {by} <span className='text-[11px] text-rose-700 dark:text-rose-300'>{slack} late</span>
+      </span>
+    )
+    : (
+      <span title={`Expected to end ${slack} before the deadline.`}>
+        <StatusBadge kind='healthy'>On time</StatusBadge> {by}
+      </span>
+    )
 }
 
-export function ForecastTable({ rows, now, openJob }: { rows: readonly TonightRow[]; now: number; openJob?(namespace: string, name: string): (() => void) | undefined }) {
+export function ForecastTable(
+  { rows, now, openJob }: { rows: readonly TonightRow[]; now: number; openJob?(namespace: string, name: string): (() => void) | undefined },
+) {
   if (!rows.length) {
-    return <EmptyState compact title='Nothing is scheduled in the next 24 hours' description='No schedule that is neither held nor suspended fires in this window. On-demand jobs run only when someone or something starts them.' />
+    return (
+      <EmptyState
+        compact
+        title='Nothing is scheduled in the next 24 hours'
+        description='No schedule that is neither held nor suspended fires in this window. On-demand jobs run only when someone or something starts them.'
+      />
+    )
   }
   return (
     <div className='overflow-x-auto rounded-xl border border-edge-default bg-surface-raised'>
@@ -234,14 +258,25 @@ export function ForecastTable({ rows, now, openJob }: { rows: readonly TonightRo
           {rows.map((r) => (
             <tr key={r.key} className={cn(r.calendar.state === 'skipped' && 'text-content-muted')}>
               <td className={TD}>
-                <div className='font-mono tabular-nums'>{clock(r.startMs, r.timeZone)} <span className='text-[11px] text-content-subtle'>{r.timeZone}</span></div>
-                <div className='text-[11px] text-content-subtle'><Until at={r.startMs} timeZone={r.timeZone} now={now} /></div>
+                <div className='font-mono tabular-nums'>
+                  {clock(r.startMs, r.timeZone)} <span className='text-[11px] text-content-subtle'>{r.timeZone}</span>
+                </div>
+                <div className='text-[11px] text-content-subtle'>
+                  <Until at={r.startMs} timeZone={r.timeZone} now={now} />
+                </div>
               </td>
               <td className={TD}>
-                <JobName name={r.displayName} sub={[r.environment ?? r.namespace, r.more ? `and ${r.more} more ${r.more === 1 ? 'fire' : 'fires'} in this window` : null].filter(Boolean).join(' · ')} open={openJob?.(r.namespace, r.job)} />
+                <JobName
+                  name={r.displayName}
+                  sub={[r.environment ?? r.namespace, r.more ? `and ${r.more} more ${r.more === 1 ? 'fire' : 'fires'} in this window` : null].filter(Boolean)
+                    .join(' · ')}
+                  open={openJob?.(r.namespace, r.job)}
+                />
               </td>
               <td className={cn(TD, 'font-mono')}>{r.businessDate ?? '—'}</td>
-              <td className={TD}><CalendarCell verdict={r.calendar} /></td>
+              <td className={TD}>
+                <CalendarCell verdict={r.calendar} />
+              </td>
               <td className={TD}>
                 {r.calendar.state === 'skipped'
                   ? <span className='text-content-subtle'>no work</span>
@@ -254,8 +289,12 @@ export function ForecastTable({ rows, now, openJob }: { rows: readonly TonightRo
                     </>
                   )}
               </td>
-              <td className={TD}><SlaCell row={r} /></td>
-              <td className={cn(TD, 'font-mono text-[11px] text-content-muted')}>{r.then.length ? r.then.join(', ') : <span className='text-content-subtle'>—</span>}</td>
+              <td className={TD}>
+                <SlaCell row={r} />
+              </td>
+              <td className={cn(TD, 'font-mono text-[11px] text-content-muted')}>
+                {r.then.length ? r.then.join(', ') : <span className='text-content-subtle'>—</span>}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -282,7 +321,17 @@ export function ChainsTable({
   openRun?(namespace: string, name: string): (() => void) | undefined
 }) {
   if (!chains.length) {
-    return <EmptyState compact title='No job waits for another' description={<>A job with <span className='font-mono'>dependsOn</span> is started by the platform once the jobs it names have succeeded.</>} />
+    return (
+      <EmptyState
+        compact
+        title='No job waits for another'
+        description={
+          <>
+            A job with <span className='font-mono'>dependsOn</span> is started by the platform once the jobs it names have succeeded.
+          </>
+        }
+      />
+    )
   }
   return (
     <div className='overflow-x-auto rounded-xl border border-edge-default bg-surface-raised'>
@@ -301,7 +350,9 @@ export function ChainsTable({
             const open = last ? openRun?.(c.namespace, last.name) : undefined
             return (
               <tr key={c.key}>
-                <td className={TD}><JobName name={c.job} sub={c.namespace} open={openJob?.(c.namespace, c.job)} /></td>
+                <td className={TD}>
+                  <JobName name={c.job} sub={c.namespace} open={openJob?.(c.namespace, c.job)} />
+                </td>
                 <td className={TD}>
                   <ul className='space-y-1'>
                     {c.after.map((l) => (
@@ -311,14 +362,20 @@ export function ChainsTable({
                           {!l.known
                             ? 'not visible to you'
                             : l.sameBusinessDate
-                            ? l.lastSuccessDate ? `same business date · last succeeded for ${l.lastSuccessDate}` : 'same business date · no success in the cluster'
-                            : l.lastPhase ? `latest run · ${PHASE_LABEL[l.lastPhase].toLowerCase()}` : 'latest run · none in the cluster'}
+                            ? l.lastSuccessDate
+                              ? `same business date · last succeeded for ${l.lastSuccessDate}`
+                              : 'same business date · no success in the cluster'
+                            : l.lastPhase
+                            ? `latest run · ${PHASE_LABEL[l.lastPhase].toLowerCase()}`
+                            : 'latest run · none in the cluster'}
                         </span>
                       </li>
                     ))}
                   </ul>
                 </td>
-                <td className={TD}><StatusBadge kind={CHAIN_BADGE[c.state].kind}>{CHAIN_BADGE[c.state].label}</StatusBadge></td>
+                <td className={TD}>
+                  <StatusBadge kind={CHAIN_BADGE[c.state].kind}>{CHAIN_BADGE[c.state].label}</StatusBadge>
+                </td>
                 <td className={TD}>
                   {last
                     ? (
@@ -355,7 +412,13 @@ export function DlqTable({
   replayAction?(entry: DlqEntry): ReactNode
 }) {
   if (!jobs.length) {
-    return <EmptyState compact title='No dead letters' description='No run in the cluster or in the history kept reported an item it could not process. The items themselves live in each job’s own database.' />
+    return (
+      <EmptyState
+        compact
+        title='No dead letters'
+        description='No run in the cluster or in the history kept reported an item it could not process. The items themselves live in each job’s own database.'
+      />
+    )
   }
   return (
     <div className='space-y-2'>
@@ -377,7 +440,9 @@ export function DlqTable({
                 <th colSpan={6} scope='rowgroup' className='bg-surface-sunken px-3 py-1.5 text-left text-[11px] font-semibold text-content-muted'>
                   <span className='inline-flex items-center gap-2'>
                     <JobName name={j.job} open={openJob?.(j.namespace, j.job)} />
-                    <span className='font-normal text-content-subtle'>{j.namespace} · {j.total.toLocaleString()} dead-lettered in {j.entries.length} {j.entries.length === 1 ? 'run' : 'runs'}</span>
+                    <span className='font-normal text-content-subtle'>
+                      {j.namespace} · {j.total.toLocaleString()} dead-lettered in {j.entries.length} {j.entries.length === 1 ? 'run' : 'runs'}
+                    </span>
                   </span>
                 </th>
               </tr>
@@ -397,14 +462,24 @@ export function DlqTable({
                     <td className={cn(TD, 'font-mono')}>{e.businessDate ?? '—'}</td>
                     <td className={cn(TD, 'font-mono tabular-nums')}>{e.executionId ?? <span className='font-sans text-content-subtle'>not reported</span>}</td>
                     <td className={cn(TD, 'text-right font-mono tabular-nums')}>{e.deadLettered.toLocaleString()}</td>
-                    <td className={TD}><When at={e.ended} /></td>
+                    <td className={TD}>
+                      <When at={e.ended} />
+                    </td>
                     <td className={TD}>
                       <span className='inline-flex flex-wrap items-center gap-1.5'>
                         {e.replay
                           ? (
                             <>
                               {openReplay
-                                ? <button type='button' className='font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300' onClick={openReplay}>{e.replay.run}</button>
+                                ? (
+                                  <button
+                                    type='button'
+                                    className='font-mono text-[11px] text-brand-700 hover:underline dark:text-brand-300'
+                                    onClick={openReplay}
+                                  >
+                                    {e.replay.run}
+                                  </button>
+                                )
                                 : <span className='font-mono text-[11px]'>{e.replay.run}</span>}
                               <StatusBadge kind={PHASE_BADGE[e.replay.phase]}>{PHASE_LABEL[e.replay.phase]}</StatusBadge>
                             </>
@@ -421,8 +496,8 @@ export function DlqTable({
         </table>
       </div>
       <p className='text-[11px] text-content-subtle'>
-        Counts are what each run reported when it ended. A replay re-processes only that execution’s rejected items, as an ops Job with the job’s own credentials:{' '}
-        <span className='font-mono'>adhar batch dlq &lt;job&gt; --replay</span> starts the same Job.
+        Counts are what each run reported when it ended. A replay re-processes only that execution’s rejected items, as an ops Job with the job’s own
+        credentials: <span className='font-mono'>adhar batch dlq &lt;job&gt; --replay</span> starts the same Job.
       </p>
     </div>
   )
@@ -488,19 +563,39 @@ export function ReplayDialog({
       footer={
         <div className='flex w-full items-center justify-between gap-2'>
           <span className='min-w-0 truncate text-[11px] text-content-subtle'>
-            {plan.action !== 'refused' ? <>Run <span className='font-mono'>{plan.name}</span></> : null}
+            {plan.action !== 'refused'
+              ? (
+                <>
+                  Run <span className='font-mono'>{plan.name}</span>
+                </>
+              )
+              : null}
           </span>
           <div className='flex gap-2'>
             <Button variant='ghost' onClick={onClose}>Cancel</Button>
             {plan.action === 'exists'
-              ? <Button variant='primary' onClick={() => { onOpenRun?.(plan.name); onClose() }}>Open the existing replay</Button>
+              ? (
+                <Button
+                  variant='primary'
+                  onClick={() => {
+                    onOpenRun?.(plan.name)
+                    onClose()
+                  }}
+                >
+                  Open the existing replay
+                </Button>
+              )
               : <Button variant='primary' onClick={submit} loading={replay.isPending} disabled={!template || plan.action !== 'create'}>Start replay</Button>}
           </div>
         </div>
       }
     >
       {read.isLoading
-        ? <div className='flex items-center gap-2 py-4 text-[13px] text-content-subtle' role='status'><Spinner size={12} /> Reading the run template…</div>
+        ? (
+          <div className='flex items-center gap-2 py-4 text-[13px] text-content-subtle' role='status'>
+            <Spinner size={12} /> Reading the run template…
+          </div>
+        )
         : read.isError
         ? <Note tone='warn'>{errorText(read.error)}</Note>
         : read.data && read.data.state !== 'ok'
@@ -509,19 +604,40 @@ export function ReplayDialog({
           <div className='space-y-3 text-[13px] text-content'>
             <p>
               Execution <span className='font-mono'>{entry.executionId ?? '—'}</span>
-              {entry.run ? <> of <span className='font-mono'>{entry.run}</span></> : null}
-              {entry.businessDate ? <> (business date <span className='font-mono'>{entry.businessDate}</span>)</> : null} reported{' '}
-              <span className='font-semibold tabular-nums'>{entry.deadLettered.toLocaleString()}</span> dead-lettered {entry.deadLettered === 1 ? 'item' : 'items'}.
+              {entry.run
+                ? (
+                  <>
+                    of <span className='font-mono'>{entry.run}</span>
+                  </>
+                )
+                : null}
+              {entry.businessDate
+                ? (
+                  <>
+                    (business date <span className='font-mono'>{entry.businessDate}</span>)
+                  </>
+                )
+                : null} reported <span className='font-semibold tabular-nums'>{entry.deadLettered.toLocaleString()}</span> dead-lettered{' '}
+              {entry.deadLettered === 1 ? 'item' : 'items'}.
             </p>
-            {plan.action === 'refused'
-              ? <Note tone='warn'>{plan.reason}</Note>
-              : plan.action === 'exists'
-              ? <Note>A replay of this execution is already {PHASE_LABEL[plan.phase].toLowerCase()}: <span className='font-mono'>{plan.name}</span>. Nothing more is started.</Note>
+            {plan.action === 'refused' ? <Note tone='warn'>{plan.reason}</Note> : plan.action === 'exists'
+              ? (
+                <Note>
+                  A replay of this execution is already {PHASE_LABEL[plan.phase].toLowerCase()}:{' '}
+                  <span className='font-mono'>{plan.name}</span>. Nothing more is started.
+                </Note>
+              )
               : (
                 <Note>
-                  Only the rejected items of this execution are processed again, by the job’s own runner with the job’s own credentials. Fix what rejected them first: an
-                  item that fails again is dead-lettered again.
-                  {plan.restartOf ? <> The earlier replay <span className='font-mono'>{plan.restartOf}</span> failed, so this is its retry.</> : null}
+                  Only the rejected items of this execution are processed again, by the job’s own runner with the job’s own credentials. Fix what rejected them
+                  first: an item that fails again is dead-lettered again.
+                  {plan.restartOf
+                    ? (
+                      <>
+                        The earlier replay <span className='font-mono'>{plan.restartOf}</span> failed, so this is its retry.
+                      </>
+                    )
+                    : null}
                 </Note>
               )}
             {replay.isError ? <Note tone='warn'>{errorText(replay.error)}</Note> : null}
@@ -539,7 +655,12 @@ export function CalendarsTable({ rows, unread = [] }: { rows: readonly CalendarR
   return (
     <div className='space-y-2'>
       {unread.length
-        ? <Note tone='warn'>You may not read the calendars of <span className='font-mono'>{unread.join(', ')}</span>, so a job that names one there shows as “calendar unknown”, not as running every day.</Note>
+        ? (
+          <Note tone='warn'>
+            You may not read the calendars of{' '}
+            <span className='font-mono'>{unread.join(', ')}</span>, so a job that names one there shows as “calendar unknown”, not as running every day.
+          </Note>
+        )
         : null}
       {!rows.length
         ? (
@@ -548,8 +669,9 @@ export function CalendarsTable({ rows, unread = [] }: { rows: readonly CalendarR
             title='No calendars'
             description={
               <>
-                A calendar is a ConfigMap labelled <span className='font-mono'>adhar.io/batch-calendar: "true"</span> with a <span className='font-mono'>calendar.yaml</span>, in a team’s
-                overlays or shipped by the platform. A job with no <span className='font-mono'>schedule.calendar</span> runs on every date its cron fires.
+                A calendar is a ConfigMap labelled <span className='font-mono'>adhar.io/batch-calendar: "true"</span> with a{' '}
+                <span className='font-mono'>calendar.yaml</span>, in a team’s overlays or shipped by the platform. A job with no{' '}
+                <span className='font-mono'>schedule.calendar</span> runs on every date its cron fires.
               </>
             }
           />
@@ -579,7 +701,9 @@ export function CalendarsTable({ rows, unread = [] }: { rows: readonly CalendarR
                         {r.calendar.namespace}
                         {r.shadows ? ' · replaces the platform calendar of this name for jobs here' : ''}
                       </div>
-                      {r.calendar.error ? <div className='text-[11px] text-rose-700 dark:text-rose-300'>{r.calendar.error} A run that mounts it exits 2.</div> : null}
+                      {r.calendar.error
+                        ? <div className='text-[11px] text-rose-700 dark:text-rose-300'>{r.calendar.error} A run that mounts it exits 2.</div>
+                        : null}
                     </td>
                     <td className={TD}>{r.calendar.timeZone ?? <span className='text-content-subtle'>the job’s</span>}</td>
                     <td className={TD}>{r.calendar.weekendDays.length ? days(r.calendar.weekendDays) : <span className='text-content-subtle'>none</span>}</td>
@@ -588,14 +712,19 @@ export function CalendarsTable({ rows, unread = [] }: { rows: readonly CalendarR
                         ? (
                           <ul className='space-y-0.5'>
                             {r.upcoming.slice(0, 4).map((u) => (
-                              <li key={`${u.date}${u.kind}`}><span className='font-mono'>{u.date}</span> <span className='text-[11px] text-content-subtle'>{u.kind === 'holiday' ? 'holiday' : 'working day'}</span></li>
+                              <li key={`${u.date}${u.kind}`}>
+                                <span className='font-mono'>{u.date}</span>{' '}
+                                <span className='text-[11px] text-content-subtle'>{u.kind === 'holiday' ? 'holiday' : 'working day'}</span>
+                              </li>
                             ))}
                             {r.upcoming.length > 4 ? <li className='text-[11px] text-content-subtle'>and {r.upcoming.length - 4} more</li> : null}
                           </ul>
                         )
                         : <span className='text-content-subtle'>nothing listed from today</span>}
                     </td>
-                    <td className={cn(TD, 'font-mono text-[11px]')}>{r.usedBy.length ? r.usedBy.join(', ') : <span className='font-sans text-content-subtle'>no job on this page</span>}</td>
+                    <td className={cn(TD, 'font-mono text-[11px]')}>
+                      {r.usedBy.length ? r.usedBy.join(', ') : <span className='font-sans text-content-subtle'>no job on this page</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

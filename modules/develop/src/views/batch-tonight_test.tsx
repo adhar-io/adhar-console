@@ -7,7 +7,16 @@ import { canResource } from '@adhar/shell-ui'
 import { Batch } from './batch.tsx'
 import { CalendarsTable, DlqTable, ReplayButton, ReplayDialog, TonightView } from './batch-tonight.tsx'
 import { calendarsKey, historyKey } from '../data/batch-history.ts'
-import { type BatchEvent, type Calendar, calendarRows, dlqByJob, dlqEntries, type DlqEntry, type HistoryRead, parseCalendar } from '../data/batch-history-model.ts'
+import {
+  type BatchEvent,
+  type Calendar,
+  calendarRows,
+  dlqByJob,
+  dlqEntries,
+  type DlqEntry,
+  type HistoryRead,
+  parseCalendar,
+} from '../data/batch-history-model.ts'
 import { actionGates, type BatchJobList, type BatchJobXR, parseRunTemplate, type RunObject, type RunPod, type RunRow, runRows } from '../data/batch-model.ts'
 import type { TemplateRead } from '../data/batch-api.ts'
 import type { DialogFrame } from '../components/batch/dialogs.tsx'
@@ -30,7 +39,12 @@ function render(ui: ReactNode, seed: (qc: QueryClient) => void = () => {}): stri
 
 // `Modal` renders through a portal, which the server renderer cannot do.
 const DialogShell: DialogFrame = ({ title, description, footer, children }) => (
-  <div><h2>{title}</h2><p>{description}</p>{children}<footer>{footer}</footer></div>
+  <div>
+    <h2>{title}</h2>
+    <p>{description}</p>
+    {children}
+    <footer>{footer}</footer>
+  </div>
 )
 
 const job = (name: string, p: NonNullable<BatchJobXR['spec']>['parameters'] = {}, namespace = 'prod'): BatchJobXR => ({
@@ -42,22 +56,50 @@ const DONE = { startTime: '2026-11-03T02:00:00Z', completionTime: '2026-11-03T02
 const FAILED = { startTime: '2026-11-03T02:00:00Z', failed: 1, conditions: [{ type: 'Failed', status: 'True', lastTransitionTime: '2026-11-03T02:05:00Z' }] }
 const RUNNING = { startTime: '2026-11-03T02:00:00Z', active: 1 }
 
-const run = (name: string, status: RunObject['status'], o: { job?: string; trigger?: string; env?: Record<string, string>; created?: string } = {}): RunObject => ({
+const run = (
+  name: string,
+  status: RunObject['status'],
+  o: { job?: string; trigger?: string; env?: Record<string, string>; created?: string } = {},
+): RunObject => ({
   apiVersion: 'batch/v1',
   kind: 'Job',
-  metadata: { name, namespace: 'prod', creationTimestamp: o.created ?? '2026-11-03T02:00:00Z', labels: { 'adhar.io/batch-job': o.job ?? 'importer', 'adhar.io/batch-trigger': o.trigger ?? 'schedule' } },
+  metadata: {
+    name,
+    namespace: 'prod',
+    creationTimestamp: o.created ?? '2026-11-03T02:00:00Z',
+    labels: { 'adhar.io/batch-job': o.job ?? 'importer', 'adhar.io/batch-trigger': o.trigger ?? 'schedule' },
+  },
   spec: { template: { spec: { containers: [{ name: 'batch', image: 'img', env: Object.entries(o.env ?? {}).map(([n, value]) => ({ name: n, value })) }] } } },
   status,
 })
 
 const pod = (jobName: string, summary: Record<string, unknown>): RunPod => ({
   metadata: { name: `${jobName}-x`, namespace: 'prod', creationTimestamp: '2026-11-03T02:00:00Z', labels: { 'batch.kubernetes.io/job-name': jobName } },
-  status: { phase: 'Succeeded', containerStatuses: [{ name: 'batch', state: { terminated: { exitCode: 0, message: JSON.stringify({ v: 1, outcome: 'completed', exitCode: 0, ...summary }) } } }] },
+  status: {
+    phase: 'Succeeded',
+    containerStatuses: [{
+      name: 'batch',
+      state: { terminated: { exitCode: 0, message: JSON.stringify({ v: 1, outcome: 'completed', exitCode: 0, ...summary }) } },
+    }],
+  },
 })
 
-const ev = (type: string, subject: string, time: string, data: Record<string, unknown> = {}): BatchEvent => ({ type: `io.adhar.batch.${type}`, subject, time, data })
-const history = (events: BatchEvent[] = [], o: Partial<Extract<HistoryRead, { state: 'read' }>> = {}): HistoryRead => ({ state: 'read', events, total: events.length, truncated: false, degraded: false, ...o })
-const cal = (name: string, yaml: string, namespace = 'adhar-system'): Calendar => parseCalendar({ metadata: { name, namespace }, data: { 'calendar.yaml': yaml } })
+const ev = (type: string, subject: string, time: string, data: Record<string, unknown> = {}): BatchEvent => ({
+  type: `io.adhar.batch.${type}`,
+  subject,
+  time,
+  data,
+})
+const history = (events: BatchEvent[] = [], o: Partial<Extract<HistoryRead, { state: 'read' }>> = {}): HistoryRead => ({
+  state: 'read',
+  events,
+  total: events.length,
+  truncated: false,
+  degraded: false,
+  ...o,
+})
+const cal = (name: string, yaml: string, namespace = 'adhar-system'): Calendar =>
+  parseCalendar({ metadata: { name, namespace }, data: { 'calendar.yaml': yaml } })
 
 const view = (props: Partial<Parameters<typeof TonightView>[0]> & { jobs: BatchJobXR[] }) =>
   render(<TonightView runs={[]} history={history()} calendars={[]} now={NOW} {...props} />)
@@ -90,12 +132,21 @@ Deno.test('tonight: a fire in the next 24 hours shows its start in the job’s z
 })
 
 Deno.test('tonight: nothing scheduled is said, and held or on-demand jobs are not forecast', () => {
-  const html = view({ jobs: [job('on-demand'), { ...job('held', { schedule: { cron: '0 2 * * *' } }), metadata: { name: 'held', namespace: 'prod', annotations: { 'adhar.io/batch-hold': 'month end' } } }] })
+  const html = view({
+    jobs: [job('on-demand'), {
+      ...job('held', { schedule: { cron: '0 2 * * *' } }),
+      metadata: { name: 'held', namespace: 'prod', annotations: { 'adhar.io/batch-hold': 'month end' } },
+    }],
+  })
   assertStringIncludes(html, 'Nothing is scheduled in the next 24 hours')
 })
 
 Deno.test('tonight: expected end is start + p90 of the last successes; finishBy reads on time, at risk, or no estimate', () => {
-  const durations = (name: string) => Array.from({ length: 10 }, (_, i) => ev('run.succeeded', `prod/${name}`, `2026-10-${10 + i}T03:00:00Z`, { run: { name: `${name}-${i}` }, durationSeconds: (i + 1) * 600 }))
+  const durations = (name: string) =>
+    Array.from(
+      { length: 10 },
+      (_, i) => ev('run.succeeded', `prod/${name}`, `2026-10-${10 + i}T03:00:00Z`, { run: { name: `${name}-${i}` }, durationSeconds: (i + 1) * 600 }),
+    )
   const html = view({
     jobs: [
       job('early', { schedule: { cron: '0 2 * * *' }, sla: { finishBy: '04:00' } }),
@@ -169,11 +220,20 @@ Deno.test('tonight: history that could not be read is said once, and the forecas
 /* ─────────────────────────── dependency chains ─────────────────────────── */
 
 Deno.test('chains: each job that waits, what it waits for, and whether that has succeeded', () => {
-  const jobs = [job('extract'), job('load', { dependsOn: [{ batchJob: 'extract' }] }), job('report', { dependsOn: [{ batchJob: 'rates', namespace: 'shared' }] }), job('mirror', { dependsOn: [{ batchJob: 'load', sameBusinessDate: false }] })]
-  const runs = runRows([
-    run('extract-a', DONE, { job: 'extract' }),
-    run('load-dep', RUNNING, { job: 'load', trigger: 'dependency', created: '2026-11-03T02:11:00Z' }),
-  ], [pod('extract-a', { businessDate: '2026-11-03' })], NOW)
+  const jobs = [
+    job('extract'),
+    job('load', { dependsOn: [{ batchJob: 'extract' }] }),
+    job('report', { dependsOn: [{ batchJob: 'rates', namespace: 'shared' }] }),
+    job('mirror', { dependsOn: [{ batchJob: 'load', sameBusinessDate: false }] }),
+  ]
+  const runs = runRows(
+    [
+      run('extract-a', DONE, { job: 'extract' }),
+      run('load-dep', RUNNING, { job: 'load', trigger: 'dependency', created: '2026-11-03T02:11:00Z' }),
+    ],
+    [pod('extract-a', { businessDate: '2026-11-03' })],
+    NOW,
+  )
   const html = view({ jobs, runs, onOpenRun: () => {} })
   const load = rowOf(html, '>load<')
   assertStringIncludes(load, 'prod/extract same business date · last succeeded for 2026-11-03')
@@ -191,12 +251,22 @@ Deno.test('chains: each job that waits, what it waits for, and whether that has 
 /* ─────────────────────────── the dead-letter queue ─────────────────────────── */
 
 const DLQ_RUNS = (replay?: RunObject['status']): RunRow[] =>
-  runRows([
-    run('importer-aaaa1111', DONE),
-    ...(replay ? [run('importer-ops-dlq-replay-97', replay, { trigger: 'ops', env: { ADHAR_BATCH_COMMAND: 'dlq-replay', ADHAR_BATCH_EXECUTION_ID: '97' } })] : []),
-  ], [pod('importer-aaaa1111', { executionId: 97, deadLettered: 1200, businessDate: '2026-11-03' })], NOW)
+  runRows(
+    [
+      run('importer-aaaa1111', DONE),
+      ...(replay
+        ? [run('importer-ops-dlq-replay-97', replay, { trigger: 'ops', env: { ADHAR_BATCH_COMMAND: 'dlq-replay', ADHAR_BATCH_EXECUTION_ID: '97' } })]
+        : []),
+    ],
+    [pod('importer-aaaa1111', { executionId: 97, deadLettered: 1200, businessDate: '2026-11-03' })],
+    NOW,
+  )
 
-const GONE = ev('run.failed', 'prod/importer', '2026-10-20T02:10:00Z', { run: { name: 'importer-bbbb2222' }, springBatch: { executionId: 61, businessDate: '2026-10-20' }, counts: { deadLettered: 4 } })
+const GONE = ev('run.failed', 'prod/importer', '2026-10-20T02:10:00Z', {
+  run: { name: 'importer-bbbb2222' },
+  springBatch: { executionId: 61, businessDate: '2026-10-20' },
+  counts: { deadLettered: 4 },
+})
 
 Deno.test('dlq: counts per job, from the runs the cluster holds and from history for the ones it no longer does', () => {
   const html = view({ jobs: [job('importer')], runs: DLQ_RUNS(), history: history([GONE]), onOpenRun: () => {} })
@@ -224,11 +294,25 @@ Deno.test('dlq: a replay under way is shown beside the execution it replays', ()
 
 const seedRunGate = (qc: QueryClient, allowed: boolean, name = 'importer') => {
   for (const g of actionGates('run', { namespace: 'prod', name, kind: 'Job' })) {
-    qc.setQueryData(['k8s', 'can', '', accessCheckKey(canResource(g.gvr, g.verb, { namespace: g.namespace, name: g.name, subresource: g.subresource })), 'anonymous'], allowed)
+    qc.setQueryData([
+      'k8s',
+      'can',
+      '',
+      accessCheckKey(canResource(g.gvr, g.verb, { namespace: g.namespace, name: g.name, subresource: g.subresource })),
+      'anonymous',
+    ], allowed)
   }
 }
 
-const entryOf = (o: Partial<DlqEntry> = {}): DlqEntry => ({ namespace: 'prod', job: 'importer', run: 'importer-aaaa1111', executionId: 97, deadLettered: 10, source: 'run', ...o })
+const entryOf = (o: Partial<DlqEntry> = {}): DlqEntry => ({
+  namespace: 'prod',
+  job: 'importer',
+  run: 'importer-aaaa1111',
+  executionId: 97,
+  deadLettered: 10,
+  source: 'run',
+  ...o,
+})
 
 Deno.test('replay button: there only when a replay could be started — hidden, never disabled', () => {
   const button = (entry: DlqEntry, allowed: boolean | undefined, jobs = [job('importer')]) =>
@@ -248,7 +332,10 @@ const importerTemplate = async () => parseRunTemplate(JSON.parse(await Deno.read
 const seedTemplate = (qc: QueryClient, read: TemplateRead) => qc.setQueryData(['batch', 'template', 'prod', 'importer', ''], read)
 
 const dialog = (read: TemplateRead | undefined, entry: DlqEntry, runs: RunRow[] = []) =>
-  render(<ReplayDialog entry={entry} job={job('importer')} runs={runs} onClose={() => {}} Frame={DialogShell} />, (qc) => (read ? seedTemplate(qc, read) : undefined))
+  render(
+    <ReplayDialog entry={entry} job={job('importer')} runs={runs} onClose={() => {}} Frame={DialogShell} />,
+    (qc) => (read ? seedTemplate(qc, read) : undefined),
+  )
 
 Deno.test('replay dialog: names the ops Job it creates — the CLI’s name — and what it will do', async () => {
   const html = dialog({ state: 'ok', template: await importerTemplate() }, entryOf({ businessDate: '2026-11-03' }))
@@ -287,10 +374,16 @@ Deno.test('replay dialog: without a readable run template, or an execution id, n
 Deno.test('calendars: each one’s scope, weekend, what is coming up and who follows it', () => {
   const calendars = [
     cal('weekdays', 'name: weekdays\n'),
-    cal('weekdays', 'name: weekdays\ntimeZone: Asia/Singapore\nweekendDays: [SUNDAY]\nholidays: [2026-11-04, 2026-10-01]\nbusinessDays: [2026-11-08]\n', 'prod'),
+    cal(
+      'weekdays',
+      'name: weekdays\ntimeZone: Asia/Singapore\nweekendDays: [SUNDAY]\nholidays: [2026-11-04, 2026-10-01]\nbusinessDays: [2026-11-08]\n',
+      'prod',
+    ),
     cal('broken', 'name: broken\nholidays: nope\n', 'prod'),
   ]
-  const html = render(<CalendarsTable rows={calendarRows(calendars, [job('importer', { schedule: { cron: '0 2 * * *', calendar: 'weekdays' } })], '2026-11-03')} />)
+  const html = render(
+    <CalendarsTable rows={calendarRows(calendars, [job('importer', { schedule: { cron: '0 2 * * *', calendar: 'weekdays' } })], '2026-11-03')} />,
+  )
   const platform = rowOf(html, 'adhar-system')
   assertStringIncludes(platform, 'platform')
   assertStringIncludes(platform, 'Sat, Sun')
@@ -325,7 +418,13 @@ function withLocation<T>(search: string, fn: () => T): T {
 Deno.test('page: ?view=tonight forecasts the listed jobs with the calendars read as the user, and offers a replay the caller may start', () => {
   const html = withLocation('?section=batch&view=tonight', () =>
     render(<Batch />, (qc) => {
-      const list: BatchJobList = { items: [job('importer', { schedule: { cron: '* * * * *', calendar: 'never' } })], scope: 'cluster', namespaces: ['prod'], denied: [], installed: true }
+      const list: BatchJobList = {
+        items: [job('importer', { schedule: { cron: '* * * * *', calendar: 'never' } })],
+        scope: 'cluster',
+        namespaces: ['prod'],
+        denied: [],
+        installed: true,
+      }
       qc.setQueryData(['batch', 'jobs', 'dev,prod,test'], list)
       qc.setQueryData(['batch', 'runs', 'cluster', 'prod'], {
         runs: [run('importer-aaaa1111', DONE)],
@@ -337,7 +436,11 @@ Deno.test('page: ?view=tonight forecasts the listed jobs with the calendars read
       })
       qc.setQueryData(historyKey({ since: '30d', limit: 5_000 }), history())
       // Every day is a weekend on this calendar, so the verdict does not depend on today's date.
-      qc.setQueryData(calendarsKey('prod'), { namespace: 'prod', state: 'read', calendars: [cal('never', 'name: never\nweekendDays: [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY]\n', 'prod')] })
+      qc.setQueryData(calendarsKey('prod'), {
+        namespace: 'prod',
+        state: 'read',
+        calendars: [cal('never', 'name: never\nweekendDays: [MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY]\n', 'prod')],
+      })
       qc.setQueryData(calendarsKey('adhar-system'), { namespace: 'adhar-system', state: 'forbidden', calendars: [] })
       seedRunGate(qc, true)
     }))

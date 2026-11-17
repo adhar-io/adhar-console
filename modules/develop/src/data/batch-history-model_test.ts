@@ -47,7 +47,12 @@ const job = (name: string, p: NonNullable<BatchJobXR['spec']>['parameters'] = {}
   spec: { parameters: { job: 'importJob', image: 'img', ...p } },
 })
 
-const DONE = (end = '2026-11-03T02:10:00Z', start = '2026-11-03T02:00:00Z') => ({ startTime: start, completionTime: end, succeeded: 1, conditions: [{ type: 'Complete', status: 'True' }] })
+const DONE = (end = '2026-11-03T02:10:00Z', start = '2026-11-03T02:00:00Z') => ({
+  startTime: start,
+  completionTime: end,
+  succeeded: 1,
+  conditions: [{ type: 'Complete', status: 'True' }],
+})
 const FAILED = { startTime: '2026-11-03T02:00:00Z', failed: 1, conditions: [{ type: 'Failed', status: 'True', lastTransitionTime: '2026-11-03T02:05:00Z' }] }
 const RUNNING = { startTime: '2026-11-03T02:00:00Z', active: 1 }
 
@@ -58,7 +63,12 @@ const run = (
 ): RunObject => ({
   apiVersion: 'batch/v1',
   kind: 'Job',
-  metadata: { name, namespace: o.ns ?? 'prod', creationTimestamp: o.created ?? '2026-11-03T02:00:00Z', labels: { 'adhar.io/batch-job': o.job ?? 'importer', 'adhar.io/batch-trigger': o.trigger ?? 'schedule' } },
+  metadata: {
+    name,
+    namespace: o.ns ?? 'prod',
+    creationTimestamp: o.created ?? '2026-11-03T02:00:00Z',
+    labels: { 'adhar.io/batch-job': o.job ?? 'importer', 'adhar.io/batch-trigger': o.trigger ?? 'schedule' },
+  },
   spec: {
     ...(o.suspend ? { suspend: true } : {}),
     template: {
@@ -66,7 +76,10 @@ const run = (
         containers: [{
           name: 'batch',
           image: 'img',
-          env: [{ name: 'ADHAR_BATCH_PARAMS', value: JSON.stringify(o.params ?? {}) }, ...Object.entries(o.env ?? {}).map(([n, value]) => ({ name: n, value }))],
+          env: [
+            { name: 'ADHAR_BATCH_PARAMS', value: JSON.stringify(o.params ?? {}) },
+            ...Object.entries(o.env ?? {}).map(([n, value]) => ({ name: n, value })),
+          ],
         }],
       },
     },
@@ -76,12 +89,24 @@ const run = (
 
 const pod = (jobName: string, summary: Record<string, unknown>, ns = 'prod'): RunPod => ({
   metadata: { name: `${jobName}-x`, namespace: ns, creationTimestamp: '2026-11-03T02:00:00Z', labels: { 'batch.kubernetes.io/job-name': jobName } },
-  status: { phase: 'Succeeded', containerStatuses: [{ name: 'batch', state: { terminated: { exitCode: Number(summary.exitCode ?? 0), message: JSON.stringify({ v: 1, outcome: 'completed', ...summary }) } } }] },
+  status: {
+    phase: 'Succeeded',
+    containerStatuses: [{
+      name: 'batch',
+      state: { terminated: { exitCode: Number(summary.exitCode ?? 0), message: JSON.stringify({ v: 1, outcome: 'completed', ...summary }) } },
+    }],
+  },
 })
 
 const rows = (runs: RunObject[], pods: RunPod[] = []): RunRow[] => runRows(runs, pods, NOW)
 
-const ev = (type: string, subject: string, time: string, data: Record<string, unknown> = {}, id?: string): BatchEvent => ({ id, type: `io.adhar.batch.${type}`, subject, time, data })
+const ev = (type: string, subject: string, time: string, data: Record<string, unknown> = {}, id?: string): BatchEvent => ({
+  id,
+  type: `io.adhar.batch.${type}`,
+  subject,
+  time,
+  data,
+})
 
 const template = async (): Promise<RunTemplate> => {
   const { template } = parseRunTemplate(await json<{ data: Record<string, string> }>('run-template-importer.configmap.json'))
@@ -96,8 +121,17 @@ Deno.test('history: a body that is not a history is unavailable, never an empty 
     const r = parseHistory(body)
     assertEquals(r.state, 'unavailable', JSON.stringify(body))
   }
-  assertEquals(parseHistory({ state: 'unavailable', reason: 'no-bus', detail: 'This cluster has no event bridge.' }), { state: 'unavailable', reason: 'no-bus', detail: 'This cluster has no event bridge.' })
-  const read = parseHistory({ state: 'read', events: [{ type: 'io.adhar.batch.run.failed', subject: 'prod/importer' }, { type: 7 }, null], total: 9, truncated: true })
+  assertEquals(parseHistory({ state: 'unavailable', reason: 'no-bus', detail: 'This cluster has no event bridge.' }), {
+    state: 'unavailable',
+    reason: 'no-bus',
+    detail: 'This cluster has no event bridge.',
+  })
+  const read = parseHistory({
+    state: 'read',
+    events: [{ type: 'io.adhar.batch.run.failed', subject: 'prod/importer' }, { type: 7 }, null],
+    total: 9,
+    truncated: true,
+  })
   assert(read.state === 'read')
   assertEquals(read.events.length, 1, 'an entry with no type or subject is dropped, not shown blank')
   assertEquals([read.total, read.truncated, read.degraded], [9, true, false])
@@ -117,10 +151,22 @@ Deno.test('history: rows are newest first, read from the event as the CLI reads 
     { type: 'io.adhar.batch.run.novel', subject: 'prod/importer', time: 'not a time' },
     { type: 'io.adhar.batch.run.failed', subject: 'no-slash' },
   ])
-  assertEquals(out.map((r) => r.key), ['b', 'a', 'c', 'prod/importer|io.adhar.batch.run.novel|not a time|3'], 'an unreadable time sorts last and is still shown; a subject with no job is not a row')
+  assertEquals(
+    out.map((r) => r.key),
+    ['b', 'a', 'c', 'prod/importer|io.adhar.batch.run.novel|not a time|3'],
+    'an unreadable time sorts last and is still shown; a subject with no job is not a row',
+  )
   const failed = out[0]
   assertEquals([failed.namespace, failed.job, failed.event, failed.label, failed.tone], ['prod', 'importer', 'run.failed', 'Failed', 'failed'])
-  assertEquals([failed.run, failed.businessDate, failed.trigger, failed.executionId, failed.durationMs, failed.exitCode, failed.deadLettered], ['importer-09932cb3', '2026-11-03', 'schedule', 97, 300_000, 3, 20])
+  assertEquals([failed.run, failed.businessDate, failed.trigger, failed.executionId, failed.durationMs, failed.exitCode, failed.deadLettered], [
+    'importer-09932cb3',
+    '2026-11-03',
+    'schedule',
+    97,
+    300_000,
+    3,
+    20,
+  ])
   assertEquals(failed.detail, 'skip-limit · exit 3 · read 120 written 100 · 20 dead-lettered')
   assertEquals(out[2].detail, 'held: month end')
   // A type this page does not know keeps its own name instead of a guessed label.
@@ -128,8 +174,14 @@ Deno.test('history: rows are newest first, read from the event as the CLI reads 
 })
 
 Deno.test('history: the detail names what each event type is about', () => {
-  assertEquals(eventDetail({ deadline: { deadline: '2026-11-03T06:00:00Z', expectedEnd: '2026-11-03T06:20:00Z' } }), 'deadline 2026-11-03T06:00:00Z · expected 2026-11-03T06:20:00Z')
-  assertEquals(eventDetail({ dependency: { after: ['prod/extract', 'prod/load'] }, run: { queue: 'adhar-batch.team-a' } }), 'after prod/extract, prod/load · queue adhar-batch.team-a')
+  assertEquals(
+    eventDetail({ deadline: { deadline: '2026-11-03T06:00:00Z', expectedEnd: '2026-11-03T06:20:00Z' } }),
+    'deadline 2026-11-03T06:00:00Z · expected 2026-11-03T06:20:00Z',
+  )
+  assertEquals(
+    eventDetail({ dependency: { after: ['prod/extract', 'prod/load'] }, run: { queue: 'adhar-batch.team-a' } }),
+    'after prod/extract, prod/load · queue adhar-batch.team-a',
+  )
   assertEquals(eventDetail({ pod: 'importer-x', schedule: { slot: '2026-11-03T02:00:00Z' } }), 'pod importer-x · slot 2026-11-03T02:00:00Z')
   assertEquals(eventDetail({ counts: { read: 5, deadLettered: 0 } }), 'read 5 written 0')
   assertEquals(eventDetail(undefined), '')
@@ -166,13 +218,26 @@ Deno.test('dlq: counts come from the run’s summary, and from the end event onc
   const held = rows([run('importer-aaaa1111', DONE())], [pod('importer-aaaa1111', { executionId: 97, deadLettered: 10, businessDate: '2026-11-03' })])
   const events = [
     // The same execution, as the observer reported it: counted once.
-    ev('run.succeeded', 'prod/importer', '2026-11-03T02:10:00Z', { run: { name: 'importer-aaaa1111' }, springBatch: { executionId: 97 }, counts: { deadLettered: 10 } }),
+    ev('run.succeeded', 'prod/importer', '2026-11-03T02:10:00Z', {
+      run: { name: 'importer-aaaa1111' },
+      springBatch: { executionId: 97 },
+      counts: { deadLettered: 10 },
+    }),
     // A run past its TTL.
-    ev('run.failed', 'prod/importer', '2026-10-20T02:10:00Z', { run: { name: 'importer-bbbb2222' }, springBatch: { executionId: 61, businessDate: '2026-10-20' }, counts: { deadLettered: 4 }, end: '2026-10-20T02:09:00Z' }),
+    ev('run.failed', 'prod/importer', '2026-10-20T02:10:00Z', {
+      run: { name: 'importer-bbbb2222' },
+      springBatch: { executionId: 61, businessDate: '2026-10-20' },
+      counts: { deadLettered: 4 },
+      end: '2026-10-20T02:09:00Z',
+    }),
     // Not an end event, no dead letters, and an ops Job's own end: none is an entry.
     ev('run.started', 'prod/importer', '2026-10-21T02:00:00Z', { run: { name: 'importer-cccc3333' }, counts: { deadLettered: 9 } }),
     ev('run.succeeded', 'prod/importer', '2026-10-22T02:00:00Z', { run: { name: 'importer-dddd4444' }, counts: { deadLettered: 0 } }),
-    ev('run.succeeded', 'prod/importer', '2026-10-23T02:00:00Z', { run: { name: 'importer-ops-dlq-replay-61', trigger: 'ops' }, springBatch: { executionId: 70 }, counts: { deadLettered: 2 } }),
+    ev('run.succeeded', 'prod/importer', '2026-10-23T02:00:00Z', {
+      run: { name: 'importer-ops-dlq-replay-61', trigger: 'ops' },
+      springBatch: { executionId: 70 },
+      counts: { deadLettered: 2 },
+    }),
     ev('run.failed', 'test/other', '2026-10-24T02:00:00Z', { run: { name: 'other-eeee5555' }, counts: { deadLettered: 1 } }),
   ]
   const entries = dlqEntries(held, events)
@@ -190,10 +255,22 @@ Deno.test('dlq: counts come from the run’s summary, and from the end event onc
 Deno.test('dlq: an ops Job in the cluster is not a business run, and marks the execution it replays', () => {
   const held = rows([
     run('importer-aaaa1111', DONE()),
-    run('importer-ops-dlq-replay-97', FAILED, { trigger: 'ops', env: { ADHAR_BATCH_COMMAND: 'dlq-replay', ADHAR_BATCH_EXECUTION_ID: '97' }, created: '2026-11-03T03:00:00Z' }),
-    run('importer-ops-dlq-replay-97-r1', RUNNING, { trigger: 'ops', env: { ADHAR_BATCH_COMMAND: 'dlq-replay', ADHAR_BATCH_EXECUTION_ID: '97' }, created: '2026-11-03T04:00:00Z' }),
+    run('importer-ops-dlq-replay-97', FAILED, {
+      trigger: 'ops',
+      env: { ADHAR_BATCH_COMMAND: 'dlq-replay', ADHAR_BATCH_EXECUTION_ID: '97' },
+      created: '2026-11-03T03:00:00Z',
+    }),
+    run('importer-ops-dlq-replay-97-r1', RUNNING, {
+      trigger: 'ops',
+      env: { ADHAR_BATCH_COMMAND: 'dlq-replay', ADHAR_BATCH_EXECUTION_ID: '97' },
+      created: '2026-11-03T04:00:00Z',
+    }),
     // Another verb on the same execution is not a replay of it.
-    run('importer-ops-abandon-97', DONE(), { trigger: 'ops', env: { ADHAR_BATCH_COMMAND: 'abandon', ADHAR_BATCH_EXECUTION_ID: '97' }, created: '2026-11-03T05:00:00Z' }),
+    run('importer-ops-abandon-97', DONE(), {
+      trigger: 'ops',
+      env: { ADHAR_BATCH_COMMAND: 'abandon', ADHAR_BATCH_EXECUTION_ID: '97' },
+      created: '2026-11-03T05:00:00Z',
+    }),
   ], [
     pod('importer-aaaa1111', { executionId: 97, deadLettered: 10 }),
     // The replay's own summary reports what it dead-lettered AGAIN: still not a business run.
@@ -207,14 +284,26 @@ Deno.test('dlq: an ops Job in the cluster is not a business run, and marks the e
 Deno.test('replay plan: ask twice and the replay that exists is shown; only a failed one is retried, as -r<n>', () => {
   const entry = { namespace: 'prod', job: 'importer', executionId: 97 }
   assertEquals(replayPlan(entry, []), { action: 'create', name: 'importer-ops-dlq-replay-97' })
-  assertEquals(replayPlan(entry, [{ namespace: 'prod', name: 'importer-ops-dlq-replay-97', phase: 'running' }]), { action: 'exists', name: 'importer-ops-dlq-replay-97', phase: 'running' })
-  assertEquals(replayPlan(entry, [{ namespace: 'prod', name: 'importer-ops-dlq-replay-97', phase: 'succeeded' }]), { action: 'exists', name: 'importer-ops-dlq-replay-97', phase: 'succeeded' })
+  assertEquals(replayPlan(entry, [{ namespace: 'prod', name: 'importer-ops-dlq-replay-97', phase: 'running' }]), {
+    action: 'exists',
+    name: 'importer-ops-dlq-replay-97',
+    phase: 'running',
+  })
+  assertEquals(replayPlan(entry, [{ namespace: 'prod', name: 'importer-ops-dlq-replay-97', phase: 'succeeded' }]), {
+    action: 'exists',
+    name: 'importer-ops-dlq-replay-97',
+    phase: 'succeeded',
+  })
   assertEquals(
     replayPlan(entry, [{ namespace: 'prod', name: 'importer-ops-dlq-replay-97', phase: 'failed' }]),
     { action: 'create', name: 'importer-ops-dlq-replay-97-r1', restartOf: 'importer-ops-dlq-replay-97' },
   )
   // The LATEST of the chain decides: r1 failed too → r2; r1 running → shown.
-  const chain = [{ namespace: 'prod', name: 'importer-ops-dlq-replay-97', phase: 'failed' as const }, { namespace: 'prod', name: 'importer-ops-dlq-replay-97-r1', phase: 'failed' as const }]
+  const chain = [{ namespace: 'prod', name: 'importer-ops-dlq-replay-97', phase: 'failed' as const }, {
+    namespace: 'prod',
+    name: 'importer-ops-dlq-replay-97-r1',
+    phase: 'failed' as const,
+  }]
   assertEquals(replayPlan(entry, chain), { action: 'create', name: 'importer-ops-dlq-replay-97-r2', restartOf: 'importer-ops-dlq-replay-97-r1' })
   assertEquals(replayPlan(entry, [chain[0], { ...chain[1], phase: 'running' }]).action, 'exists')
   // The same name in another namespace is another job's, and execution 970 is not execution 97.
@@ -227,7 +316,10 @@ Deno.test('replay plan: refused without an execution id, and after 99 retries', 
   assert(none.action === 'refused')
   assertStringIncludes(none.reason, 'no execution id')
   const base = 'importer-ops-dlq-replay-97'
-  const spent = [{ namespace: 'prod', name: base, phase: 'failed' as const }, ...Array.from({ length: 99 }, (_, i) => ({ namespace: 'prod', name: `${base}-r${i + 1}`, phase: 'failed' as const }))]
+  const spent = [
+    { namespace: 'prod', name: base, phase: 'failed' as const },
+    ...Array.from({ length: 99 }, (_, i) => ({ namespace: 'prod', name: `${base}-r${i + 1}`, phase: 'failed' as const })),
+  ]
   const out = replayPlan({ namespace: 'prod', job: 'importer', executionId: 97 }, spent)
   assert(out.action === 'refused')
   assertStringIncludes(out.reason, '99 restarts')
@@ -235,7 +327,10 @@ Deno.test('replay plan: refused without an execution id, and after 99 retries', 
 
 /* ─────────────────────────── calendars (D5) ─────────────────────────── */
 
-const cm = (name: string, yaml: string | undefined, namespace = 'adhar-system') => ({ metadata: { name, namespace }, data: (yaml === undefined ? {} : { 'calendar.yaml': yaml }) as Record<string, string> })
+const cm = (name: string, yaml: string | undefined, namespace = 'adhar-system') => ({
+  metadata: { name, namespace },
+  data: (yaml === undefined ? {} : { 'calendar.yaml': yaml }) as Record<string, string>,
+})
 
 Deno.test('calendar: the platform’s weekdays calendar, as core/adhar-batch ships it', () => {
   const c = parseCalendar(cm('weekdays', 'name: weekdays\nweekendDays: [SATURDAY, SUNDAY]\nholidays: []\nbusinessDays: []\n'))
@@ -247,9 +342,18 @@ Deno.test('calendar: the platform’s weekdays calendar, as core/adhar-batch shi
 })
 
 Deno.test('calendar: D5’s rule — a listed business day beats the weekend AND a holiday; a holiday beats a weekday', () => {
-  const c = parseCalendar(cm('sg', 'name: sg\ntimeZone: Asia/Singapore\nweekendDays:\n  - friday\n  - SATURDAY\nholidays:\n  - 2026-11-09\n  - 2026-12-25\nbusinessDays:\n  - 2026-11-07\n  - 2026-12-25\n', 'prod'))
+  const c = parseCalendar(
+    cm(
+      'sg',
+      'name: sg\ntimeZone: Asia/Singapore\nweekendDays:\n  - friday\n  - SATURDAY\nholidays:\n  - 2026-11-09\n  - 2026-12-25\nbusinessDays:\n  - 2026-11-07\n  - 2026-12-25\n',
+      'prod',
+    ),
+  )
   assertEquals(c.error, undefined)
-  assertEquals([c.timeZone, c.weekendDays, c.holidays, c.businessDays], ['Asia/Singapore', ['FRIDAY', 'SATURDAY'], ['2026-11-09', '2026-12-25'], ['2026-11-07', '2026-12-25']])
+  assertEquals([c.timeZone, c.weekendDays, c.holidays, c.businessDays], ['Asia/Singapore', ['FRIDAY', 'SATURDAY'], ['2026-11-09', '2026-12-25'], [
+    '2026-11-07',
+    '2026-12-25',
+  ]])
   assert(!isBusinessDay(c, '2026-11-06'), 'Friday is this calendar’s weekend')
   assert(isBusinessDay(c, '2026-11-07'), 'a working Saturday')
   assert(isBusinessDay(c, '2026-11-08'), 'Sunday is a working day here')
@@ -287,7 +391,10 @@ Deno.test('calendar: a job’s own namespace is looked in first, then the platfo
   const team = parseCalendar(cm('weekdays', 'name: weekdays\nweekendDays: [SUNDAY]\n', 'prod'))
   const j = job('importer', { schedule: { cron: '0 2 * * *', calendar: 'weekdays' } })
   assertEquals(calendarOf(j, [platform, team])?.calendar, team)
-  assertEquals(calendarOf(job('importer', { schedule: { cron: '0 2 * * *', calendar: 'weekdays' } }, { namespace: 'test' }), [platform, team])?.calendar, platform)
+  assertEquals(
+    calendarOf(job('importer', { schedule: { cron: '0 2 * * *', calendar: 'weekdays' } }, { namespace: 'test' }), [platform, team])?.calendar,
+    platform,
+  )
   assertEquals(calendarOf(job('importer', { schedule: { cron: '0 2 * * *', calendar: 'bank' } }), [platform, team]), { name: 'bank', calendar: undefined })
   assertEquals(calendarOf(job('importer', { schedule: { cron: '0 2 * * *' } }), [platform]), undefined)
   // Another team's calendar of that name is never borrowed.
@@ -336,7 +443,14 @@ Deno.test('durations: the last successes, cluster then history, each run once, n
     ev('run.succeeded', 'prod/importer', '2026-11-02T02:20:00Z', { run: { name: 'importer-nodur' } }),
   ]
   assertEquals(successDurations('prod', 'importer', held, events), [600_000, 1_200_000])
-  const many = Array.from({ length: 30 }, (_, i) => ev('run.succeeded', 'prod/importer', new Date(Date.parse('2026-10-01T00:00:00Z') + i * 86_400_000).toISOString(), { run: { name: `r${i}` }, durationSeconds: i }))
+  const many = Array.from(
+    { length: 30 },
+    (_, i) =>
+      ev('run.succeeded', 'prod/importer', new Date(Date.parse('2026-10-01T00:00:00Z') + i * 86_400_000).toISOString(), {
+        run: { name: `r${i}` },
+        durationSeconds: i,
+      }),
+  )
   const got = successDurations('prod', 'importer', [], many)
   assertEquals(got.length, 20)
   assertEquals([got[0], got[19]], [29_000, 10_000], 'the newest twenty, newest first')
@@ -349,12 +463,16 @@ Deno.test('deadline: the first HH:MM at or after the anchor, on the zone’s own
   assertEquals(deadlineAfter(at('2026-11-03T06:00:30Z'), '06:00', 'UTC'), at('2026-11-04T06:00:00Z'))
   assertEquals(deadlineAfter(at('2026-11-03T22:00:00Z'), '06:00', 'UTC'), at('2026-11-04T06:00:00Z'), 'a night job’s deadline is the next morning')
   assertEquals(deadlineAfter(at('2026-11-03T02:00:00Z'), '06:00', 'Asia/Singapore'), at('2026-11-03T22:00:00Z'))
-  for (const bad of [undefined, '', '6:00', '24:00', '06:60', 'soon']) assertEquals(deadlineAfter(at('2026-11-03T02:00:00Z'), bad, 'UTC'), undefined, String(bad))
+  for (const bad of [undefined, '', '6:00', '24:00', '06:60', 'soon']) {
+    assertEquals(deadlineAfter(at('2026-11-03T02:00:00Z'), bad, 'UTC'), undefined, String(bad))
+  }
 })
 
 Deno.test('tonight: every fire in 24 hours of a schedule that is neither held nor suspended', () => {
   const jobs = [
-    job('nightly', { schedule: { cron: '0 2 * * *', timeZone: 'UTC' }, displayName: 'Nightly import' }, { labels: { 'adhar.io/application': 'importer', 'adhar.io/environment': 'prod' } }),
+    job('nightly', { schedule: { cron: '0 2 * * *', timeZone: 'UTC' }, displayName: 'Nightly import' }, {
+      labels: { 'adhar.io/application': 'importer', 'adhar.io/environment': 'prod' },
+    }),
     job('held', { schedule: { cron: '0 3 * * *' } }, { annotations: { 'adhar.io/batch-hold': 'month end' } }),
     job('suspended', { schedule: { cron: '0 3 * * *', suspend: true } }),
     job('on-demand'),
@@ -367,7 +485,14 @@ Deno.test('tonight: every fire in 24 hours of a schedule that is neither held no
     [`test/sg@${Date.parse('2026-11-03T16:30:00Z')}`, '2026-11-04', 'test'],
     [`prod/nightly@${Date.parse('2026-11-04T02:00:00Z')}`, '2026-11-04', 'prod'],
   ])
-  assertEquals([out[1].displayName, out[1].application, out[1].sla, out[1].calendar.state, out[1].p90Ms, out[1].expectedEndMs], ['Nightly import', 'importer', 'none', 'none', undefined, undefined])
+  assertEquals([out[1].displayName, out[1].application, out[1].sla, out[1].calendar.state, out[1].p90Ms, out[1].expectedEndMs], [
+    'Nightly import',
+    'importer',
+    'none',
+    'none',
+    undefined,
+    undefined,
+  ])
 })
 
 Deno.test('tonight: a frequent job gets four rows and says how many more fire', () => {
@@ -379,11 +504,20 @@ Deno.test('tonight: a frequent job gets four rows and says how many more fire', 
 
 Deno.test('tonight: expected end is start + p90, and finishBy makes it on time, at risk or unknown', () => {
   const sla = (finishBy: string, timeZone?: string) => job('nightly', { schedule: { cron: '0 2 * * *' }, sla: { finishBy, ...(timeZone ? { timeZone } : {}) } })
-  const events = Array.from({ length: 10 }, (_, i) => ev('run.succeeded', 'prod/nightly', `2026-10-${10 + i}T03:00:00Z`, { run: { name: `nightly-${i}` }, durationSeconds: (i + 1) * 600 }))
+  const events = Array.from(
+    { length: 10 },
+    (_, i) => ev('run.succeeded', 'prod/nightly', `2026-10-${10 + i}T03:00:00Z`, { run: { name: `nightly-${i}` }, durationSeconds: (i + 1) * 600 }),
+  )
   const start = Date.parse('2026-11-04T02:00:00Z')
   // p90 of 10..100 minutes is 90 minutes: ends 03:30.
   const [ok] = tonightRows([sla('04:00')], { now: NOW, events })
-  assertEquals([ok.p90Ms, ok.expectedEndMs, ok.deadlineMs, ok.slackMs, ok.sla], [5_400_000, start + 5_400_000, Date.parse('2026-11-04T04:00:00Z'), 1_800_000, 'ok'])
+  assertEquals([ok.p90Ms, ok.expectedEndMs, ok.deadlineMs, ok.slackMs, ok.sla], [
+    5_400_000,
+    start + 5_400_000,
+    Date.parse('2026-11-04T04:00:00Z'),
+    1_800_000,
+    'ok',
+  ])
   const [risk] = tonightRows([sla('03:00')], { now: NOW, events })
   assertEquals([risk.slackMs, risk.sla], [-1_800_000, 'at-risk'])
   const [edge] = tonightRows([sla('03:30')], { now: NOW, events })
@@ -400,7 +534,8 @@ Deno.test('tonight: the calendar is applied to the business date — skipped, a 
   const weekdays = parseCalendar(cm('weekdays', 'name: weekdays\n'))
   const bank = parseCalendar(cm('bank', 'name: bank\nholidays: [2026-11-04]\n', 'prod'))
   const broken = parseCalendar(cm('broken', 'name: broken\nholidays: nope\n', 'prod'))
-  const j = (calendar: string, cron = '0 2 * * *', sla?: { finishBy: string }) => job(`on-${calendar}`, { schedule: { cron, calendar }, ...(sla ? { sla } : {}) })
+  const j = (calendar: string, cron = '0 2 * * *', sla?: { finishBy: string }) =>
+    job(`on-${calendar}`, { schedule: { cron, calendar }, ...(sla ? { sla } : {}) })
   const first = (x: BatchJobXR, now = NOW, unreadCalendars: string[] = []) => tonightRows([x], { now, calendars: [weekdays, bank, broken], unreadCalendars })[0]
 
   assertEquals(first(j('weekdays')).calendar, { state: 'business-day', calendar: 'weekdays' }) // Wednesday the 4th
@@ -438,7 +573,11 @@ Deno.test('chains: who waits for whom, and whether what they wait for has succee
 
   const held = rows([
     run('extract-new', FAILED, { job: 'extract', created: '2026-11-03T01:00:00Z', params: { businessDate: '2026-11-03' } }),
-    run('extract-old', DONE('2026-11-02T01:10:00Z', '2026-11-02T01:00:00Z'), { job: 'extract', created: '2026-11-02T01:00:00Z', params: { businessDate: '2026-11-02' } }),
+    run('extract-old', DONE('2026-11-02T01:10:00Z', '2026-11-02T01:00:00Z'), {
+      job: 'extract',
+      created: '2026-11-02T01:00:00Z',
+      params: { businessDate: '2026-11-02' },
+    }),
     run('load-dep', DONE(), { job: 'load', trigger: 'dependency', created: '2026-11-02T01:11:00Z', params: { businessDate: '2026-11-02' } }),
     run('extract-ops-abandon-5', DONE(), { job: 'extract', trigger: 'ops', created: '2026-11-03T05:00:00Z' }),
   ])
@@ -489,7 +628,13 @@ Deno.test('backfill plan: every date named as Run now names it; done is left alo
     // Another job's run of the same name pattern is not this job's.
     run(name('2026-11-07'), DONE(), { job: 'other' }),
   ])
-  const plan = backfillPlan({ namespace: 'prod', job: 'importer' }, t, ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07'], {}, held)
+  const plan = backfillPlan(
+    { namespace: 'prod', job: 'importer' },
+    t,
+    ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07'],
+    {},
+    held,
+  )
   assert('items' in plan, plan.error)
   assertEquals([plan.volcano, plan.field], [false, 'businessDate'])
   assertEquals(plan.items.map((i) => [i.businessDate, i.action, i.run, i.restartOf]), [
@@ -502,7 +647,11 @@ Deno.test('backfill plan: every date named as Run now names it; done is left alo
     ['2026-11-06', 'completed', `${name('2026-11-06')}-r1`, undefined],
     ['2026-11-07', 'create', name('2026-11-07'), undefined],
   ])
-  assertEquals(plan.items[6].params, { businessDate: '2026-11-07', source: 'inbound/records.csv', dryRun: 'false' }, 'defaults resolved exactly as Run now resolves them')
+  assertEquals(
+    plan.items[6].params,
+    { businessDate: '2026-11-07', source: 'inbound/records.csv', dryRun: 'false' },
+    'defaults resolved exactly as Run now resolves them',
+  )
 })
 
 Deno.test('backfill plan: extra parameters are the same for every date and change the identity', async () => {
@@ -517,9 +666,18 @@ Deno.test('backfill plan: one refused date refuses the backfill, before anything
   const bad = backfillPlan({ namespace: 'prod', job: 'importer' }, t, ['2026-11-01', '2026-11-02'], { source: 'has spaces' }, [])
   assert(!('items' in bad))
   assertStringIncludes(bad.error, 'Parameters refused. 2026-11-01: source:')
-  assertStringIncludes(backfillPlan({ namespace: 'prod', job: 'importer' }, t, ['2026-11-01'], { businessDate: '2026-01-01' }, []).error ?? '', 'businessDate is the business date')
-  assertStringIncludes(backfillPlan({ namespace: 'prod', job: 'importer' }, { ...t, fields: t.fields.slice(1) }, ['2026-11-01'], {}, []).error ?? '', 'declares no business-date parameter')
-  assertStringIncludes(backfillPlan({ namespace: 'prod', job: 'importer' }, { ...t, paramsError: 'parameters.json is not JSON' }, ['2026-11-01'], {}, []).error ?? '', 'parameters.json is not JSON')
+  assertStringIncludes(
+    backfillPlan({ namespace: 'prod', job: 'importer' }, t, ['2026-11-01'], { businessDate: '2026-01-01' }, []).error ?? '',
+    'businessDate is the business date',
+  )
+  assertStringIncludes(
+    backfillPlan({ namespace: 'prod', job: 'importer' }, { ...t, fields: t.fields.slice(1) }, ['2026-11-01'], {}, []).error ?? '',
+    'declares no business-date parameter',
+  )
+  assertStringIncludes(
+    backfillPlan({ namespace: 'prod', job: 'importer' }, { ...t, paramsError: 'parameters.json is not JSON' }, ['2026-11-01'], {}, []).error ?? '',
+    'parameters.json is not JSON',
+  )
   // A date whose chain is spent refuses the whole backfill.
   const base = runName('importer', { businessDate: '2026-11-01', source: 'inbound/records.csv' })
   const spent = rows([run(base, FAILED), ...Array.from({ length: 99 }, (_, i) => run(`${base}-r${i + 1}`, FAILED))])
@@ -542,7 +700,8 @@ Deno.test('backfill state: created-suspended is queued; suspended after starting
 
 Deno.test('backfill progress (A3.3): queued runs are released in date order, never more than parallel in flight', () => {
   const names = ['d1', 'd2', 'd3', 'd4', 'd5']
-  const world = (s: Record<string, RunObject['status'] | 'queued'>) => rows(Object.entries(s).map(([n, st]) => (st === 'queued' ? run(n, {}, { suspend: true }) : run(n, st))))
+  const world = (s: Record<string, RunObject['status'] | 'queued'>) =>
+    rows(Object.entries(s).map(([n, st]) => (st === 'queued' ? run(n, {}, { suspend: true }) : run(n, st))))
   const all = world({ d1: 'queued', d2: 'queued', d3: 'queued', d4: 'queued', d5: 'queued' })
   let p = backfillProgress(names, all, 2, false)
   assertEquals([p.release.map((r) => r.name), p.inFlight, p.queued, p.settled], [['d1', 'd2'], 0, 5, false])

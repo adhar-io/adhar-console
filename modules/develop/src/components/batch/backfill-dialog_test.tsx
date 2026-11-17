@@ -4,7 +4,17 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { accessCheckKey } from '@adhar/auth'
 import { canResource } from '@adhar/shell-ui'
-import { actionGates, type BatchJobXR, JOBS_GVR, parseRunTemplate, runName, type RunObject, type RunRow, runRows, type RunTemplate } from '../../data/batch-model.ts'
+import {
+  actionGates,
+  type BatchJobXR,
+  JOBS_GVR,
+  parseRunTemplate,
+  runName,
+  type RunObject,
+  type RunRow,
+  runRows,
+  type RunTemplate,
+} from '../../data/batch-model.ts'
 import type { TemplateRead } from '../../data/batch-api.ts'
 import { type BackfillItem, backfillPlan } from '../../data/batch-history-model.ts'
 import { BackfillDialog, BackfillPreview, BackfillProgressView } from './backfill-dialog.tsx'
@@ -20,7 +30,12 @@ import { JobActionsBar } from './job-drawer.tsx'
 
 // `Modal` renders through a portal, which the server renderer cannot do.
 const DialogShell: DialogFrame = ({ title, description, footer, children }) => (
-  <div><h2>{title}</h2><p>{description}</p>{children}<footer>{footer}</footer></div>
+  <div>
+    <h2>{title}</h2>
+    <p>{description}</p>
+    {children}
+    <footer>{footer}</footer>
+  </div>
 )
 
 function mount(seed: (qc: QueryClient) => void, ui: ReactNode): string {
@@ -30,7 +45,8 @@ function mount(seed: (qc: QueryClient) => void, ui: ReactNode): string {
 }
 
 const TESTDATA = new URL('../../data/testdata/batch/', import.meta.url)
-const importerTemplate = async (): Promise<RunTemplate> => parseRunTemplate(JSON.parse(await Deno.readTextFile(new URL('run-template-importer.configmap.json', TESTDATA)))).template!
+const importerTemplate = async (): Promise<RunTemplate> =>
+  parseRunTemplate(JSON.parse(await Deno.readTextFile(new URL('run-template-importer.configmap.json', TESTDATA)))).template!
 
 const JOB: BatchJobXR = { metadata: { name: 'importer', namespace: 'prod' }, spec: { parameters: { job: 'importJob', image: 'img' } } }
 
@@ -49,7 +65,8 @@ const rows = (runs: RunObject[]): RunRow[] => runRows(runs, [], Date.parse('2026
 const nameOf = (date: string) => runName('importer', { businessDate: date, source: 'inbound/records.csv' })
 
 const seedTemplate = (qc: QueryClient, read: TemplateRead) => qc.setQueryData(['batch', 'template', 'prod', 'importer', ''], read)
-const seedRelease = (qc: QueryClient, allowed: boolean) => qc.setQueryData(['k8s', 'can', '', accessCheckKey(canResource(JOBS_GVR, 'patch', { namespace: 'prod' })), 'anonymous'], allowed)
+const seedRelease = (qc: QueryClient, allowed: boolean) =>
+  qc.setQueryData(['k8s', 'can', '', accessCheckKey(canResource(JOBS_GVR, 'patch', { namespace: 'prod' })), 'anonymous'], allowed)
 
 const dialog = (read: TemplateRead | undefined, o: { runs?: RunRow[]; initial?: { from?: string; to?: string; parallel?: number }; release?: boolean } = {}) =>
   mount((qc) => {
@@ -78,7 +95,11 @@ Deno.test('backfill: the form asks for a range and a parallelism, and says which
 
 Deno.test('backfill: with a range, every date’s run is named before anything is created', async () => {
   const held = rows([run(nameOf('2026-11-01'), DONE), run(nameOf('2026-11-02'), FAILED)])
-  const html = dialog({ state: 'ok', template: await importerTemplate() }, { runs: held, initial: { from: '2026-11-01', to: '2026-11-03', parallel: 2 }, release: true })
+  const html = dialog({ state: 'ok', template: await importerTemplate() }, {
+    runs: held,
+    initial: { from: '2026-11-01', to: '2026-11-03', parallel: 2 },
+    release: true,
+  })
   assertStringIncludes(html, '3 dates: 1 to start · 1 to restart (failed before) · 1 already completed.')
   assertStringIncludes(html, nameOf('2026-11-03'))
   assertStringIncludes(html, `${nameOf('2026-11-02')}-r1`)
@@ -136,7 +157,12 @@ Deno.test('backfill: a job with no business-date parameter, or no readable templ
 
 /* ─────────────────────────── preview and progress, from data ─────────────────────────── */
 
-const item = (date: string, action: BackfillItem['action'], name = `importer-${date}`): BackfillItem => ({ businessDate: date, run: name, action, params: { businessDate: date } })
+const item = (date: string, action: BackfillItem['action'], name = `importer-${date}`): BackfillItem => ({
+  businessDate: date,
+  run: name,
+  action,
+  params: { businessDate: date },
+})
 
 Deno.test('preview: on Volcano the page says "at once" is the queue’s, not the dialog’s', () => {
   const items = [item('2026-11-01', 'create'), item('2026-11-02', 'stopped')]
@@ -186,7 +212,15 @@ Deno.test('job actions: Backfill stands behind the same check as Run now — hid
   const bar = (runAllowed: boolean) =>
     mount((qc) => {
       for (const [action, allowed] of [['run', runAllowed], ['hold', true]] as const) {
-        for (const g of actionGates(action, t)) qc.setQueryData(['k8s', 'can', '', accessCheckKey(canResource(g.gvr, g.verb, { namespace: g.namespace, name: g.name, subresource: g.subresource })), 'anonymous'], allowed)
+        for (const g of actionGates(action, t)) {
+          qc.setQueryData([
+            'k8s',
+            'can',
+            '',
+            accessCheckKey(canResource(g.gvr, g.verb, { namespace: g.namespace, name: g.name, subresource: g.subresource })),
+            'anonymous',
+          ], allowed)
+        }
       }
     }, <JobActionsBar job={JOB} held={false} onDialog={() => {}} />)
   assertStringIncludes(bar(true), '>Backfill<')

@@ -1,5 +1,16 @@
 import { useMemo, useState } from 'react'
-import { type Column, DataTable, EmptyState, type Facet, type FacetValues, FilterBar, matchesFacets, matchesQuery, optionsFromItems, StatusBadge } from '@adhar/shell-ui'
+import {
+  type Column,
+  DataTable,
+  EmptyState,
+  type Facet,
+  type FacetValues,
+  FilterBar,
+  matchesFacets,
+  matchesQuery,
+  optionsFromItems,
+  StatusBadge,
+} from '@adhar/shell-ui'
 import { batchRef } from '../data/batch-model.ts'
 import { useBatchHistory } from '../data/batch-history.ts'
 import { durationWords, type HistoryRead, type HistoryRow, historyRows, historySearchText } from '../data/batch-history-model.ts'
@@ -19,7 +30,10 @@ import { Note } from './function-bits.tsx'
  * and never an empty table: an empty history would say nothing ran.
  */
 
-const SINCE = [{ id: '24h', label: 'Last 24 hours' }, { id: '7d', label: 'Last 7 days' }, { id: '30d', label: 'Last 30 days' }, { id: '90d', label: 'Everything kept (90 days)' }] as const
+const SINCE = [{ id: '24h', label: 'Last 24 hours' }, { id: '7d', label: 'Last 7 days' }, { id: '30d', label: 'Last 30 days' }, {
+  id: '90d',
+  label: 'Everything kept (90 days)',
+}] as const
 type Since = (typeof SINCE)[number]['id']
 const LIMIT = 2_000
 
@@ -48,7 +62,8 @@ export function HistoryUnavailable({ read }: { read: Extract<HistoryRead, { stat
       title='The batch history could not be read'
       description={
         <>
-          {read.detail} This is not “nothing ran”: the events are on the <span className='font-mono'>adhar.batch</span> topic, and the console could not reach it.
+          {read.detail} This is not “nothing ran”: the events are on the <span className='font-mono'>adhar.batch</span>{' '}
+          topic, and the console could not reach it.
         </>
       }
     />
@@ -129,14 +144,39 @@ export function HistoryTable({
     const v = id === 'event' ? r.label : id === 'job' ? r.job : id === 'environment' ? envOf(r) : r.trigger
     return v ? [v] : []
   }
-  const facets = useMemo((): Facet[] =>
-    FACETS.map((id) => ({ id, label: FACET_LABEL[id], kind: 'multi' as const, options: optionsFromItems(rows, (r) => facetOf(r, id)) })).filter((f) => f.options.length > 0), [rows, envByNamespace])
+  const facets = useMemo(
+    (): Facet[] =>
+      FACETS.map((id) => ({ id, label: FACET_LABEL[id], kind: 'multi' as const, options: optionsFromItems(rows, (r) => facetOf(r, id)) })).filter((f) =>
+        f.options.length > 0
+      ),
+    [rows, envByNamespace],
+  )
   const accessors = useMemo(() => Object.fromEntries(FACETS.map((id) => [id, (r: HistoryRow) => facetOf(r, id)])), [envByNamespace])
-  const filtered = useMemo(() => rows.filter((r) => matchesQuery(query, historySearchText(r)) && matchesFacets(r, values, accessors)), [rows, query, values, accessors])
+  const filtered = useMemo(() => rows.filter((r) => matchesQuery(query, historySearchText(r)) && matchesFacets(r, values, accessors)), [
+    rows,
+    query,
+    values,
+    accessors,
+  ])
 
   const columns = useMemo((): Column<HistoryRow>[] => [
-    { key: 'when', header: 'When', pinned: true, value: (r) => r.at ?? 0, cell: (r) => (r.time ? <When at={r.time} /> : <span className='text-content-subtle'>unknown</span>) },
-    { key: 'event', header: 'Event', value: (r) => r.label, cell: (r) => <span title={r.event}><StatusBadge kind={r.tone}>{r.label}</StatusBadge></span> },
+    {
+      key: 'when',
+      header: 'When',
+      pinned: true,
+      value: (r) => r.at ?? 0,
+      cell: (r) => (r.time ? <When at={r.time} /> : <span className='text-content-subtle'>unknown</span>),
+    },
+    {
+      key: 'event',
+      header: 'Event',
+      value: (r) => r.label,
+      cell: (r) => (
+        <span title={r.event}>
+          <StatusBadge kind={r.tone}>{r.label}</StatusBadge>
+        </span>
+      ),
+    },
     {
       key: 'job',
       header: 'Job',
@@ -159,22 +199,44 @@ export function HistoryTable({
       header: 'Run',
       value: (r) => r.run ?? '',
       cell: (r) =>
-        !r.run
-          ? <span className='text-content-subtle'>—</span>
-          : onOpenRun && heldRuns?.has(batchRef(r.namespace, r.run))
+        !r.run ? <span className='text-content-subtle'>—</span> : onOpenRun && heldRuns?.has(batchRef(r.namespace, r.run))
           ? (
-            <button type='button' className='font-mono text-[12px] text-brand-700 hover:underline dark:text-brand-300' onClick={() => onOpenRun(r.namespace, r.run as string)}>
+            <button
+              type='button'
+              className='font-mono text-[12px] text-brand-700 hover:underline dark:text-brand-300'
+              onClick={() => onOpenRun(r.namespace, r.run as string)}
+            >
               {r.run}
             </button>
           )
           : <span className='font-mono text-[12px]' title='This run is no longer in the cluster'>{r.run}</span>,
     },
-    { key: 'date', header: 'Business date', value: (r) => r.businessDate ?? '', cell: (r) => (r.businessDate ? <span className='font-mono text-[12px]'>{r.businessDate}</span> : <span className='text-content-subtle'>—</span>) },
+    {
+      key: 'date',
+      header: 'Business date',
+      value: (r) => r.businessDate ?? '',
+      cell: (r) => (r.businessDate ? <span className='font-mono text-[12px]'>{r.businessDate}</span> : <span className='text-content-subtle'>—</span>),
+    },
     { key: 'trigger', header: 'Trigger', value: (r) => r.trigger ?? '', cell: (r) => r.trigger ?? <span className='text-content-subtle'>—</span> },
-    { key: 'actor', header: 'Actor', value: (r) => r.actor ?? '', cell: (r) => (r.actor ? <span className='font-mono text-[11px]'>{r.actor}</span> : <span className='text-content-subtle'>—</span>) },
-    { key: 'took', header: 'Took', value: (r) => r.durationMs ?? -1, cell: (r) => durationWords(r.durationMs) ?? <span className='text-content-subtle'>—</span> },
+    {
+      key: 'actor',
+      header: 'Actor',
+      value: (r) => r.actor ?? '',
+      cell: (r) => (r.actor ? <span className='font-mono text-[11px]'>{r.actor}</span> : <span className='text-content-subtle'>—</span>),
+    },
+    {
+      key: 'took',
+      header: 'Took',
+      value: (r) => r.durationMs ?? -1,
+      cell: (r) => durationWords(r.durationMs) ?? <span className='text-content-subtle'>—</span>,
+    },
     { key: 'exit', header: 'Exit', value: (r) => r.exitCode ?? -1, filter: false, cell: (r) => <ExitCode code={r.exitCode} /> },
-    { key: 'detail', header: 'Detail', value: (r) => r.detail, cell: (r) => <span className='text-content-muted [overflow-wrap:anywhere]'>{r.detail || '—'}</span> },
+    {
+      key: 'detail',
+      header: 'Detail',
+      value: (r) => r.detail,
+      cell: (r) => <span className='text-content-muted [overflow-wrap:anywhere]'>{r.detail || '—'}</span>,
+    },
   ], [envByNamespace, heldRuns, jobKeys, onOpenJob, onOpenRun])
 
   if (read?.state === 'unavailable') return <HistoryUnavailable read={read} />
@@ -186,7 +248,11 @@ export function HistoryTable({
         description={error instanceof Error ? error.message : String(error)}
         action={onRetry
           ? (
-            <button type='button' onClick={onRetry} className='inline-flex h-8 items-center rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content shadow-sm hover:border-edge-strong'>
+            <button
+              type='button'
+              onClick={onRetry}
+              className='inline-flex h-8 items-center rounded-md border border-edge-default bg-surface-raised px-3 text-[12px] font-medium text-content shadow-sm hover:border-edge-strong'
+            >
               Retry
             </button>
           )
@@ -209,18 +275,37 @@ export function HistoryTable({
           <span className='inline-flex items-center gap-2'>
             <label className='inline-flex items-center gap-1.5 text-[12px] text-content-subtle'>
               <span className='sr-only'>Period</span>
-              <select value={since} onChange={(e) => onSince(e.target.value as Since)} className='h-7 rounded-md border border-edge-default bg-surface-raised px-1.5 text-[12px] text-content'>
+              <select
+                value={since}
+                onChange={(e) => onSince(e.target.value as Since)}
+                className='h-7 rounded-md border border-edge-default bg-surface-raised px-1.5 text-[12px] text-content'
+              >
                 {SINCE.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </label>
-            <span aria-live='polite'>{filtered.length} {filtered.length === 1 ? 'event' : 'events'}{filtered.length !== rows.length ? ` of ${rows.length}` : ''}</span>
+            <span aria-live='polite'>
+              {filtered.length} {filtered.length === 1 ? 'event' : 'events'}
+              {filtered.length !== rows.length ? ` of ${rows.length}` : ''}
+            </span>
           </span>
         }
       />
       {shownOf ? <Note>Showing the newest {rows.length} of {shownOf} events in this period. Narrow the period, or open a job, to see the rest.</Note> : null}
-      {read?.state === 'read' && read.truncated ? <Note tone='warn'>The stream is larger than the console reads in one pass, so the oldest events are not here. <span className='font-mono'>adhar batch history</span> reads all of it.</Note> : null}
+      {read?.state === 'read' && read.truncated
+        ? (
+          <Note tone='warn'>
+            The stream is larger than the console reads in one pass, so the oldest events are not here. <span className='font-mono'>adhar batch history</span>
+            {' '}
+            reads all of it.
+          </Note>
+        )
+        : null}
       {read?.state === 'read' && read.degraded
-        ? <Note tone='warn'>Access to some namespaces could not be checked, so their events are left out. That is not the same as nothing having happened there.</Note>
+        ? (
+          <Note tone='warn'>
+            Access to some namespaces could not be checked, so their events are left out. That is not the same as nothing having happened there.
+          </Note>
+        )
         : null}
       <DataTable
         tableId='develop.batch.history'

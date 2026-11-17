@@ -42,7 +42,8 @@ const template = async (): Promise<RunTemplate> => {
 }
 
 type Container = { name: string; image?: string; env?: Array<{ name: string; value?: string }> }
-const batchContainer = (o: unknown): Container => (o as { spec: { template: { spec: { containers: Container[] } } } }).spec.template.spec.containers.find((c) => c.name === 'batch')!
+const batchContainer = (o: unknown): Container =>
+  (o as { spec: { template: { spec: { containers: Container[] } } } }).spec.template.spec.containers.find((c) => c.name === 'batch')!
 const envOf = (o: unknown, name: string) => batchContainer(o).env?.find((e) => e.name === name)?.value
 const metaOf = (o: unknown) => (o as { metadata: { name: string; namespace: string; labels: Record<string, string> } }).metadata
 
@@ -53,7 +54,12 @@ const forbidden = { status: 403, body: { kind: 'Status', status: 'Failure', reas
 /* ─────────────────────────── /api/batch/history ─────────────────────────── */
 
 Deno.test('history: the query is passed through, and the answer is read', async () => {
-  const g = fakeConsole({ 'GET /api/batch/history': { status: 200, body: { state: 'read', events: [{ type: 'io.adhar.batch.run.failed', subject: 'prod/importer' }], total: 1, truncated: false, degraded: false } } })
+  const g = fakeConsole({
+    'GET /api/batch/history': {
+      status: 200,
+      body: { state: 'read', events: [{ type: 'io.adhar.batch.run.failed', subject: 'prod/importer' }], total: 1, truncated: false, degraded: false },
+    },
+  })
   try {
     const r = await fetchHistory({ namespace: 'prod', job: 'importer', since: '7d', limit: 200 })
     assertEquals(g.seen[0].url, '/api/batch/history?namespace=prod&job=importer&since=7d&limit=200')
@@ -68,7 +74,10 @@ Deno.test('history: the query is passed through, and the answer is read', async 
 
 Deno.test('history: no bus is an answer; an ended session and a failing console are errors, never an empty history', async () => {
   const cases: Array<[Reply, (r: Awaited<ReturnType<typeof fetchHistory>>) => void]> = [
-    [{ status: 200, body: { state: 'unavailable', reason: 'no-bus', detail: 'no bridge', events: [] } }, (r) => assertEquals(r, { state: 'unavailable', reason: 'no-bus', detail: 'no bridge' })],
+    [
+      { status: 200, body: { state: 'unavailable', reason: 'no-bus', detail: 'no bridge', events: [] } },
+      (r) => assertEquals(r, { state: 'unavailable', reason: 'no-bus', detail: 'no bridge' }),
+    ],
     // A console that predates the endpoint.
     [{ status: 404, body: { error: 'not_found' } }, (r) => assertEquals([r.state, r.state === 'unavailable' && r.reason], ['unavailable', 'no-endpoint'])],
     // 200 with a body that is not a history.
@@ -97,7 +106,10 @@ Deno.test('history: no bus is an answer; an ended session and a failing console 
 Deno.test('calendars: listed by label as the user; refused is not "none"', async () => {
   const CMS = 'GET /api/k8s/api/v1/namespaces'
   const g = fakeConsole({
-    [`${CMS}/prod/configmaps`]: { status: 200, body: { items: [{ metadata: { name: 'bank' }, data: { 'calendar.yaml': 'name: bank\nholidays: [2026-12-25]\n' } }] } },
+    [`${CMS}/prod/configmaps`]: {
+      status: 200,
+      body: { items: [{ metadata: { name: 'bank' }, data: { 'calendar.yaml': 'name: bank\nholidays: [2026-12-25]\n' } }] },
+    },
     [`${CMS}/dev/configmaps`]: forbidden,
     [`${CMS}/gone/configmaps`]: { status: 404, body: { code: 404 } },
     [`${CMS}/down/configmaps`]: { status: 500, body: { code: 500, message: 'boom' } },
@@ -127,7 +139,13 @@ Deno.test('replay: the ops Job `adhar batch dlq --replay` creates — the templa
     const sent = g.seen[0].body
     assertEquals([metaOf(sent).name, metaOf(sent).namespace, metaOf(sent).labels['adhar.io/batch-trigger']], ['importer-ops-dlq-replay-97', 'prod', 'ops'])
     assertEquals(
-      [envOf(sent, 'ADHAR_BATCH_COMMAND'), envOf(sent, 'ADHAR_BATCH_EXECUTION_ID'), envOf(sent, 'ADHAR_BATCH_TRIGGER'), envOf(sent, 'ADHAR_BATCH_PARAMS'), envOf(sent, 'ADHAR_BATCH_RESTART_OF')],
+      [
+        envOf(sent, 'ADHAR_BATCH_COMMAND'),
+        envOf(sent, 'ADHAR_BATCH_EXECUTION_ID'),
+        envOf(sent, 'ADHAR_BATCH_TRIGGER'),
+        envOf(sent, 'ADHAR_BATCH_PARAMS'),
+        envOf(sent, 'ADHAR_BATCH_RESTART_OF'),
+      ],
       ['dlq-replay', '97', 'ops', '{}', undefined],
     )
     // Run integrity: the image is the template's, and an ops Job is never created suspended.
@@ -135,7 +153,10 @@ Deno.test('replay: the ops Job `adhar batch dlq --replay` creates — the templa
     assertEquals((sent as RunObject).spec?.suspend, (t.manifest as RunObject).spec?.suspend)
     // The retry of a failed replay says what it retries.
     await replayDeadLetters({ namespace: 'prod', template: t, name: 'importer-ops-dlq-replay-97-r1', executionId: 97, restartOf: 'importer-ops-dlq-replay-97' })
-    assertEquals([metaOf(g.seen[1].body).name, envOf(g.seen[1].body, 'ADHAR_BATCH_RESTART_OF')], ['importer-ops-dlq-replay-97-r1', 'importer-ops-dlq-replay-97'])
+    assertEquals([metaOf(g.seen[1].body).name, envOf(g.seen[1].body, 'ADHAR_BATCH_RESTART_OF')], [
+      'importer-ops-dlq-replay-97-r1',
+      'importer-ops-dlq-replay-97',
+    ])
   } finally {
     g.restore()
   }
@@ -144,7 +165,10 @@ Deno.test('replay: the ops Job `adhar batch dlq --replay` creates — the templa
 Deno.test('replay: one that already exists is found, not started twice', async () => {
   const g = fakeConsole({ [`POST ${JOBS}`]: conflict })
   try {
-    assertEquals(await replayDeadLetters({ namespace: 'prod', template: await template(), name: 'importer-ops-dlq-replay-97', executionId: 97 }), { created: false, existing: 'importer-ops-dlq-replay-97' })
+    assertEquals(await replayDeadLetters({ namespace: 'prod', template: await template(), name: 'importer-ops-dlq-replay-97', executionId: 97 }), {
+      created: false,
+      existing: 'importer-ops-dlq-replay-97',
+    })
   } finally {
     g.restore()
   }
@@ -168,13 +192,24 @@ Deno.test('backfill: native runs are created SUSPENDED, in date order, only for 
       namespace: 'prod',
       template: t,
       volcano: false,
-      items: [item('2026-11-01', 'completed'), item('2026-11-02', 'create'), item('2026-11-03', 'exists'), item('2026-11-04', 'restart', 'importer-x-r1', 'importer-x'), item('2026-11-05', 'stopped'), item('2026-11-06', 'create')],
+      items: [
+        item('2026-11-01', 'completed'),
+        item('2026-11-02', 'create'),
+        item('2026-11-03', 'exists'),
+        item('2026-11-04', 'restart', 'importer-x-r1', 'importer-x'),
+        item('2026-11-05', 'stopped'),
+        item('2026-11-06', 'create'),
+      ],
     })
     assertEquals(g.seen.map((s) => metaOf(s.body).name), ['importer-2026-11-02', 'importer-x-r1', 'importer-2026-11-06'])
     assertEquals(out.map((o) => [o.item.businessDate, o.outcome.created]), [['2026-11-02', true], ['2026-11-04', true], ['2026-11-06', true]])
     for (const s of g.seen) assertEquals((s.body as RunObject).spec?.suspend, true, 'every run waits to be released')
     const [first, restart] = g.seen.map((s) => s.body)
-    assertEquals([metaOf(first).labels['adhar.io/batch-trigger'], envOf(first, 'ADHAR_BATCH_TRIGGER'), envOf(first, 'ADHAR_BATCH_RESTART_OF')], ['backfill', 'backfill', undefined])
+    assertEquals([metaOf(first).labels['adhar.io/batch-trigger'], envOf(first, 'ADHAR_BATCH_TRIGGER'), envOf(first, 'ADHAR_BATCH_RESTART_OF')], [
+      'backfill',
+      'backfill',
+      undefined,
+    ])
     assertEquals(JSON.parse(envOf(first, 'ADHAR_BATCH_PARAMS')!), { businessDate: '2026-11-02', source: 'inbound/records.csv', dryRun: 'false' })
     // A date that failed before is a restart of that run, as Restart makes one.
     assertEquals([envOf(restart, 'ADHAR_BATCH_TRIGGER'), envOf(restart, 'ADHAR_BATCH_RESTART_OF')], ['restart', 'importer-x'])
@@ -203,7 +238,17 @@ Deno.test('backfill: a run that already exists is found; the first refusal stops
     },
   })
   try {
-    const e = await assertRejects(() => createBackfill({ namespace: 'prod', template: t, volcano: false, items: ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04'].map((d) => item(d, 'create')) }), Error, '2026-11-03:')
+    const e = await assertRejects(
+      () =>
+        createBackfill({
+          namespace: 'prod',
+          template: t,
+          volcano: false,
+          items: ['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04'].map((d) => item(d, 'create')),
+        }),
+      Error,
+      '2026-11-03:',
+    )
     const err = e as Error & { created: Array<{ item: BackfillItem; outcome: { created: boolean } }>; status?: number }
     assertEquals(err.status, 403)
     assertEquals(err.created.map((c) => [c.item.businessDate, c.outcome.created]), [['2026-11-01', false], ['2026-11-02', true]])
@@ -214,7 +259,12 @@ Deno.test('backfill: a run that already exists is found; the first refusal stops
 })
 
 Deno.test('release: spec.suspend=false on each queued run, in the order given', async () => {
-  const queued = (name: string): RunObject => ({ apiVersion: 'batch/v1', kind: 'Job', metadata: { name, namespace: 'prod', uid: name, labels: { 'adhar.io/batch-job': 'importer' } }, spec: { suspend: true } })
+  const queued = (name: string): RunObject => ({
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: { name, namespace: 'prod', uid: name, labels: { 'adhar.io/batch-job': 'importer' } },
+    spec: { suspend: true },
+  })
   const runs: RunRow[] = runRows([queued('d2'), queued('d1')], [])
   const g = fakeConsole({ [`PATCH ${JOBS}/`]: { status: 200, body: {} } })
   try {

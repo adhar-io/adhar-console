@@ -165,9 +165,19 @@ export async function readTopic(
     const status = e instanceof BridgeError ? e.status : 0
     const detail = e instanceof Error ? e.message : String(e)
     // The API server answers 404 for a Service that does not exist, and 503 for one with no endpoints.
-    if (status === 404) return { state: 'unavailable', reason: 'no-bus', detail: 'This cluster has no event bridge. The event bus is opt-in: the kafka-operator package declares it.' }
+    if (status === 404) {
+      return {
+        state: 'unavailable',
+        reason: 'no-bus',
+        detail: 'This cluster has no event bridge. The event bus is opt-in: the kafka-operator package declares it.',
+      }
+    }
     if (status === 403 || status === 401) {
-      return { state: 'unavailable', reason: 'forbidden', detail: 'The console may not reach the event bridge. Its Role console-batch-history (adhar-console package) grants that.' }
+      return {
+        state: 'unavailable',
+        reason: 'forbidden',
+        detail: 'The console may not reach the event bridge. Its Role console-batch-history (adhar-console package) grants that.',
+      }
     }
     return { state: 'unavailable', reason: 'unreachable', detail }
   } finally {
@@ -263,7 +273,9 @@ const defaultDeps: HistoryDeps = {
   identity: resolveIdentity,
   read: () => {
     const token = getK8sServiceToken()
-    if (!token) return Promise.resolve({ state: 'unavailable', reason: 'no-identity', detail: 'The console has no ServiceAccount token to read the event bridge with.' })
+    if (!token) {
+      return Promise.resolve({ state: 'unavailable', reason: 'no-identity', detail: 'The console has no ServiceAccount token to read the event bridge with.' })
+    }
     return sharedRead(() => readTopic(serviceProxyBridge(token)))
   },
   allowed: async (id, namespaces) => {
@@ -294,7 +306,12 @@ export async function handleBatchHistory(req: Request, deps: HistoryDeps = defau
   if (sinceMs === null) return json({ error: 'bad_request', detail: 'since is an instant or an age (7d, 12h, 90m)' }, 400, id.refreshedCookie)
   const asked = Number(params.get('limit') ?? DEFAULT_LIMIT)
   if (!Number.isInteger(asked) || asked < 1) return json({ error: 'bad_request', detail: `limit is 1–${MAX_LIMIT}` }, 400, id.refreshedCookie)
-  const query: HistoryQuery = { namespace: params.get('namespace') || undefined, job: params.get('job') || undefined, sinceMs: sinceMs ?? undefined, limit: Math.min(asked, MAX_LIMIT) }
+  const query: HistoryQuery = {
+    namespace: params.get('namespace') || undefined,
+    job: params.get('job') || undefined,
+    sinceMs: sinceMs ?? undefined,
+    limit: Math.min(asked, MAX_LIMIT),
+  }
 
   const stream = await deps.read()
   if (stream.state !== 'read') return json({ state: 'unavailable', reason: stream.reason, detail: stream.detail, events: [] }, 200, id.refreshedCookie)

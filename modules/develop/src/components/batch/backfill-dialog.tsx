@@ -3,7 +3,15 @@ import { Button, canResource, Field, Input, Modal, Spinner, StatusBadge, useAcce
 import { useRunTemplate } from '../../data/batch.ts'
 import { type BatchJobXR, displayParam, JOBS_GVR, PHASE_BADGE, PHASE_LABEL, type RunRow } from '../../data/batch-model.ts'
 import { useCreateBackfill, useReleaseBackfillRuns } from '../../data/batch-history.ts'
-import { backfillDates, type BackfillItem, backfillPlan, backfillProgress, backfillState, businessDateField, MAX_BACKFILL_DATES } from '../../data/batch-history-model.ts'
+import {
+  backfillDates,
+  type BackfillItem,
+  backfillPlan,
+  backfillProgress,
+  backfillState,
+  businessDateField,
+  MAX_BACKFILL_DATES,
+} from '../../data/batch-history-model.ts'
 import { Note } from '../../views/function-bits.tsx'
 import { type DialogFrame, ParamInput } from './dialogs.tsx'
 import { TABLE, TD, TH } from './bits.tsx'
@@ -55,12 +63,17 @@ export function BackfillProgressView({
   return (
     <div className='space-y-3'>
       <p className='text-[13px] text-content' role='status'>
-        {p.done} of {items.length} ended · {p.inFlight} in flight · {p.queued} queued{p.stopped ? ` · ${p.stopped} stopped` : ''}{p.gone ? ` · ${p.gone} no longer in the cluster` : ''}
+        {p.done} of {items.length} ended · {p.inFlight} in flight · {p.queued} queued{p.stopped ? ` · ${p.stopped} stopped` : ''}
+        {p.gone ? ` · ${p.gone} no longer in the cluster` : ''}
       </p>
-      {volcano
-        ? <Note>This job runs on Volcano: every run was created at once and its queue decides how many start.</Note>
-        : p.queued > 0
-        ? <Note>Queued runs are released here, in date order, at most {parallel} at a time. Close this and the rest stay suspended until the same backfill is asked again, here or with <span className='font-mono'>adhar batch backfill</span>.</Note>
+      {volcano ? <Note>This job runs on Volcano: every run was created at once and its queue decides how many start.</Note> : p.queued > 0
+        ? (
+          <Note>
+            Queued runs are released here, in date order, at most {parallel}{' '}
+            at a time. Close this and the rest stay suspended until the same backfill is asked again, here or with{' '}
+            <span className='font-mono'>adhar batch backfill</span>.
+          </Note>
+        )
         : null}
       <div className='max-h-72 overflow-auto rounded-xl border border-edge-default bg-surface-raised'>
         <table className={TABLE}>
@@ -80,7 +93,11 @@ export function BackfillProgressView({
                   <td className={`${TD} font-mono`}>{it.businessDate}</td>
                   <td className={TD}>
                     {r && onOpenRun
-                      ? <button type='button' className='font-mono text-brand-700 hover:underline dark:text-brand-300' onClick={() => onOpenRun(it.run)}>{it.run}</button>
+                      ? (
+                        <button type='button' className='font-mono text-brand-700 hover:underline dark:text-brand-300' onClick={() => onOpenRun(it.run)}>
+                          {it.run}
+                        </button>
+                      )
                       : <span className='font-mono'>{it.run}</span>}
                   </td>
                   <td className={TD}>
@@ -186,29 +203,62 @@ export function BackfillDialog({
           </span>
           <div className='flex gap-2'>
             <Button variant='ghost' onClick={onClose}>{started ? 'Close' : 'Cancel'}</Button>
-            {started
-              ? null
-              : <Button variant='primary' onClick={submit} loading={create.isPending} disabled={!ready || !parallel || cannotRelease || (toStart === 0 && !leftQueued)}>{toStart === 0 && leftQueued ? 'Continue backfill' : 'Start backfill'}</Button>}
+            {started ? null : (
+              <Button
+                variant='primary'
+                onClick={submit}
+                loading={create.isPending}
+                disabled={!ready || !parallel || cannotRelease || (toStart === 0 && !leftQueued)}
+              >
+                {toStart === 0 && leftQueued ? 'Continue backfill' : 'Start backfill'}
+              </Button>
+            )}
           </div>
         </div>
       }
     >
       {read.isLoading
-        ? <div className='flex items-center gap-2 py-4 text-[13px] text-content-subtle' role='status'><Spinner size={12} /> Reading the run template…</div>
+        ? (
+          <div className='flex items-center gap-2 py-4 text-[13px] text-content-subtle' role='status'>
+            <Spinner size={12} /> Reading the run template…
+          </div>
+        )
         : read.isError
         ? <Note tone='warn'>{errorText(read.error)}</Note>
         : read.data && read.data.state !== 'ok'
         ? <Note tone='warn'>{read.data.message}</Note>
         : started
-        ? <BackfillProgressView items={started.items} runs={runs} parallel={parallel || 1} volcano={started.volcano} released={released.current} onOpenRun={onOpenRun} />
+        ? (
+          <BackfillProgressView
+            items={started.items}
+            runs={runs}
+            parallel={parallel || 1}
+            volcano={started.volcano}
+            released={released.current}
+            onOpenRun={onOpenRun}
+          />
+        )
         : template && !dateField
-        ? <Note tone='warn'>{name} declares no business-date parameter (<span className='font-mono'>businessDate</span>, or a date its schedule supplies), so there is nothing to backfill by.</Note>
+        ? (
+          <Note tone='warn'>
+            {name}{' '}
+            declares no business-date parameter (<span className='font-mono'>businessDate</span>, or a date its schedule supplies), so there is nothing to
+            backfill by.
+          </Note>
+        )
         : template
         ? (
           <div className='space-y-4'>
             {template.paramsError ? <Note tone='warn'>{template.paramsError}</Note> : null}
             <div className='grid grid-cols-1 gap-3 sm:grid-cols-3'>
-              <Field label='First business date *' hint={<>goes into <span className='font-mono'>{dateField?.name}</span></>}>
+              <Field
+                label='First business date *'
+                hint={
+                  <>
+                    goes into <span className='font-mono'>{dateField?.name}</span>
+                  </>
+                }
+              >
                 <Input type='date' value={from} onChange={(e) => setFrom(e.target.value)} className='font-mono' />
               </Field>
               <Field label='Last business date *' hint='inclusive'>
@@ -224,10 +274,21 @@ export function BackfillDialog({
                   {others.map((f) => (
                     <Field
                       key={f.name}
-                      label={<span><span className='font-mono'>{f.name}</span>{f.required ? ' *' : ''}</span>}
-                      hint={[f.description, 'the same for every date', f.default !== undefined ? `default ${displayParam(f, f.default || '""')}` : null].filter(Boolean).join(' · ')}
+                      label={
+                        <span>
+                          <span className='font-mono'>{f.name}</span>
+                          {f.required ? ' *' : ''}
+                        </span>
+                      }
+                      hint={[f.description, 'the same for every date', f.default !== undefined ? `default ${displayParam(f, f.default || '""')}` : null].filter(
+                        Boolean,
+                      ).join(' · ')}
                     >
-                      <ParamInput field={f} value={extra[f.name] ?? ''} onChange={(v) => setExtra((cur) => ({ ...cur, [f.name]: v }))} />
+                      <ParamInput
+                        field={f}
+                        value={extra[f.name] ?? ''}
+                        onChange={(v) => setExtra((cur) => ({ ...cur, [f.name]: v }))}
+                      />
                     </Field>
                   ))}
                 </div>
@@ -235,10 +296,25 @@ export function BackfillDialog({
               : null}
             {range?.error ? <Note tone='warn'>{range.error}</Note> : null}
             {plan?.error ? <Note tone='warn'>{plan.error}</Note> : null}
-            {!from || !to ? <Note>Up to {MAX_BACKFILL_DATES} dates. A date that already completed is left alone, and one that failed is restarted.</Note> : null}
+            {!from || !to
+              ? <Note>Up to {MAX_BACKFILL_DATES} dates. A date that already completed is left alone, and one that failed is restarted.</Note>
+              : null}
             {ready ? <BackfillPreview items={ready.items} volcano={ready.volcano} parallel={parallel} /> : null}
-            {cannotRelease ? <Note tone='warn'>Each run is created suspended and then released, which needs <span className='font-mono'>patch jobs</span> in {namespace}. Your role does not cover that, so the runs would never start.</Note> : null}
-            {create.isError ? <Note tone='warn'>{errorText(create.error)} Runs created before this are in the cluster, suspended; asking for the same backfill again continues it.</Note> : null}
+            {cannotRelease
+              ? (
+                <Note tone='warn'>
+                  Each run is created suspended and then released, which needs <span className='font-mono'>patch jobs</span> in{' '}
+                  {namespace}. Your role does not cover that, so the runs would never start.
+                </Note>
+              )
+              : null}
+            {create.isError
+              ? (
+                <Note tone='warn'>
+                  {errorText(create.error)} Runs created before this are in the cluster, suspended; asking for the same backfill again continues it.
+                </Note>
+              )
+              : null}
           </div>
         )
         : null}
@@ -259,7 +335,9 @@ export function BackfillPreview({ items, volcano, parallel }: { items: readonly 
   return (
     <div className='space-y-2'>
       <p className='text-[13px] text-content'>{items.length} {items.length === 1 ? 'date' : 'dates'}: {parts.join(' · ')}.</p>
-      {volcano && parallel > 1 ? <Note>This job runs on Volcano: every run is created now and its queue decides how many start. “At once” is not applied.</Note> : null}
+      {volcano && parallel > 1
+        ? <Note>This job runs on Volcano: every run is created now and its queue decides how many start. “At once” is not applied.</Note>
+        : null}
       <div className='max-h-56 overflow-auto rounded-xl border border-edge-default bg-surface-raised'>
         <table className={TABLE}>
           <thead className='bg-surface-muted'>
@@ -274,7 +352,7 @@ export function BackfillPreview({ items, volcano, parallel }: { items: readonly 
               <tr key={it.businessDate}>
                 <td className={`${TD} font-mono`}>{it.businessDate}</td>
                 <td className={`${TD} font-mono`}>{it.run}</td>
-                <td className={TD}>{ACTION_LABEL[it.action]}{it.restartOf ? <span className='text-content-subtle'> (continues {it.restartOf})</span> : null}</td>
+                <td className={TD}>{ACTION_LABEL[it.action]}{it.restartOf ? <span className='text-content-subtle'>(continues {it.restartOf})</span> : null}</td>
               </tr>
             ))}
           </tbody>

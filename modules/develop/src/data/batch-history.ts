@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { kube } from '@adhar/api-clients/k8s'
-import { buildRun, CONFIGMAPS_GVR, type ConfigMapLike, gvrOfRun, type RunRow, type RunTemplate } from './batch-model.ts'
+import { buildRun, type ConfigMapLike, CONFIGMAPS_GVR, gvrOfRun, type RunRow, type RunTemplate } from './batch-model.ts'
 import { createRun, resumeRun, type RunOutcome, statusOf } from './batch-api.ts'
 import { BATCH_KEY } from './batch.ts'
 import {
@@ -81,7 +81,11 @@ export const calendarsKey = (namespace: string) => [...BATCH_KEY, 'calendars', n
 export async function readNamespaceCalendars(namespace: string): Promise<NamespaceCalendars> {
   try {
     const { items } = await kube.list<ConfigMapLike>(CONFIGMAPS_GVR, { namespace, labelSelector: CALENDAR_SELECTOR })
-    return { namespace, state: 'read', calendars: items.map((cm) => parseCalendar({ ...cm, metadata: { ...cm.metadata, namespace: cm.metadata?.namespace ?? namespace } })) }
+    return {
+      namespace,
+      state: 'read',
+      calendars: items.map((cm) => parseCalendar({ ...cm, metadata: { ...cm.metadata, namespace: cm.metadata?.namespace ?? namespace } })),
+    }
   } catch (e) {
     const s = statusOf(e)
     if (s === 403 || s === 401) return { namespace, state: 'forbidden', calendars: [] }
@@ -126,7 +130,9 @@ export function useCalendars(namespaces: readonly string[], enabled = true) {
  * the Job `adhar batch dlq --replay` creates. The kit's runner re-processes only
  * that execution's rejected items, with the job's own credentials.
  */
-export function replayDeadLetters(input: { namespace: string; template: RunTemplate; name: string; executionId: number; restartOf?: string }): Promise<RunOutcome> {
+export function replayDeadLetters(
+  input: { namespace: string; template: RunTemplate; name: string; executionId: number; restartOf?: string },
+): Promise<RunOutcome> {
   const manifest = buildRun(input.template, {
     name: input.name,
     namespace: input.namespace,
@@ -152,7 +158,9 @@ export interface BackfillCreated {
  * nothing twice. The first failure stops the loop and is thrown with what was
  * created before it.
  */
-export async function createBackfill(input: { namespace: string; template: RunTemplate; items: readonly BackfillItem[]; volcano: boolean }): Promise<BackfillCreated[]> {
+export async function createBackfill(
+  input: { namespace: string; template: RunTemplate; items: readonly BackfillItem[]; volcano: boolean },
+): Promise<BackfillCreated[]> {
   const out: BackfillCreated[] = []
   for (const item of input.items) {
     if (item.action !== 'create' && item.action !== 'restart') continue

@@ -22,7 +22,13 @@ function render(ui: ReactNode, seed: (qc: QueryClient) => void = () => {}): stri
   return renderToStaticMarkup(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
 }
 
-const ev = (type: string, subject: string, time: string, data: Record<string, unknown> = {}): BatchEvent => ({ id: `${subject}|${type}|${time}`, type: `io.adhar.batch.${type}`, subject, time, data })
+const ev = (type: string, subject: string, time: string, data: Record<string, unknown> = {}): BatchEvent => ({
+  id: `${subject}|${type}|${time}`,
+  type: `io.adhar.batch.${type}`,
+  subject,
+  time,
+  data,
+})
 
 const EVENTS: BatchEvent[] = [
   ev('run.failed', 'prod/importer', '2026-10-01T02:05:00Z', {
@@ -32,18 +38,40 @@ const EVENTS: BatchEvent[] = [
     counts: { read: 120, written: 100, deadLettered: 20 },
     durationSeconds: 300,
   }),
-  ev('run.succeeded', 'prod/importer', '2026-10-02T02:10:00Z', { run: { name: 'importer-held0001', trigger: 'manual', actor: 'oidc:alice@example.com' }, durationSeconds: 600 }),
+  ev('run.succeeded', 'prod/importer', '2026-10-02T02:10:00Z', {
+    run: { name: 'importer-held0001', trigger: 'manual', actor: 'oidc:alice@example.com' },
+    durationSeconds: 600,
+  }),
   ev('schedule.missed', 'dev/settle', '2026-10-03T01:00:00Z', { schedule: { slot: '2026-10-03T01:00:00Z' } }),
 ]
 
-const read = (o: Partial<Extract<HistoryRead, { state: 'read' }>> = {}): HistoryRead => ({ state: 'read', events: EVENTS, total: EVENTS.length, truncated: false, degraded: false, ...o })
+const read = (o: Partial<Extract<HistoryRead, { state: 'read' }>> = {}): HistoryRead => ({
+  state: 'read',
+  events: EVENTS,
+  total: EVENTS.length,
+  truncated: false,
+  degraded: false,
+  ...o,
+})
 
 const table = (r: HistoryRead | undefined, props: Partial<Parameters<typeof HistoryTable>[0]> = {}) =>
   render(<HistoryTable read={r} loading={false} since='7d' onSince={() => {}} {...props} />)
 
 Deno.test('history: each event is a row — what happened, to which run, for which date, and why', () => {
   const html = table(read(), { envByNamespace: new Map([['prod', 'production']]) })
-  for (const s of ['Failed', 'Succeeded', 'Slot missed', 'importer-09932cb3', '2026-10-01', 'skip-limit · exit 3 · read 120 written 100 · 20 dead-lettered', '5m 0s', 'oidc:alice@example.com', 'slot 2026-10-03T01:00:00Z']) {
+  for (
+    const s of [
+      'Failed',
+      'Succeeded',
+      'Slot missed',
+      'importer-09932cb3',
+      '2026-10-01',
+      'skip-limit · exit 3 · read 120 written 100 · 20 dead-lettered',
+      '5m 0s',
+      'oidc:alice@example.com',
+      'slot 2026-10-03T01:00:00Z',
+    ]
+  ) {
     assertStringIncludes(html, s)
   }
   assertStringIncludes(html, '3 events')
@@ -129,7 +157,10 @@ function withLocation<T>(search: string, fn: () => T): T {
   }
 }
 
-const job = (name: string): BatchJobXR => ({ metadata: { name, namespace: 'prod', labels: { 'adhar.io/application': name, 'adhar.io/environment': 'prod' } }, spec: { parameters: { job: 'importJob', image: 'img' } } })
+const job = (name: string): BatchJobXR => ({
+  metadata: { name, namespace: 'prod', labels: { 'adhar.io/application': name, 'adhar.io/environment': 'prod' } },
+  spec: { parameters: { job: 'importJob', image: 'img' } },
+})
 const seedPage = (qc: QueryClient) => {
   const list: BatchJobList = { items: [job('importer')], scope: 'cluster', namespaces: ['prod'], denied: [], installed: true }
   qc.setQueryData(['batch', 'jobs', 'dev,prod,test'], list)

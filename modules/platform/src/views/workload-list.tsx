@@ -4,7 +4,6 @@ import {
   Button,
   canResource,
   DataTable,
-  EmptyState,
   StatusBadge,
   Tabs,
   type TabDef,
@@ -24,7 +23,7 @@ import {
 } from '../data/hooks.ts'
 import { age, shortImage } from '../data/format.ts'
 import type { k8s } from '@adhar/api-clients'
-import { ListShell, matchesSearch } from './list-shell.tsx'
+import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 import { WorkloadDrawer, type WorkloadKind } from './workload-drawer.tsx'
 
 type Sub = 'deployments' | 'replicasets' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' | 'hpa'
@@ -78,6 +77,7 @@ function DeploymentTable({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
+        error={q.isError ? q.error : undefined}
         onRefresh={() => q.refetch()}
         search={search}
         onSearchChange={setSearch}
@@ -131,7 +131,7 @@ function DeploymentTable({ namespace }: { namespace?: string }) {
           ]}
           rows={rows}
           rowKey={(d) => `${d.metadata.namespace}/${d.metadata.name}`}
-          empty={<EmptyState title="No deployments" />}
+          empty={<ListEmpty what="deployments" search={search} onClearSearch={() => setSearch('')} hint={`Nothing is deployed in ${scopeLabel(namespace)}. Deployments show up here as soon as they are applied.`} />}
         />
       </ListShell>
       {selected ? (
@@ -170,6 +170,7 @@ function ReplicaSetTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       onRefresh={() => q.refetch()}
       search={search}
       onSearchChange={setSearch}
@@ -227,7 +228,7 @@ function ReplicaSetTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(r) => `${r.metadata.namespace}/${r.metadata.name}`}
-        empty={<EmptyState title="No replicasets" />}
+        empty={<ListEmpty what="ReplicaSets" search={search} onClearSearch={() => setSearch('')} hint={`Deployments create these on every rollout — none exist in ${scopeLabel(namespace)}.`} />}
       />
     </ListShell>
   )
@@ -239,7 +240,8 @@ function StatefulSetTable({ namespace }: { namespace?: string }) {
     <GenericWorkloadList
       title="StatefulSets"
       query={q}
-      empty="No statefulsets"
+      empty="StatefulSets"
+      emptyHint={`No stateful workload runs in ${scopeLabel(namespace)}.`}
       drawerKind="StatefulSet"
       readyExtractor={(o) =>
         `${(o.status as { readyReplicas?: number })?.readyReplicas ?? 0}/${(o.spec as { replicas?: number })?.replicas ?? 0}`
@@ -254,7 +256,8 @@ function DaemonSetTable({ namespace }: { namespace?: string }) {
     <GenericWorkloadList
       title="DaemonSets"
       query={q}
-      empty="No daemonsets"
+      empty="DaemonSets"
+      emptyHint={`No per-node agent runs in ${scopeLabel(namespace)}.`}
       drawerKind="DaemonSet"
       readyExtractor={(o) => {
         const s = o.status as { numberReady?: number; desiredNumberScheduled?: number }
@@ -282,6 +285,7 @@ function JobTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       onRefresh={() => q.refetch()}
       search={search}
       onSearchChange={setSearch}
@@ -330,7 +334,7 @@ function JobTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(j) => `${j.metadata.namespace}/${j.metadata.name}`}
-        empty={<EmptyState title="No jobs" />}
+        empty={<ListEmpty what="jobs" search={search} onClearSearch={() => setSearch('')} hint={`No Job has run in ${scopeLabel(namespace)}. Trigger a CronJob or apply a Job to see it here.`} />}
       />
     </ListShell>
   )
@@ -354,6 +358,7 @@ function CronJobTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       onRefresh={() => q.refetch()}
       search={search}
       onSearchChange={setSearch}
@@ -404,7 +409,7 @@ function CronJobTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(cj) => `${cj.metadata.namespace}/${cj.metadata.name}`}
-        empty={<EmptyState title="No cronjobs" />}
+        empty={<ListEmpty what="CronJobs" search={search} onClearSearch={() => setSearch('')} hint={`Nothing is scheduled in ${scopeLabel(namespace)}.`} />}
       />
     </ListShell>
   )
@@ -441,6 +446,7 @@ function HpaTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       onRefresh={() => q.refetch()}
       search={search}
       onSearchChange={setSearch}
@@ -507,7 +513,7 @@ function HpaTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(h) => `${h.metadata.namespace}/${h.metadata.name}`}
-        empty={<EmptyState title="No horizontal pod autoscalers" />}
+        empty={<ListEmpty what="autoscalers" search={search} onClearSearch={() => setSearch('')} hint={`No HorizontalPodAutoscaler exists in ${scopeLabel(namespace)}. Create one under Autoscaling.`} />}
       />
     </ListShell>
   )
@@ -515,6 +521,8 @@ function HpaTable({ namespace }: { namespace?: string }) {
 
 interface GenericQuery {
   isLoading: boolean
+  isError: boolean
+  error: unknown
   refetch(): unknown
   data?: Array<{
     metadata: { name: string; namespace?: string; creationTimestamp?: string }
@@ -527,12 +535,15 @@ function GenericWorkloadList({
   title,
   query,
   empty,
+  emptyHint,
   readyExtractor,
   drawerKind,
 }: {
   title: string
   query: GenericQuery
+  /** Plural noun for the empty state — "StatefulSets". */
   empty: string
+  emptyHint?: string
   readyExtractor(obj: { spec?: unknown; status?: unknown }): string
   /** When set, rows open a rich WorkloadDrawer for that kind. */
   drawerKind?: WorkloadKind
@@ -555,6 +566,7 @@ function GenericWorkloadList({
         total={all.length}
         visible={rows.length}
         loading={query.isLoading}
+        error={query.isError ? query.error : undefined}
         onRefresh={() => query.refetch()}
         search={search}
         onSearchChange={setSearch}
@@ -586,7 +598,7 @@ function GenericWorkloadList({
           ]}
           rows={rows}
           rowKey={(o) => `${o.metadata.namespace}/${o.metadata.name}`}
-          empty={<EmptyState title={empty} />}
+          empty={<ListEmpty what={empty} search={search} onClearSearch={() => setSearch('')} hint={emptyHint} />}
         />
       </ListShell>
       {drawerKind && selected ? (

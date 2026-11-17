@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { DrawerWidenButton, Markdown, useDrawerWidth, useOverlayDismiss, useToast } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
@@ -152,7 +152,11 @@ function sections(body: string): Array<{ heading?: string; text: string }> {
 
 function PatternReader({ pattern: p, list, onOpen }: { pattern: Pattern; list: Pattern[]; onOpen(slug: string | undefined): void }) {
   const close = () => onOpen(undefined)
-  useOverlayDismiss(true, close)
+  // With the panel as `focusRef` the reader behaves like every other drawer:
+  // focus moves in on open, Tab stays inside, and it returns to the card that
+  // opened it. Without it focus stayed on the page behind the scrim.
+  const panelRef = useRef<HTMLElement>(null)
+  useOverlayDismiss(true, close, { focusRef: panelRef })
   const toast = useToast()
   const width = useDrawerWidth('help.pattern', { base: 'max-w-2xl' })
   const copyLink = () => {
@@ -181,7 +185,7 @@ function PatternReader({ pattern: p, list, onOpen }: { pattern: Pattern; list: P
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label={p.title}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/40 backdrop-blur-[2px]" onClick={close} />
-      <article className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl', width.className)}>
+      <article ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col overflow-hidden border-l border-edge-default bg-surface-app shadow-2xl outline-none', width.className)}>
         <header className="border-b border-edge-default bg-surface-raised px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold', st.chip)}>
@@ -189,7 +193,15 @@ function PatternReader({ pattern: p, list, onOpen }: { pattern: Pattern; list: P
             </span>
             <div className="-mr-2 -mt-1 flex items-center gap-1">
               <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
-              <button type="button" onClick={close} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">✕</button>
+              {/* The same drawn cross as Modal and the other drawers — the "✕"
+                  character it replaces is a font glyph, a different size and
+                  weight on every platform. */}
+              <button type="button" onClick={close} aria-label="Close" title="Close (Esc)" className="flex h-8 w-8 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
             </div>
           </div>
           <h2 className="mt-3 text-[22px] font-semibold leading-tight tracking-tight text-content">{p.title}</h2>

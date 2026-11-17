@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { XR_SECTIONS } from './xr-sections.ts'
+import { XR_FAMILIES, xrSectionsOf } from './xr-sections.ts'
 import { SETTINGS_CATEGORIES } from './settings-sections.ts'
 import type { StatusKind } from './status-badge.tsx'
 import type { NavAccess } from './nav-access.ts'
@@ -51,6 +51,11 @@ export interface NavItem {
    * on its first page and stays highlighted on all of them.
    */
   alsoActiveFor?: readonly string[]
+  /**
+   * The tabbed pages behind a category row. The sidebar shows only the row;
+   * the command palette lists each page so it stays one keystroke away.
+   */
+  pages?: ReadonlyArray<{ id: string; label: string; description?: string }>
   /** Icon rendered left of the label. */
   icon?: ReactNode
   /** Short descriptive text rendered below the label in expanded mode. */
@@ -474,13 +479,19 @@ export const DEFAULT_NAV: NavSection[] = [
             to: '/platform',
             search: 'catalog',
           },
-          // One row per XRD, in one flat list — see xr-sections.ts.
-          ...XR_SECTIONS.map((x): NavItem => ({
-            id: `platform.${x.id}`,
-            label: x.label,
-            to: '/platform',
-            search: x.id,
-          })),
+          // One row per category; the page shows that category's kinds as
+          // tabs (xr-sections.ts is shared with the platform module).
+          ...XR_FAMILIES.map((f): NavItem => {
+            const pages = xrSectionsOf(f.id)
+            return {
+              id: `platform.xr.${f.id}`,
+              label: f.label,
+              to: '/platform',
+              search: pages[0].id,
+              alsoActiveFor: pages.slice(1).map((p) => p.id),
+              pages,
+            }
+          }),
         ],
       },
     ],

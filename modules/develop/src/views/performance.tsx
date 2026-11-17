@@ -17,7 +17,9 @@ import {
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import { CrdMissing } from '../components/crd-missing.tsx'
+import { IconRefresh } from '../components/repo-bits.tsx'
 import { PerfSuite } from './perf-suite.tsx'
+import { usePerfSuite } from '../data/perf-suite.ts'
 import { RunDrawer } from './perf-run-drawer.tsx'
 import { PerfOverview } from './perf-overview.tsx'
 import { PerfDashboard } from './perf-dashboard.tsx'
@@ -103,6 +105,8 @@ export function Performance() {
   const setTab = (t: PerfTab) => setParams({ view: t === 'overview' ? undefined : t })
   const runs = useTestRuns()
   const insights = usePerfInsights()
+  // Same query the insights read (deduped) — here only for its error state.
+  const suiteQ = usePerfSuite()
   // `?run=ns/name` opens a run; `?report=ns/name` opens it on its final
   // report — which works for a kept result whose TestRun is gone, too.
   const selected = useMemo(() => {
@@ -136,7 +140,8 @@ export function Performance() {
 
   const tabs = (
     <div className="flex flex-wrap items-center gap-2 border-b border-edge-default">
-      <div className="-mb-px flex gap-1" role="tablist" aria-label="Performance Center">
+      {/* One scrolling row on a phone: six tabs are wider than 390px. */}
+      <div className="-mb-px flex min-w-0 max-w-full gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="tablist" aria-label="Performance Center">
         {PERF_TABS.map(([id, label]) => (
           <button
             key={id}
@@ -161,7 +166,7 @@ export function Performance() {
               if (id !== 'schedules') setScheduleFor(undefined)
             }}
             className={cn(
-              'border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
+              'shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] font-medium transition-colors',
               tab === id ? 'border-brand-600 text-content' : 'border-transparent text-content-muted hover:text-content',
             )}
           >
@@ -227,14 +232,16 @@ export function Performance() {
         title="Performance Center"
         actions={
           <>
-            <Button size="sm" variant="secondary" onClick={() => { runs.refetch() }} aria-label="Refresh" title="Refresh">↻</Button>
+            <Button size="sm" variant="secondary" onClick={() => { runs.refetch() }} loading={runs.isRefetching} aria-label="Refresh" title="Refresh">
+              {runs.isRefetching ? null : <IconRefresh />}
+            </Button>
             {/* A new test is a commit to the app repository — Gitea authorises it. */}
             <Button size="sm" variant="secondary" onClick={() => { setTab('tests'); setNewTestToken((n) => n + 1) }}>New test</Button>
             {canQuick ? <Button variant="primary" size="sm" onClick={() => setQuick(true)}>Quick test</Button> : null}
           </>
         }
       />
-      <PerfOverview insights={insights} runs={items} />
+      <PerfOverview insights={insights} runs={items} testsUnread={suiteQ.isError && !suiteQ.data} runsUnread={runs.isError && !runs.data && !crdMissing} />
       {tabs}
 
       {tab === 'overview'

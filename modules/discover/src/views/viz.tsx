@@ -367,7 +367,8 @@ export function Segmented<T extends string>({
           aria-pressed={value === o.id}
           onClick={() => onChange(o.id)}
           className={cn(
-            'rounded px-2 py-0.5 text-[11px] transition-colors',
+            // 21px is a mouse size; on touch each segment is a 36px target.
+            'rounded px-2 py-0.5 text-[11px] transition-colors pointer-coarse:min-h-9 pointer-coarse:px-3',
             value === o.id
               ? 'bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
               : 'text-content-muted hover:bg-surface-sunken hover:text-content',

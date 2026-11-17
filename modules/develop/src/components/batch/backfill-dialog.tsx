@@ -352,7 +352,10 @@ export function BackfillPreview({ items, volcano, parallel }: { items: readonly 
               <tr key={it.businessDate}>
                 <td className={`${TD} font-mono`}>{it.businessDate}</td>
                 <td className={`${TD} font-mono`}>{it.run}</td>
-                <td className={TD}>{ACTION_LABEL[it.action]}{it.restartOf ? <span className='text-content-subtle'>(continues {it.restartOf})</span> : null}</td>
+                <td className={TD}>
+                  {ACTION_LABEL[it.action]}
+                  {it.restartOf ? <span className='text-content-subtle'>{` (continues ${it.restartOf})`}</span> : null}
+                </td>
               </tr>
             ))}
           </tbody>

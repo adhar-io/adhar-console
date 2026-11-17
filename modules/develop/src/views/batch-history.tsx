@@ -300,6 +300,14 @@ export function HistoryTable({
           </Note>
         )
         : null}
+      {read?.state === 'read' && read.behind
+        ? (
+          <Note tone='warn'>
+            The console ran out of time before it reached the end of the stream, so the most recent events are not here. That is not the same as nothing having
+            run since. <span className='font-mono'>adhar batch history</span> reads all of it.
+          </Note>
+        )
+        : null}
       {read?.state === 'read' && read.degraded
         ? (
           <Note tone='warn'>

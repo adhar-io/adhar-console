@@ -379,7 +379,17 @@ function RepoEditor({ fullName, branch: branchParam, page, fromWireframe, onWire
       </div>
     )
   }
-  const data = opened.data!
+  const data = opened.data
+  // A fetch that is paused (offline) is neither loading nor failed: keep the
+  // opening state rather than dereferencing data that never arrived.
+  if (!data) {
+    return (
+      <div className='space-y-4'>
+        <PageHeader compact title={<span className='flex items-center gap-2'><BackButton onClick={onBack} />{name}</span>} />
+        <OpeningState name={name} step={`Reading pages and components on ${branch}`} />
+      </div>
+    )
+  }
   if (!data.session.editable || !data.session.pages.length) {
     return (
       <div className='space-y-6'>

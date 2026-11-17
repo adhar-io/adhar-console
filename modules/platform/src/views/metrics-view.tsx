@@ -13,6 +13,7 @@ import { cn } from '@adhar/utils'
 import { useNodeMetrics, useNodes, usePodMetrics, usePods } from '../data/hooks.ts'
 import { formatBytes, formatCpu, nodeRoles, parseQuantity } from '../data/format.ts'
 import { CapacityDetail, NamespaceDetail, StorageDetail, TrendsDetail } from './metrics-detail.tsx'
+import { ListError } from './list-shell.tsx'
 
 /**
  * Cluster metrics dashboard — live CPU + memory utilization sourced from
@@ -45,7 +46,7 @@ export function MetricsView() {
   )
 
   if (nodes.isError) {
-    return <EmptyState title="Couldn't load cluster metrics" description={(nodes.error as Error).message} />
+    return <ListError title="Couldn't load cluster metrics" error={nodes.error} onRetry={() => nodes.refetch()} />
   }
 
   if (nodes.isLoading && nodeList.length === 0) {

@@ -31,6 +31,7 @@ import {
   nodeRoles,
   parseQuantity,
 } from '../data/format.ts'
+import { ListError } from './list-shell.tsx'
 
 type Sub = 'overview' | 'conditions' | 'addresses' | 'taints' | 'labels' | 'system'
 
@@ -112,7 +113,7 @@ export function NodesView() {
   const q = useNodes()
   const [selectedName, setSelectedName] = useState<string | null>(null)
   if (q.isError) {
-    return <EmptyState title="Couldn't list nodes" description={(q.error as Error).message} />
+    return <ListError title="Couldn't list nodes" error={q.error} onRetry={() => q.refetch()} />
   }
   const nodes = q.data ?? []
   return (

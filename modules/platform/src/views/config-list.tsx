@@ -16,7 +16,7 @@ import { useConfigMaps, useSecrets } from '../data/hooks.ts'
 import { GVRS } from '../data/gvr.ts'
 import { age } from '../data/format.ts'
 import { DrawerSection, ResourceDrawer } from './resource-drawer.tsx'
-import { ListShell, matchesSearch } from './list-shell.tsx'
+import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 import { CodeEditor, type CodeLanguage } from '../components/code-editor.tsx'
 
 /** Best-effort language for a ConfigMap/Secret entry from its key + content. */
@@ -118,6 +118,7 @@ function ConfigMapsTable({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
+        error={q.isError ? q.error : undefined}
         isFetching={q.isFetching}
         onRefresh={() => q.refetch()}
         lastUpdatedAt={q.dataUpdatedAt}
@@ -172,7 +173,7 @@ function ConfigMapsTable({ namespace }: { namespace?: string }) {
           ]}
           rows={rows}
           rowKey={(c) => `${c.metadata.namespace}/${c.metadata.name}`}
-          empty={<EmptyState title="No ConfigMaps" />}
+          empty={<ListEmpty what="ConfigMaps" search={search} onClearSearch={() => setSearch('')} hint={`No ConfigMap exists in ${scopeLabel(namespace)}.`} />}
         />
       </ListShell>
       {selected ? (
@@ -352,6 +353,7 @@ function SecretsTable({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
+        error={q.isError ? q.error : undefined}
         isFetching={q.isFetching}
         onRefresh={() => q.refetch()}
         lastUpdatedAt={q.dataUpdatedAt}

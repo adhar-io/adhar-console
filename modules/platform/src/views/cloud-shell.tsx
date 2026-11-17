@@ -767,6 +767,11 @@ function Launcher({
             <div className="max-h-56 overflow-y-auto rounded-md border border-edge-default">
               {pods.isLoading ? (
                 <p className="px-2 py-3 text-[11px] text-content-subtle">Loading pods…</p>
+              ) : pods.isError && running.length === 0 ? (
+                <p role="alert" className="px-2 py-3 text-[11px] text-rose-700 dark:text-rose-300">
+                  Couldn’t list pods{pods.error?.message ? ` — ${pods.error.message}` : ''}.{' '}
+                  <button type="button" onClick={() => pods.refetch()} className="font-medium underline underline-offset-2">Try again</button>
+                </p>
               ) : running.length === 0 ? (
                 <p className="px-2 py-3 text-[11px] text-content-subtle">No running pods{podFilter ? ' match' : ''}{namespace ? ` in ${namespace}` : ''}.</p>
               ) : (

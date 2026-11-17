@@ -296,6 +296,7 @@ function BoardCard({ hit, onOpen, onStar, emphasis = false }: { hit: SearchHit; 
           onClick={() => onStar(hit)}
           aria-pressed={!!hit.isStarred}
           title={hit.isStarred ? 'Unstar' : 'Star'}
+          aria-label={`${hit.isStarred ? 'Unstar' : 'Star'} ${hit.title}`}
           className={cn('relative z-10 text-sm leading-none', hit.isStarred ? 'text-amber-500' : 'text-content-subtle opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-content')}
         >
           {hit.isStarred ? '★' : '☆'}

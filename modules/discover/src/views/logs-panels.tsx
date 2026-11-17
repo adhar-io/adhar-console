@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { DrawerWidenButton, LokiIcon, Spinner, StatusBadge, type StatusKind, useDrawerWidth } from '@adhar/shell-ui'
+import { DrawerWidenButton, LokiIcon, Spinner, StatusBadge, type StatusKind, useDrawerWidth, useOverlayDismiss } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { lgtm } from '@adhar/api-clients'
 import {
@@ -362,13 +362,8 @@ export function LogDetailDrawer({
   const lvl = levelOf(entry)
   const ts = new Date(entry.timestamp)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
 
   const labels = Object.entries(labelsOf(entry)).filter(([k]) => !k.startsWith('__'))
   const fields = Object.entries(parsed.fields)

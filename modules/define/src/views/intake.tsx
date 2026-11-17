@@ -29,6 +29,7 @@ import { IssueSearch } from '../components/issue-search.tsx'
 import { IssueDrawer } from '../components/issue-drawer.tsx'
 import { RichView } from '../components/rich-editor.tsx'
 import { IconLink, Loading, Notice, ProblemState } from '../components/planning-ui.tsx'
+import { confirmAction } from '../components/confirm.tsx'
 
 /**
  * Intake — the project's triage queue (Plane Intake). Requests land pending;
@@ -318,8 +319,8 @@ function BulkBar({ projectId, ids, onDone }: { projectId: string; ids: string[];
         size="xs"
         variant="ghost"
         disabled={!!busy}
-        onClick={() => {
-          if (confirm(`Delete ${ids.length} requests? Requests that were not accepted are removed with their work items.`)) void run('Deleted', (id) => remove.mutateAsync(id))
+        onClick={async () => {
+          if (await confirmAction({ title: `Delete ${ids.length} request${ids.length === 1 ? '' : 's'}?`, description: 'Requests that were not accepted are removed with their work items.' })) void run('Deleted', (id) => remove.mutateAsync(id))
         }}
       >
         Delete
@@ -409,8 +410,8 @@ function IntakeDetail({ projectId, identifier, item, policy, onOpenIssue }: { pr
           : <Button size="sm" onClick={() => act('Moved back to pending', { status: -2, snoozed_till: null })}>Reopen</Button>}
         <button
           type="button"
-          onClick={() => {
-            if (!confirm('Delete this request? A request that was not accepted is removed with its work item.')) return
+          onClick={async () => {
+            if (!(await confirmAction({ title: 'Delete this request?', description: 'A request that was not accepted is removed with its work item.' }))) return
             remove.mutate(item.issue, { onSuccess: () => toast.success('Request deleted'), onError: (e) => toast.error(planeError(e, "Couldn't delete the request.")) })
           }}
           className="ml-auto text-[12px] font-medium text-rose-700 hover:underline dark:text-rose-300"

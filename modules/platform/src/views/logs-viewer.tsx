@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { KubeObject } from '@adhar/api-clients/k8s'
-import { Button, canResource, Card, CardBody, CardHeader, EmptyState, Select, useAccessReview } from '@adhar/shell-ui'
+import { Button, canResource, Card, CardBody, CardHeader, EmptyState, Select, Spinner, useAccessReview } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import { useLiveList } from '../data/live.ts'
 import { clusterParam, useActiveCluster } from '../data/client.ts'
 import { GVRS } from '../data/gvr.ts'
 import { AccessDenied } from '../components/role-gate.tsx'
+import { ListError, scopeLabel } from './list-shell.tsx'
 import {
   LogConsole,
   type LogSource,
@@ -218,6 +219,9 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
   }, [sourceMode, workloadPods, containerSel, containerNames, selectedPod])
 
   const multi = activeSources.length > 1
+  // The list behind the active picker — its loading / failed state is the body's too.
+  const sourceList = sourceMode === 'workload' ? workloads : pods
+  const sourceCount = sourceMode === 'workload' ? workloadNames.length : podNames.length
 
   /*
    * The namespace to STREAM from is the selected pod's own, not the namespace
@@ -314,7 +318,9 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
                   wrapperClassName="min-w-0 flex-1 max-w-80"
                   disabled={podNames.length === 0}
                 >
-                  {podNames.length === 0 ? <option value="">No pods</option> : null}
+                  {podNames.length === 0
+                    ? <option value="">{pods.isLoading ? 'Loading pods…' : pods.isError ? 'Pods unavailable' : 'No pods'}</option>
+                    : null}
                   {podNames.map((n) => <option key={n} value={n}>{n}</option>)}
                 </Select>
               </FieldLabel>
@@ -341,7 +347,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
                     disabled={workloadNames.length === 0}
                   >
                     {workloadNames.length === 0
-                      ? <option value="">No {workloadKind}</option>
+                      ? <option value="">{workloads.isLoading ? 'Loading…' : workloads.isError ? 'Unavailable' : `No ${workloadKind}`}</option>
                       : null}
                     {workloadNames.map((n) => <option key={n} value={n}>{n}</option>)}
                   </Select>
@@ -403,7 +409,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               aria-pressed={shown[s]}
               title={`${shown[s] ? 'Hide' : 'Show'} ${SEVERITY_LABEL[s]} lines`}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors',
+                'inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors pointer-coarse:min-h-9 pointer-coarse:px-3',
                 shown[s]
                   ? 'border-edge-strong bg-surface-raised text-content'
                   : 'border-edge-default bg-surface-sunken text-content-subtle line-through opacity-60',
@@ -422,7 +428,7 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
             aria-pressed={previous}
             title="Previous (last-terminated) container instance"
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+              'inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors pointer-coarse:min-h-9 pointer-coarse:px-3',
               previous
                 ? 'border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-500/25 dark:bg-amber-500/15 dark:text-amber-200'
                 : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong',
@@ -484,13 +490,35 @@ export function LogsViewer({ namespace, pod, container }: LogsViewerProps = {}) 
               />
             </div>
           )
+          : activeSources.length === 0 && sourceList.isError && sourceCount === 0
+          ? (
+            // The picker's list failed — say so, rather than "pick a pod" over an empty picker.
+            <div className="p-6">
+              <ListError
+                compact
+                title={sourceMode === 'workload' ? "Couldn't list workloads" : "Couldn't list pods"}
+                error={sourceList.error}
+                onRetry={sourceList.refetch}
+              />
+            </div>
+          )
+          : activeSources.length === 0 && sourceList.isLoading && sourceCount === 0
+          ? (
+            <div role="status" className="flex h-40 items-center justify-center gap-2 text-sm text-content-muted">
+              <Spinner size={14} /> {sourceMode === 'workload' ? 'Loading workloads…' : 'Loading pods…'}
+            </div>
+          )
           : activeSources.length === 0
           ? (
             <div className="p-6">
               <EmptyState
                 compact
-                title={sourceMode === 'workload' ? 'No pods matched' : 'No container selected'}
-                description={sourceMode === 'workload'
+                title={sourceCount === 0
+                  ? (sourceMode === 'workload' ? 'No workloads to read logs from' : 'No pods to read logs from')
+                  : sourceMode === 'workload' ? 'No pods matched' : 'No container selected'}
+                description={sourceCount === 0
+                  ? `Nothing of this kind exists in ${scopeLabel(ns)}. Logs appear here once a workload is running.`
+                  : sourceMode === 'workload'
                   ? 'Pick a workload with running pods to stream its aggregated logs.'
                   : 'Pick a pod and container to start streaming logs.'}
               />

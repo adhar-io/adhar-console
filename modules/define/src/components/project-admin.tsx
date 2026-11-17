@@ -23,6 +23,7 @@ import { useMembershipActions } from '../data/planning-plane.ts'
 import { membershipId, storeError, useMemberships, usePatchWorkflowRules, useWorkflowRules } from '../data/planning-store.ts'
 import { EMPTY_RULES, pruneRules, type WorkflowRules } from '../data/planning-workflow.ts'
 import { Notice } from './planning-ui.tsx'
+import { confirmAction } from './confirm.tsx'
 
 /**
  * The project's administration, inside the project drawer: members, the
@@ -123,8 +124,8 @@ export function ProjectMembersTab({ projectId }: { projectId: string }) {
                       size="xs"
                       variant="ghost"
                       loading={actions.remove.isPending && actions.remove.variables?.member === m.id}
-                      onClick={() => {
-                        if (!confirm(`Remove ${name} from this project?`)) return
+                      onClick={async () => {
+                        if (!(await confirmAction({ title: `Remove ${name} from this project?`, description: 'They lose access to its work items; anything assigned to them stays assigned.', confirmLabel: 'Remove' }))) return
                         actions.remove.mutate({ member: m.id, pk }, {
                           onSuccess: () => toast.success(`Removed ${name}`),
                           onError: (err) => toast.error(planeError(err, "Couldn't remove the member.")),
@@ -247,8 +248,8 @@ function StatesEditor({ projectId }: { projectId: string }) {
                         )}
                       </>
                     }
-                    onDelete={s.default ? undefined : () => {
-                      if (!confirm(`Delete the state "${s.name}"? Plane refuses if work items are still in it.`)) return
+                    onDelete={s.default ? undefined : async () => {
+                      if (!(await confirmAction({ title: `Delete the state “${s.name}”?`, description: 'Plane refuses if work items are still in it.' }))) return
                       m.remove.mutate(s.id, { onSuccess: () => toast.success(`Deleted ${s.name}`), onError: (e) => toast.error(planeError(e, "Couldn't delete the state — move its work items first.")) })
                     }}
                   />
@@ -426,8 +427,8 @@ function LabelsEditor({ projectId }: { projectId: string }) {
           </select>
         </>
       }
-      onDelete={() => {
-        if (!confirm(`Delete the label "${l.name}"? It is removed from every work item.`)) return
+      onDelete={async () => {
+        if (!(await confirmAction({ title: `Delete the label “${l.name}”?`, description: 'It is removed from every work item.' }))) return
         m.remove.mutate(l.id, { onSuccess: () => toast.success(`Deleted ${l.name}`), onError: (e) => toast.error(planeError(e, "Couldn't delete the label.")) })
       }}
     />
@@ -617,8 +618,8 @@ export function ProjectArchive({ project, onArchived }: { project: plane.Project
         size="sm"
         variant={archived ? 'primary' : 'danger'}
         loading={archive.isPending}
-        onClick={() => {
-          if (!archived && !confirm(`Archive ${project.name}?`)) return
+        onClick={async () => {
+          if (!archived && !(await confirmAction({ title: `Archive ${project.name}?`, description: 'The project becomes read-only and leaves the project lists. It can be restored.', confirmLabel: 'Archive' }))) return
           archive.mutate({ id: project.id, archive: !archived }, {
             onSuccess: () => {
               toast.success(archived ? `Restored ${project.name}` : `Archived ${project.name}`)

@@ -207,6 +207,7 @@ export function NavItem({
           item={item}
           isActive={isActive}
           onRowClick={hasChildren ? toggleExpanded : undefined}
+          expanded={hasChildren ? expanded : undefined}
         />
 
         {item.badge !== undefined ? <Badge value={item.badge} active={isActive} /> : null}
@@ -232,6 +233,11 @@ export function NavItem({
         // submenu slides open/closed with no JS height measurement. Children
         // stay mounted; `overflow-hidden` clips them while collapsing.
         <div
+          // Closed, the rows are only clipped to zero height — still mounted,
+          // so without `inert` every hidden sub-link stayed in the tab order
+          // and a keyboard user tabbed through dozens of invisible stops
+          // between one section and the next.
+          inert={!expanded}
           className={cn(
             'grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
             expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
@@ -347,11 +353,14 @@ function ItemLink({
   item,
   isActive,
   onRowClick,
+  expanded,
 }: {
   item: TNavItem
   isActive: boolean
   /** Called in addition to navigation — used to expand/collapse parents. */
   onRowClick?: () => void
+  /** Open state of the row's submenu, announced to assistive tech. Parents only. */
+  expanded?: boolean
 }) {
   // One line per row. The description used to sit under every top-level label,
   // which doubled the height of fourteen rows, pushed the last section off the
@@ -359,7 +368,9 @@ function ItemLink({
   // ("Scaffold new servic…"). It survives where it costs nothing and earns
   // its place: the tooltip and flyout of the COLLAPSED rail, where the label
   // is the only thing on screen.
-  const label = <div className="min-w-0 flex-1 truncate leading-tight">{item.label}</div>
+  // `title`: a label too long for the 256px rail is cut with an ellipsis, and
+  // the hover text is then the only place the whole name can be read.
+  const label = <div className="min-w-0 flex-1 truncate leading-tight" title={item.label}>{item.label}</div>
 
   // No `to` and no row action → static label (unusual).
   if (!item.to && !onRowClick) return label
@@ -370,6 +381,7 @@ function ItemLink({
       <button
         type="button"
         onClick={onRowClick}
+        aria-expanded={expanded}
         className="flex min-w-0 flex-1 items-center rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40"
       >
         {label}
@@ -383,7 +395,12 @@ function ItemLink({
     <Link
       to={item.to!}
       search={{ section: item.search } as never}
+      // The router marks a link current on its own, and by default ignores an
+      // undefined search value — so a parent with no section ("Kubernetes",
+      // /platform) announced itself current on every /platform?section=… page.
+      activeOptions={{ explicitUndefined: true }}
       aria-current={isActive ? 'page' : undefined}
+      aria-expanded={expanded}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
         onRowClick?.()
@@ -449,6 +466,18 @@ function CollapsedItem({
     }
   }, [open])
 
+  // Keep the flyout on screen. It opens level with its trigger, and a group
+  // low in the rail (Kubernetes, Adhar Resources) with a long list of children
+  // ran off the bottom of the window — the last rows could not be reached,
+  // because moving the pointer to scroll for them closes the flyout.
+  const flyoutRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = flyoutRef.current
+    if (!open || !pos || !el) return
+    const overflow = el.getBoundingClientRect().bottom - (window.innerHeight - 8)
+    if (overflow > 0.5) setPos((p) => (p ? { ...p, top: Math.max(8, p.top - overflow) } : p))
+  }, [open, pos])
+
   useEffect(() => {
     return () => cancelClose()
   }, [])
@@ -474,6 +503,7 @@ function CollapsedItem({
       search={{ section: item.search } as never}
       className="block"
       aria-label={item.label}
+      activeOptions={{ explicitUndefined: true }}
       aria-current={isActive ? 'page' : undefined}
       onClick={() => setOpen(false)}
     >
@@ -496,6 +526,7 @@ function CollapsedItem({
       {open && pos
         ? createPortal(
             <div
+              ref={flyoutRef}
               onMouseEnter={scheduleOpen}
               onMouseLeave={scheduleClose}
               style={{ top: pos.top, left: pos.left }}

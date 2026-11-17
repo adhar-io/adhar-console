@@ -143,7 +143,9 @@ function NavProgressBar() {
 
 function BootSplash() {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-surface-sunken">
+    // `min-h-dvh`: 100vh on a phone includes the strip behind the browser's
+    // bars, which pushed the centred splash below the middle of the screen.
+    <div role="status" aria-live="polite" className="flex min-h-dvh flex-col items-center justify-center gap-5 bg-surface-sunken">
       <AdharSymbol size={56} className="animate-pulse" />
       <div className="flex items-center gap-3 rounded-xl border border-edge-default bg-surface-raised px-4 py-3 text-sm text-content-muted shadow-sm">
         <Spinner size={14} />

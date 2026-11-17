@@ -20,6 +20,7 @@ import {
   replayPlan,
   type TonightRow,
   tonightRows,
+  unforecastJobs,
 } from '../data/batch-history-model.ts'
 import { TABLE, TD, TH, Until, When } from '../components/batch/bits.tsx'
 import type { DialogFrame } from '../components/batch/dialogs.tsx'
@@ -133,6 +134,7 @@ export function TonightView({
     () => tonightRows(jobs, { now, runs, events, calendars, unreadCalendars, envByNamespace }),
     [jobs, now, runs, events, calendars, unreadCalendars, envByNamespace],
   )
+  const unforecast = useMemo(() => unforecastJobs(jobs), [jobs])
   const chains = useMemo(() => dependencyChains(jobs, runs), [jobs, runs])
   const dlq = useMemo(() => dlqByJob(dlqEntries(runs, events)), [runs, events])
   const today = dateInZone(now) ?? new Date(now).toISOString().slice(0, 10)
@@ -151,7 +153,7 @@ export function TonightView({
     ? `The batch history could not be read (${
       errorText(historyError)
     }), so expected ends and dead-letter counts come only from the runs the cluster still holds.`
-    : history?.state === 'read' && (history.truncated || history.degraded)
+    : history?.state === 'read' && (history.truncated || history.behind || history.degraded)
     ? 'Part of the batch history could not be read, so an expected end may rest on fewer runs than there were.'
     : undefined
 
@@ -159,6 +161,19 @@ export function TonightView({
     <div className='space-y-6'>
       {partial ? <Note tone='warn'>{partial}</Note> : null}
       <Section title='Next 24 hours'>
+        {unforecast.length
+          ? (
+            <Note tone='warn'>
+              {unforecast.map((u) => (
+                <span key={u.key} className='block'>
+                  <span className='font-mono'>{u.key}</span>{' '}
+                  {u.what === 'schedule' ? 'is not forecast: its schedule names' : 'shows no deadline: its SLA names'} the time zone{' '}
+                  <span className='font-mono'>{u.timeZone}</span>, which is not one this browser knows.
+                </span>
+              ))}
+            </Note>
+          )
+          : null}
         <ForecastTable rows={forecast} now={now} openJob={openJob} />
       </Section>
       <Section title='Dependency chains'>
@@ -607,14 +622,14 @@ export function ReplayDialog({
               {entry.run
                 ? (
                   <>
-                    of <span className='font-mono'>{entry.run}</span>
+                    {' '}of <span className='font-mono'>{entry.run}</span>
                   </>
                 )
                 : null}
               {entry.businessDate
                 ? (
                   <>
-                    (business date <span className='font-mono'>{entry.businessDate}</span>)
+                    {' '}(business date <span className='font-mono'>{entry.businessDate}</span>)
                   </>
                 )
                 : null} reported <span className='font-semibold tabular-nums'>{entry.deadLettered.toLocaleString()}</span> dead-lettered{' '}
@@ -634,7 +649,7 @@ export function ReplayDialog({
                   {plan.restartOf
                     ? (
                       <>
-                        The earlier replay <span className='font-mono'>{plan.restartOf}</span> failed, so this is its retry.
+                        {' '}The earlier replay <span className='font-mono'>{plan.restartOf}</span> failed, so this is its retry.
                       </>
                     )
                     : null}

@@ -25,6 +25,7 @@ import { useExportPagesPr, useGiteaBranches, useGiteaRepos } from '../data/pages
 import { ConsoleSideBadge, Loading, SourceNote } from '../components/insights-ui.tsx'
 import { type IssueChipInfo, type MarkdownHooks, PageMarkdown } from '../components/page-markdown.tsx'
 import { PageEditor } from '../components/page-editor.tsx'
+import { confirmAction } from '../components/confirm.tsx'
 
 /**
  * Pages — the project's wiki, kept by the console (Plane 1.4's public API has
@@ -488,8 +489,8 @@ function PageView({ page, pages, project, mode, onMode, onOpen, onWiki, onAddChi
           {editing
             ? (
               <>
-                <Button size="sm" onClick={() => {
-                  if (dirty && !confirm('Discard your changes?')) return
+                <Button size="sm" onClick={async () => {
+                  if (dirty && !(await confirmAction({ title: 'Discard your changes?', description: 'Edits since the last save are lost.', confirmLabel: 'Discard' }))) return
                   onMode(undefined)
                 }}>
                   Cancel
@@ -511,9 +512,9 @@ function PageView({ page, pages, project, mode, onMode, onOpen, onWiki, onAddChi
                   onExport={() => setExporting(true)}
                   onAddChild={onAddChild}
                   onCopy={() => void navigator.clipboard?.writeText(defineLink({ page: page.id, mode: undefined })).then(() => toast.success('Link copied'))}
-                  onDelete={() => {
+                  onDelete={async () => {
                     const kids = descendants(page.id, pages)
-                    if (!confirm(`Delete “${page.title}”${kids.length ? ` and its ${kids.length} sub-page${kids.length === 1 ? '' : 's'}` : ''}, with all versions and comments? This can't be undone.`)) return
+                    if (!(await confirmAction({ title: `Delete “${page.title}”?`, description: `${kids.length ? `Its ${kids.length} sub-page${kids.length === 1 ? ' is' : 's are'} deleted too, with` : 'This removes'} all versions and comments. This can't be undone.` }))) return
                     m.remove.mutate({ pages: [page, ...pages.filter((p) => kids.includes(p.id))] }, {
                       onSuccess: () => {
                         toast.success('Page deleted')

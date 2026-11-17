@@ -20,6 +20,7 @@ import {
   useToast,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui';
 import { dirOf, resolveReadmeImage } from '../data/readme-assets.ts';
 import { cn, formatRelative } from '@adhar/utils';
@@ -103,13 +104,8 @@ export function RepoDrawer({ repo: r, onClose, onDeleted, tab: tabProp, onTab }:
   const releaseCount = r.release_counter ?? releases.data?.length ?? 0;
   const toast = useToast();
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    globalThis.addEventListener('keydown', onKey);
-    return () => globalThis.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose);
 
   if (typeof document === 'undefined') return null;
 
@@ -795,7 +791,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
                     {rel.draft ? <StatusBadge kind='unknown'>draft</StatusBadge> : null}
                     {rel.prerelease ? <StatusBadge kind='degraded'>pre-release</StatusBadge> : null}
                     <span className='ml-auto text-[11px] text-content-subtle'>{rel.author?.login ? `${rel.author.login} · ` : ''}{formatRelative(rel.published_at ?? rel.created_at)}</span>
-                    <Button size='xs' variant='ghost' className='text-rose-700 dark:text-rose-300' onClick={() => setConfirm({ kind: 'release', id: rel.id, label: rel.name || rel.tag_name })}><IconTrash /></Button>
+                    <Button size='xs' variant='ghost' className='text-rose-700 dark:text-rose-300' aria-label={`Delete release ${rel.name || rel.tag_name}`} title='Delete release' onClick={() => setConfirm({ kind: 'release', id: rel.id, label: rel.name || rel.tag_name })}><IconTrash /></Button>
                   </div>
                   {rel.body ? <p className='mt-1.5 line-clamp-3 whitespace-pre-wrap text-xs text-content-muted'>{rel.body}</p> : null}
                   {rel.assets?.length
@@ -834,7 +830,7 @@ function ReleasesTab({ repo: r }: { repo: gitea.Repo }) {
                   <span className='min-w-0 flex-1 truncate text-[11px] text-content-subtle'>{t.message?.split('\n')[0] ?? ''}</span>
                   {t.commit ? <code className='font-mono text-[10px] text-content-subtle'>{t.commit.sha.slice(0, 7)}</code> : null}
                   {t.commit?.created ? <span className='text-[11px] text-content-subtle'>{formatRelative(t.commit.created)}</span> : null}
-                  <Button size='xs' variant='ghost' className='text-rose-700 dark:text-rose-300' onClick={() => setConfirm({ kind: 'tag', tag: t.name })}><IconTrash /></Button>
+                  <Button size='xs' variant='ghost' className='text-rose-700 dark:text-rose-300' aria-label={`Delete tag ${t.name}`} title='Delete tag' onClick={() => setConfirm({ kind: 'tag', tag: t.name })}><IconTrash /></Button>
                 </li>
               ))}
             </ul>
@@ -1049,7 +1045,7 @@ function HooksTab({ repo: r }: { repo: gitea.Repo }) {
                   <div className='flex items-center gap-1'>
                     <Button size='xs' variant='ghost' disabled={test.isPending} onClick={() => act('Test delivery sent', () => test.mutateAsync({ repo: r.name, id: h.id }))}>Test</Button>
                     <Button size='xs' variant='ghost' disabled={update.isPending} onClick={() => act(h.active ? 'Webhook paused' : 'Webhook resumed', () => update.mutateAsync({ repo: r.name, id: h.id, body: { active: !h.active } }))}>{h.active ? 'Pause' : 'Resume'}</Button>
-                    <Button size='xs' variant='ghost' className='text-rose-700 dark:text-rose-300' onClick={() => setConfirm(h)}><IconTrash /></Button>
+                    <Button size='xs' variant='ghost' className='text-rose-700 dark:text-rose-300' aria-label='Delete webhook' title='Delete webhook' onClick={() => setConfirm(h)}><IconTrash /></Button>
                   </div>
                 </li>
               ))}

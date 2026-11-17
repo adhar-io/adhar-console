@@ -37,6 +37,7 @@ import {
   WorklogPanel,
 } from './issue-panels.tsx'
 import { Avatar, IconClose, IconCopy, IconExternal, IconTrash, InlineLoading, PlaneErrorState } from './work-ui.tsx'
+import { confirmAction } from './confirm.tsx'
 
 /**
  * The work-item drawer (or full page, with Expand): Plane's fields plus the
@@ -167,8 +168,8 @@ export function IssueDrawer({ projectId, issueId, onClose, onPick, onPickIn }: P
               <IconBtn
                 title="Delete"
                 danger
-                onClick={() => {
-                  if (!confirm(`Delete ${key} “${item.name}”? Plane deletes it permanently.`)) return
+                onClick={async () => {
+                  if (!(await confirmAction({ title: `Delete ${key}?`, description: <>“{item.name}” is deleted from Plane permanently.</> }))) return
                   remove.mutate(item.id, { onSuccess: () => { toast.success(`Deleted ${key}`); onClose() }, onError: (e) => toast.error(planeError(e, "Couldn't delete — Plane allows it only for admins and the creator.")) })
                 }}
               >

@@ -6,6 +6,7 @@ import { age } from '../data/format.ts'
 import { type CrHealth, crStatus, groupLabel, HEALTH_BADGE } from '../data/crd-status.ts'
 import { DrawerSection, ResourceDrawer, Row } from './resource-drawer.tsx'
 import { PodYamlPanel } from './pod-yaml.tsx'
+import { ListError } from './list-shell.tsx'
 
 interface Props {
   namespace?: string
@@ -206,7 +207,7 @@ function KindPanel({ kind, namespace, onBack }: { kind: KindDef; namespace?: str
           description={`The ${kind.gvr.group} API isn't registered. Install its operator and this tab fills in on its own.`}
         />
       ) : q.isError ? (
-        <EmptyState title={`Couldn't list ${kind.label.toLowerCase()}`} description={(q.error as Error).message} />
+        <ListError title={`Couldn't list ${kind.label.toLowerCase()}`} error={q.error} onRetry={() => q.refetch()} />
       ) : (
         <DataTable
           loading={q.isLoading}
@@ -426,7 +427,7 @@ function AllDefinitions({ namespace }: { namespace?: string }) {
         </Select>
       </div>
       {q.isError ? (
-        <EmptyState title="Couldn't list CustomResourceDefinitions" description={(q.error as Error).message} />
+        <ListError title="Couldn't list CustomResourceDefinitions" error={q.error} onRetry={() => q.refetch()} />
       ) : (
         <DataTable
           loading={q.isLoading}

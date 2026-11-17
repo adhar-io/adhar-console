@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
+import { DataTable, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
 import {
   usePersistentVolumeClaims,
   usePersistentVolumes,
   useStorageClasses,
 } from '../data/hooks.ts'
 import { age, formatBytes, parseQuantity } from '../data/format.ts'
-import { ListShell, matchesSearch } from './list-shell.tsx'
+import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 
 type Sub = 'pvcs' | 'pvs' | 'scs'
 
@@ -48,6 +48,7 @@ function PVCs({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -108,7 +109,7 @@ function PVCs({ namespace }: { namespace?: string }) {
       ]}
       rows={rows}
       rowKey={(p) => `${p.metadata.namespace}/${p.metadata.name}`}
-      empty={<EmptyState title="No PVCs" />}
+      empty={<ListEmpty what="volume claims" search={search} onClearSearch={() => setSearch('')} hint={`No workload has requested storage in ${scopeLabel(namespace)}.`} />}
     />
     </ListShell>
   )
@@ -125,6 +126,7 @@ function PVs() {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -198,7 +200,7 @@ function PVs() {
       ]}
       rows={rows}
       rowKey={(p) => p.metadata.name}
-      empty={<EmptyState title="No persistent volumes" />}
+      empty={<ListEmpty what="persistent volumes" search={search} onClearSearch={() => setSearch('')} hint="Volumes are provisioned when a claim binds — none exist on this cluster yet." />}
     />
     </ListShell>
   )
@@ -215,6 +217,7 @@ function SCs() {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -259,7 +262,7 @@ function SCs() {
       ]}
       rows={rows}
       rowKey={(s) => s.metadata.name}
-      empty={<EmptyState title="No storage classes" />}
+      empty={<ListEmpty what="storage classes" search={search} onClearSearch={() => setSearch('')} hint="Without a StorageClass, claims cannot be provisioned dynamically. Ask a platform admin to install a CSI driver." />}
     />
     </ListShell>
   )

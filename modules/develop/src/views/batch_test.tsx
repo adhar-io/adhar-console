@@ -103,6 +103,16 @@ Deno.test('jobs: a row shows what the XR and its runs say, grouped by applicatio
   assert(!html.includes('in 1'), 'a held job shows no next run')
 })
 
+Deno.test('jobs: one job with a time zone nobody can read does not take the table down', () => {
+  const html = page((qc) => {
+    seedList(qc, list({ namespaces: ['prod'], items: [job('importer', {}, { schedule: { cron: '30 1 * * *', timeZone: 'Asia/Kolkatta' } }), job('ledger', {}, { schedule: { cron: '30 1 * * *' } })] }))
+    seedRuns(qc, ['prod'], {})
+  })
+  assertStringIncludes(html, 'importer')
+  assertStringIncludes(html, 'Asia/Kolkatta')
+  assertStringIncludes(html, 'ledger')
+})
+
 Deno.test('jobs: with no pods read yet a job is "No runs yet", not a fabricated run', () => {
   const html = page((qc) => {
     seedList(qc, list({ namespaces: ['prod'], items: [job('importer')] }))

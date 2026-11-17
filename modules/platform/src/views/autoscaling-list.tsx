@@ -188,12 +188,6 @@ export function AutoscalingView({ namespace }: { namespace?: string }) {
     [all, search],
   )
 
-  if (live.isError) {
-    return (
-      <EmptyState title="Couldn't list HorizontalPodAutoscalers" description={live.error?.message} />
-    )
-  }
-
   const selectedHpa = selected ? all.find((h) => `${h.metadata.namespace}/${h.metadata.name}` === selected) : undefined
 
   return (
@@ -201,6 +195,7 @@ export function AutoscalingView({ namespace }: { namespace?: string }) {
       <ListShell
         title="HorizontalPodAutoscalers"
         total={all.length}
+        error={live.isError ? live.error : undefined}
         visible={rows.length}
         loading={live.isLoading}
         onRefresh={() => live.refetch()}

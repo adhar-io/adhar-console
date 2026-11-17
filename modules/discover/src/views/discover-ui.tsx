@@ -34,7 +34,7 @@ export function Segmented<T extends string>({
           onClick={() => onChange(o.id)}
           className={cn(
             'inline-flex items-center gap-1 rounded-md font-medium transition-colors',
-            size === 'xs' ? 'h-6 px-2 text-[11px]' : 'h-7 px-2.5 text-[12px]',
+            size === 'xs' ? 'h-6 px-2 text-[11px] pointer-coarse:h-9' : 'h-7 px-2.5 text-[12px] pointer-coarse:h-9',
             value === o.id
               ? 'bg-surface-sunken text-content shadow-sm ring-1 ring-edge-default'
               : 'text-content-muted hover:text-content',
@@ -156,7 +156,7 @@ export function KvTable({ rows, actions }: { rows: Array<[string, ReactNode]>; a
             <tr key={k} className="group align-top hover:bg-surface-sunken/40">
               <td className="w-1/3 whitespace-nowrap px-3 py-1.5 font-mono text-content-muted">{k}</td>
               <td className="break-all px-3 py-1.5 font-mono text-content">{v}</td>
-              {actions ? <td className="w-px whitespace-nowrap px-2 py-1 opacity-0 group-hover:opacity-100">{actions(k)}</td> : null}
+              {actions ? <td className="w-px whitespace-nowrap px-2 py-1 opacity-0 focus-within:opacity-100 group-hover:opacity-100">{actions(k)}</td> : null}
             </tr>
           ))}
         </tbody>

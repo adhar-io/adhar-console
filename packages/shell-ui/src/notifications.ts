@@ -101,9 +101,13 @@ function qs(p: FeedParams): string {
 async function fetchFeed(p: FeedParams): Promise<NotificationPage> {
   const res = await fetch(`/api/notifications${qs(p)}`, { credentials: 'include', headers: { accept: 'application/json' } })
   if (!res.ok) throw new Error(`notifications ${res.status}`)
-  const json = (await res.json()) as NotificationPage & { state?: unknown }
+  // A 200 that is not JSON (a proxy's sign-in or error page) used to surface
+  // the parser's own words — "Unexpected token '<' …" — in the page copy.
+  const json = (await res.json().catch(() => {
+    throw new Error('the server did not answer with JSON')
+  })) as (NotificationPage & { state?: unknown }) | null
   // Legacy shape guard (state-only servers) → treat as empty persisted feed.
-  if (!Array.isArray(json.items)) return { items: [], total: 0, unread: 0, persisted: false }
+  if (!json || !Array.isArray(json.items)) return { items: [], total: 0, unread: 0, persisted: false }
   return json
 }
 

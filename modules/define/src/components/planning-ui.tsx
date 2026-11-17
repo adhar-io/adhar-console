@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, DocStoreError, DrawerWidenButton, EmptyState, Spinner, StatusBadge, type StatusKind, useDrawerWidth, useElementWidth } from '@adhar/shell-ui'
+import { Button, DocStoreError, DrawerWidenButton, EmptyState, Spinner, StatusBadge, type StatusKind, useDrawerWidth, useElementWidth, useOverlayDismiss } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { plane } from '@adhar/api-clients'
 import { memberDisplayName, memberInitials, useMembers } from '../data/plane.ts'
@@ -550,13 +550,9 @@ export function SidePanel({ title, eyebrow, meta, actions, onClose, children, wi
   widthId?: string
 }) {
   const width = useDrawerWidth(widthId, { base: wide ? 'max-w-6xl' : 'max-w-5xl' })
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('[role="dialog"][data-nested]')) onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // The shared overlay stack: Esc closes only the topmost overlay, so a modal
+  // or confirm opened from this panel no longer takes the panel down with it.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">

@@ -1,7 +1,8 @@
 import { workloadOk } from '../data/workloads.ts'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  Button,
   Card,
   CardBody,
   EmptyState,
@@ -10,6 +11,7 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { argocd } from '@adhar/api-clients'
@@ -142,20 +144,13 @@ export function Environments() {
         description={
           <>
             The cluster registry comes from Argo CD, so nothing can be listed until it responds.
-            <div className='mt-2 font-mono text-[11px] text-content-subtle'>
+            {/* a span: EmptyState renders the description inside a <p> */}
+            <span className='mt-2 block font-mono text-[11px] text-content-subtle'>
               {(clusters.error as Error)?.message}
-            </div>
+            </span>
           </>
         }
-        action={
-          <button
-            type='button'
-            onClick={() => void clusters.refetch()}
-            className='rounded-lg border border-edge-default bg-surface-raised px-3 py-1.5 text-xs font-medium text-content hover:border-brand-400'
-          >
-            Retry
-          </button>
-        }
+        action={<Button size='sm' onClick={() => void clusters.refetch()}>Retry</Button>}
       />
     )
   }
@@ -481,13 +476,8 @@ function EnvDrawer({
   const deployments = useNamespaceWorkloads(env.namespace, live)
   const pods = useNamespacePods(env.namespace, live)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
 
   const podStats = useMemo(() => {
     const list = pods.data ?? []

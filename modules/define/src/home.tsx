@@ -10,6 +10,7 @@ import {
   useProjects,
 } from './data/plane.ts'
 import type { SavedIssueQuery } from './data/view-query.ts'
+import { ConfirmHost } from './components/confirm.tsx'
 
 // One chunk per section so the remote's entry no longer ships every view
 // (~1.1 MB) to render the one the URL asked for.
@@ -223,6 +224,7 @@ export default function DefineHome({ section }: { section?: string } = {}) {
 
   return (
     <div className="space-y-6">
+      <ConfirmHost />
       {/* The dashboard draws its own header: its project picker and Customize live in the actions. */}
       {active === 'dashboard' ? null : <PageHeader
         title={

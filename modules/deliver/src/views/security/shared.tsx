@@ -1,6 +1,6 @@
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Spinner, DrawerWidenButton, useDrawerWidth } from '@adhar/shell-ui'
+import { Button, Spinner, DrawerWidenButton, useDrawerWidth, useOverlayDismiss } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { Severity } from '../../data/security-findings.ts'
 import type { GateState, WaiverStatus } from '../../data/security-types.ts'
@@ -163,13 +163,8 @@ export function Drawer({
   children: ReactNode
 }) {
   const width = useDrawerWidth(widthId, { base: 'max-w-3xl' })
-  useEffect(() => {
-    const onKey = (k: KeyboardEvent) => {
-      if (k.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
@@ -265,7 +260,7 @@ export function Loading({ text }: { text: string }) {
 }
 
 /** Why there are no runtime findings, when the reason is not "nothing found". */
-export function ReportStateNotice({ state, detail }: { state: 'ok' | 'absent' | 'forbidden' | 'error'; detail?: string }) {
+export function ReportStateNotice({ state, detail, onRetry }: { state: 'ok' | 'absent' | 'forbidden' | 'error'; detail?: string; onRetry?: () => void }) {
   if (state === 'absent') {
     return (
       <Notice tone="warn" title="trivy-operator is not installed">
@@ -280,6 +275,12 @@ export function ReportStateNotice({ state, detail }: { state: 'ok' | 'absent' | 
       </Notice>
     )
   }
-  if (state === 'error') return <Notice tone="error" title="Couldn't read vulnerability reports">{detail ?? 'The cluster did not answer.'}</Notice>
+  if (state === 'error') {
+    return (
+      <Notice tone="error" title="Couldn't read vulnerability reports" action={onRetry ? <Button size="xs" onClick={onRetry}>Retry</Button> : undefined}>
+        {detail ?? 'The cluster did not answer.'}
+      </Notice>
+    )
+  }
   return null
 }

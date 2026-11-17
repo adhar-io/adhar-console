@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, Tabs, type TabDef } from '@adhar/shell-ui'
+import { DataTable, Tabs, type TabDef } from '@adhar/shell-ui'
 import {
   useClusterRoleBindings,
   useClusterRoles,
@@ -8,7 +8,7 @@ import {
   useServiceAccounts,
 } from '../data/hooks.ts'
 import { age } from '../data/format.ts'
-import { ListShell, matchesSearch } from './list-shell.tsx'
+import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 
 type Sub = 'sa' | 'roles' | 'rolebindings' | 'clusterroles' | 'clusterrolebindings'
 
@@ -61,6 +61,7 @@ function ServiceAccountsTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -90,7 +91,7 @@ function ServiceAccountsTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(s) => `${s.metadata.namespace}/${s.metadata.name}`}
-        empty={<EmptyState title="No service accounts" />}
+        empty={<ListEmpty what="service accounts" search={search} onClearSearch={() => setSearch('')} hint={`No ServiceAccount exists in ${scopeLabel(namespace)}.`} />}
       />
     </ListShell>
   )
@@ -107,6 +108,7 @@ function RolesTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -136,7 +138,7 @@ function RolesTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(r) => `${r.metadata.namespace}/${r.metadata.name}`}
-        empty={<EmptyState title="No roles" />}
+        empty={<ListEmpty what="roles" search={search} onClearSearch={() => setSearch('')} hint={`No namespaced Role is defined in ${scopeLabel(namespace)}. Cluster-wide permissions are under ClusterRoles.`} />}
       />
     </ListShell>
   )
@@ -153,6 +155,7 @@ function RoleBindingsTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -210,7 +213,7 @@ function RoleBindingsTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(rb) => `${rb.metadata.namespace}/${rb.metadata.name}`}
-        empty={<EmptyState title="No role bindings" />}
+        empty={<ListEmpty what="role bindings" search={search} onClearSearch={() => setSearch('')} hint={`No subject is bound to a Role in ${scopeLabel(namespace)}.`} />}
       />
     </ListShell>
   )
@@ -227,6 +230,7 @@ function ClusterRolesTable() {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -252,7 +256,7 @@ function ClusterRolesTable() {
         ]}
         rows={rows}
         rowKey={(r) => r.metadata.name}
-        empty={<EmptyState title="No cluster roles" />}
+        empty={<ListEmpty what="cluster roles" search={search} onClearSearch={() => setSearch('')} hint="No ClusterRole is visible to your account." />}
       />
     </ListShell>
   )
@@ -269,6 +273,7 @@ function ClusterRoleBindingsTable() {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -305,7 +310,7 @@ function ClusterRoleBindingsTable() {
         ]}
         rows={rows}
         rowKey={(rb) => rb.metadata.name}
-        empty={<EmptyState title="No cluster role bindings" />}
+        empty={<ListEmpty what="cluster role bindings" search={search} onClearSearch={() => setSearch('')} hint="No ClusterRoleBinding is visible to your account." />}
       />
     </ListShell>
   )

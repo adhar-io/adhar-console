@@ -78,7 +78,13 @@ export function Modal({
         ref={panelRef}
         tabIndex={-1}
         className={cn(
-          'pop-in relative flex max-h-[92dvh] w-full flex-col outline-none overflow-hidden rounded-t-2xl border border-edge-default bg-surface-raised shadow-2xl sm:max-h-none sm:rounded-2xl',
+          // From sm up the panel is capped to the window less the backdrop's
+          // `py-10`. It had no cap there (`sm:max-h-none`) and relied on the
+          // body's 70vh alone, so on a short window — a laptop with devtools
+          // docked, a landscape tablet — header + 70vh + footer overran the
+          // viewport and the footer's buttons were cut off with no way to
+          // scroll to them. The body is the flex child that gives.
+          'pop-in relative flex max-h-[92dvh] w-full flex-col outline-none overflow-hidden rounded-t-2xl border border-edge-default bg-surface-raised shadow-2xl sm:max-h-[calc(100dvh-5rem)] sm:rounded-2xl',
           WIDTH[width],
         )}
       >

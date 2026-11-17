@@ -27,7 +27,7 @@ import {
   useStatefulSets,
 } from '../data/hooks.ts'
 import { age, formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
-import { LOCAL_CLUSTER, useActiveCluster } from '../data/client.ts'
+import { type GatewayCluster, LOCAL_CLUSTER, useActiveCluster } from '../data/client.ts'
 
 /**
  * Platform dashboard — workspace-level Kubernetes pulse mirroring the
@@ -56,7 +56,8 @@ export function PlatformDashboard() {
   // The gateway resolves the real cluster name (the platform's clusterName)
   // for every entry; the routing key (`local`/`default`) is never shown.
   const clusters = useClusters()
-  const activeEntry = clusters.data?.find((c) =>
+  // The gateway client returns GatewayCluster entries (they carry `isDefault`).
+  const activeEntry = (clusters.data as GatewayCluster[] | undefined)?.find((c) =>
     cluster === LOCAL_CLUSTER ? c.isDefault : c.name === cluster,
   )
   const clusterLabel = activeEntry?.displayName || activeEntry?.name || (cluster === LOCAL_CLUSTER ? 'cluster' : cluster)

@@ -215,6 +215,7 @@ export function ResourceBrowser({ namespace: initialNamespace }: Props = {}) {
           <div className="h-64 animate-pulse rounded-xl border border-edge-default bg-surface-sunken/50" />
         ) : discovery.isError ? (
           <EmptyState
+            tone="error"
             title="Couldn't discover the cluster's API"
             description={(discovery.error as Error)?.message}
             action={<Button size="sm" variant="secondary" onClick={() => discovery.refetch()}>Try again</Button>}

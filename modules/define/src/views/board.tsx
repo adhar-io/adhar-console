@@ -234,7 +234,7 @@ export function Board({ projectId }: { projectId?: string }) {
                 const isCol = collapsed.includes(col.id)
                 return (
                   <div key={col.id} style={{ width: isCol ? 44 : width }} className={cn('flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5', ws === 'over' ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10' : ws === 'at' ? 'border-amber-300 bg-amber-50/60 dark:bg-amber-500/10' : 'border-edge-default bg-surface-raised')}>
-                    <button type="button" onClick={() => toggleCollapse(col.id)} title={isCol ? 'Expand column' : 'Collapse column'} className="text-content-subtle hover:text-content"><IconChevron open={!isCol} /></button>
+                    <button type="button" onClick={() => toggleCollapse(col.id)} title={isCol ? 'Expand column' : 'Collapse column'} aria-label={`${isCol ? 'Expand' : 'Collapse'} ${col.label}`} aria-expanded={!isCol} className="text-content-subtle hover:text-content"><IconChevron open={!isCol} /></button>
                     {!isCol ? (
                       <>
                         {col.color ? <StateDot state={{ color: col.color, group: col.group, name: col.label }} /> : null}

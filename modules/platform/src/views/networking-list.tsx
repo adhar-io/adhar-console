@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, EmptyState, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
+import { DataTable, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
 import type { k8s } from '@adhar/api-clients'
 import {
   useEndpoints,
@@ -9,7 +9,7 @@ import {
 } from '../data/hooks.ts'
 import { age } from '../data/format.ts'
 import { DrawerSection, ResourceDrawer, Row } from './resource-drawer.tsx'
-import { ListShell, matchesSearch } from './list-shell.tsx'
+import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 import { GatewayClassesTable, GatewaysTable, IngressDrawer, NetworkPolicyDrawer, RoutesTable } from './networking-gateway.tsx'
 
 type Sub = 'services' | 'endpoints' | 'ingresses' | 'gateways' | 'routes' | 'gatewayclasses' | 'networkpolicies'
@@ -65,6 +65,7 @@ function ServicesTable({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
+        error={q.isError ? q.error : undefined}
         isFetching={q.isFetching}
         onRefresh={() => q.refetch()}
         lastUpdatedAt={q.dataUpdatedAt}
@@ -146,7 +147,7 @@ function ServicesTable({ namespace }: { namespace?: string }) {
           ]}
           rows={rows}
           rowKey={(s) => `${s.metadata.namespace}/${s.metadata.name}`}
-          empty={<EmptyState title="No services" />}
+          empty={<ListEmpty what="services" search={search} onClearSearch={() => setSearch('')} hint={`Nothing is exposed in ${scopeLabel(namespace)}. A Service appears here once a workload publishes a port.`} />}
         />
       </ListShell>
       {selected ? <ServiceDrawer service={selected} onClose={() => setSelected(null)} /> : null}
@@ -265,6 +266,7 @@ function IngressesTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -339,7 +341,7 @@ function IngressesTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(i) => `${i.metadata.namespace}/${i.metadata.name}`}
-        empty={<EmptyState title="No ingresses" />}
+        empty={<ListEmpty what="ingresses" search={search} onClearSearch={() => setSearch('')} hint={`No Ingress routes traffic into ${scopeLabel(namespace)}. Gateway API routes are listed under Routes.`} />}
       />
       {selected ? <IngressDrawer ingress={selected} onClose={() => setSelected(null)} /> : null}
     </ListShell>
@@ -373,6 +375,7 @@ function EndpointsTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -449,7 +452,7 @@ function EndpointsTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(e) => `${e.metadata.namespace}/${e.metadata.name}`}
-        empty={<EmptyState title="No endpoints" />}
+        empty={<ListEmpty what="endpoints" search={search} onClearSearch={() => setSearch('')} hint={`Endpoints follow Services — none exist in ${scopeLabel(namespace)}.`} />}
       />
     </ListShell>
   )
@@ -484,6 +487,7 @@ function NetworkPoliciesTable({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       isFetching={q.isFetching}
       onRefresh={() => q.refetch()}
       lastUpdatedAt={q.dataUpdatedAt}
@@ -547,7 +551,7 @@ function NetworkPoliciesTable({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(p) => `${p.metadata.namespace}/${p.metadata.name}`}
-        empty={<EmptyState title="No network policies" />}
+        empty={<ListEmpty what="network policies" search={search} onClearSearch={() => setSearch('')} hint={`Traffic in ${scopeLabel(namespace)} is not restricted by any NetworkPolicy.`} />}
       />
       {selected ? <NetworkPolicyDrawer policy={selected} onClose={() => setSelected(null)} /> : null}
     </ListShell>

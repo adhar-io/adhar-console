@@ -290,7 +290,10 @@ function ToastCard({
         entered ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
       )}
     >
-      <div className="flex items-start gap-3 p-3 pr-2">
+      {/* On a touch screen the dismiss button is a 44px target, taller than a
+          title-only toast's single line — centre the row there, or the title
+          hangs at the top of a card that is mostly empty below it. */}
+      <div className="flex items-start gap-3 p-3 pr-2 pointer-coarse:items-center">
         <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full', s.icon)}>
           <KindIcon kind={toast.kind} />
         </span>
@@ -314,7 +317,7 @@ function ToastCard({
           type="button"
           onClick={onDismiss}
           aria-label="Dismiss notification"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors duration-150 hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.62" strokeLinecap="round" aria-hidden>
             <path d="M18 6 6 18M6 6l12 12" />

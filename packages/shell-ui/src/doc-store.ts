@@ -56,7 +56,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     )
   }
   if (res.status === 204) return undefined as T
-  return (await res.json()) as T
+  try {
+    return (await res.json()) as T
+  } catch {
+    // 200 with a non-JSON body: say so, rather than the parser's
+    // "Unexpected token '<'".
+    throw new DocStoreError('The store answered with an unexpected response.', 502, 'bad_response')
+  }
 }
 
 const enc = encodeURIComponent
@@ -64,8 +70,14 @@ const enc = encodeURIComponent
 export const docStore = {
   /** All documents of a kind for the caller's tenant (oldest-first). */
   async list<T = Record<string, unknown>>(kind: string): Promise<StoredDoc<T>[]> {
-    const { items } = await request<{ items: StoredDoc<T>[] }>(enc(kind))
-    return items
+    const body = await request<{ items?: StoredDoc<T>[] } | null>(enc(kind))
+    // A 200 without a list (a proxy's page, an older console) is a failed
+    // read. Returning `undefined` here made every caller's `.map` throw and
+    // the page quote "Cannot read properties of undefined" at the user.
+    if (!Array.isArray(body?.items)) {
+      throw new DocStoreError('The store answered with an unexpected response.', 502, 'bad_response')
+    }
+    return body.items
   },
 
   /** One document by id, or null if it doesn't exist. */

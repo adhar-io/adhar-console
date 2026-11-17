@@ -51,6 +51,7 @@ import {
   ProgressBar,
   StateDot,
 } from './work-ui.tsx'
+import { confirmAction } from './confirm.tsx'
 
 /**
  * The sections of the work-item drawer. Each one reads and writes its own
@@ -212,7 +213,7 @@ export function ChecklistPanel({ c }: { c: PanelCtx }) {
               onBlur={(e) => e.target.value.trim() && e.target.value !== l.title && save((ls) => ls.map((x) => (x.id === l.id ? { ...x, title: e.target.value.trim() } : x)))}
               className="min-w-0 flex-1 bg-transparent text-[12.5px] font-semibold text-content focus:outline-none"
             />
-            <button type="button" className="text-[11px] text-content-subtle hover:text-rose-600" onClick={() => confirm(`Delete checklist "${l.title}"?`) && save((ls) => ls.filter((x) => x.id !== l.id))}>Delete</button>
+            <button type="button" className="text-[11px] text-content-subtle hover:text-rose-600" onClick={async () => (await confirmAction({ title: `Delete checklist “${l.title}”?`, description: `Its ${l.items.length} item${l.items.length === 1 ? '' : 's'} are removed with it.` })) && save((ls) => ls.filter((x) => x.id !== l.id))}>Delete</button>
           </div>
           <ul className="space-y-0.5">
             {l.items.map((it) => (
@@ -225,7 +226,7 @@ export function ChecklistPanel({ c }: { c: PanelCtx }) {
                   aria-label={it.text}
                 />
                 <span className={cn('flex-1', it.done ? 'text-content-muted line-through' : 'text-content')}>{it.text}</span>
-                <button type="button" aria-label="Remove" className="text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100" onClick={() => save((ls) => ls.map((x) => (x.id === l.id ? { ...x, items: x.items.filter((y) => y.id !== it.id) } : x)))}>×</button>
+                <button type="button" aria-label="Remove" className="text-content-subtle opacity-0 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100" onClick={() => save((ls) => ls.map((x) => (x.id === l.id ? { ...x, items: x.items.filter((y) => y.id !== it.id) } : x)))}>×</button>
               </li>
             ))}
           </ul>
@@ -772,7 +773,7 @@ export function WorklogPanel({ c, compact }: { c: PanelCtx; compact?: boolean })
             <span className="shrink-0 text-content-subtle">{e.date}</span>
             <span className="min-w-0 flex-1 truncate text-content-muted">{e.byName ?? e.by}{e.note ? ` — ${e.note}` : ''}</span>
             {user && e.by === user.email ? (
-              <button type="button" className="text-[11px] text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100" onClick={() => save((p) => ({ ...p, entries: p.entries.filter((x) => x.id !== e.id) }))}>Delete</button>
+              <button type="button" className="text-[11px] text-content-subtle opacity-0 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100" onClick={() => save((p) => ({ ...p, entries: p.entries.filter((x) => x.id !== e.id) }))}>Delete</button>
             ) : null}
           </li>
         ))}

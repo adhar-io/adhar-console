@@ -1242,7 +1242,7 @@ function CodeBlock({ text }: { text: string }) {
       <button
         type="button"
         onClick={async () => ((await copyText(text)) ? toast.success('Copied') : toast.error('Clipboard unavailable'))}
-        className="absolute right-2 top-2 rounded-md bg-code-raised px-2 py-0.5 text-[10.5px] text-code-fg/80 opacity-0 transition hover:text-white group-hover:opacity-100"
+        className="absolute right-2 top-2 rounded-md bg-code-raised px-2 py-0.5 text-[10.5px] text-code-fg/80 opacity-0 transition hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
       >
         Copy
       </button>

@@ -1,4 +1,4 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, type ReactNode, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Button,
@@ -11,6 +11,7 @@ import {
   useToast,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui';
 import { cn } from '@adhar/utils';
 import { type argocd, kargo } from '@adhar/api-clients';
@@ -365,6 +366,14 @@ export function DeliveryFlow() {
     argo.isError && !argo.data ? sourceProblem('Argo CD', toSrc(argo)) : undefined,
     repos.isError && !repos.data ? sourceProblem('Gitea', toSrc(repos)) : undefined,
   ].filter((v): v is string => Boolean(v));
+  // Every source failed and none has cached data: that is "couldn't read", not
+  // "no applications yet" — say so and offer a retry instead of an empty state.
+  const listFailed = listErrors.length === 3 && !allApps.length;
+  const retryList = () => {
+    void xrs.refetch();
+    void argo.refetch();
+    void repos.refetch();
+  };
 
   const copyLink = () => {
     const url = flowLink({ app: app?.key, commit: params.commit, platform: params.platform });
@@ -411,8 +420,14 @@ export function DeliveryFlow() {
 
       {listErrors.length
         ? (
-          <div className='rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'>
-            The application list may be incomplete: {listErrors.join(' ')}
+          <div
+            role='status'
+            className='rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-[12px] text-amber-900 [overflow-wrap:anywhere] dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'
+          >
+            <div className='font-medium'>The application list may be incomplete</div>
+            <ul className={cn('mt-1 space-y-0.5', listErrors.length > 1 && 'list-disc pl-4')}>
+              {listErrors.map((e) => <li key={e}>{e}</li>)}
+            </ul>
           </div>
         )
         : null}
@@ -445,6 +460,15 @@ export function DeliveryFlow() {
             commitParam={params.commit}
             stageParam={params.stage}
             setParams={setParams}
+          />
+        )
+        : listFailed
+        ? (
+          <EmptyState
+            tone='error'
+            title="Couldn't read the application list"
+            description='None of the sources an application is discovered from (Application resources, Argo CD, Gitea) could be read — details above.'
+            action={<Button size='sm' onClick={retryList}>Retry</Button>}
           />
         )
         : (
@@ -986,13 +1010,8 @@ function StageDrawer(
   },
 ) {
   const width = useDrawerWidth('deliver.flow-stage', { base: 'max-w-lg' });
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    globalThis.addEventListener('keydown', onKey);
-    return () => globalThis.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose);
   if (typeof document === 'undefined') return null;
   const env = s.id.startsWith('env:') ? envs.find((e) => `env:${e.name}` === s.id) : undefined;
   const title = s.group === 'env' && s.id !== 'env:none' ? envTitle(s.title) : s.title;

@@ -10,6 +10,7 @@ import { readIssueQuery, type SavedIssueQuery } from '../data/view-query.ts'
 import { ViewSaveModal } from '../components/view-save-modal.tsx'
 import { SearchInput } from '../components/list-toolbar.tsx'
 import { ConsoleSide, IconBoard, IconList, IconPlus, IconStar } from '../components/work-ui.tsx'
+import { confirmAction } from '../components/confirm.tsx'
 
 /**
  * Saved Views — named WQL queries for Issues and Board, shared with the team
@@ -134,7 +135,7 @@ export function Views({
                   <Button size="xs" variant="ghost" onClick={() => create.mutate({ ...v.data, name: `${v.data.name} (copy)`, owner: me, visibility: 'personal', starredBy: [] }, { onSuccess: () => toast.success('Duplicated as a personal view'), onError: (e) => toast.error(storeError(e)) })}>Duplicate</Button>
                   {mine ? <Button size="xs" variant="ghost" onClick={() => setEditing(v)}>Edit</Button> : null}
                   {mine ? (
-                    <Button size="xs" variant="ghost" className="text-rose-700 dark:text-rose-300" onClick={() => confirm(`Delete view “${v.data.name}”?`) && remove.mutate(v.id, { onSuccess: () => toast.success('View deleted'), onError: (e) => toast.error(storeError(e)) })}>Delete</Button>
+                    <Button size="xs" variant="ghost" className="text-rose-700 dark:text-rose-300" onClick={async () => (await confirmAction({ title: `Delete view “${v.data.name}”?`, description: 'Only the saved filter is removed; work items are untouched.' })) && remove.mutate(v.id, { onSuccess: () => toast.success('View deleted'), onError: (e) => toast.error(storeError(e)) })}>Delete</Button>
                   ) : null}
                 </div>
               </li>

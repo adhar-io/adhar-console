@@ -24,6 +24,7 @@ import {
   type Severity,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import { coder } from '@adhar/api-clients'
@@ -732,13 +733,8 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
   const [tab, setTab] = useState<'overview' | 'logs' | 'builds' | 'settings'>('overview')
   const [ttlHours, setTtlHours] = useState(w.ttl_ms ? Math.round(w.ttl_ms / 3_600_000) : 0)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
 
   if (typeof document === 'undefined') return null
   const { agent } = primaryAgent(w)
@@ -784,7 +780,7 @@ function WorkspaceDrawer({ workspace: w, dashboard, onClose, actions }: { worksp
           <Tabs
             ariaLabel="Environment"
             value={tab}
-            onChange={setTab}
+            onChange={(id) => setTab(id as typeof tab)}
             tabs={[
               { id: 'overview', label: 'Overview' },
               { id: 'logs', label: 'Build logs', badge: BUSY.has(s) ? { kind: 'progressing', value: 'live' } : undefined },
@@ -1010,7 +1006,7 @@ function FilterSelect({ value, onChange, options, title }: { value: string; onCh
 }
 function LayoutBtn({ on, onClick, title, children }: { on: boolean; onClick(): void; title: string; children: React.ReactNode }) {
   return (
-    <button type="button" title={title} aria-pressed={on} onClick={onClick} className={cn('flex h-7 w-7 items-center justify-center rounded-md transition-colors', on ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:text-content')}>{children}</button>
+    <button type="button" title={title} aria-label={title} aria-pressed={on} onClick={onClick} className={cn('flex h-7 w-7 items-center justify-center rounded-md transition-colors', on ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:text-content')}>{children}</button>
   )
 }
 function MenuItem({ onClick, children, danger = false }: { onClick(): void; children: React.ReactNode; danger?: boolean }) {

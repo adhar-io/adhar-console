@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar/utils'
 import type { StatusKind } from './status-badge.tsx'
 
@@ -48,6 +48,72 @@ export function Tabs<T extends string>({
     if (value === undefined) setInternal(next)
   }
 
+  /*
+   * The horizontal strip's edge fades.
+   *
+   * A strip wider than its container scrolls with the scrollbar hidden, so a
+   * fade is the only hint that tabs continue past the edge. It used to be a
+   * fixed right-hand mask below `sm` only: at tablet widths an overflowing
+   * strip was cut hard mid-label with no hint at all, and on a phone the fade
+   * stayed on after scrolling to the end, dimming the last tab for nothing.
+   * Each edge is now measured — it fades only while there is something to
+   * scroll to on that side, at any width.
+   */
+  const stripRef = useRef<HTMLElement>(null)
+  const [fade, setFade] = useState<{ left: boolean; right: boolean }>({ left: false, right: false })
+  const tabCount = visibleTabs.length
+  useLayoutEffect(() => {
+    const el = stripRef.current
+    if (!el) return
+    const measure = () => {
+      const max = el.scrollWidth - el.clientWidth
+      // 1px of slack: fractional widths leave a sub-pixel remainder at the end.
+      const left = el.scrollLeft > 1
+      const right = max - el.scrollLeft > 1
+      setFade((f) => (f.left === left && f.right === right ? f : { left, right }))
+    }
+    measure()
+    el.addEventListener('scroll', measure, { passive: true })
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    ro?.observe(el)
+    return () => {
+      el.removeEventListener('scroll', measure)
+      ro?.disconnect()
+    }
+  }, [orientation, tabCount])
+
+  // Keep the active tab in view: a tab chosen by the keyboard, a deep link or
+  // the page itself may sit past the edge of a scrolled strip. The strip's own
+  // `scrollLeft` is moved rather than calling `scrollIntoView`, which would
+  // also scroll the page vertically to the strip. Instant on first paint (no
+  // sweep on load), eased afterwards unless motion is reduced.
+  const stripSettled = useRef(false)
+  useEffect(() => {
+    const el = stripRef.current
+    if (!el) return
+    const first = !stripSettled.current
+    stripSettled.current = true
+    const tab = [...el.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.id === `tab-${active}`)
+    if (!tab || el.scrollWidth <= el.clientWidth) return
+    const strip = el.getBoundingClientRect()
+    const box = tab.getBoundingClientRect()
+    // Clear of the fade, so the active label is never the dimmed one.
+    const margin = 32
+    let delta = 0
+    if (box.left < strip.left + margin) delta = box.left - strip.left - margin
+    else if (box.right > strip.right - margin) delta = box.right - strip.right + margin
+    if (!delta) return
+    const reduce = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const left = el.scrollLeft + delta
+    if (typeof el.scrollTo === 'function') el.scrollTo({ left, behavior: first || reduce ? 'auto' : 'smooth' })
+    else el.scrollLeft = left
+  }, [active, orientation, tabCount])
+
+  const FADE = '1.75rem'
+  const stripMask = fade.left || fade.right
+    ? `linear-gradient(to right, ${fade.left ? `transparent, black ${FADE}` : 'black, black'}, ${fade.right ? `black calc(100% - ${FADE}), transparent` : 'black'})`
+    : undefined
+
   if (orientation === 'vertical') {
     return (
       <div className={cn('grid grid-cols-1 gap-4 lg:grid-cols-[220px_1fr] lg:gap-6', className)}>
@@ -66,6 +132,9 @@ export function Tabs<T extends string>({
                 key={t.id}
                 role="tab"
                 type="button"
+                // The panel's `aria-labelledby` points here; without the id
+                // (the horizontal variant has it) the reference dangled.
+                id={`tab-${t.id}`}
                 aria-selected={isActive}
                 aria-controls={`panel-${t.id}`}
                 disabled={t.disabled}
@@ -123,18 +192,20 @@ export function Tabs<T extends string>({
 
   return (
     <div className={cn('space-y-5', className)}>
-      {/* The scroller is masked at its right edge: on a phone the tab list is
-          wider than the screen, and a hard cut at the bezel gives no hint that
-          more tabs exist. The mask fades the last one instead. */}
+      {/* The scroller is masked at whichever edge still has tabs beyond it: a
+          hard cut at the edge gives no hint that more tabs exist. The mask
+          fades the last visible one instead (see `fade` above). */}
       {/* With actions, a phone stacks them above the tab list (which keeps
           the full width to scroll) instead of squeezing both into one row. */}
       <div className="relative flex flex-col-reverse gap-1 border-b border-edge-default sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         <nav
+          ref={stripRef}
           role="tablist"
           aria-label={ariaLabel}
           aria-orientation="horizontal"
           onKeyDown={onKeyDown}
-          className="-mb-px flex min-w-0 gap-0.5 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-2rem),transparent)] [scrollbar-width:none] sm:[mask-image:none] [&::-webkit-scrollbar]:hidden"
+          style={stripMask ? { maskImage: stripMask, WebkitMaskImage: stripMask } : undefined}
+          className="-mb-px flex min-w-0 gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {visibleTabs.map((t) => {
             const isActive = t.id === active
@@ -150,7 +221,7 @@ export function Tabs<T extends string>({
                 disabled={t.disabled}
                 onClick={() => setActive(t.id)}
                 className={cn(
-                  'relative flex items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 px-3 py-2.5 text-sm transition-colors',
+                  'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 px-3 py-2.5 text-sm transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40',
                   // The active underline is the brand, not a hard black rule;
                   // a resting tab gets a faint underline on hover so the

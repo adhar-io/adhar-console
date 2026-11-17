@@ -60,6 +60,7 @@ export function PodsView({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
+        error={q.isError ? q.error : undefined}
         onRefresh={() => q.refetch()}
         search={search}
         onSearchChange={setSearch}

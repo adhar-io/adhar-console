@@ -17,7 +17,7 @@ const WEEKS = 8
  * the images pushed to Harbor — each figure from its own source, labelled.
  */
 export function SecurityOverview({ model }: { model: SecurityModel }) {
-  const { findings, statuses, totals, reports, waiverItems } = model
+  const { findings, statuses, totals, reports, waivers, waiverItems } = model
   const setParams = useSetSecurityParams()
   const gates = useGates()
   const registry = useRegistryArtifacts()
@@ -65,19 +65,24 @@ export function SecurityOverview({ model }: { model: SecurityModel }) {
   // Runtime figures only exist when trivy-operator's reports were read; a
   // missing or unreadable source is "—", never a zero.
   const rt = (n: number): number | string => reports.isLoading ? '…' : reports.isError || (state && state !== 'ok') ? '—' : n
+  // Same rule for the waiver ledger: unread is "—", not "0 waivers".
+  const wv = (n: number): number | string => waivers.isLoading ? '…' : waivers.isError && !waivers.data ? '—' : n
+  const waiversUnread = waivers.isError && !waivers.data
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Tile label="Open critical" value={rt(totals.open.critical)} tone={totals.open.critical ? SEV_TONE.critical.text : undefined} hint="in running workloads" onClick={() => setParams({ tab: 'findings' })} />
-        <Tile label="Open high" value={rt(totals.open.high)} tone={totals.open.high ? SEV_TONE.high.text : undefined} hint={`${totals.fixable} fixable overall`} onClick={() => setParams({ tab: 'findings' })} />
-        <Tile label="Waived" value={totals.waived + totals.partial} hint={`${active} active waiver${active === 1 ? '' : 's'}`} onClick={() => setParams({ tab: 'waivers' })} />
-        <Tile label="Expiring ≤ 7 days" value={expiring} tone={expiring ? 'text-amber-600 dark:text-amber-300' : undefined} hint="waivers" onClick={() => setParams({ tab: 'waivers' })} />
-        <Tile label="Awaiting review" value={pending + awaiting} tone={pending + awaiting ? 'text-indigo-600 dark:text-indigo-300' : undefined} hint={`${pending} waiver · ${awaiting} gate`} onClick={() => setParams({ tab: 'review' })} />
-        <Tile label="Workloads scanned" value={rt(totals.workloads)} hint={`${totals.images} image${totals.images === 1 ? '' : 's'}`} />
+        <Tile label="Open high" value={rt(totals.open.high)} tone={totals.open.high ? SEV_TONE.high.text : undefined} hint={typeof rt(0) === 'number' ? `${totals.fixable} fixable overall` : 'in running workloads'} onClick={() => setParams({ tab: 'findings' })} />
+        <Tile label="Waived" value={wv(totals.waived + totals.partial)} hint={waiversUnread ? 'waivers unreadable' : `${active} active waiver${active === 1 ? '' : 's'}`} onClick={() => setParams({ tab: 'waivers' })} />
+        <Tile label="Expiring ≤ 7 days" value={wv(expiring)} tone={expiring ? 'text-amber-600 dark:text-amber-300' : undefined} hint={waiversUnread ? 'waivers unreadable' : 'waivers'} onClick={() => setParams({ tab: 'waivers' })} />
+        <Tile label="Awaiting review" value={waiversUnread && (gates.isError || gates.data?.state === 'error') ? '—' : pending + awaiting} tone={pending + awaiting ? 'text-indigo-600 dark:text-indigo-300' : undefined} hint={waiversUnread ? `waivers unreadable · ${awaiting} gate` : `${pending} waiver · ${awaiting} gate`} onClick={() => setParams({ tab: 'review' })} />
+        <Tile label="Workloads scanned" value={rt(totals.workloads)} hint={typeof rt(0) === 'number' ? `${totals.images} image${totals.images === 1 ? '' : 's'}` : 'reports unreadable'} />
       </div>
 
-      {reports.isLoading ? <Loading text="Reading trivy-operator reports…" /> : state && state !== 'ok' ? <ReportStateNotice state={state} detail={reports.data?.detail} /> : null}
+      {reports.isLoading ? <Loading text="Reading trivy-operator reports…" /> : reports.isError && !reports.data ? (
+        <ReportStateNotice state="error" detail={reports.error instanceof Error ? reports.error.message : undefined} onRetry={() => reports.refetch()} />
+      ) : state && state !== 'ok' ? <ReportStateNotice state={state} detail={reports.data?.detail} onRetry={() => reports.refetch()} /> : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Section title="Top open findings" aside={top.length ? <Button size="xs" variant="ghost" onClick={() => setParams({ tab: 'findings' })}>All findings</Button> : undefined}>
@@ -96,7 +101,7 @@ export function SecurityOverview({ model }: { model: SecurityModel }) {
             </ul>
           ) : (
             <p className="rounded-xl border border-dashed border-edge-default px-3 py-6 text-center text-[12px] text-content-subtle">
-              {state === 'ok' ? 'No open findings in running workloads.' : 'No runtime findings to rank.'}
+              {state === 'ok' ? 'No open findings in running workloads.' : reports.isLoading ? 'Reading runtime findings…' : 'Runtime findings are unavailable, so there is nothing to rank.'}
             </p>
           )}
         </Section>
@@ -149,7 +154,7 @@ export function SecurityOverview({ model }: { model: SecurityModel }) {
             <span className="min-w-0">
               Couldn't read Tekton PipelineRuns{(() => {
                 const why = gates.error instanceof Error ? gates.error.message : gates.data?.detail
-                return why ? ` — ${why.replace(/\.+$/, '')}` : ''
+                return why?.trim() ? ` — ${why.trim().replace(/[.\s]+$/, '')}` : ''
               })()}.
             </span>
             <Button size="xs" variant="secondary" onClick={() => gates.refetch()}>Retry</Button>

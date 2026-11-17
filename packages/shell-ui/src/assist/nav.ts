@@ -44,6 +44,19 @@ export function flattenNav(sections: NavSection[]): CommandItem[] {
         access: item.access,
       })
     }
+    // A category row's tabbed pages: not sidebar rows, but still commands.
+    for (const page of item.to ? item.pages ?? [] : []) {
+      out.push({
+        id: `${item.id}.${page.id}`,
+        label: page.label,
+        description: page.description,
+        to: item.to,
+        search: { section: page.id },
+        group: `${groupLabel} · ${item.label}`,
+        keywords: page.description ? [page.description] : undefined,
+        access: item.access,
+      })
+    }
     item.children?.forEach((c) => walk(c, groupLabel))
   }
   for (const section of sections) {

@@ -11,6 +11,7 @@ import { planningHref, usePlanningParams, useSetPlanningParams } from '../data/p
 import { safeUrl } from '../data/work-text.ts'
 import { ItemList, PickItemsModal } from '../components/cycle-detail.tsx'
 import { DayLineChart, fmtDate, fmtRange, IDEAL_COLOR, Loading, Meter, Notice, ProblemState, SectionTitle, SidePanel, Stat, usePeople, useSeriesColor } from '../components/planning-ui.tsx'
+import { confirmAction } from '../components/confirm.tsx'
 
 /**
  * Releases (versions). Plane has no versions, so a release is a console
@@ -247,8 +248,8 @@ function ReleaseDetail({ projectId, release, items, plan, onClose }: { projectId
               <Button
                 size="sm"
                 variant="primary"
-                onClick={() => {
-                  if (prog.open && !confirm(`${prog.open} work items are not done. Mark ${release.name} released anyway?`)) return
+                onClick={async () => {
+                  if (prog.open && !(await confirmAction({ title: `Mark ${release.name} released?`, description: `${prog.open} work item${prog.open === 1 ? ' is' : 's are'} not done yet.`, confirmLabel: 'Mark released', danger: false }))) return
                   write((c) => ({ ...c, status: 'released', released_at: new Date().toISOString(), notes: c.notes ?? notes }), `${release.name} released`)
                   notify('releaseShipped', { title: `Released ${release.name}`, description: `${prog.done} work items shipped`, key: `define:release:${release.id}`, href: planningHref('releases', { release: release.id }) })
                 }}
@@ -261,8 +262,8 @@ function ReleaseDetail({ projectId, release, items, plan, onClose }: { projectId
           <Button
             size="sm"
             variant="danger"
-            onClick={() => {
-              if (!confirm(`Delete ${release.name}? Its work items stay in Plane.`)) return
+            onClick={async () => {
+              if (!(await confirmAction({ title: `Delete ${release.name}?`, description: 'Its work items stay in Plane.' }))) return
               remove.mutate(release.id, { onSuccess: onClose, onError: (e) => toast.error(storeError(e)) })
             }}
           >

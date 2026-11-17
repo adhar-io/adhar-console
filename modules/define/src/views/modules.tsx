@@ -12,6 +12,7 @@ import { CreateModuleModal } from '../components/create-forms.tsx'
 import { ItemList, PickItemsModal } from '../components/cycle-detail.tsx'
 import { IssueDrawer } from '../components/issue-drawer.tsx'
 import { Avatar, DayLineChart, fmtDate, fmtRange, Loading, Meter, Notice, ProblemState, SectionTitle, SidePanel, Stat, usePeople, useSeriesColor } from '../components/planning-ui.tsx'
+import { confirmAction } from '../components/confirm.tsx'
 
 /**
  * Epics (Plane modules): progress, target dates, lead, status, child work
@@ -223,8 +224,8 @@ function EpicDetail({ projectId, epic, okrs, okrsError, meta, releases, onClose 
             size="sm"
             variant="danger"
             loading={remove.isPending}
-            onClick={() => {
-              if (!confirm(`Delete "${epic.name}"? Its work items stay in the project.`)) return
+            onClick={async () => {
+              if (!(await confirmAction({ title: `Delete “${epic.name}”?`, description: 'Its work items stay in the project.' }))) return
               remove.mutate(epic.id, { onSuccess: onClose, onError: (e) => toast.error(planeError(e, "Couldn't delete the epic.")) })
             }}
           >

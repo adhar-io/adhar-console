@@ -183,7 +183,7 @@ export const KindPicker = forwardRef<KindPickerHandle, Props>(function KindPicke
             <div className="font-medium text-rose-700 dark:text-rose-300">Discovery failed</div>
             <div className="break-words text-content-muted">{error}</div>
             {onRetry ? (
-              <button type="button" onClick={onRetry} className="font-medium text-brand-700 hover:underline dark:text-brand-300">
+              <button type="button" onClick={onRetry} className="inline-flex min-h-7 items-center font-medium text-brand-700 hover:underline pointer-coarse:min-h-9 dark:text-brand-300">
                 Try again
               </button>
             ) : null}

@@ -22,14 +22,18 @@ export interface XrSection {
   description: string
 }
 
-export const XR_FAMILIES: Array<{ id: XrFamily; label: string }> = [
-  { id: 'compute', label: 'Compute & delivery' },
-  { id: 'data', label: 'Data' },
-  { id: 'messaging', label: 'Messaging' },
-  { id: 'infrastructure', label: 'Infrastructure' },
-  { id: 'observability', label: 'Observability' },
-  { id: 'security', label: 'Security & resilience' },
-  { id: 'tenancy', label: 'Tenancy' },
+/**
+ * The categories — one sidebar row each. A category's page shows its kinds as
+ * tabs, so the sidebar holds 7 rows instead of one per kind.
+ */
+export const XR_FAMILIES: Array<{ id: XrFamily; label: string; caption: string }> = [
+  { id: 'compute', label: 'Compute & delivery', caption: 'What runs your services and how they ship.' },
+  { id: 'data', label: 'Data', caption: 'Databases, caches, search and object storage.' },
+  { id: 'messaging', label: 'Messaging', caption: 'Topics, queues and dedicated brokers.' },
+  { id: 'infrastructure', label: 'Infrastructure', caption: 'Clusters, networks and environment blueprints.' },
+  { id: 'observability', label: 'Observability', caption: 'Metrics, logs, traces, health checks and cost.' },
+  { id: 'security', label: 'Security & resilience', caption: 'Identity, secrets, compliance, backup and restore.' },
+  { id: 'tenancy', label: 'Tenancy', caption: 'Organisations, teams, projects and platform defaults.' },
 ]
 
 export const XR_SECTIONS: XrSection[] = [
@@ -83,3 +87,8 @@ export const XR_SECTIONS: XrSection[] = [
 ]
 
 export const XR_SECTION_BY_ID: Record<string, XrSection> = Object.fromEntries(XR_SECTIONS.map((s) => [s.id, s]))
+
+/** A category's pages, in tab order. */
+export function xrSectionsOf(family: XrFamily): XrSection[] {
+  return XR_SECTIONS.filter((s) => s.family === family)
+}

@@ -2,15 +2,18 @@ import { tryParseYaml } from '@adhar/utils'
 import { nextRuns } from './perf-cron.ts'
 import { MAX_RESTARTS } from './batch-naming.ts'
 import {
+  ANNOTATION,
   type BatchJobXR,
   batchRef,
   type ConfigMapLike,
   dateInZone,
   ENV,
   heldOf,
+  knownTimeZone,
   LABEL,
   nextRestartName,
   type ParamField,
+  QUEUED_BY_BACKFILL,
   resolveParams,
   runEnv,
   runKindOf,
@@ -83,7 +86,8 @@ export interface BatchEvent {
 }
 
 export type HistoryRead =
-  | { state: 'read'; events: BatchEvent[]; total: number; truncated: boolean; degraded: boolean }
+  /** `truncated`: the oldest events were dropped (the stream is over the cap). `behind`: the read ended early, so the NEWEST are missing. */
+  | { state: 'read'; events: BatchEvent[]; total: number; truncated: boolean; behind: boolean; degraded: boolean }
   /** The stream could not be read: no bus on this cluster, or a bridge that did not answer. */
   | { state: 'unavailable'; reason: string; detail: string }
 
@@ -97,7 +101,14 @@ export function parseHistory(body: unknown): HistoryRead {
     return { state: 'unavailable', reason: 'unreadable', detail: 'The console answered with something that is not a batch history.' }
   }
   const events = o.events.filter((e): e is BatchEvent => typeof obj(e)?.type === 'string' && typeof obj(e)?.subject === 'string')
-  return { state: 'read', events, total: num(o.total) ?? events.length, truncated: o.truncated === true, degraded: o.degraded === true }
+  return {
+    state: 'read',
+    events,
+    total: num(o.total) ?? events.length,
+    truncated: o.truncated === true,
+    behind: o.behind === true,
+    degraded: o.degraded === true,
+  }
 }
 
 export type Tone = 'healthy' | 'paused' | 'progressing' | 'failed' | 'unknown' | 'info'
@@ -401,6 +412,8 @@ export const PLATFORM_CALENDAR_NAMESPACE = 'adhar-system'
 
 const WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'] as const
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+/** A date that exists. `Date.parse` alone rolls 2026-02-30 over into March, and the runner reading the same file does not. */
+const realDate = (d: string) => ISO_DATE.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d
 
 export interface Calendar {
   namespace: string
@@ -418,7 +431,7 @@ const dateList = (v: unknown, key: string): { dates: string[]; error?: string } 
   if (v === undefined || v === null) return { dates: [] }
   if (!Array.isArray(v)) return { dates: [], error: `${key} is not a list.` }
   const dates = v.map((d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d)))
-  const bad = dates.find((d) => !ISO_DATE.test(d) || Number.isNaN(Date.parse(`${d}T00:00:00Z`)))
+  const bad = dates.find((d) => !realDate(d))
   return bad ? { dates: [], error: `${key} has ${bad}, which is not a date (yyyy-mm-dd).` } : { dates: [...dates].sort() }
 }
 
@@ -555,7 +568,7 @@ export function successDurations(namespace: string, job: string, runs: readonly 
  */
 export function deadlineAfter(anchorMs: number, finishBy: string | undefined, timeZone?: string): number | undefined {
   const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(finishBy ?? '')
-  if (!m) return undefined
+  if (!m || !knownTimeZone(timeZone)) return undefined
   return nextRuns(`${Number(m[2])} ${Number(m[1])} * * *`, anchorMs - 1, 1, timeZone)[0]
 }
 
@@ -655,7 +668,8 @@ export function tonightRows(
   const out: TonightRow[] = []
   for (const job of jobs) {
     const sch = scheduleOf(job)
-    if (!sch.cron || sch.suspended || heldOf(job)) continue
+    // A zone this runtime cannot read is no row here; `unforecastJobs` names the job instead.
+    if (!sch.cron || sch.suspended || heldOf(job) || !knownTimeZone(sch.timeZone)) continue
     const namespace = job.metadata.namespace ?? ''
     const name = job.metadata.name
     const p = job.spec?.parameters
@@ -692,6 +706,32 @@ export function tonightRows(
     })
   }
   return out.sort((a, b) => a.startMs - b.startMs || a.key.localeCompare(b.key))
+}
+
+export interface Unforecast {
+  key: string
+  /** `schedule`: its fires cannot be placed, so it has no row. `sla`: its rows carry no deadline. */
+  what: 'schedule' | 'sla'
+  timeZone: string
+}
+
+/**
+ * The scheduled jobs the forecast cannot place or bound, because a time zone
+ * they name is not one this runtime knows. The XRD takes any string, and the
+ * forecast must say which jobs it left out: a job missing from "what runs
+ * tonight" otherwise reads as one that does not run.
+ */
+export function unforecastJobs(jobs: readonly BatchJobXR[]): Unforecast[] {
+  const out: Unforecast[] = []
+  for (const job of jobs) {
+    const sch = scheduleOf(job)
+    if (!sch.cron || sch.suspended || heldOf(job)) continue
+    const key = batchRef(job.metadata.namespace ?? '', job.metadata.name)
+    const sla = job.spec?.parameters?.sla
+    if (!knownTimeZone(sch.timeZone)) out.push({ key, what: 'schedule', timeZone: sch.timeZone })
+    else if (sla?.finishBy && sla.timeZone && !knownTimeZone(sla.timeZone)) out.push({ key, what: 'sla', timeZone: sla.timeZone })
+  }
+  return out.sort((a, b) => a.key.localeCompare(b.key))
 }
 
 /* ─────────────────────────── dependency chains (`dependsOn`, §12) ─────────────────────────── */
@@ -775,9 +815,8 @@ export const MAX_BACKFILL_DATES = 366
 
 /** Every date from `from` to `to`, inclusive, in order. */
 export function backfillDates(from: string, to: string): { dates: string[]; error?: undefined } | { error: string } {
-  const valid = (d: string) => ISO_DATE.test(d) && !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d
-  if (!valid(from)) return { error: 'The first date is not a date, yyyy-mm-dd.' }
-  if (!valid(to)) return { error: 'The last date is not a date, yyyy-mm-dd.' }
+  if (!realDate(from)) return { error: 'The first date is not a date, yyyy-mm-dd.' }
+  if (!realDate(to)) return { error: 'The last date is not a date, yyyy-mm-dd.' }
   if (to < from) return { error: `${to} is before ${from}.` }
   const dates: string[] = []
   for (let t = Date.parse(`${from}T00:00:00Z`); t <= Date.parse(`${to}T00:00:00Z`); t += 86_400_000) {
@@ -810,12 +849,20 @@ export type BackfillState =
  * Phase alone cannot classify a backfill's run: a Job created suspended reads
  * as stopped exactly as one a person stopped does. Anything not provably queued,
  * stopped or ended counts as in flight, so `parallel` is never exceeded.
+ *
+ * Queued is the one state a backfill acts on (it resumes the run), so it needs
+ * the backfill's own mark AND no sign the run ever started. The status alone
+ * does not say: since Kubernetes 1.36 the Job controller clears
+ * `status.startTime` on every suspend, so a run a person stopped before a pod
+ * failed has the status of one that never started. A suspended run without the
+ * mark is a person's, and is left alone (cmd/batch/backfill.go, the same rule).
  */
 export function backfillState(r: Pick<RunRow, 'phase' | 'kind' | 'raw'>): BackfillState {
   if (r.phase === 'succeeded' || r.phase === 'failed' || r.phase === 'deleting') return 'done'
   const s = r.raw.status
   if (r.raw.spec?.suspend !== true) return r.phase === 'stopped' && r.kind === 'VolcanoJob' ? 'stopped' : 'in-flight'
   if ((s?.active ?? 0) > 0 || (s?.terminating ?? 0) > 0) return 'in-flight'
+  if (r.raw.metadata.annotations?.[ANNOTATION.queued] !== QUEUED_BY_BACKFILL) return 'stopped'
   return !s?.startTime && (s?.failed ?? 0) === 0 && (s?.succeeded ?? 0) === 0 ? 'queued' : 'stopped'
 }
 

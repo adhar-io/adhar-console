@@ -202,6 +202,7 @@ export function GrafanaBoard({
               onClick={toggleStar}
               title={isStarred ? 'Unstar (stars belong to the console’s Grafana account)' : 'Star (stars belong to the console’s Grafana account)'}
               aria-pressed={isStarred}
+              aria-label={isStarred ? 'Unstar this board' : 'Star this board'}
               className={cn('text-base leading-none', isStarred ? 'text-amber-500' : 'text-content-subtle hover:text-content')}
             >
               {isStarred ? '★' : '☆'}

@@ -17,6 +17,7 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import type { harbor, nexus } from '@adhar/api-clients'
@@ -152,7 +153,7 @@ function HarborRegistry() {
     )
   }
   if (repos.isError) {
-    return <EmptyState tone="error" title="Couldn't reach Harbor" description={repos.error instanceof Error ? repos.error.message : 'The registry API did not answer.'} />
+    return <EmptyState tone="error" title="Couldn't reach Harbor" description={repos.error instanceof Error ? repos.error.message : 'The registry API did not answer.'} action={<Button size="sm" onClick={() => repos.refetch()}>Retry</Button>} />
   }
 
   return (
@@ -624,11 +625,8 @@ function ArtifactDrawer({
 }) {
   const width = useDrawerWidth('deliver.artifact', { base: 'max-w-4xl' })
   const [tab, setTab] = useState<DrawerTab>('overview')
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
 
   const scanningPossible = (scanners.data?.length ?? 0) > 0
@@ -1288,7 +1286,7 @@ function NexusRegistry() {
     )
   }
   if (repos.isError) {
-    return <EmptyState tone="error" title="Couldn't reach Nexus" description={repos.error instanceof Error ? repos.error.message : 'The Nexus REST API did not answer.'} />
+    return <EmptyState tone="error" title="Couldn't reach Nexus" description={repos.error instanceof Error ? repos.error.message : 'The Nexus REST API did not answer.'} action={<Button size="sm" onClick={() => repos.refetch()}>Retry</Button>} />
   }
 
   return (
@@ -1471,7 +1469,7 @@ function NexusComponentsPane({
       <CardBody className="p-0!">
         {comps.isError ? (
           <div className="p-6">
-            <EmptyState tone="error" compact title="Couldn't list components" description={comps.error instanceof Error ? comps.error.message : 'Nexus did not answer.'} />
+            <EmptyState tone="error" compact bare title="Couldn't list components" description={comps.error instanceof Error ? comps.error.message : 'Nexus did not answer.'} action={<Button size="xs" onClick={() => comps.refetch()}>Retry</Button>} />
           </div>
         ) : (
           <DataTable
@@ -1495,11 +1493,8 @@ function NexusComponentsPane({
 
 function NexusComponentDrawer({ component: c, onClose }: { component: nexus.NexusComponent; onClose(): void }) {
   const width = useDrawerWidth('deliver.package', { base: 'max-w-3xl' })
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
   return createPortal(
     <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-label="Package detail">

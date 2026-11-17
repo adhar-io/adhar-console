@@ -211,7 +211,7 @@ export function AuditLog() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatTile label="Matching events" value={q.isLoading ? '…' : total.toLocaleString()} hint={activeFilters ? `${activeFilters} filter${activeFilters === 1 ? '' : 's'} active` : 'entire trail'} />
             <StatTile label="Failures on page" value={failedOnPage} tone={failedOnPage > 0 ? 'warn' : 'good'} />
-            <StatTile label="Distinct actions" value={facets.data ? facets.data.actions.length : '…'} hint={facets.data ? `from newest ${facets.data.sampled.toLocaleString()}` : undefined} />
+            <StatTile label="Distinct actions" value={facets.data ? (facets.data.actions?.length ?? 0) : '…'} hint={typeof facets.data?.sampled === 'number' ? `from newest ${facets.data.sampled.toLocaleString()}` : undefined} />
             <StatTile label="Page" value={`${Math.min(page + 1, pageCount)} / ${pageCount.toLocaleString()}`} hint={`${pageSize} per page`} />
           </div>
 

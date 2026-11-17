@@ -61,7 +61,12 @@ export const ANNOTATION = {
   hold: 'adhar.io/batch-hold',
   actor: 'adhar.io/batch-actor',
   scheduled: 'batch.kubernetes.io/cronjob-scheduled-timestamp',
+  /** On a run created suspended that its creator has not released yet; the value names the creator (cmd/batch/backfill.go). */
+  queued: 'adhar.io/batch-queued',
 } as const
+
+/** The value of `ANNOTATION.queued` on a run a backfill holds back, from the CLI or from here. */
+export const QUEUED_BY_BACKFILL = 'backfill'
 
 export const ENV = {
   params: 'ADHAR_BATCH_PARAMS',
@@ -620,6 +625,16 @@ export function dateInZone(ms: number, timeZone?: string): string | undefined {
   }
 }
 
+/**
+ * Whether this runtime can tell the time in `timeZone`. `schedule.timeZone` and
+ * `sla.timeZone` are free text in the XRD, so a misspelling or an offset (`UTC+8`) reaches the page:
+ * a zone it does not know is a schedule it cannot step, never a page that
+ * cannot render.
+ */
+export function knownTimeZone(timeZone: string | undefined): boolean {
+  return dateInZone(0, timeZone) !== undefined
+}
+
 /** When a finished run finished. A failed or suspended Job has no `completionTime`; its condition says when. */
 function finishedAtOf(run: RunObject, phase: RunPhase, summary: RunSummary | null): string | undefined {
   if (phase !== 'succeeded' && phase !== 'failed' && phase !== 'stopped') return undefined
@@ -764,12 +779,23 @@ export function stopRequest(run: RunObject): RunRequest {
     : { verb: 'patch', gvr: JOBS_GVR, namespace, name: run.metadata.name, body: { spec: { suspend: true } } }
 }
 
-/** Resume: the new pod finds the execution STOPPED and restarts it. */
+/**
+ * Resume: the new pod finds the execution STOPPED and restarts it. A run a
+ * backfill still holds back loses that mark in the same patch, whoever resumes
+ * it (the CLI's `resumeRequest`): from then on it is a run that started, and a
+ * later stop is a person's.
+ */
 export function resumeRequest(run: RunObject): RunRequest {
   const namespace = run.metadata.namespace ?? ''
-  return runKindOf(run) === 'VolcanoJob'
-    ? { verb: 'create', gvr: COMMANDS_GVR, namespace, body: volcanoCommand(run, 'ResumeJob') }
-    : { verb: 'patch', gvr: JOBS_GVR, namespace, name: run.metadata.name, body: { spec: { suspend: false } } }
+  if (runKindOf(run) === 'VolcanoJob') return { verb: 'create', gvr: COMMANDS_GVR, namespace, body: volcanoCommand(run, 'ResumeJob') }
+  const queued = run.metadata.annotations?.[ANNOTATION.queued] !== undefined
+  return {
+    verb: 'patch',
+    gvr: JOBS_GVR,
+    namespace,
+    name: run.metadata.name,
+    body: { ...(queued ? { metadata: { annotations: { [ANNOTATION.queued]: null } } } : {}), spec: { suspend: false } },
+  }
 }
 
 /** Hold or release: the ONE thing an operator may change on a BatchJob (§3.5, §10.3). */
@@ -1078,7 +1104,10 @@ export function buildRun(
     restartOf?: string
     /** An ops Job (Phase 3): the kit's command and the execution it acts on, instead of the business job. */
     ops?: { verb: string; executionId: number }
-    /** Created suspended: a native backfill run waits here until it is released. Run integrity does not compare `spec.suspend`. */
+    /**
+     * Created suspended and marked `adhar.io/batch-queued=backfill`: a native backfill run waits here until it is
+     * released. Run integrity compares neither `spec.suspend` nor the run's own annotations.
+     */
     suspend?: boolean
   },
 ): RunObject & Record<string, unknown> {
@@ -1103,7 +1132,12 @@ export function buildRun(
       }
     }
   }
-  if (opts.suspend) run.spec = { ...(run.spec ?? {}), suspend: true }
+  if (opts.suspend) {
+    run.spec = { ...(run.spec ?? {}), suspend: true }
+    // The mark is what tells this run from one a person stopped: a suspended Job
+    // with no pods reads the same either way, and only a marked one is released.
+    meta.annotations = { ...(meta.annotations ?? {}), [ANNOTATION.queued]: QUEUED_BY_BACKFILL }
+  }
   return run
 }
 
@@ -1200,6 +1234,8 @@ export function nextRunOf(job: BatchJobXR, opts: { now?: number; reportedMs?: nu
   const sch = scheduleOf(job)
   if (!sch.cron || sch.suspended || heldOf(job)) return undefined
   if (opts.reportedMs !== undefined && opts.reportedMs > now) return opts.reportedMs
+  // One BatchJob with a zone nobody can read must not take the Jobs table down with it.
+  if (!knownTimeZone(sch.timeZone)) return undefined
   return nextRuns(sch.cron, now, 1, sch.timeZone)[0]
 }
 

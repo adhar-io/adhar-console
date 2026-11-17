@@ -11,7 +11,13 @@ import { Tile } from './perf-bits.tsx'
  * what runs next. Every number comes from the result ConfigMaps, the
  * CronJobs and the gates in git — nothing is sampled or estimated.
  */
-export function PerfOverview({ insights, runs }: { insights: PerfInsights; runs: TestRun[] }) {
+export function PerfOverview({ insights, runs, testsUnread = false, runsUnread = false }: {
+  insights: PerfInsights
+  runs: TestRun[]
+  /** The test suite (Gitea) / the TestRuns (cluster) could not be read: unknown, not zero. */
+  testsUnread?: boolean
+  runsUnread?: boolean
+}) {
   const { overview: o, schedules, tests, loading } = insights
   const inFlight = runs.filter(isRunning).length
 
@@ -32,7 +38,11 @@ export function PerfOverview({ insights, runs }: { insights: PerfInsights; runs:
 
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-      <Tile label="Tests" value={tests.length} hint={`${schedules.length} schedule${schedules.length === 1 ? '' : 's'}`} />
+      <Tile
+        label="Tests"
+        value={testsUnread && !tests.length ? '—' : tests.length}
+        hint={testsUnread ? 'repositories unreadable' : `${schedules.length} schedule${schedules.length === 1 ? '' : 's'}`}
+      />
       <Tile
         label="Runs · 7 days"
         value={noRecords ? '—' : o.runs7d}
@@ -55,8 +65,8 @@ export function PerfOverview({ insights, runs }: { insights: PerfInsights; runs:
       />
       <Tile
         label="In flight"
-        value={inFlight}
-        hint="TestRuns on the cluster now"
+        value={runsUnread ? '—' : inFlight}
+        hint={runsUnread ? 'cluster unreadable' : 'TestRuns on the cluster now'}
         tone={inFlight ? 'busy' : undefined}
       />
       <Tile

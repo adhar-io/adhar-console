@@ -155,6 +155,7 @@ export function GatewaysTable({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={q.isLoading}
+        error={q.isError ? q.error : undefined}
         isFetching={q.isFetching}
         onRefresh={() => q.refetch()}
         lastUpdatedAt={q.dataUpdatedAt}
@@ -334,6 +335,7 @@ export function RoutesTable({ namespace }: { namespace?: string }) {
         total={all.length}
         visible={rows.length}
         loading={http.isLoading}
+        error={http.isError ? http.error : undefined}
         isFetching={http.isFetching || grpc.isFetching}
         onRefresh={() => { http.refetch(); grpc.refetch() }}
         lastUpdatedAt={http.dataUpdatedAt}
@@ -495,7 +497,7 @@ export function GatewayClassesTable() {
   const rows = useMemo(() => all.filter((c) => matchesSearch(c.metadata.name, search) || matchesSearch(c.spec?.controllerName, search)), [all, search])
   if (is404(q)) return <NotInstalled what="GatewayClass" />
   return (
-    <ListShell title="Gateway Classes" total={all.length} visible={rows.length} loading={q.isLoading} isFetching={q.isFetching} onRefresh={() => q.refetch()} lastUpdatedAt={q.dataUpdatedAt} search={search} onSearchChange={setSearch} searchPlaceholder="Search classes, controllers…" caption="cluster-scoped · which controller programs each Gateway">
+    <ListShell title="Gateway Classes" total={all.length} visible={rows.length} loading={q.isLoading} error={q.isError ? q.error : undefined} isFetching={q.isFetching} onRefresh={() => q.refetch()} lastUpdatedAt={q.dataUpdatedAt} search={search} onSearchChange={setSearch} searchPlaceholder="Search classes, controllers…" caption="cluster-scoped · which controller programs each Gateway">
       <DataTable<GatewayClassObject>
         loading={q.isLoading}
         columns={[

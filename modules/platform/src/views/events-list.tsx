@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react'
 import {
   DataTable,
-  EmptyState,
   StatusBadge,
   type StatusKind,
 } from '@adhar/shell-ui'
 import { useEvents } from '../data/hooks.ts'
 import { age } from '../data/format.ts'
-import { ListShell, StatusFilterPills, matchesSearch } from './list-shell.tsx'
+import { ListEmpty, ListShell, StatusFilterPills, matchesSearch, scopeLabel } from './list-shell.tsx'
 
 const TYPE_KIND: Record<string, StatusKind> = {
   Normal: 'info',
@@ -58,6 +57,7 @@ export function EventsView({ namespace }: { namespace?: string }) {
       total={all.length}
       visible={rows.length}
       loading={q.isLoading}
+      error={q.isError ? q.error : undefined}
       onRefresh={() => q.refetch()}
       search={search}
       onSearchChange={setSearch}
@@ -125,7 +125,18 @@ export function EventsView({ namespace }: { namespace?: string }) {
         ]}
         rows={rows}
         rowKey={(e) => `${e.metadata.namespace}/${e.metadata.name}`}
-        empty={<EmptyState title="No events in this scope" />}
+        empty={
+          <ListEmpty
+            what={type === 'all' ? 'events' : `${type.toLowerCase()} events`}
+            search={search}
+            onClearSearch={() => setSearch('')}
+            hint={
+              type === 'Warning'
+                ? `Nothing has gone wrong in ${scopeLabel(namespace)} within the apiserver's event window.`
+                : `Kubernetes keeps events for about an hour — nothing has happened in ${scopeLabel(namespace)} in that window.`
+            }
+          />
+        }
       />
     </ListShell>
   )

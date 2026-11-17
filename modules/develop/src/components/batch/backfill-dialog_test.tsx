@@ -54,11 +54,18 @@ const DONE = { startTime: '2026-11-03T02:00:00Z', completionTime: '2026-11-03T02
 const FAILED = { startTime: '2026-11-03T02:00:00Z', failed: 1, conditions: [{ type: 'Failed', status: 'True', lastTransitionTime: '2026-11-03T02:05:00Z' }] }
 const RUNNING = { startTime: '2026-11-03T02:00:00Z', active: 1 }
 
-const run = (name: string, status: RunObject['status'], suspend = false): RunObject => ({
+/** `queued`: suspended and carrying a backfill's mark. `stopped`: suspended by a person, so without it. */
+const run = (name: string, status: RunObject['status'], held?: 'queued' | 'stopped'): RunObject => ({
   apiVersion: 'batch/v1',
   kind: 'Job',
-  metadata: { name, namespace: 'prod', creationTimestamp: '2026-11-03T02:00:00Z', labels: { 'adhar.io/batch-job': 'importer' } },
-  spec: suspend ? { suspend: true } : {},
+  metadata: {
+    name,
+    namespace: 'prod',
+    creationTimestamp: '2026-11-03T02:00:00Z',
+    labels: { 'adhar.io/batch-job': 'importer' },
+    ...(held === 'queued' ? { annotations: { 'adhar.io/batch-queued': 'backfill' } } : {}),
+  },
+  spec: held ? { suspend: true } : {},
   status,
 })
 const rows = (runs: RunObject[]): RunRow[] => runRows(runs, [], Date.parse('2026-11-03T12:00:00Z'))
@@ -135,10 +142,15 @@ Deno.test('backfill: a bad range, a refused parameter and a nonsense parallelism
 
 Deno.test('backfill: nothing left to create but runs still queued is a backfill to continue; all done is nothing to do', async () => {
   const read: TemplateRead = { state: 'ok', template: await importerTemplate() }
-  const queued = rows([run(nameOf('2026-11-01'), DONE), run(nameOf('2026-11-02'), {}, true)])
+  const queued = rows([run(nameOf('2026-11-01'), DONE), run(nameOf('2026-11-02'), {}, 'queued')])
   const html = dialog(read, { runs: queued, initial: { from: '2026-11-01', to: '2026-11-02' }, release: true })
   assertStringIncludes(html, '1 already completed · 1 already there')
   assertMatch(html, /<button(?![^>]* disabled="")[^>]*>Continue backfill<\/button>/)
+  // The same Job without a backfill's mark was stopped by a person: there is nothing here to continue.
+  const theirs = rows([run(nameOf('2026-11-01'), DONE), run(nameOf('2026-11-02'), {}, 'stopped')])
+  const left = dialog(read, { runs: theirs, initial: { from: '2026-11-01', to: '2026-11-02' }, release: true })
+  assertStringIncludes(left, '1 already completed · 1 stopped by someone, left alone')
+  assertMatch(left, START_DISABLED)
   const done = dialog(read, { runs: rows([run(nameOf('2026-11-01'), DONE)]), initial: { from: '2026-11-01', to: '2026-11-01' }, release: true })
   assertMatch(done, START_DISABLED)
 })
@@ -177,8 +189,8 @@ Deno.test('progress: each date’s run as it stands — queued is not "stopped",
   const live = rows([
     run('importer-2026-11-01', DONE),
     run('importer-2026-11-02', RUNNING),
-    run('importer-2026-11-03', {}, true),
-    run('importer-2026-11-04', {}, true),
+    run('importer-2026-11-03', {}, 'queued'),
+    run('importer-2026-11-04', {}, 'queued'),
     // 2026-11-05 was deleted.
   ])
   const html = mount(() => {}, <BackfillProgressView items={items} runs={live} parallel={2} volcano={false} onOpenRun={() => {}} />)

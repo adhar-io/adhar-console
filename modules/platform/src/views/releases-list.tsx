@@ -25,7 +25,7 @@ import { GVRS } from '../data/gvr.ts'
 import { useDecodedRelease, useHelmReleases, type HelmRelease } from '../data/releases.ts'
 import { AccessDenied } from '../components/role-gate.tsx'
 import { age } from '../data/format.ts'
-import { ListShell, matchesSearch } from './list-shell.tsx'
+import { ListError, ListShell, matchesSearch } from './list-shell.tsx'
 
 /**
  * Helm release inventory read live from the cluster's `helm.sh/release.v1`
@@ -79,9 +79,10 @@ function ReleasesList({ namespace }: { namespace?: string }) {
 
   if (isError) {
     return (
-      <EmptyState
+      <ListError
         title="Couldn't read Helm release Secrets"
-        description={error?.message ?? 'Listing helm.sh/release.v1 Secrets failed — check your Secret read access.'}
+        error={error?.message ?? 'Listing helm.sh/release.v1 Secrets failed — check your Secret read access.'}
+        onRetry={refetch}
       />
     )
   }

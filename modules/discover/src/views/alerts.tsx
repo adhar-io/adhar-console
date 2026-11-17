@@ -889,7 +889,9 @@ function RoutingTab() {
   const q = useRouting()
   if (q.isLoading) return <LoadingCard label="Reading Alertmanager configuration…" />
   if (q.isError) return <SourceError tool="Alertmanager" error={q.error} onRetry={() => q.refetch()} />
-  const c = q.data!
+  // Paused (offline) or not started yet: no data and not "loading" either.
+  if (!q.data) return <LoadingCard label="Reading Alertmanager configuration…" />
+  const c = q.data
   const routes = flattenRoutes(c.route)
   return (
     <div className="space-y-4">

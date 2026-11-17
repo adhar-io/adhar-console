@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -15,6 +15,7 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { kyverno } from '@adhar/api-clients'
@@ -958,13 +959,8 @@ function PackDetail({
   const [showYaml, setShowYaml] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
 
   const copyYaml = async () => {
@@ -1188,13 +1184,8 @@ function downloadBundle(pack: CompliancePack) {
 
 function PolicyDetail({ policy: p, onClose }: { policy: kyverno.Policy; onClose(): void }) {
   const width = useDrawerWidth('deliver.policy', { base: 'max-w-2xl' })
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
 
   return createPortal(

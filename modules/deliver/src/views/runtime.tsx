@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -14,6 +14,7 @@ import {
   type TabDef,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
@@ -733,13 +734,8 @@ function EventRow({ event: e, onOpen }: { event: RuntimeEvent; onOpen(): void })
 
 function EventDrawer({ event: e, onClose }: { event: RuntimeEvent; onClose(): void }) {
   const width = useDrawerWidth('deliver.runtime-event', { base: 'max-w-xl' })
-  useEffect(() => {
-    const onKey = (k: KeyboardEvent) => {
-      if (k.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
 
   const rows = Object.entries(e.fields).filter(([, v]) => v !== '')
@@ -934,7 +930,7 @@ function PoliciesTab({
   return (
     <div className="space-y-3">
       <Card>
-        <CardBody className="p-0!">
+        <CardBody className="overflow-x-auto p-0!">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-edge-subtle text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -982,13 +978,8 @@ function PoliciesTab({
 
 function PolicyDrawer({ policy: p, onClose }: { policy: PolicyView; onClose(): void }) {
   const width = useDrawerWidth('deliver.runtime-policy', { base: 'max-w-lg' })
-  useEffect(() => {
-    const onKey = (k: KeyboardEvent) => {
-      if (k.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
 
   return createPortal(
@@ -1085,7 +1076,7 @@ function AgentsTab({
             </div>
           </CardHeader>
           {e.installed ? (
-            <CardBody className="p-0!">
+            <CardBody className="overflow-x-auto p-0!">
               <table className="w-full text-left">
                 <thead>
                   <tr className="border-b border-edge-subtle text-[10px] font-semibold uppercase tracking-wider text-content-subtle">

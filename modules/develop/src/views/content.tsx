@@ -13,6 +13,7 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import {
@@ -417,14 +418,8 @@ function EntryEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry.data, ct.uid, isNew])
 
-  useEffect(() => {
-    if (inline) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [inline, onClose])
+  // Esc via the shared overlay stack, so a dialog on top closes first.
+  useOverlayDismiss(!inline, onClose)
 
   const submit = (publish: boolean) => {
     const data: Record<string, unknown> = {}
@@ -462,7 +457,7 @@ function EntryEditor({
         </div>
       ) : entry.isError ? (
         <div className="p-6">
-          <EmptyState tone="error" compact title="Couldn't load the entry" description={strapiError(entry.error)} />
+          <EmptyState tone="error" compact title="Couldn't load the entry" description={strapiError(entry.error)} action={<Button size="xs" onClick={() => entry.refetch()}>Retry</Button>} />
         </div>
       ) : (
         <div className="space-y-4 p-5">

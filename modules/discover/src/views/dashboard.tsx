@@ -140,7 +140,7 @@ export function Dashboard() {
     retry: false,
   })
 
-  const ctx: DashCtx = { range, windowMs, stepSec, win, scope, names, refreshMs, deploys: annotations }
+  const ctx: DashCtx = { range, windowMs, stepSec, win, scope, names, namesError: namesQ.isError ? namesQ.error : undefined, refreshMs, deploys: annotations }
 
   const refreshAll = () => {
     void qc.invalidateQueries({ queryKey: ['prom'] })
@@ -329,7 +329,7 @@ function KpiStrip({ ctx, src, deploysState }: { ctx: DashCtx; src: HttpSource | 
     ? (pods.crashloop?.data?.length ?? 0) + (pods.pending?.data?.length ?? 0) + (pods.oomKilled?.data?.length ?? 0)
     : null
   const mh = (qs: Array<string | null | undefined>) => metricsLink(ctx, qs.filter(Boolean) as string[])
-  const noSrc = 'no HTTP source'
+  const noSrc = ctx.namesError ? 'Prometheus unreachable' : !ctx.names ? 'detecting source…' : 'no HTTP source'
   const lastDeploy = ctx.deploys[0]
   return (
     <section className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8" aria-label="Key signals">
@@ -460,6 +460,10 @@ function GoldenSignals({ ctx, src }: { ctx: DashCtx; src: HttpSource | null }) {
     ? classes.map((s) => ({ name: s.metric.class ?? 'other', points: s.points, color: seriesColor(Math.max(0, classOrder.indexOf(s.metric.class))) }))
     : one(r.rps.data, 'requests/s', 0)
   const noSrc = !src ? (ctx.names ? noSourceHint() : null) : null
+  // No source because discovery hasn't answered (or failed): the HTTP panels
+  // are loading / unavailable, not "no data in this range".
+  const httpState = <T extends { isLoading: boolean; isError: boolean; error: unknown }>(q: T) =>
+    !src && !ctx.names ? { isLoading: !ctx.namesError, isError: Boolean(ctx.namesError), error: ctx.namesError } : q
   return (
     <section className="space-y-4" aria-label="Golden signals">
       <div className="flex items-baseline justify-between gap-2">
@@ -472,20 +476,20 @@ function GoldenSignals({ ctx, src }: { ctx: DashCtx; src: HttpSource | null }) {
             ctx={ctx}
             unit="ms"
             missing={noSrc}
-            q={anyState(r.p50, r.p90, r.p99)}
+            q={httpState(anyState(r.p50, r.p90, r.p99))}
             series={[...one(r.p50.data, 'p50', 0), ...one(r.p90.data, 'p90', 1), ...one(r.p99.data, 'p99', 2)]}
             empty={src?.duration ? `${src.label} has no duration histogram samples in this window.` : 'This source has no duration histogram.'}
           />
         </Widget>
         <Widget title="Traffic" subtitle={classes.length ? 'requests / second by status class' : 'requests / second'} href={metricsLink(ctx, [http?.rpsByClass ?? http?.rps ?? ''].filter(Boolean))} hrefLabel="Metrics">
-          <ChartBody ctx={ctx} unit="rps" missing={noSrc} q={anyState(r.rps, r.byClass)} series={trafficSeries} empty="No requests recorded in this window." />
+          <ChartBody ctx={ctx} unit="rps" missing={noSrc} q={httpState(anyState(r.rps, r.byClass))} series={trafficSeries} empty="No requests recorded in this window." />
         </Widget>
         <Widget title="Errors" subtitle="5xx share · 4xx share of responses" href={metricsLink(ctx, [http?.errorPct, http?.clientErrorPct].filter(Boolean) as string[])} hrefLabel="Metrics">
           <ChartBody
             ctx={ctx}
             unit="percent"
             missing={noSrc}
-            q={anyState(r.err, r.err4)}
+            q={httpState(anyState(r.err, r.err4))}
             series={[...one(r.err.data, '5xx %', 7), ...one(r.err4.data, '4xx %', 3)]}
             thresholds={[{ value: 1, label: '1%', color: 'var(--color-amber-500)' }]}
             empty="No responses recorded in this window (an idle service has no error rate)."
@@ -557,7 +561,11 @@ function RedWidget({ ctx, src, className, onPickService }: { ctx: DashCtx; src: 
       actions={<Segmented value={sort} onChange={setSort} ariaLabel="Sort services" options={[{ id: 'traffic', label: 'Traffic' }, { id: 'errors', label: 'Errors' }, { id: 'latency', label: 'Latency' }]} />}
       bodyClassName="p-0!"
     >
-      {!src ? <div className="p-4"><NoData title="No request metrics" hint={ctx.names ? noSourceHint() : undefined} /></div> : state.isLoading ? <Loading /> : state.isError ? <div className="p-4"><QueryError error={state.error} /></div> : rows.length === 0 ? (
+      {!src ? (
+        !ctx.names
+          ? ctx.namesError ? <div className="p-4"><QueryError error={ctx.namesError} /></div> : <Loading />
+          : <div className="p-4"><NoData title="No request metrics" hint={noSourceHint()} /></div>
+      ) : state.isLoading ? <Loading /> : state.isError ? <div className="p-4"><QueryError error={state.error} /></div> : rows.length === 0 ? (
         <div className="p-4"><NoData hint={`${src.label} reports no series carrying a ${src.serviceLabel} label in this window.${src.id === 'hubble' ? ' Hubble needs labelsContext=destination_namespace,destination_workload on its httpV2 metric.' : ''}`} /></div>
       ) : (
         <div className="overflow-x-auto">
@@ -638,7 +646,7 @@ function TopServicesWidget({ ctx, src }: { ctx: DashCtx; src: HttpSource | null 
       subtitle={by === 'traffic' ? 'by requests / second' : by === 'errors' ? 'by 5xx share' : 'by p95 latency'}
       actions={<Segmented value={by} onChange={setBy} ariaLabel="Rank by" options={[{ id: 'errors', label: 'Errors' }, { id: 'latency', label: 'p95' }, { id: 'traffic', label: 'Traffic' }]} />}
     >
-      {!src ? <NoData title="No request metrics" /> : state.isLoading ? <Loading /> : state.isError ? <QueryError error={state.error} /> : top.length === 0 ? (
+      {!src ? (!ctx.names ? (ctx.namesError ? <QueryError error={ctx.namesError} /> : <Loading />) : <NoData title="No request metrics" />) : state.isLoading ? <Loading /> : state.isError ? <QueryError error={state.error} /> : top.length === 0 ? (
         <NoData title={by === 'errors' ? 'No service is returning 5xx' : 'No data in this range'} />
       ) : (
         <ol className="space-y-2.5">

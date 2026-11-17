@@ -27,6 +27,7 @@ import {
   useStatefulSets,
 } from '../data/hooks.ts'
 import { age, formatBytes, formatCpu, parseQuantity } from '../data/format.ts'
+import { ListError } from './list-shell.tsx'
 
 /**
  * Cluster overview — every section is live from the apiserver and polls on
@@ -93,6 +94,11 @@ export function ClusterView() {
   const readyNodes = (nodes.data ?? []).filter((n) => isNodeReady(n)).length
   const totalNodes = nodes.data?.length ?? 0
   const nsActive = namespaces.data?.filter((n) => n.status?.phase === 'Active').length ?? 0
+  // `data` stays undefined until a list has really been read. Until then the
+  // panels say so — a gauge at 0% or "0/0 ready" would be a made-up reading.
+  const nodesUnread = nodes.data === undefined
+  const podsUnread = pods.data === undefined
+  const hasUsage = Array.isArray(nodeMetrics.data) && nodeMetrics.data.length > 0
 
   return (
     <div className="space-y-6">
@@ -107,8 +113,8 @@ export function ClusterView() {
         <Stat
           label="Nodes"
           value={nodes.isLoading ? <Skeleton width={30} height={16} /> : nodes.data ? String(totalNodes) : '—'}
-          sub={nodes.data ? `${readyNodes} ready · ${totalNodes - readyNodes} attention` : 'could not read nodes'}
-          accent={readyNodes === totalNodes ? 'emerald' : 'amber'}
+          sub={nodes.data ? `${readyNodes} ready · ${totalNodes - readyNodes} attention` : nodes.isError ? 'could not read nodes' : <Skeleton width={96} height={12} className="mt-1.5" />}
+          accent={nodesUnread ? 'brand' : readyNodes === totalNodes ? 'emerald' : 'amber'}
         />
         <Stat
           label="Namespaces"
@@ -117,7 +123,7 @@ export function ClusterView() {
               ? <Skeleton width={30} height={16} />
               : namespaces.data ? String(namespaces.data.length) : '—'
           }
-          sub={namespaces.data ? `${nsActive} active` : 'could not read namespaces'}
+          sub={namespaces.data ? `${nsActive} active` : namespaces.isError ? 'could not read namespaces' : <Skeleton width={96} height={12} className="mt-1.5" />}
           accent="brand"
         />
         <Stat
@@ -127,7 +133,7 @@ export function ClusterView() {
               ? <Skeleton width={30} height={16} />
               : surface.data ? String(surface.data.apiGroups.length) : '—'
           }
-          sub={`core/v1 · ${surface.data?.coreVersions.join(', ') ?? ''}`}
+          sub={surface.data ? `core/v1 · ${surface.data.coreVersions.join(', ')}` : surface.isError ? 'could not read the API surface' : <Skeleton width={96} height={12} className="mt-1.5" />}
           accent="brand"
         />
       </div>
@@ -139,18 +145,31 @@ export function ClusterView() {
             <div>
               <div className="text-sm font-semibold text-content">Capacity utilization</div>
               <div className="text-[11px] text-content-subtle">
-                {nodeMetrics.data && (nodeMetrics.data as unknown[]).length
-                  ? 'Live usage from metrics-server'
-                  : 'metrics-server missing — showing allocatable only'}
+                {nodesUnread || nodeMetrics.isLoading
+                  ? 'Used against what the nodes can allocate'
+                  : hasUsage
+                    ? 'Live usage from metrics-server'
+                    : 'metrics-server missing — showing allocatable only'}
               </div>
             </div>
-            <StatusBadge kind={nodeMetrics.data && (nodeMetrics.data as unknown[]).length ? 'healthy' : 'unknown'}>
-              {nodeMetrics.data && (nodeMetrics.data as unknown[]).length
-                ? 'metrics live'
-                : 'static capacity'}
-            </StatusBadge>
+            {nodesUnread || nodeMetrics.isLoading ? null : (
+              <StatusBadge kind={hasUsage ? 'healthy' : 'unknown'}>
+                {hasUsage ? 'metrics live' : 'static capacity'}
+              </StatusBadge>
+            )}
           </div>
         </CardHeader>
+        {nodes.isError && nodesUnread ? (
+          <CardBody>
+            <ListError compact title="Couldn't read node capacity" error={nodes.error} onRetry={() => nodes.refetch()} />
+          </CardBody>
+        ) : nodesUnread ? (
+          <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-busy="true">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} height={134} className="rounded-xl" />
+            ))}
+          </CardBody>
+        ) : (
         <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <GaugeTile
             title="CPU"
@@ -185,6 +204,7 @@ export function ClusterView() {
             color="var(--color-sky-500)"
           />
         </CardBody>
+        )}
       </Card>
 
       {/* ─── Composition row ─── */}
@@ -193,12 +213,18 @@ export function ClusterView() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-content">Pods by namespace</div>
-              <span className="text-[11px] text-content-subtle">top {podsByNamespace.length}</span>
+              {podsByNamespace.length ? (
+                <span className="text-[11px] text-content-subtle">top {podsByNamespace.length}</span>
+              ) : null}
             </div>
           </CardHeader>
           <CardBody>
-            {podsByNamespace.length === 0 ? (
-              <EmptyState compact title="No pods in this cluster" />
+            {pods.isError && podsUnread ? (
+              <ListError compact title="Couldn't list pods" error={pods.error} onRetry={() => pods.refetch()} />
+            ) : podsUnread ? (
+              <Skeleton height={128} className="rounded-lg" />
+            ) : podsByNamespace.length === 0 ? (
+              <EmptyState compact title="No pods in this cluster" description="Pods are counted per namespace here once workloads are running." />
             ) : (
               <BarChart
                 bars={podsByNamespace.map((p) => ({ label: p.namespace, value: p.count }))}
@@ -221,6 +247,16 @@ export function ClusterView() {
               </div>
             </div>
           </CardHeader>
+          {pods.isError && podsUnread ? (
+            <CardBody>
+              <ListError compact title="Couldn't list pods" error={pods.error} onRetry={() => pods.refetch()} />
+            </CardBody>
+          ) : podsUnread ? (
+            <CardBody className="space-y-4" aria-busy="true">
+              <Skeleton height={20} className="rounded-full" />
+              <Skeleton height={62} className="rounded-lg" />
+            </CardBody>
+          ) : (
           <CardBody className="space-y-4">
             <StackedBar
               total={podCount}
@@ -250,6 +286,7 @@ export function ClusterView() {
               />
             </div>
           </CardBody>
+          )}
         </Card>
       </div>
 
@@ -274,14 +311,24 @@ export function ClusterView() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-content">Node health</div>
-              <StatusBadge kind={readyNodes === totalNodes ? 'healthy' : 'degraded'}>
-                {readyNodes}/{totalNodes} ready
-              </StatusBadge>
+              {totalNodes > 0 ? (
+                <StatusBadge kind={readyNodes === totalNodes ? 'healthy' : 'degraded'}>
+                  {readyNodes}/{totalNodes} ready
+                </StatusBadge>
+              ) : null}
             </div>
           </CardHeader>
           <CardBody>
-            {totalNodes === 0 ? (
-              <EmptyState compact title="No nodes" />
+            {nodes.isError && nodesUnread ? (
+              <ListError compact title="Couldn't list nodes" error={nodes.error} onRetry={() => nodes.refetch()} />
+            ) : nodesUnread ? (
+              <div className="space-y-3" aria-busy="true">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} height={36} />
+                ))}
+              </div>
+            ) : totalNodes === 0 ? (
+              <EmptyState compact title="No nodes" description="This cluster reports no nodes to your account." />
             ) : (
               <ul className="divide-y divide-edge-subtle">
                 {(nodes.data ?? []).map((n) => {

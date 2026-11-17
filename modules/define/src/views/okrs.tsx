@@ -45,6 +45,7 @@ import { EmptyIcon } from '../components/empty-icon.tsx'
 import { CheckInModal, GradeModal, ObjectiveEditor } from '../components/okr-editor.tsx';
 import { Avatar, ConsoleSideBadge, Loading, SourceNote, Stat } from '../components/insights-ui.tsx';
 import { LineChart, Meter, useSeriesColor } from '../components/insights-viz.tsx';
+import { confirmAction } from '../components/confirm.tsx'
 
 /**
  * OKRs — objectives → key results, aligned company → team → individual,
@@ -278,11 +279,12 @@ export function Okrs({ projectId }: { projectId?: string }) {
                 onError: (e) =>
                   toast.error("Couldn't save", { description: classifyError(e).message }),
               })}
-            onDelete={() => {
+            onDelete={async () => {
               if (
-                !confirm(
-                  `Delete “${open.title}” and its key results? Aligned objectives become top-level.`,
-                )
+                !(await confirmAction({
+                  title: `Delete “${open.title}”?`,
+                  description: 'Its key results are deleted with it. Aligned objectives become top-level.',
+                }))
               ) return;
               for (const c of all.filter((x) => x.parentId === open.id)) {
                 m.save.mutate({ ...c, parentId: undefined });

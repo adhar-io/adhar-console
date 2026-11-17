@@ -14,7 +14,9 @@
       "Bash(timeout 170 node shot.mjs live light 390 shots/03-live-light-390.png)",
       "Bash(timeout 170 node shot.mjs fixed light 1440 shots/04-fixed-dirty-light-1440.png)",
       "Bash(timeout 170 node shot.mjs dialog light 1440 shots/05-dialog-off-light-1440.png)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(grep -n \"Account menu\\\\|ring-surface-sidebar\\\\|maxHeight: pos.maxH }\\\\$\\\\|flex flex-col overflow-y-auto\" packages/shell-ui/src/topbar.tsx)",
+      "Bash(grep -n \"stripRef = \\\\|stripSettled = \\\\|id={\\\\`tab-\" packages/shell-ui/src/tabs.tsx)"
     ]
   }
 }

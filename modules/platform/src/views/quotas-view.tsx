@@ -43,7 +43,7 @@ import {
   resourceLabel,
   topLine,
 } from '../data/quotas.ts'
-import { ListShell, matchesSearch } from './list-shell.tsx'
+import { ListEmpty, ListShell, matchesSearch } from './list-shell.tsx'
 import { ManifestEditor } from './manifest-editor.tsx'
 
 /**
@@ -98,26 +98,42 @@ export function QuotasView({ namespace }: { namespace?: string }) {
   const tenantNs = namespaces.filter((n) => !SYSTEM_NS.test(n))
   const covered = tenantNs.filter((n) => quotaByNs.has(n)).length
   const pressured = quotaList.flatMap(quotaLines).filter((l) => (l.pct ?? 0) >= HIGH_AT).length
+  // Not read yet (still loading, or the list failed): show a dash, not a zero.
+  const quotasUnread = (quotas.isLoading || quotas.isError) && quotaList.length === 0
+  const limitsUnread = (limits.isLoading || limits.isError) && limitList.length === 0
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryTile label="Resource quotas" value={quotaList.length} hint={`across ${quotaByNs.size} namespace${quotaByNs.size === 1 ? '' : 's'}`} />
+        <SummaryTile
+          label="Resource quotas"
+          value={quotasUnread ? '—' : quotaList.length}
+          hint={quotasUnread ? 'namespaces with a quota' : `across ${quotaByNs.size} namespace${quotaByNs.size === 1 ? '' : 's'}`}
+        />
         <SummaryTile
           label="Quota coverage"
-          value={tenantNs.length ? `${covered}/${tenantNs.length}` : '—'}
+          value={tenantNs.length && !quotasUnread ? `${covered}/${tenantNs.length}` : '—'}
           hint="workload namespaces with a quota"
-          tone={tenantNs.length && covered < tenantNs.length ? 'amber' : 'emerald'}
+          tone={!tenantNs.length || quotasUnread ? 'slate' : covered < tenantNs.length ? 'amber' : 'emerald'}
         />
-        <SummaryTile label="Near limit" value={pressured} hint={`resources at ≥${HIGH_AT}% of quota`} tone={pressured ? 'rose' : 'emerald'} />
-        <SummaryTile label="Limit ranges" value={limitList.length} hint={`across ${limitByNs.size} namespace${limitByNs.size === 1 ? '' : 's'}`} />
+        <SummaryTile
+          label="Near limit"
+          value={quotasUnread ? '—' : pressured}
+          hint={`resources at ≥${HIGH_AT}% of quota`}
+          tone={quotasUnread ? 'slate' : pressured ? 'rose' : 'emerald'}
+        />
+        <SummaryTile
+          label="Limit ranges"
+          value={limitsUnread ? '—' : limitList.length}
+          hint={limitsUnread ? 'namespaces with defaults or bounds' : `across ${limitByNs.size} namespace${limitByNs.size === 1 ? '' : 's'}`}
+        />
       </div>
 
       <Tabs<Tab>
         tabs={[
-          { id: 'quotas', label: 'Resource quotas', badge: quotaList.length },
-          { id: 'limits', label: 'Limit ranges', badge: limitList.length },
-          { id: 'coverage', label: 'Namespace coverage', badge: tenantNs.length - covered || undefined },
+          { id: 'quotas', label: 'Resource quotas', badge: quotasUnread ? undefined : quotaList.length },
+          { id: 'limits', label: 'Limit ranges', badge: limitsUnread ? undefined : limitList.length },
+          { id: 'coverage', label: 'Namespace coverage', badge: quotasUnread ? undefined : tenantNs.length - covered || undefined },
         ]}
         value={tab}
         onChange={setTab}
@@ -197,13 +213,13 @@ function QuotaTable({ live, canCreate }: { live: ReturnType<typeof useLiveList<R
         .sort((a, b) => (topLine(b)?.pct ?? -1) - (topLine(a)?.pct ?? -1)),
     [live.data, search],
   )
-  if (live.isError) return <EmptyState title="Couldn't list ResourceQuotas" description={live.error?.message} />
   const sel = selected ? live.data.find((q) => key(q) === selected) : undefined
   return (
     <>
       <ListShell
         title="ResourceQuotas"
         total={live.data.length}
+        error={live.isError ? live.error : undefined}
         visible={rows.length}
         loading={live.isLoading}
         onRefresh={live.refetch}
@@ -375,7 +391,6 @@ function LimitTable({ live }: { live: ReturnType<typeof useLiveList<LimitRange>>
     () => live.data.filter((l) => matchesSearch(l.metadata.name, search) || matchesSearch(l.metadata.namespace, search)),
     [live.data, search],
   )
-  if (live.isError) return <EmptyState title="Couldn't list LimitRanges" description={live.error?.message} />
   const sel = selected ? live.data.find((l) => key(l) === selected) : undefined
   const cell = (v?: Record<string, string>) => {
     const s = fmtPair(v)
@@ -386,6 +401,7 @@ function LimitTable({ live }: { live: ReturnType<typeof useLiveList<LimitRange>>
       <ListShell
         title="LimitRanges"
         total={live.data.length}
+        error={live.isError ? live.error : undefined}
         visible={rows.length}
         loading={live.isLoading}
         onRefresh={live.refetch}
@@ -602,7 +618,14 @@ function CoverageTable({
               ),
           },
         ]}
-        empty={<EmptyState title="No namespaces" />}
+        empty={
+          <ListEmpty
+            what="namespaces"
+            search={search}
+            onClearSearch={() => setSearch('')}
+            hint={showSystem ? 'No namespace is visible to your account.' : 'Only system namespaces exist here — tick “Include system namespaces” to see them.'}
+          />
+        }
       />
     </ListShell>
   )

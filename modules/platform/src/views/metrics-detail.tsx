@@ -242,7 +242,7 @@ export function TrendsDetail() {
       {loading ? (
         <div className="flex h-40 items-center justify-center gap-2 text-[12px] text-content-subtle"><Spinner size={12} /> Querying Prometheus…</div>
       ) : unavailable ? (
-        <div className="rounded-lg border border-dashed border-edge-default p-6 text-center text-[12px] text-content-subtle">
+        <div className="rounded-lg border border-dashed border-edge-default p-6 text-center text-[12px] text-content-subtle [overflow-wrap:anywhere]">
           Prometheus is not reachable from the console ({(cpuUsed.error as Error)?.message?.slice(0, 80)}). Live totals above still come from metrics-server.
         </div>
       ) : (

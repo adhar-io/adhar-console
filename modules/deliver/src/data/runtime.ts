@@ -71,7 +71,7 @@ export interface EngineStatus {
 type Generic = K8s.Generic
 
 function img(spec: Record<string, unknown> | undefined, container: string): string | undefined {
-  const containers = ((spec?.containers ?? []) as Array<Record<string, unknown>>) ?? []
+  const containers = (spec?.containers ?? []) as Array<Record<string, unknown>>
   const match = containers.find((c) => c.name === container) ?? containers[0]
   const image = typeof match?.image === 'string' ? match.image : undefined
   if (!image) return undefined

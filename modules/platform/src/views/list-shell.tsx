@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { cn } from '@adhar/utils'
-import { Spinner } from '@adhar/shell-ui'
+import { Button, EmptyState, Spinner } from '@adhar/shell-ui'
 
 /**
  * Headlamp-style toolbar wrapping any resource list. Provides:
@@ -16,6 +16,9 @@ import { Spinner } from '@adhar/shell-ui'
  * - `onRefresh` shows a manual refresh button; while a refetch is in flight,
  *   the spinner replaces the icon. (House rule: no "updated Xs ago" chrome —
  *   lists are watch-fed, so freshness is the default, not a status.)
+ * - `error` is the list's failure. With nothing read yet the body becomes a
+ *   "couldn't list" state with a retry, so a failed read never paints the
+ *   view's own "No pods" empty state — the two are different facts.
  */
 export interface ListShellProps {
   title?: string
@@ -24,6 +27,8 @@ export interface ListShellProps {
   /** Visible count after filters/search are applied. */
   visible?: number
   loading?: boolean
+  /** The list's error, if the read failed. Only shown while there are no rows. */
+  error?: unknown
   /** True while a background refetch is happening. */
   isFetching?: boolean
   /** @deprecated Ignored — the "updated Xs ago" chip was removed (house rule). */
@@ -46,6 +51,7 @@ export function ListShell({
   total,
   visible,
   loading = false,
+  error,
   isFetching = false,
   onRefresh,
   search,
@@ -57,20 +63,25 @@ export function ListShell({
   children,
 }: ListShellProps) {
   const isFiltered = visible !== undefined && visible !== total
+  // Nothing has been read yet: a count of 0 would be a claim we can't back.
+  const failed = Boolean(error) && total === 0 && !loading
+  const unread = failed || (loading && total === 0)
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-edge-default bg-surface-raised px-3 py-2 shadow-sm">
         {title ? (
-          <div className="mr-2 flex min-w-0 items-baseline gap-2">
+          <div className="order-1 mr-2 flex min-w-0 items-baseline gap-2 sm:order-none">
             <span className="truncate text-sm font-semibold text-content" title={title}>{title}</span>
-            <span className="font-mono text-[11px] tabular-nums text-content-subtle">
-              {isFiltered ? `${visible} / ${total}` : total}
-            </span>
+            {unread ? null : (
+              <span className="font-mono text-[11px] tabular-nums text-content-subtle">
+                {isFiltered ? `${visible} / ${total}` : total}
+              </span>
+            )}
             {caption ? <span className="hidden text-[11px] text-content-subtle md:inline">· {caption}</span> : null}
           </div>
         ) : null}
 
-        <div className="relative ml-auto order-2 flex w-full items-center sm:order-none sm:ml-0 sm:w-72">
+        <div className="relative order-3 flex w-full items-center sm:order-none sm:w-72">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-content-subtle">
             <SearchGlyph />
           </span>
@@ -80,7 +91,7 @@ export function ListShell({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder}
             className={cn(
-              'h-8 w-full rounded-lg border border-edge-default bg-surface-raised pl-8 pr-7 text-sm text-content placeholder:text-content-subtle',
+              'h-8 w-full rounded-lg border border-edge-default bg-surface-raised pl-8 pr-7 text-sm pointer-coarse:h-10 text-content placeholder:text-content-subtle',
               'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
             )}
           />
@@ -89,16 +100,17 @@ export function ListShell({
               type="button"
               onClick={() => onSearchChange('')}
               aria-label="Clear search"
-              className="absolute right-1.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-content-subtle hover:bg-surface-sunken hover:text-content"
+              className="absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-content-subtle hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40"
             >
               <ClearGlyph />
             </button>
           ) : null}
         </div>
 
-        {filters ? <div className="flex flex-wrap items-center gap-1.5">{filters}</div> : null}
+        {filters ? <div className="order-4 flex flex-wrap items-center gap-1.5 sm:order-none">{filters}</div> : null}
 
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {/* On a phone the actions ride the title row; search and filters take a row each. */}
+        <div className="order-2 ml-auto flex flex-wrap items-center justify-end gap-2 sm:order-none">
           {onRefresh ? (
             <button
               type="button"
@@ -106,7 +118,7 @@ export function ListShell({
               aria-label="Refresh"
               disabled={loading}
               className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors',
+                'flex h-8 w-8 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors pointer-coarse:h-10 pointer-coarse:w-10',
                 'hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
                 'disabled:cursor-not-allowed disabled:opacity-60',
@@ -118,9 +130,71 @@ export function ListShell({
           {actions}
         </div>
       </div>
-      {children}
+      {failed ? <ListError title={title ? `Couldn't list ${title}` : "Couldn't load this list"} error={error} onRetry={onRefresh} /> : children}
     </div>
   )
+}
+
+/**
+ * The "this failed to load" state for a list or panel — rose tile, the
+ * server's message, and a retry. Distinct from an empty state on purpose.
+ */
+export function ListError({
+  title,
+  error,
+  onRetry,
+  compact,
+}: {
+  title: string
+  error?: unknown
+  onRetry?(): void
+  compact?: boolean
+}) {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : undefined
+  return (
+    <EmptyState
+      tone="error"
+      compact={compact}
+      title={title}
+      description={message || 'The request failed. This is usually temporary.'}
+      action={onRetry ? <Button size="sm" onClick={onRetry}>Try again</Button> : undefined}
+    />
+  )
+}
+
+/**
+ * The empty body of a list. A search that matches nothing is not the same fact
+ * as a scope with nothing in it, so it gets its own title and a way out.
+ */
+export function ListEmpty({
+  what,
+  search,
+  onClearSearch,
+  hint,
+}: {
+  /** Plural, lower-case noun — "deployments". */
+  what: string
+  search?: string
+  onClearSearch?(): void
+  /** One line for the genuinely-empty case: why, and what makes rows appear. */
+  hint?: ReactNode
+}) {
+  const q = search?.trim()
+  if (q) {
+    return (
+      <EmptyState
+        title={`No ${what} match “${q}”`}
+        description="Check the spelling, or clear the search to see everything in scope."
+        action={onClearSearch ? <Button size="sm" onClick={onClearSearch}>Clear search</Button> : undefined}
+      />
+    )
+  }
+  return <EmptyState title={`No ${what}`} description={hint} />
+}
+
+/** "namespace "x"" or the cluster-wide phrase — for empty-state copy. */
+export function scopeLabel(namespace?: string): string {
+  return namespace ? `namespace “${namespace}”` : 'the namespaces you can see'
 }
 
 /* ─────────────── status filter pill set ─────────────── */
@@ -167,7 +241,7 @@ export function StatusFilterPills<T extends string>({
             type="button"
             onClick={() => onChange(p.value as T | 'all')}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
+              'inline-flex min-h-7 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors pointer-coarse:min-h-9 pointer-coarse:px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
               on
                 ? p.tone
                   ? `ring-1 ring-inset ${tone}`

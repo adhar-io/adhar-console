@@ -308,8 +308,11 @@ export function configFromXrd(info: XrdInfo): XrKindConfig {
 export function XrListForKind({
   resource,
   kind,
+  label: displayLabel,
   namespace,
 }: {
+  /** Display name for the "not installed" state, e.g. `Vector Stores`. */
+  label?: string
   /** XR plural resource, e.g. `databases`. */
   resource?: string
   /** XR kind, e.g. `Database`. */
@@ -337,7 +340,7 @@ export function XrListForKind({
     const label = kind ?? resource ?? 'This resource'
     return (
       <EmptyState
-        title={`${label} not installed`}
+        title={displayLabel ? `${displayLabel} isn’t installed on this cluster` : `${label} not installed`}
         description={
           <>
             No <code className="font-mono">CompositeResourceDefinition</code> for{' '}

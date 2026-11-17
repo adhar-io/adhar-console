@@ -187,6 +187,15 @@ export function AppShell({
         <div
           ref={sheetRef}
           tabIndex={-1}
+          // Picking a destination closes the sheet. Between two pages of the
+          // same route (`/settings?section=…`, one lifecycle phase to another)
+          // the shell does not remount, so the sheet stayed open over the page
+          // just navigated to. A parent row is excluded — its link carries
+          // `aria-expanded` and the tap is there to open its submenu.
+          onClickCapture={(e) => {
+            const link = (e.target as Element | null)?.closest?.('a[href]')
+            if (link && !link.hasAttribute('aria-expanded')) setMobileOpen(false)
+          }}
           className={cn(
             'relative flex w-70 max-w-[calc(100vw-3.5rem)] shrink-0 transform-gpu outline-none transition-transform duration-250 ease-smooth',
             mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
@@ -228,21 +237,23 @@ export function AppShell({
             to the viewport, stretches the document past the window and adds a
             second scrollbar with blank space under the app. */}
         {contentWidth === 'bleed' ? (
-          <main className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden">
+          // A bleed page pads itself; the crash card that replaces it has to
+          // be inset here or it sits flush against the top bar and sidebar.
+          <main className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden [&>[data-error-fallback]]:my-10 [&>[data-error-fallback]]:px-4">
             <ErrorBoundary resetKey={routeKey}>{children}</ErrorBoundary>
           </main>
         ) : (
           <main className="relative isolate flex-1 overflow-y-auto bg-surface-canvas">
-            <ErrorBoundary resetKey={routeKey}>
-              <div
-                className={cn(
-                  'mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8',
-                  CONTENT_WIDTH_CLASS[contentWidth],
-                )}
-              >
-                {children}
-              </div>
-            </ErrorBoundary>
+            {/* The boundary sits INSIDE the padded column: outside it, the
+                fallback card rendered with none of the page's gutters. */}
+            <div
+              className={cn(
+                'mx-auto px-4 py-6 sm:px-6 sm:py-8 lg:px-8',
+                CONTENT_WIDTH_CLASS[contentWidth],
+              )}
+            >
+              <ErrorBoundary resetKey={routeKey}>{children}</ErrorBoundary>
+            </div>
           </main>
         )}
       </div>

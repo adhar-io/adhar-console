@@ -50,6 +50,7 @@ const read = (o: Partial<Extract<HistoryRead, { state: 'read' }>> = {}): History
   events: EVENTS,
   total: EVENTS.length,
   truncated: false,
+  behind: false,
   degraded: false,
   ...o,
 })
@@ -130,6 +131,14 @@ Deno.test('history: what was left out is named — a limit, a cut stream, an una
   const cut = table(read({ truncated: true }))
   assertStringIncludes(cut, 'the oldest events are not here')
   assertStringIncludes(cut, 'adhar batch history')
+  assert(!cut.includes('the most recent events are not here'))
+  // A read that ran out of time stopped short of the stream's END: it is last night that is missing, and the page must not say "the oldest".
+  const behind = table(read({ behind: true }))
+  assertStringIncludes(behind, 'the most recent events are not here')
+  assertStringIncludes(behind, 'not the same as nothing')
+  assertStringIncludes(behind, 'adhar batch history')
+  assert(!behind.includes('the oldest events are not here'))
+  assert(!table(read()).includes('the most recent events are not here'))
   const degraded = table(read({ degraded: true }))
   assertStringIncludes(degraded, 'Access to some namespaces could not be checked')
   assertStringIncludes(degraded, 'not the same as nothing having happened there')

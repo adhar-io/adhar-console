@@ -38,42 +38,59 @@ export class ErrorBoundary extends Component<Props, State> {
       const reset = () => this.setState({ error: null })
       if (this.props.fallback) return this.props.fallback(this.state.error, reset)
       return (
-        <div
-          role="alert"
-          className="flex flex-col items-center rounded-xl border border-edge-default bg-surface-raised px-6 py-12 text-center shadow-sm"
-        >
-          <span
-            aria-hidden
-            className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300"
+        // Centred at a reading width rather than stretched across whatever it
+        // replaced — on a full-width page the card ran edge to edge with a
+        // sentence of copy in the middle of it. `data-error-fallback` lets a
+        // frame with no padding of its own (AppShell's bleed <main>) inset it.
+        <div data-error-fallback="" className="mx-auto w-full max-w-2xl">
+          <div
+            role="alert"
+            className="flex flex-col items-center rounded-xl border border-edge-default bg-surface-raised px-6 py-12 text-center shadow-sm"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-              <path d="M12 9v4" />
-              <path d="M12 17h.01" />
-            </svg>
-          </span>
-          <div className="text-base font-semibold tracking-tight text-content">This part of the page failed to render</div>
-          <p className="mt-1.5 max-w-md text-sm leading-relaxed text-content-muted">
-            The rest of the console still works. Try again, or reload if it keeps happening.
-          </p>
-          <pre className="mt-3 max-h-32 max-w-full overflow-auto whitespace-pre-wrap rounded-lg bg-surface-sunken px-3 py-2 text-left font-mono text-[11px] text-content-muted [overflow-wrap:anywhere]">
-            {this.state.error.message}
-          </pre>
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={reset}
-              className="inline-flex h-9 items-center rounded-lg bg-brand-600 px-3.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
+            <span
+              aria-hidden
+              className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-300"
             >
-              Try again
-            </button>
-            <button
-              type="button"
-              onClick={() => globalThis.location?.reload()}
-              className="inline-flex h-9 items-center rounded-lg border border-edge-default bg-surface-raised px-3.5 text-sm font-medium text-content transition-colors hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
-            >
-              Reload page
-            </button>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <path d="M12 9v4" />
+                <path d="M12 17h.01" />
+              </svg>
+            </span>
+            <div className="text-base font-semibold tracking-tight text-content">This part of the page failed to render</div>
+            <p className="mt-1.5 max-w-md text-sm leading-relaxed text-content-muted">
+              The rest of the console still works. Try again, or reload if it keeps happening.
+            </p>
+            {this.state.error.message ? (
+              <pre className="mt-4 max-h-32 w-full max-w-md overflow-auto whitespace-pre-wrap rounded-lg border border-edge-subtle bg-surface-sunken px-3 py-2 text-left font-mono text-[11px] leading-relaxed text-content-muted [overflow-wrap:anywhere]">
+                {this.state.error.message}
+              </pre>
+            ) : null}
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={reset}
+                className="inline-flex h-9 items-center rounded-md bg-brand-600 px-4 text-sm font-medium text-white shadow-sm ring-1 ring-inset ring-white/10 transition-colors duration-150 hover:bg-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={() => globalThis.location?.reload()}
+                className="inline-flex h-9 items-center rounded-md border border-edge-default bg-surface-raised px-4 text-sm font-medium text-content shadow-xs transition-colors duration-150 hover:border-edge-strong hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
+              >
+                Reload page
+              </button>
+              {/* A way out that does not depend on this page rendering. A plain
+                  anchor on purpose: the boundary can sit outside the router,
+                  and a full load also clears whatever state broke the page. */}
+              <a
+                href="/"
+                className="inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-content-muted transition-colors duration-150 hover:bg-surface-sunken hover:text-content focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
+              >
+                Back to Overview
+              </a>
+            </div>
           </div>
         </div>
       )

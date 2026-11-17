@@ -28,6 +28,7 @@ import {
   usePeople,
   useSeriesColor,
 } from './planning-ui.tsx'
+import { confirmAction } from './confirm.tsx'
 
 /**
  * Sprint detail (a Plane cycle): goal, burndown / burnup, scope changes,
@@ -113,8 +114,8 @@ export function CycleDetail({ projectId, cycle, onClose }: { projectId: string; 
             size="sm"
             variant="danger"
             loading={remove.isPending}
-            onClick={() => {
-              if (!confirm(`Delete "${cycle.name}"? Its work items stay in the project.`)) return
+            onClick={async () => {
+              if (!(await confirmAction({ title: `Delete “${cycle.name}”?`, description: 'Its work items stay in the project.' }))) return
               remove.mutate(cycle.id, {
                 onSuccess: () => {
                   toast.success(`Deleted ${cycle.name}`)

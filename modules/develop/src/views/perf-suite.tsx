@@ -132,6 +132,7 @@ export function PerfSuite({
         description={`Performance tests live in the application repositories in Gitea, and the console could not reach Gitea: ${
           (suiteQ.error as Error).message
         }`}
+        action={<Button size="sm" onClick={() => suiteQ.refetch()}>Retry</Button>}
       />
     )
   }

@@ -45,7 +45,8 @@ type Container = { name: string; image?: string; env?: Array<{ name: string; val
 const batchContainer = (o: unknown): Container =>
   (o as { spec: { template: { spec: { containers: Container[] } } } }).spec.template.spec.containers.find((c) => c.name === 'batch')!
 const envOf = (o: unknown, name: string) => batchContainer(o).env?.find((e) => e.name === name)?.value
-const metaOf = (o: unknown) => (o as { metadata: { name: string; namespace: string; labels: Record<string, string> } }).metadata
+const metaOf = (o: unknown) =>
+  (o as { metadata: { name: string; namespace: string; labels: Record<string, string>; annotations?: Record<string, string> } }).metadata
 
 const JOBS = '/api/k8s/apis/batch/v1/namespaces/prod/jobs'
 const conflict = { status: 409, body: { kind: 'Status', status: 'Failure', reason: 'AlreadyExists', code: 409, message: 'exists' } }
@@ -204,6 +205,8 @@ Deno.test('backfill: native runs are created SUSPENDED, in date order, only for 
     assertEquals(g.seen.map((s) => metaOf(s.body).name), ['importer-2026-11-02', 'importer-x-r1', 'importer-2026-11-06'])
     assertEquals(out.map((o) => [o.item.businessDate, o.outcome.created]), [['2026-11-02', true], ['2026-11-04', true], ['2026-11-06', true]])
     for (const s of g.seen) assertEquals((s.body as RunObject).spec?.suspend, true, 'every run waits to be released')
+    // And says whose it is, as the CLI's do: only a run carrying this mark is ever released by a backfill.
+    for (const s of g.seen) assertEquals(metaOf(s.body).annotations?.['adhar.io/batch-queued'], 'backfill')
     const [first, restart] = g.seen.map((s) => s.body)
     assertEquals([metaOf(first).labels['adhar.io/batch-trigger'], envOf(first, 'ADHAR_BATCH_TRIGGER'), envOf(first, 'ADHAR_BATCH_RESTART_OF')], [
       'backfill',
@@ -224,6 +227,7 @@ Deno.test('backfill: on Volcano nothing is suspended — the queue decides', asy
   try {
     await createBackfill({ namespace: 'prod', template: await template(), volcano: true, items: [item('2026-11-02', 'create')] })
     assertEquals((g.seen[0].body as RunObject).spec?.suspend, undefined)
+    assertEquals(metaOf(g.seen[0].body).annotations?.['adhar.io/batch-queued'], undefined, 'nothing is held back, so nothing is marked')
   } finally {
     g.restore()
   }
@@ -258,11 +262,11 @@ Deno.test('backfill: a run that already exists is found; the first refusal stops
   }
 })
 
-Deno.test('release: spec.suspend=false on each queued run, in the order given', async () => {
+Deno.test('release: spec.suspend=false on each queued run, in the order given, and the mark goes in the same patch', async () => {
   const queued = (name: string): RunObject => ({
     apiVersion: 'batch/v1',
     kind: 'Job',
-    metadata: { name, namespace: 'prod', uid: name, labels: { 'adhar.io/batch-job': 'importer' } },
+    metadata: { name, namespace: 'prod', uid: name, labels: { 'adhar.io/batch-job': 'importer' }, annotations: { 'adhar.io/batch-queued': 'backfill' } },
     spec: { suspend: true },
   })
   const runs: RunRow[] = runRows([queued('d2'), queued('d1')], [])
@@ -271,8 +275,8 @@ Deno.test('release: spec.suspend=false on each queued run, in the order given', 
     const order = [runs.find((r) => r.name === 'd1')!, runs.find((r) => r.name === 'd2')!]
     assertEquals(await releaseBackfillRuns(order), ['d1', 'd2'])
     assertEquals(g.seen.map((s) => [s.method, s.url, s.body]), [
-      ['PATCH', `${JOBS}/d1`, { spec: { suspend: false } }],
-      ['PATCH', `${JOBS}/d2`, { spec: { suspend: false } }],
+      ['PATCH', `${JOBS}/d1`, { metadata: { annotations: { 'adhar.io/batch-queued': null } }, spec: { suspend: false } }],
+      ['PATCH', `${JOBS}/d2`, { metadata: { annotations: { 'adhar.io/batch-queued': null } }, spec: { suspend: false } }],
     ])
   } finally {
     g.restore()

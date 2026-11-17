@@ -8,6 +8,7 @@ import { useGitSync } from '../data/planning-plane.ts'
 import { newId, storeError, useAutomationDoc, usePatchAutomation } from '../data/planning-store.ts'
 import { type Action, type AutomationRule, describeAction, describeTrigger, type Trigger } from '../data/planning-workflow.ts'
 import { Loading, Notice, SectionTitle } from './planning-ui.tsx'
+import { confirmAction } from './confirm.tsx'
 
 /**
  * Console-side automation for one project: rules ("when … then …") kept in
@@ -128,8 +129,8 @@ export function AutomationEditor({ projectId }: { projectId: string }) {
                   <Button
                     size="xs"
                     variant="ghost"
-                    onClick={() => {
-                      if (confirm(`Delete “${r.name}”?`)) write(rules.filter((x) => x.id !== r.id), 'Rule deleted')
+                    onClick={async () => {
+                      if (await confirmAction({ title: `Delete “${r.name}”?`, description: 'The rule stops running. Work items it already changed stay as they are.' })) write(rules.filter((x) => x.id !== r.id), 'Rule deleted')
                     }}
                   >
                     Delete

@@ -86,10 +86,6 @@ export function NamespacesView() {
     [all, phase, search],
   )
 
-  if (live.isError) {
-    return <EmptyState title="Couldn't list namespaces" description={live.error?.message} />
-  }
-
   const activeCount = all.filter((n) => n.status?.phase === 'Active').length
   const terminatingCount = all.filter((n) => n.status?.phase === 'Terminating').length
   const selectedNs = selected ? all.find((n) => n.metadata.name === selected) : undefined
@@ -99,6 +95,7 @@ export function NamespacesView() {
       <ListShell
         title="Namespaces"
         total={all.length}
+        error={live.isError ? live.error : undefined}
         visible={rows.length}
         loading={live.isLoading}
         onRefresh={() => live.refetch()}

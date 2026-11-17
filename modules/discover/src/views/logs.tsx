@@ -992,7 +992,8 @@ function DiscoveryRail({
                             type="button"
                             onClick={() => label && onMatcher(label, v, '!=')}
                             title={`Exclude ${label}="${v}"`}
-                            className="rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 dark:hover:text-rose-400"
+                            aria-label={`Exclude ${label}="${v}"`}
+                            className="rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-400"
                           >
                             ≠
                           </button>
@@ -1088,7 +1089,8 @@ function FacetGroupView({
                   type="button"
                   onClick={() => onPin(v.value)}
                   title={`Pin ${group.key}="${v.value}" into the query`}
-                  className="absolute right-6 rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-brand-600 group-hover:opacity-100 dark:hover:text-brand-400"
+                  aria-label={`Pin ${group.key}="${v.value}" into the query`}
+                  className="absolute right-6 rounded px-1 text-[11px] text-content-subtle opacity-0 hover:text-brand-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-brand-400"
                 >
                   ＋
                 </button>
@@ -1197,7 +1199,7 @@ function PatternsView({
               type="button"
               onClick={() => onIsolate(longestToken(p.sample.message))}
               title="Add a line filter for this pattern to the query"
-              className="mt-1 shrink-0 rounded-md border border-edge-default px-1.5 py-0.5 text-[10px] text-content-subtle opacity-0 transition-opacity hover:text-content group-hover:opacity-100"
+              className="mt-1 shrink-0 rounded-md border border-edge-default px-1.5 py-0.5 text-[10px] text-content-subtle opacity-0 transition-opacity hover:text-content focus-visible:opacity-100 group-hover:opacity-100"
             >
               isolate
             </button>
@@ -1366,7 +1368,8 @@ function LogRow({
         type="button"
         onClick={() => copy(entry.message)}
         title="Copy this line"
-        className="mt-0.5 shrink-0 self-start rounded p-1 text-content-subtle opacity-0 transition-opacity hover:text-content group-hover:opacity-100"
+        aria-label="Copy this line"
+        className="mt-0.5 shrink-0 self-start rounded p-1 text-content-subtle opacity-0 transition-opacity hover:text-content focus-visible:opacity-100 group-hover:opacity-100"
       >
         <IconCopySmall />
       </button>
@@ -1561,7 +1564,7 @@ function HistoryMenu({
                 <div className="truncate text-[12px] font-medium text-content">{s.name}</div>
                 <code className="block truncate font-mono text-[10px] text-content-subtle">{s.query}</code>
               </button>
-              <button type="button" onClick={() => onDeleteSaved(s.name)} aria-label={`Delete ${s.name}`} className="rounded p-1 text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 dark:hover:text-rose-400">
+              <button type="button" onClick={() => onDeleteSaved(s.name)} aria-label={`Delete ${s.name}`} className="rounded p-1 text-content-subtle opacity-0 hover:text-rose-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:text-rose-400">
                 <IconTrash />
               </button>
             </div>
@@ -1717,6 +1720,7 @@ function Toggle({ on, onClick, title, children }: { on: boolean; onClick(): void
       type="button"
       aria-pressed={on}
       title={title}
+      aria-label={title}
       onClick={onClick}
       className={cn('inline-flex h-7 w-7 items-center justify-center rounded-md border font-mono text-[11px] transition-colors', on ? 'border-brand-300 bg-brand-50 text-brand-700 dark:border-brand-500/40 dark:bg-brand-500/10 dark:text-brand-300' : 'border-edge-default bg-surface-raised text-content-subtle hover:text-content')}
     >

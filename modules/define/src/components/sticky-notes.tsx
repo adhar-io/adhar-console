@@ -5,6 +5,7 @@ import type { plane } from '@adhar/api-clients'
 import { planeError, useStickies, useStickyMutations } from '../data/plane.ts'
 import { classifyError } from '../data/insights-data.ts'
 import { SourceNote } from './insights-ui.tsx'
+import { confirmAction } from './confirm.tsx'
 
 /**
  * Team notes — Plane's workspace stickies, on the Define dashboard.
@@ -144,8 +145,8 @@ function Note({ note: n }: { note: plane.Sticky }) {
         <span className="ml-auto text-[10px] text-content-subtle">{saving ? 'Saving…' : n.updated_at ? formatRelative(n.updated_at) : ''}</span>
         <button
           type="button"
-          onClick={() => {
-            if (!confirm('Delete this note?')) return
+          onClick={async () => {
+            if (!(await confirmAction({ title: 'Delete this note?', description: "The note is removed from Plane and can't be restored." }))) return
             m.remove.mutate(n.id, { onError: (e) => toast.error(planeError(e, "Couldn't delete the note.")) })
           }}
           className="ml-1 text-[11px] text-content-subtle opacity-0 hover:text-rose-600 group-hover:opacity-100 focus:opacity-100"

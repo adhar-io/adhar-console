@@ -26,6 +26,7 @@ import {
   replayPlan,
   successDurations,
   tonightRows,
+  unforecastJobs,
 } from './batch-history-model.ts'
 
 /**
@@ -59,7 +60,17 @@ const RUNNING = { startTime: '2026-11-03T02:00:00Z', active: 1 }
 const run = (
   name: string,
   status: RunObject['status'],
-  o: { job?: string; ns?: string; trigger?: string; env?: Record<string, string>; suspend?: boolean; created?: string; params?: Record<string, string> } = {},
+  o: {
+    job?: string
+    ns?: string
+    trigger?: string
+    env?: Record<string, string>
+    suspend?: boolean
+    /** Suspended and carrying a backfill's mark: `adhar.io/batch-queued=backfill`. */
+    queued?: boolean
+    created?: string
+    params?: Record<string, string>
+  } = {},
 ): RunObject => ({
   apiVersion: 'batch/v1',
   kind: 'Job',
@@ -68,9 +79,10 @@ const run = (
     namespace: o.ns ?? 'prod',
     creationTimestamp: o.created ?? '2026-11-03T02:00:00Z',
     labels: { 'adhar.io/batch-job': o.job ?? 'importer', 'adhar.io/batch-trigger': o.trigger ?? 'schedule' },
+    ...(o.queued ? { annotations: { 'adhar.io/batch-queued': 'backfill' } } : {}),
   },
   spec: {
-    ...(o.suspend ? { suspend: true } : {}),
+    ...(o.suspend || o.queued ? { suspend: true } : {}),
     template: {
       spec: {
         containers: [{
@@ -134,7 +146,12 @@ Deno.test('history: a body that is not a history is unavailable, never an empty 
   })
   assert(read.state === 'read')
   assertEquals(read.events.length, 1, 'an entry with no type or subject is dropped, not shown blank')
-  assertEquals([read.total, read.truncated, read.degraded], [9, true, false])
+  assertEquals([read.total, read.truncated, read.behind, read.degraded], [9, true, false, false])
+  // The read that ended early is its own flag, and only a literal true sets it.
+  const late = parseHistory({ state: 'read', events: [], behind: true })
+  assert(late.state === 'read' && late.behind && !late.truncated)
+  const not = parseHistory({ state: 'read', events: [], behind: 'yes' })
+  assert(not.state === 'read' && !not.behind)
 })
 
 Deno.test('history: rows are newest first, read from the event as the CLI reads it', () => {
@@ -378,12 +395,24 @@ Deno.test('calendar: one that cannot be read keeps its name and says why', () =>
     ['name: x\nholidays: tomorrow\n', 'holidays is not a list'],
     ['name: x\nholidays:\n  - 2026-13-45\n', 'holidays has 2026-13-45, which is not a date'],
     ['name: x\nbusinessDays:\n  - 7 Nov\n', 'businessDays has 7 Nov'],
+    // A date that does not exist is not rolled over into the next month: the runner reading this file refuses it (exit 2).
+    ['name: x\nholidays: [2026-02-30]\n', 'holidays has 2026-02-30, which is not a date'],
+    ['name: x\nholidays: ["2026-02-29"]\n', 'holidays has 2026-02-29, which is not a date'],
+    ['name: x\nbusinessDays: ["2026-04-31"]\n', 'businessDays has 2026-04-31, which is not a date'],
   ]
   for (const [yaml, want] of cases) {
     const c = parseCalendar(cm('x', yaml, 'prod'))
     assertEquals([c.name, c.namespace], ['x', 'prod'])
     assertStringIncludes(c.error ?? '', want, String(yaml))
   }
+  // A leap day that exists is a date.
+  assertEquals(parseCalendar(cm('x', 'holidays: [2028-02-29]\n', 'prod')), {
+    namespace: 'prod',
+    name: 'x',
+    weekendDays: ['SATURDAY', 'SUNDAY'],
+    holidays: ['2028-02-29'],
+    businessDays: [],
+  })
 })
 
 Deno.test('calendar: a job’s own namespace is looked in first, then the platform’s', () => {
@@ -454,6 +483,30 @@ Deno.test('durations: the last successes, cluster then history, each run once, n
   const got = successDurations('prod', 'importer', [], many)
   assertEquals(got.length, 20)
   assertEquals([got[0], got[19]], [29_000, 10_000], 'the newest twenty, newest first')
+})
+
+Deno.test('forecast: a time zone nobody can read leaves that job out and SAYS so; the others are still forecast', () => {
+  const now = Date.parse('2026-11-03T12:00:00Z')
+  const jobs = [
+    job('good', { schedule: { cron: '0 20 * * *' } }),
+    // The XRD takes any string: a misspelling reaches the page.
+    job('typo', { schedule: { cron: '0 20 * * *', timeZone: 'Asia/Kolkatta' } }),
+    job('late', { schedule: { cron: '0 20 * * *' }, sla: { finishBy: '06:00', timeZone: 'Mars/Phobos' } }),
+    job('fine', { schedule: { cron: '0 20 * * *', timeZone: 'Asia/Kolkata' }, sla: { finishBy: '06:00' } }),
+    // Not scheduled to run, so nothing is missing from the forecast.
+    job('on-demand', { schedule: undefined }),
+    job('held', { schedule: { cron: '0 20 * * *', timeZone: 'Asia/Kolkatta' } }, { annotations: { 'adhar.io/batch-hold': 'x' } }),
+    job('off', { schedule: { cron: '0 20 * * *', timeZone: 'Asia/Kolkatta', suspend: true } }),
+  ]
+  const rows = tonightRows(jobs, { now })
+  assertEquals(rows.map((r) => r.job).sort(), ['fine', 'good', 'late'])
+  const late = rows.find((r) => r.job === 'late')!
+  assertEquals([late.finishBy, late.deadlineMs, late.sla], ['06:00', undefined, 'none'], 'no deadline is invented in a zone that cannot be read')
+  assertEquals(unforecastJobs(jobs), [
+    { key: 'prod/late', what: 'sla', timeZone: 'Mars/Phobos' },
+    { key: 'prod/typo', what: 'schedule', timeZone: 'Asia/Kolkatta' },
+  ])
+  assertEquals(deadlineAfter(now, '06:00', 'Asia/Kolkatta'), undefined)
 })
 
 Deno.test('deadline: the first HH:MM at or after the anchor, on the zone’s own clock', () => {
@@ -621,8 +674,9 @@ Deno.test('backfill plan: every date named as Run now names it; done is left alo
     run(name('2026-11-01'), DONE()),
     run(name('2026-11-02'), FAILED),
     run(name('2026-11-03'), RUNNING),
-    run(name('2026-11-04'), {}, { suspend: true }), // queued by an earlier backfill
-    run(name('2026-11-05'), { startTime: '2026-11-03T02:00:00Z' }, { suspend: true }), // stopped by a person
+    run(name('2026-11-04'), {}, { queued: true }), // queued by an earlier backfill
+    // Stopped by a person. Since Kubernetes 1.36 its status is that of a run that never started: only the mark tells.
+    run(name('2026-11-05'), {}, { suspend: true }),
     run(name('2026-11-06'), FAILED),
     run(`${name('2026-11-06')}-r1`, DONE()),
     // Another job's run of the same name pattern is not this job's.
@@ -684,12 +738,23 @@ Deno.test('backfill plan: one refused date refuses the backfill, before anything
   assertStringIncludes(backfillPlan({ namespace: 'prod', job: 'importer' }, t, ['2026-11-01'], {}, spent).error ?? '', '99 restarts')
 })
 
-Deno.test('backfill state: created-suspended is queued; suspended after starting is stopped; anything unproven is in flight', () => {
+Deno.test('backfill state: queued is a backfill’s MARK and no sign of a start; suspended otherwise is stopped; anything unproven is in flight', () => {
   const one = (r: RunObject) => backfillState(rows([r])[0])
-  assertEquals(one(run('a', {}, { suspend: true })), 'queued')
-  assertEquals(one(run('a', undefined, { suspend: true })), 'queued', 'no status yet')
-  assertEquals(one(run('a', { startTime: '2026-11-03T02:00:00Z' }, { suspend: true })), 'stopped')
-  assertEquals(one(run('a', { failed: 1 }, { suspend: true })), 'stopped')
+  assertEquals(one(run('a', {}, { queued: true })), 'queued')
+  assertEquals(one(run('a', undefined, { queued: true })), 'queued', 'no status yet')
+  // The CLI's rule (cmd/batch/backfill.go). Kubernetes 1.36 clears status.startTime on every suspend, so a run a
+  // person stopped before a pod failed has exactly this status: without the mark it is theirs, and is never released.
+  assertEquals(one(run('a', {}, { suspend: true })), 'stopped', 'suspended with no mark is a person’s')
+  assertEquals(one(run('a', undefined, { suspend: true })), 'stopped')
+  const other = run('a', {}, { suspend: true })
+  other.metadata.annotations = { 'adhar.io/batch-queued': 'someone-else' }
+  assertEquals(one(other), 'stopped', 'queued by something this page knows nothing about')
+  // The mark alone is not enough either: a marked run that shows a start was not left waiting.
+  assertEquals(one(run('a', { startTime: '2026-11-03T02:00:00Z' }, { queued: true })), 'stopped')
+  assertEquals(one(run('a', { failed: 1 }, { queued: true })), 'stopped')
+  assertEquals(one(run('a', { succeeded: 1 }, { queued: true })), 'stopped')
+  assertEquals(one(run('a', { active: 1 }, { queued: true })), 'in-flight', 'still stopping')
+  assertEquals(one(run('a', { terminating: 1 }, { queued: true })), 'in-flight')
   assertEquals(one(run('a', { active: 1 }, { suspend: true })), 'in-flight', 'still stopping')
   assertEquals(one(run('a', { terminating: 1 }, { suspend: true })), 'in-flight')
   assertEquals(one(run('a', {})), 'in-flight', 'released, not started yet')
@@ -701,7 +766,7 @@ Deno.test('backfill state: created-suspended is queued; suspended after starting
 Deno.test('backfill progress (A3.3): queued runs are released in date order, never more than parallel in flight', () => {
   const names = ['d1', 'd2', 'd3', 'd4', 'd5']
   const world = (s: Record<string, RunObject['status'] | 'queued'>) =>
-    rows(Object.entries(s).map(([n, st]) => (st === 'queued' ? run(n, {}, { suspend: true }) : run(n, st))))
+    rows(Object.entries(s).map(([n, st]) => (st === 'queued' ? run(n, {}, { queued: true }) : run(n, st))))
   const all = world({ d1: 'queued', d2: 'queued', d3: 'queued', d4: 'queued', d5: 'queued' })
   let p = backfillProgress(names, all, 2, false)
   assertEquals([p.release.map((r) => r.name), p.inFlight, p.queued, p.settled], [['d1', 'd2'], 0, 5, false])
@@ -719,13 +784,13 @@ Deno.test('backfill progress (A3.3): queued runs are released in date order, nev
   assertEquals([p.release.length, p.settled, p.inFlight], [0, true, 2])
   // A nonsense parallel still makes progress, one at a time.
   assertEquals(backfillProgress(names, all, 0, false).release.map((r) => r.name), ['d1'])
-  // A run a person stopped is left alone and holds no slot.
-  p = backfillProgress(['d1', 'd2'], rows([run('d1', { startTime: '2026-11-03T02:00:00Z' }, { suspend: true }), run('d2', {}, { suspend: true })]), 1, false)
+  // A run a person stopped is left alone and holds no slot, whatever its status says about having started.
+  p = backfillProgress(['d1', 'd2'], rows([run('d1', {}, { suspend: true }), run('d2', {}, { queued: true })]), 1, false)
   assertEquals([p.stopped, p.release.map((r) => r.name)], [1, ['d2']])
 })
 
 Deno.test('backfill progress: on Volcano nothing is released from here — the queue decides', () => {
-  const all = rows([run('d1', {}, { suspend: true }), run('d2', {}, { suspend: true })])
+  const all = rows([run('d1', {}, { queued: true }), run('d2', {}, { queued: true })])
   const p = backfillProgress(['d1', 'd2'], all, 2, true)
   assertEquals([p.release, p.queued], [[], 2])
 })

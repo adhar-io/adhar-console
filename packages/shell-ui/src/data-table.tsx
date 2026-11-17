@@ -636,7 +636,10 @@ export function DataTable<T>({
                         cellPad,
                         align === 'right' && 'justify-end',
                         align === 'center' && 'justify-center',
-                        sortable && 'cursor-pointer select-none hover:text-content',
+                        // Inset ring: the base 2px-offset outline is clipped
+                        // by the table's own scroller on the first and last
+                        // column, leaving a focus mark with a side missing.
+                        sortable && 'cursor-pointer select-none transition-colors duration-150 hover:text-content focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--color-brand-500)]',
                         canReorder && !c.pinned && 'touch-none',
                       )}
                     >
@@ -671,13 +674,20 @@ export function DataTable<T>({
               </tr>
             ) : null}
           </thead>
-          <tbody>
+          <tbody aria-busy={loading || undefined}>
             {loading
               ? Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`skeleton-${i}`} className="border-b border-edge-subtle last:border-0">
                   {visible.map((c) => (
                     <td key={c.key} className={cellPad}>
-                      <span className="skeleton-shimmer block h-3 w-3/4 rounded" />
+                      {/* A 12px bar centred in a 20px line box — the height of
+                          one line of `text-sm` — so a skeleton row is exactly
+                          as tall as the row that replaces it. The bare bar
+                          made each row 8px short and the table grew under
+                          the pointer when the data landed. */}
+                      <span className="flex h-5 items-center">
+                        <span className={cn('skeleton-shimmer block h-3 rounded', (i + c.key.length) % 3 === 0 ? 'w-1/2' : (i + c.key.length) % 3 === 1 ? 'w-3/4' : 'w-2/3')} />
+                      </span>
                     </td>
                   ))}
                 </tr>

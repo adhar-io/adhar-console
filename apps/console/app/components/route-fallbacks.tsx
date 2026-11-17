@@ -1,5 +1,5 @@
-import { Link, useRouter, type ErrorComponentProps } from '@tanstack/react-router'
-import { Button, EmptyState } from '@adhar/shell-ui'
+import { useRouter, type ErrorComponentProps } from '@tanstack/react-router'
+import { Button, ButtonLink, EmptyState } from '@adhar/shell-ui'
 
 /**
  * Router-wide fallbacks. Without them an unknown path (`/nope`, or a phase
@@ -13,12 +13,8 @@ export function RouteNotFound() {
       <EmptyState
         className="w-full max-w-lg"
         title="This page does not exist"
-        description="The link may be out of date, or the page has moved. Head back to the dashboard to find what you were looking for."
-        action={
-          <Link to="/" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-300">
-            Go to the dashboard
-          </Link>
-        }
+        description="The link may be out of date, or the page has moved. Head back to Overview to find what you were looking for."
+        action={<ButtonLink to="/" variant="primary">Go to Overview</ButtonLink>}
       />
     </div>
   )
@@ -28,24 +24,31 @@ export function RouteError({ error, reset }: ErrorComponentProps) {
   const router = useRouter()
   const message = error instanceof Error ? error.message : String(error ?? '')
   return (
-    <div role="alert" className="flex min-h-[60vh] items-center justify-center p-6">
+    <div className="flex min-h-[60vh] items-center justify-center p-6">
       <EmptyState
         className="w-full max-w-lg"
+        // A failure, not an empty page: the rose tile and alert glyph, where
+        // this used to wear the neutral "nothing here" tray.
+        tone="error"
         title="This page could not load"
         description={message || 'Something went wrong while loading this page.'}
         action={
-          <Button
-            variant="primary"
-            onClick={() => {
-              // `reset` clears the boundary; `invalidate` re-runs the loaders
-              // that threw, so "Try again" actually retries instead of
-              // re-rendering the same cached failure.
-              reset()
-              void router.invalidate()
-            }}
-          >
-            Try again
-          </Button>
+          <>
+            <Button
+              variant="primary"
+              onClick={() => {
+                // `reset` clears the boundary; `invalidate` re-runs the loaders
+                // that threw, so "Try again" actually retries instead of
+                // re-rendering the same cached failure.
+                reset()
+                void router.invalidate()
+              }}
+            >
+              Try again
+            </Button>
+            {/* A way back that does not depend on the failing route. */}
+            <ButtonLink to="/">Go to Overview</ButtonLink>
+          </>
         }
       />
     </div>

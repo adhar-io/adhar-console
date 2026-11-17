@@ -34,7 +34,7 @@ import {
   type MarketplaceChart,
 } from '../data/marketplace.ts'
 import { age } from '../data/format.ts'
-import { matchesSearch } from './list-shell.tsx'
+import { ListError, matchesSearch } from './list-shell.tsx'
 
 /**
  * Adhar Marketplace — the list, categories and enabled state all come from the
@@ -113,9 +113,10 @@ export function MarketplaceView() {
   }
   if (isError) {
     return (
-      <EmptyState
+      <ListError
         title="Couldn't load the marketplace"
-        description={error?.message ?? 'The ApplicationSet list is unavailable right now.'}
+        error={error?.message ?? 'The ApplicationSet list is unavailable right now.'}
+        onRetry={refetch}
       />
     )
   }

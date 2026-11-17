@@ -66,7 +66,24 @@ const DEP: Record<Dependency['status'], { kind: StatusKind; label: string }> = {
 async function fetchStatus(): Promise<StatusSnapshot> {
   const res = await fetch('/api/status', { credentials: 'include', headers: { accept: 'application/json' } })
   if (!res.ok) throw new Error(`Status endpoint answered ${res.status}`)
-  return (await res.json()) as StatusSnapshot
+  // A 200 is not proof of a snapshot: an ingress or an older console build
+  // can answer `{}` or a sign-in page, and the sections below read
+  // `history.buckets`, `platform.conditions` … unguarded. Anything that is not
+  // snapshot-shaped is a failed read (the error state), not a crashed page.
+  const body = (await res.json().catch(() => null)) as Partial<StatusSnapshot> | null
+  if (
+    !body || typeof body !== 'object' || typeof body.overall !== 'string' ||
+    !body.console || !body.platform || !body.kubernetes ||
+    !Array.isArray(body.dependencies) || !Array.isArray(body.components)
+  ) {
+    throw new Error('Status endpoint returned an unexpected response')
+  }
+  return {
+    ...(body as StatusSnapshot),
+    platform: { ...body.platform, conditions: body.platform.conditions ?? [] },
+    history: { bucketMs: body.history?.bucketMs ?? 60_000, buckets: body.history?.buckets ?? [] },
+    events: body.events ?? [],
+  }
 }
 
 /**

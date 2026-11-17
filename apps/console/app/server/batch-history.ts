@@ -63,7 +63,11 @@ export interface BatchEvent {
 export type BridgeFetch = (path: string, init?: { method?: string; body?: string; signal?: AbortSignal }) => Promise<Response>
 
 export type StreamRead =
-  | { state: 'read'; events: BatchEvent[]; foreign: number; truncated: boolean }
+  /**
+   * `truncated`: the stream is larger than the cap, so the OLDEST events were dropped. `behind`: the budget ran out
+   * before the stream's end, and the read is oldest first, so the NEWEST events were never reached.
+   */
+  | { state: 'read'; events: BatchEvent[]; foreign: number; truncated: boolean; behind?: boolean }
   /** `no-bus`: the cluster has no bridge (the bus is opt-in). `unreachable`: it has one that did not answer. */
   | { state: 'unavailable'; reason: 'no-bus' | 'unreachable' | 'forbidden' | 'no-identity'; detail: string }
 
@@ -108,8 +112,8 @@ function eventOf(value: unknown): BatchEvent | null {
 /**
  * Read the whole retained topic, oldest first, ending when the stream goes
  * quiet (two empty polls in a row, as `adhar events list` decides) or the
- * budget is spent. A record that is not an `adhar.batch` CloudEvent is counted,
- * not shown.
+ * budget is spent, which leaves the read `behind`: short of the stream's end.
+ * A record that is not an `adhar.batch` CloudEvent is counted, not shown.
  */
 export async function readTopic(
   bridge: BridgeFetch,
@@ -137,15 +141,18 @@ export async function readTopic(
     let events: BatchEvent[] = []
     let foreign = 0
     let truncated = false
+    let behind = false
     let empties = 0
     while (empties < 2) {
       if (now() >= deadline) {
-        truncated = true
+        behind = true
         break
       }
       const res = await call(bridge, 'GET', `${consumer}/records?timeout=${pollMs}`)
-      const records = (await res.json().catch(() => [])) as Array<{ value?: unknown }>
-      if (!Array.isArray(records) || records.length === 0) {
+      const records = (await res.json().catch(() => null)) as Array<{ value?: unknown }> | null
+      // Anything but a list is not the bridge answering a poll, and counting it as a quiet stream would report an empty history.
+      if (!Array.isArray(records)) throw new BridgeError(502, `bridge GET ${consumer}/records: the answer is not a list of records`)
+      if (records.length === 0) {
         empties++
         continue
       }
@@ -160,12 +167,13 @@ export async function readTopic(
         truncated = true
       }
     }
-    return { state: 'read', events, foreign, truncated }
+    return { state: 'read', events, foreign, truncated, ...(behind ? { behind } : {}) }
   } catch (e) {
     const status = e instanceof BridgeError ? e.status : 0
     const detail = e instanceof Error ? e.message : String(e)
-    // The API server answers 404 for a Service that does not exist, and 503 for one with no endpoints.
-    if (status === 404) {
+    // The API server answers 404 for a Service that does not exist, and 503 for one with no endpoints. Only the
+    // first request can mean that: once the consumer exists, a 404 is the bridge having lost it (it restarted).
+    if (status === 404 && !consumer) {
       return {
         state: 'unavailable',
         reason: 'no-bus',
@@ -327,8 +335,10 @@ export async function handleBatchHistory(req: Request, deps: HistoryDeps = defau
       // Oldest first, the newest `limit` of them.
       events: shown.slice(Math.max(0, shown.length - query.limit)),
       total: shown.length,
-      // The stream itself was cut (budget or size), so older events exist than were read.
+      // The stream is larger than the console keeps, so older events exist than are here.
       truncated: stream.truncated,
+      // The read ran out of time before the stream's end, so what happened LAST is not here.
+      behind: stream.behind === true,
       // An access review could not be answered: a namespace may be missing for that reason alone.
       degraded: access.degraded,
     },

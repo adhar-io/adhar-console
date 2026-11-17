@@ -120,13 +120,17 @@ Deno.test('readTopic: keeps the newest events when the topic is larger than the 
   assertEquals(read, { state: 'read', events: all.slice(3), foreign: 0, truncated: true })
 })
 
-Deno.test('readTopic: a spent budget ends the read with what it has, cut, and still deletes the consumer', async () => {
-  const a = ev('prod/importer', 'run.started', '2026-11-03T01:30:00Z')
-  const { bridge, calls } = fakeBridge([[rec(a)], [rec(a)], [rec(a)]])
+Deno.test('readTopic: a spent budget ends the read with what it has, says the NEWEST events were not reached, and still deletes the consumer', async () => {
+  const [a, b, c] = [1, 2, 3].map((n) => ev('prod/importer', 'run.started', `2026-11-0${n}T01:30:00Z`))
+  const { bridge, calls } = fakeBridge([[rec(a)], [rec(b)], [rec(c)]])
   let t = 0
   const read = await readTopic(bridge, { pollMs: 1, budgetMs: 25, now: () => (t += 10) })
-  assert(read.state === 'read' && read.truncated)
+  // The read is oldest first: what the budget cost is the end of the stream, which is last night. Not "the oldest".
+  assertEquals(read, { state: 'read', events: [a], foreign: 0, truncated: false, behind: true })
   assertEquals(calls.at(-1)?.method, 'DELETE')
+  // A read that reached the end is not behind, however much the cap dropped from its start.
+  const whole = await readTopic(fakeBridge([[rec(a), rec(b)], [rec(c)]]).bridge, { pollMs: 1, maxEvents: 1 })
+  assertEquals(whole, { state: 'read', events: [c], foreign: 0, truncated: true })
 })
 
 Deno.test('readTopic: no bridge Service is "no bus", said as a state and not an error', async () => {
@@ -150,6 +154,32 @@ Deno.test('readTopic: a refused proxy call names the grant; a broken bridge is u
   assertEquals(read.reason, 'unreachable')
   // The consumer existed by then: it is deleted even though the read failed.
   assertEquals(broken.calls.at(-1)?.method, 'DELETE')
+})
+
+Deno.test('readTopic: a 404 once the consumer exists is the bridge having lost it — not a cluster with no bus', async () => {
+  // The bridge restarted mid-read: the new pod knows no such consumer. "No bus" here would tell the page this cluster keeps no history.
+  const gone = () => new Response('{"error_code":40403,"message":"The specified consumer instance was not found."}', { status: 404 })
+  for (const key of ['POST /consumers/G/instances/N/subscription', 'GET /consumers/G/instances/N/records?timeout=1']) {
+    const { bridge, calls } = fakeBridge([], { [key]: gone })
+    const read = await readTopic(bridge, { pollMs: 1 })
+    assert(read.state === 'unavailable', key)
+    assertEquals(read.reason, 'unreachable', key)
+    assert(read.detail.includes('404'), read.detail)
+    assertEquals(calls.at(-1)?.method, 'DELETE', key)
+  }
+})
+
+Deno.test('readTopic: a poll answered with anything but a list of records is not a quiet stream, so never an empty history', async () => {
+  for (const answer of [() => Response.json({ error_code: 500, message: 'x' }), () => new Response('<html>'), () => new Response(null, { status: 200 })]) {
+    const { bridge, calls } = fakeBridge([], { 'GET /consumers/G/instances/N/records?timeout=1': answer })
+    const read = await readTopic(bridge, { pollMs: 1 })
+    assert(read.state === 'unavailable')
+    assertEquals(read.reason, 'unreachable')
+    assert(read.detail.includes('not a list of records'), read.detail)
+    // One poll, not two "empty" ones; and the consumer does not outlive the read.
+    assertEquals(calls.filter((c) => c.method === 'GET').length, 1)
+    assertEquals(calls.at(-1)?.method, 'DELETE')
+  }
 })
 
 Deno.test('consumerPath: only the path of the consumer that was asked for is taken from base_uri', () => {
@@ -271,7 +301,7 @@ Deno.test('handler: the access asked is list batchjobs.platform.adhar.io in the 
 
 Deno.test('handler: someone who may list nowhere gets nothing, not an error', async () => {
   const body = await (await get('', deps({}, []))).json()
-  assertEquals(body, { state: 'read', events: [], total: 0, truncated: false, degraded: false })
+  assertEquals(body, { state: 'read', events: [], total: 0, truncated: false, behind: false, degraded: false })
 })
 
 Deno.test('handler: asking for a namespace by name does not get around the access check', async () => {
@@ -325,7 +355,11 @@ Deno.test('handler: a cut stream and an unanswered access review are both passed
     allowed: (_id, namespaces) => Promise.resolve({ results: namespaces.map(() => false), degraded: true }),
   })
   const body = await (await get('', d)).json()
-  assertEquals([body.truncated, body.degraded, body.events.length], [true, true, 0])
+  assertEquals([body.truncated, body.behind, body.degraded, body.events.length], [true, false, true, 0])
+  // A read the budget ended is said as that, apart from the cap: the two leave out opposite ends of the history.
+  const behind = deps({ read: () => Promise.resolve({ state: 'read', events: STREAM, foreign: 0, truncated: false, behind: true }) })
+  const late = await (await get('', behind)).json()
+  assertEquals([late.truncated, late.behind], [false, true])
 })
 
 Deno.test('handler: a namespace with no answer is not shown — only a definite yes is', async () => {

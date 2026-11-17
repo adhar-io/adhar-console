@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -14,6 +14,7 @@ import {
   DrawerWidenButton,
   useDrawerWidth,
   useToast,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatRelative } from '@adhar/utils'
 import type { harbor } from '@adhar/api-clients'
@@ -163,6 +164,7 @@ export function ImageScans() {
         description={registry.error instanceof Error
           ? registry.error.message
           : 'Scan results come from the registry, which could not be read.'}
+        action={<Button size="sm" onClick={() => registry.refetch()}>Retry</Button>}
       />
     )
   }
@@ -245,7 +247,7 @@ export function ImageScans() {
         <EmptyState compact title="No matching artifacts" description="Relax the filters or the search." />
       ) : (
         <Card>
-          <CardBody className="p-0!">
+          <CardBody className="overflow-x-auto p-0!">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-edge-subtle text-[10px] font-semibold uppercase tracking-wider text-content-subtle">
@@ -462,13 +464,8 @@ function VulnDrawer({ artifact: a, onClose }: { artifact: ScannedArtifact; onClo
   const [fixableOnly, setFixableOnly] = useState(false)
   const [limit, setLimit] = useState(250)
 
-  useEffect(() => {
-    const onKey = (k: KeyboardEvent) => {
-      if (k.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
 
   const all = vulns.data ?? []
@@ -565,6 +562,7 @@ function VulnDrawer({ artifact: a, onClose }: { artifact: ScannedArtifact; onClo
                 compact
                 title="Couldn't read the report"
                 description={vulns.error instanceof Error ? vulns.error.message : 'Harbor did not return the vulnerability report for this artifact.'}
+                action={<Button size="xs" onClick={() => vulns.refetch()}>Retry</Button>}
               />
             </div>
           ) : list.length === 0 ? (
@@ -676,7 +674,7 @@ export function Scans({ defaultTab = 'overview' }: { defaultTab?: SecurityTab } 
   ]
   // Honest about enforcement: until the platform seeds its global scan policy,
   // CI does not read the waiver ConfigMaps this page writes.
-  const notEnforced = policy.data && !policy.data.platformEnforces && !policy.data.global.error && tab !== 'images'
+  const notEnforced = policy.data && !policy.data.platformEnforces && !policy.data.global?.error && tab !== 'images'
   const noStore = model.waivers.error && (model.waivers.error as { status?: number }).status === 503
 
   return (

@@ -95,6 +95,7 @@ const history = (events: BatchEvent[] = [], o: Partial<Extract<HistoryRead, { st
   events,
   total: events.length,
   truncated: false,
+  behind: false,
   degraded: false,
   ...o,
 })
@@ -129,6 +130,24 @@ Deno.test('tonight: a fire in the next 24 hours shows its start in the job’s z
   // No history and no SLA: nothing is promised.
   assertStringIncludes(row, 'no estimate')
   assert(!row.includes('On time') && !row.includes('At risk'))
+})
+
+Deno.test('tonight: a job whose time zone cannot be read is named above the forecast, which still lists the rest', () => {
+  const html = view({
+    jobs: [
+      job('extract', { displayName: 'Nightly extract', schedule: { cron: '30 0 * * *', timeZone: 'Asia/Singapore' } }),
+      job('typo', { displayName: 'Typo zone', schedule: { cron: '30 0 * * *', timeZone: 'Asia/Kolkatta' } }),
+      job('late', { displayName: 'Late zone', schedule: { cron: '30 0 * * *' }, sla: { finishBy: '06:00', timeZone: 'Mars/Phobos' } }),
+    ],
+  })
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+  assertStringIncludes(text, 'prod/typo is not forecast: its schedule names the time zone Asia/Kolkatta , which is not one this browser knows.')
+  assertStringIncludes(text, 'prod/late shows no deadline: its SLA names the time zone Mars/Phobos , which is not one this browser knows.')
+  assertStringIncludes(rowOf(html, 'Nightly extract'), '00:30 Asia/Singapore')
+  assert(!html.includes('Typo zone'), 'a job that cannot be placed has no row')
+  assertStringIncludes(rowOf(html, 'Late zone'), '—')
+  // Nothing to say when every zone reads.
+  assert(!view({ jobs: [job('extract', { schedule: { cron: '30 0 * * *' } })] }).includes('which is not one this browser knows'))
 })
 
 Deno.test('tonight: nothing scheduled is said, and held or on-demand jobs are not forecast', () => {
@@ -211,6 +230,8 @@ Deno.test('tonight: history that could not be read is said once, and the forecas
   const failed = view({ jobs, history: undefined, historyError: new Error('HTTP 502') })
   assertStringIncludes(failed, 'The batch history could not be read (HTTP 502)')
   assertStringIncludes(view({ jobs, history: history([], { truncated: true }) }), 'may rest on fewer runs than there were')
+  assertStringIncludes(view({ jobs, history: history([], { behind: true }) }), 'may rest on fewer runs than there were')
+  assertStringIncludes(view({ jobs, history: history([], { degraded: true }) }), 'may rest on fewer runs than there were')
   const clean = view({ jobs })
   assert(!clean.includes('could not be read') && !clean.includes('no event bus') && !clean.includes('fewer runs'))
   // Still loading: nothing is claimed about the history either way.
@@ -341,7 +362,8 @@ Deno.test('replay dialog: names the ops Job it creates — the CLI’s name — 
   const html = dialog({ state: 'ok', template: await importerTemplate() }, entryOf({ businessDate: '2026-11-03' }))
   assertStringIncludes(html, 'Replay dead letters of importer')
   assertMatch(html, /Run <span[^>]*>importer-ops-dlq-replay-97<\/span>/)
-  assertMatch(html, /Execution <span[^>]*>97<\/span>/)
+  // The words between the values keep their spaces: a formatter that moves JSX text to its own line drops a leading one.
+  assertMatch(html, /Execution <span[^>]*>97<\/span> of <span[^>]*>importer-aaaa1111<\/span> \(business date <span[^>]*>2026-11-03<\/span>\) reported /)
   assertStringIncludes(html, 'Only the rejected items of this execution are processed again')
   assertMatch(html, /<button(?![^>]* disabled="")[^>]*>Start replay<\/button>/)
 })
@@ -354,7 +376,7 @@ Deno.test('replay dialog: an existing replay is shown instead of a second; a fai
   assert(!running.includes('Start replay'))
   const failed = dialog(read, entryOf(), DLQ_RUNS(FAILED))
   assertMatch(failed, /Run <span[^>]*>importer-ops-dlq-replay-97-r1<\/span>/)
-  assertMatch(failed, /The earlier replay <span[^>]*>importer-ops-dlq-replay-97<\/span> failed, so this is its retry/)
+  assertMatch(failed, /dead-lettered again\. The earlier replay <span[^>]*>importer-ops-dlq-replay-97<\/span> failed, so this is its retry/)
   assertStringIncludes(failed, 'Start replay')
 })
 

@@ -146,7 +146,9 @@ const IconButton = ({
     type="button"
     onClick={onClick}
     aria-label={label}
+    title={label}
     aria-expanded={active}
+    aria-haspopup="menu"
     className={cn(
       'relative flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 items-center justify-center rounded-lg transition-all duration-150',
       active
@@ -164,7 +166,10 @@ const IconButton = ({
         aria-label={`${count} unread`}
         className={cn(
           'absolute -right-0.5 -top-0.5 flex items-center justify-center rounded-full bg-rose-500 px-1',
-          'text-[10px] font-semibold leading-none text-white ring-2 ring-surface-raised',
+          // The ring is a cut-out in the bar's own colour. `surface-raised`
+          // is a step lighter than the bar in dark mode, which drew a pale
+          // halo round the count instead.
+          'text-[10px] font-semibold leading-none text-white ring-2 ring-surface-sidebar',
           count > 9 ? 'h-4 min-w-[1.125rem]' : 'h-4 w-4',
         )}
       >
@@ -320,6 +325,11 @@ function UserMenu({ user, onSignOut }: { user: User; onSignOut?(): void }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
+        aria-haspopup="menu"
+        // Below sm the button is the avatar alone, whose only text is the
+        // initials — "HO" is not a name a screen reader can use.
+        aria-label={`Account menu — ${user.name}`}
+        title={user.email || user.name}
         className={cn(
           'flex h-9 items-center gap-2 rounded-lg pl-1 pr-1.5 transition-colors',
           open
@@ -424,8 +434,10 @@ function Avatar({ name, size = 'sm' }: { name: string; size?: 'sm' | 'md' }) {
   return (
     <div
       className={cn(
-        'flex items-center justify-center rounded-full bg-linear-to-br from-brand-500 via-brand-600 to-brand-800 text-xs font-semibold text-white ring-2 ring-surface-raised shadow-sm',
-        size === 'sm' ? 'h-7 w-7' : 'h-10 w-10 text-sm',
+        'flex items-center justify-center rounded-full bg-linear-to-br from-brand-500 via-brand-600 to-brand-800 text-xs font-semibold text-white ring-2 shadow-sm',
+        // `sm` sits on the bar, `md` on the menu's raised panel — each ring is
+        // a cut-out in the colour of the surface behind it.
+        size === 'sm' ? 'h-7 w-7 ring-surface-sidebar' : 'h-10 w-10 text-sm ring-surface-raised',
       )}
     >
       {initials || name.slice(0, 2).toUpperCase()}
@@ -498,11 +510,14 @@ function Dropdown({
 
   // Narrow screens: span the screen 8px in from each side and cap the height
   // to what is left below, as a column, so long content scrolls inside.
+  // Wider screens get the same height cap: a short window (devtools docked, a
+  // landscape tablet) otherwise ran the notifications panel off the bottom of
+  // the screen, footer and all, with nothing to scroll.
   const style: React.CSSProperties = pos.narrow
     ? { top: pos.top, left: 8, right: 8, maxHeight: pos.maxH }
     : align === 'right'
-      ? { top: pos.top, right: pos.right }
-      : { top: pos.top, left: pos.left }
+      ? { top: pos.top, right: pos.right, maxHeight: pos.maxH }
+      : { top: pos.top, left: pos.left, maxHeight: pos.maxH }
 
   return createPortal(
     <div
@@ -510,8 +525,10 @@ function Dropdown({
       role="menu"
       style={style}
       className={cn(
-        'pop-in fixed z-[60] overflow-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl',
-        pos.narrow ? 'flex flex-col [&>*]:shrink-0' : widthClass,
+        // A column in both layouts, so a list inside (`min-h-0 !shrink`)
+        // gives way first; menus with no list of their own scroll as a whole.
+        'pop-in fixed z-[60] flex flex-col overflow-y-auto overflow-x-hidden rounded-xl border border-edge-default bg-surface-raised py-1 shadow-xl [&>*]:shrink-0',
+        pos.narrow ? '' : widthClass,
       )}
     >
       {children}

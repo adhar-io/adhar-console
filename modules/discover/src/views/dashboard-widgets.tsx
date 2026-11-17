@@ -43,6 +43,8 @@ export interface DashCtx {
   win: string
   scope: Scope
   names?: Set<string>
+  /** Set when the metric-name discovery itself failed — `names` never arrives. */
+  namesError?: unknown
   refreshMs: number | false
   deploys: Annotation[]
 }
@@ -376,7 +378,7 @@ export function IngressWidget({ ctx }: { ctx: DashCtx }) {
         ? <Segmented value={src!.id} options={available.map((s) => ({ id: s.id, label: s.label.split(' ')[0] }))} onChange={setPick} ariaLabel="Ingress source" />
         : null}
     >
-      {!ctx.names ? <Loading /> : !src ? (
+      {!ctx.names ? (ctx.namesError ? <QueryError error={ctx.namesError} /> : <Loading />) : !src ? (
         <NoData
           title="No ingress or gateway metrics"
           hint="Needs an edge proxy exporter: ingress-nginx metrics, Envoy Gateway / Cilium Envoy admin stats, or Traefik metrics. Cilium Hubble traffic shows under the golden signals."
@@ -469,7 +471,7 @@ export function TraceErrorsWidget({ ctx }: { ctx: DashCtx }) {
       href={discoverHref('traces', { status: 'error', service: ctx.scope.service ?? undefined, range: ctx.range })}
       hrefLabel="Traces"
     >
-      {!ctx.names ? <Loading /> : missing ? (
+      {!ctx.names ? (ctx.namesError ? <QueryError error={ctx.namesError} /> : <Loading />) : missing ? (
         <NoData title="No span metrics" hint={`${missing} Enable the span-metrics processor in Tempo's metrics-generator to get error rates from traces.`} />
       ) : q.isLoading ? <Loading /> : q.isError ? <QueryError error={q.error} /> : (q.data ?? []).length === 0 ? (
         <NoData hint="No server spans in this window." />

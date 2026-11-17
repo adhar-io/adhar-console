@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -15,6 +15,7 @@ import {
   type StatusKind,
   DrawerWidenButton,
   useDrawerWidth,
+  useOverlayDismiss,
 } from '@adhar/shell-ui'
 import { cn, formatAbsolute, formatRelative } from '@adhar/utils'
 import type { argocd } from '@adhar/api-clients'
@@ -861,7 +862,7 @@ function MenuItem({ onClick, children, danger = false }: { onClick(): void; chil
 
 function LayoutBtn({ on, onClick, title, children }: { on: boolean; onClick(): void; title: string; children: React.ReactNode }) {
   return (
-    <button type="button" title={title} aria-pressed={on} onClick={onClick} className={cn('flex h-7 w-7 items-center justify-center rounded-md transition-colors', on ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:text-content')}>
+    <button type="button" title={title} aria-label={title} aria-pressed={on} onClick={onClick} className={cn('flex h-7 w-7 items-center justify-center rounded-md transition-colors', on ? 'bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300' : 'text-content-subtle hover:text-content')}>
       {children}
     </button>
   )
@@ -904,13 +905,8 @@ function AppDetail({ app: a, onClose }: { app: argocd.Application; onClose(): vo
     }
   }
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    globalThis.addEventListener('keydown', onKey)
-    return () => globalThis.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Esc via the shared overlay stack: only the topmost overlay closes, and the page behind stops scrolling.
+  useOverlayDismiss(true, onClose)
   if (typeof document === 'undefined') return null
 
   const nodes = resources.data ?? []

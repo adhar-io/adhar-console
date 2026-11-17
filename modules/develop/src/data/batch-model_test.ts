@@ -8,6 +8,7 @@ import {
   COMMANDS_GVR,
   CONFIGMAPS_GVR,
   dateInZone,
+  knownTimeZone,
   durationBars,
   exitMeaning,
   firingAlerts,
@@ -678,6 +679,17 @@ Deno.test('stop and resume: native Jobs are suspended, in the Job itself', () =>
   assertEquals(resumeRequest(run()), { verb: 'patch', gvr: JOBS_GVR, namespace: 'prod', name: 'importer-aa', body: { spec: { suspend: false } } })
 })
 
+Deno.test('resume: a run a backfill still holds back loses that mark in the same patch — the CLI’s bytes', () => {
+  // cmd/batch/model_test.go pins the same body: from the resume on it is a run that started, and a later stop is a person's.
+  const held = run()
+  held.metadata.annotations = { 'adhar.io/batch-actor': 'alice', 'adhar.io/batch-queued': 'backfill' }
+  const resume = resumeRequest(held)
+  assert(resume.verb === 'patch')
+  assertEquals(JSON.stringify(resume.body), '{"metadata":{"annotations":{"adhar.io/batch-queued":null}},"spec":{"suspend":false}}')
+  // Stopping marks nothing, and a Volcano run is resumed by a Command, which carries no patch at all.
+  assertEquals(stopRequest(held).verb === 'patch' && JSON.stringify((stopRequest(held) as { body: unknown }).body), '{"spec":{"suspend":true}}')
+})
+
 Deno.test('stop and resume: Volcano Jobs get the Command vcctl would create', () => {
   const v = run({ apiVersion: 'batch.volcano.sh/v1alpha1' })
   const stop = stopRequest(v)
@@ -742,6 +754,18 @@ Deno.test('next run: from kube-state-metrics when it knows, else the cron in the
   assertEquals(nextRunOf(j, { now, reportedMs: reported }), reported)
   // A value already past is stale: the CronJob fired and the series has not caught up.
   assertEquals(new Date(nextRunOf(j, { now, reportedMs: now - 1 })!).toISOString(), '2026-11-03T17:30:00.000Z')
+})
+
+Deno.test('next run: a time zone nobody can read is no next run — not a Jobs table that cannot render', () => {
+  // The XRD takes any string for schedule.timeZone: a misspelling or an offset reaches the page.
+  const now = Date.parse('2026-11-03T00:00:00Z')
+  for (const zone of ['Asia/Kolkatta', 'UTC+8', 'Mars/Phobos']) {
+    assert(!knownTimeZone(zone), zone)
+    assertEquals(nextRunOf(job('a', { schedule: { cron: '30 1 * * *', timeZone: zone } }), { now }), undefined, zone)
+  }
+  assert(knownTimeZone('Asia/Kolkata') && knownTimeZone('UTC') && knownTimeZone(undefined) && knownTimeZone(''))
+  // The CronJob controller's own answer stands: the cluster may know a zone this runtime does not.
+  assertEquals(nextRunOf(job('a', { schedule: { cron: '30 1 * * *', timeZone: 'Mars/Phobos' } }), { now, reportedMs: now + 60_000 }), now + 60_000)
 })
 
 Deno.test('next run: a held, suspended or on-demand job promises nothing', () => {

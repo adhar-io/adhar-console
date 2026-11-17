@@ -33,7 +33,7 @@ const INVALID_RUN = 'Kyverno compares every run with its template. If this was r
 
 /* ─────────────────────────── Run now ─────────────────────────── */
 
-function ParamInput({ field, value, onChange }: { field: ParamField; value: string; onChange(v: string): void }) {
+export function ParamInput({ field, value, onChange }: { field: ParamField; value: string; onChange(v: string): void }) {
   if (field.allowed?.length) {
     return (
       <Select value={value} onChange={(e) => onChange(e.target.value)}>

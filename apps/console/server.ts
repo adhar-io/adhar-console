@@ -56,6 +56,7 @@ import { handleBilling } from './app/server/billing/handlers.ts'
 import { handleOrganizations } from './app/server/organizations.ts'
 import { handleStatus } from './app/server/status.ts'
 import { handlePromBatch } from './app/server/prom-batch.ts'
+import { handleBatchHistory } from './app/server/batch-history.ts'
 import { registerDbSessionStore, sessionStoreStatus } from './app/server/session-store-db.ts'
 import { dbReadiness } from './app/server/readiness.ts'
 import {
@@ -366,6 +367,8 @@ async function route(req: Request): Promise<Response> {
   if (path === '/api/status') return handleStatus(req)
   // Many PromQL queries in one request (Overview and other panels coalesce here).
   if (path === '/api/prom/batch') return handlePromBatch(req)
+  // Batch run history from the adhar.batch topic, filtered to what the caller may see (design 0025 D12).
+  if (path === '/api/batch/history') return handleBatchHistory(req)
 
   // Auth (OIDC) — all GET, full-page navigations + the session probe.
   if (path === '/api/auth/login') return handleLogin(req)

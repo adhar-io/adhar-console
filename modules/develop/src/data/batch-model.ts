@@ -68,6 +68,9 @@ export const ENV = {
   trigger: 'ADHAR_BATCH_TRIGGER',
   restartOf: 'ADHAR_BATCH_RESTART_OF',
   timeZone: 'ADHAR_BATCH_TIME_ZONE',
+  /** An ops Job's verb and the execution it acts on (Phase 3; cmd/batch/ops.go in the platform repo). */
+  command: 'ADHAR_BATCH_COMMAND',
+  executionId: 'ADHAR_BATCH_EXECUTION_ID',
 } as const
 
 /** The container the batch runner lives in (§6.4). */
@@ -125,6 +128,8 @@ export interface BatchJobParameters {
   envFrom?: unknown[]
   serviceAccountName?: string
   sla?: { maxDuration?: string; finishBy?: string; timeZone?: string }
+  /** Jobs that must have succeeded first (Phase 3; the batch observer starts this one after them). */
+  dependsOn?: Array<{ batchJob?: string; namespace?: string; sameBusinessDate?: boolean }>
   alerts?: { enabled?: boolean; staleAfter?: string; severity?: string }
   organisation?: string
   team?: string
@@ -142,6 +147,8 @@ export interface BatchJobXR {
     queue?: string
     runTemplate?: string
     cronJob?: string
+    /** `<namespace>/<name>` of the calendar ConfigMap `schedule.calendar` resolved to. */
+    calendar?: string
     lastScheduleTime?: string
     lastSuccessfulTime?: string
     activeRuns?: string[]
@@ -509,6 +516,9 @@ function batchContainerOf(run: { spec?: RunObject['spec'] }): ContainerSpec | un
 function envOf(run: { spec?: RunObject['spec'] }, name: string): string | undefined {
   return batchContainerOf(run)?.env?.find((e) => e.name === name)?.value
 }
+
+/** One variable of the run's batch container, as the run object states it. */
+export const runEnv = envOf
 
 /** The image of the run's batch container. */
 export function runImage(run: { spec?: RunObject['spec'] }): string | undefined {
@@ -1060,7 +1070,17 @@ function setEnv(c: ContainerSpec, name: string, value: string | undefined) {
  */
 export function buildRun(
   template: RunTemplate,
-  opts: { name: string; namespace: string; trigger: 'manual' | 'restart'; params: Readonly<Record<string, string>>; restartOf?: string },
+  opts: {
+    name: string
+    namespace: string
+    trigger: 'manual' | 'restart' | 'backfill' | 'ops'
+    params: Readonly<Record<string, string>>
+    restartOf?: string
+    /** An ops Job (Phase 3): the kit's command and the execution it acts on, instead of the business job. */
+    ops?: { verb: string; executionId: number }
+    /** Created suspended: a native backfill run waits here until it is released. Run integrity does not compare `spec.suspend`. */
+    suspend?: boolean
+  },
 ): RunObject & Record<string, unknown> {
   const run = structuredClone(template.manifest) as RunObject & Record<string, unknown>
   const meta = (run.metadata ?? {}) as Meta
@@ -1077,8 +1097,13 @@ export function buildRun(
       setEnv(c, ENV.params, JSON.stringify(opts.params))
       setEnv(c, ENV.trigger, opts.trigger)
       setEnv(c, ENV.restartOf, opts.restartOf)
+      if (opts.ops) {
+        setEnv(c, ENV.command, opts.ops.verb)
+        setEnv(c, ENV.executionId, String(opts.ops.executionId))
+      }
     }
   }
+  if (opts.suspend) run.spec = { ...(run.spec ?? {}), suspend: true }
   return run
 }
 

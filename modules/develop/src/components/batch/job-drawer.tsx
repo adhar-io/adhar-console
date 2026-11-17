@@ -29,23 +29,27 @@ import {
 import { ExternalLink, Facts, Note, Section } from '../../views/function-bits.tsx'
 import { ConditionsTable, DurationText, ErrorLine, ExitCode, jobSubtitle, Loading, RunBadge, SlaBadge, TABLE, TD, TH, Until, When } from './bits.tsx'
 import { HoldDialog, ReleaseDialog, RunNowDialog } from './dialogs.tsx'
+import { BackfillDialog } from './backfill-dialog.tsx'
+import { BatchHistory } from '../../views/batch-history.tsx'
 import { JobScheduling } from './gang.tsx'
 import type { DrawerFrame } from './run-drawer.tsx'
 
 /**
  * Develop → Batch → one job: its definition (from the XR and the run template),
  * parameter schema, recent runs as bars against `maxDuration`, firing alerts,
- * delivery, and links out to its dashboard, logs and traces. Run now and Hold /
- * Release are here. A change to the definition is a pull request against
+ * delivery, and links out to its dashboard, logs and traces. Run now, Backfill
+ * and Hold / Release are here, and History is this job's events past the runs'
+ * TTL (Phase 3). A change to the definition is a pull request against
  * `deploy/envs/<env>`, because Argo CD would put back a live edit (§7.4).
  */
 
-export type JobTab = 'overview' | 'parameters' | 'runs' | 'alerts' | 'delivery' | 'config'
+export type JobTab = 'overview' | 'parameters' | 'runs' | 'history' | 'alerts' | 'delivery' | 'config'
 
 const TABS: TabDef<JobTab>[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'parameters', label: 'Parameters' },
   { id: 'runs', label: 'Runs' },
+  { id: 'history', label: 'History' },
   { id: 'alerts', label: 'Alerts' },
   { id: 'delivery', label: 'Delivery' },
   { id: 'config', label: 'Configuration' },
@@ -73,9 +77,10 @@ export function JobDrawer({
   const live = useBatchJob(row.namespace, row.name)
   const gone = live.data === null
   const job = live.data ?? row.job
-  const [dialog, setDialog] = useState<'run' | 'hold' | 'release' | null>(null)
+  const [dialog, setDialog] = useState<JobDialog | null>(null)
   const current: JobTab = TABS.some((t) => t.id === tab) ? (tab as JobTab) : 'overview'
   const existingNames = useMemo(() => row.runs.map((r) => r.name), [row.runs])
+  const heldRuns = useMemo(() => new Set(row.runs.map((r) => r.key)), [row.runs])
 
   return (
     <Frame
@@ -122,6 +127,8 @@ export function JobDrawer({
                   ? <ParametersTab job={job} />
                   : t === 'runs'
                   ? <RunsTab row={row} onOpenRun={onOpenRun} />
+                  : t === 'history'
+                  ? <BatchHistory job={{ namespace: row.namespace, name: row.name }} heldRuns={heldRuns} onOpenRun={(_, name) => onOpenRun(name)} />
                   : t === 'alerts'
                   ? <AlertsTab namespace={row.namespace} name={row.name} />
                   : t === 'delivery'
@@ -133,14 +140,21 @@ export function JobDrawer({
         )}
 
       {dialog === 'run' ? <RunNowDialog job={job} existingNames={existingNames} onClose={() => setDialog(null)} onOpenRun={onOpenRun} /> : null}
+      {dialog === 'backfill' ? <BackfillDialog job={job} runs={row.runs} onClose={() => setDialog(null)} onOpenRun={onOpenRun} /> : null}
       {dialog === 'hold' ? <HoldDialog job={job} onClose={() => setDialog(null)} /> : null}
       {dialog === 'release' ? <ReleaseDialog job={job} reason={row.held?.reason ?? ''} onClose={() => setDialog(null)} /> : null}
     </Frame>
   )
 }
 
-/** Run now, and Hold or Release. Each is there only if the request it makes would be allowed: hidden, never disabled. */
-export function JobActionsBar({ job, held, onDialog }: { job: BatchJobXR; held: boolean; onDialog(d: 'run' | 'hold' | 'release'): void }) {
+export type JobDialog = 'run' | 'backfill' | 'hold' | 'release'
+
+/**
+ * Run now, Backfill, and Hold or Release. Each is there only if the request it
+ * makes would be allowed: hidden, never disabled. A backfill creates runs, so it
+ * stands behind the same gate as Run now.
+ */
+export function JobActionsBar({ job, held, onDialog }: { job: BatchJobXR; held: boolean; onDialog(d: JobDialog): void }) {
   const target = { namespace: job.metadata.namespace ?? '', name: job.metadata.name, kind: runKindOfJob(job) }
   const canRun = useBatchGate('run', target)
   const canHold = useBatchGate('hold', target)
@@ -148,6 +162,7 @@ export function JobActionsBar({ job, held, onDialog }: { job: BatchJobXR; held: 
   return (
     <div className='flex flex-wrap items-center gap-2'>
       {canRun.allowed ? <Button size='sm' variant='primary' onClick={() => onDialog('run')}>Run now</Button> : null}
+      {canRun.allowed ? <Button size='sm' variant='ghost' onClick={() => onDialog('backfill')}>Backfill</Button> : null}
       {canHold.allowed
         ? held
           ? <Button size='sm' variant='ghost' onClick={() => onDialog('release')}>Release</Button>

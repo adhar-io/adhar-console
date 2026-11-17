@@ -163,7 +163,7 @@ export type RunOutcome =
   /** A run with this identity exists: §3.4 says show it, and never start another. */
   | { created: false; existing: string }
 
-async function createRun(gvr: Gvr, namespace: string, manifest: Record<string, unknown>, name: string): Promise<RunOutcome> {
+export async function createRun(gvr: Gvr, namespace: string, manifest: Record<string, unknown>, name: string): Promise<RunOutcome> {
   try {
     return { created: true, run: await kube.create<RunObject>(gvr, namespace, manifest) }
   } catch (e) {

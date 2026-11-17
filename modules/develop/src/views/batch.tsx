@@ -65,6 +65,8 @@ import { useVolcanoInstalled } from '../data/batch-queues.ts'
 import { useBatchSchedules } from '../data/batch-schedules.ts'
 import { InServiceSchedules, ScheduleWatches } from '../components/batch/in-service-schedules.tsx'
 import { BatchQueues } from './batch-queues.tsx'
+import { BatchHistory } from './batch-history.tsx'
+import { BatchTonight } from './batch-tonight.tsx'
 
 /**
  * Develop → Batch (design 0025 §7): every BatchJob the signed-in user can see,
@@ -83,11 +85,17 @@ import { BatchQueues } from './batch-queues.tsx'
  * jobs a service runs on its own Quartz scheduler, read from the schedule
  * reports in the same namespaces. They have no BatchJob, so a page whose only
  * jobs are in-service is not empty, and none of them carries an action.
+ *
+ * Two views look beyond what the cluster holds now (Phase 3, §7.2): Tonight,
+ * the next 24 hours with calendars applied, and History, the runs past their
+ * TTL. History is the page's one BFF read (`/api/batch/history`, D12): the
+ * event stream belongs to no user, so the console reads it and hands back the
+ * namespaces the caller may list BatchJobs in.
  */
 
-type View = 'jobs' | 'runs' | 'queues'
+type View = 'jobs' | 'runs' | 'tonight' | 'history' | 'queues'
 
-const VIEWS: TabDef<View>[] = [{ id: 'jobs', label: 'Jobs' }, { id: 'runs', label: 'Runs' }]
+const VIEWS: TabDef<View>[] = [{ id: 'jobs', label: 'Jobs' }, { id: 'runs', label: 'Runs' }, { id: 'tonight', label: 'Tonight' }, { id: 'history', label: 'History' }]
 /** Volcano's queues (Phase 2): a tab only where discovery says Volcano is installed. */
 const VIEWS_WITH_QUEUES: TabDef<View>[] = [...VIEWS, { id: 'queues', label: 'Queues' }]
 
@@ -131,7 +139,7 @@ export function Batch() {
   const state = listed === 'empty' && schedules.loading ? 'loading' : listed
   const volcanoQ = useVolcanoInstalled()
   const queuesServed = Boolean(volcanoQ.data?.queues)
-  const view: View = params.view === 'runs' ? 'runs' : params.view === 'queues' && queuesServed ? 'queues' : 'jobs'
+  const view: View = params.view === 'runs' || params.view === 'tonight' || params.view === 'history' ? params.view : params.view === 'queues' && queuesServed ? 'queues' : 'jobs'
 
   const createAccess = useAccessReview(CONSOLE_PERMISSIONS.applicationsCreate)
   const newJob = createAccess.allowed ? <a href={NEW_JOB_HREF} className={BUTTON_PRIMARY}>New batch job</a> : null
@@ -148,6 +156,9 @@ export function Batch() {
   )
 
   const openRunIn = (namespace: string, name: string) => setParams({ run: batchRef(namespace, name), runTab: '' })
+  const openJobIn = (namespace: string, name: string) => setParams({ job: batchRef(namespace, name), tab: '' })
+  const jobKeys = useMemo(() => new Set(rows.map((r) => r.key)), [rows])
+  const heldRuns = useMemo(() => new Set(runs.map((r) => r.key)), [runs])
   const empty = state === 'empty'
 
   return (
@@ -206,6 +217,10 @@ export function Batch() {
                     )
                     : t === 'queues'
                     ? <BatchQueues list={list} projects={projects.items} onOpenRun={openRunIn} />
+                    : t === 'tonight'
+                    ? <BatchTonight jobs={list?.items ?? []} runs={runs} envByNamespace={projects.envByNamespace} now={now} onOpenJob={openJobIn} onOpenRun={openRunIn} />
+                    : t === 'history'
+                    ? <BatchHistory envByNamespace={projects.envByNamespace} heldRuns={heldRuns} jobKeys={jobKeys} onOpenJob={openJobIn} onOpenRun={openRunIn} />
                     : (
                       <RunsView
                         rows={runs}

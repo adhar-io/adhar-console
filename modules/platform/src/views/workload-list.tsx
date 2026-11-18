@@ -40,7 +40,7 @@ const SUB_TABS: readonly TabDef<Sub>[] = [
 
 export function WorkloadView({ namespace }: { namespace?: string }) {
   return (
-    <Tabs<Sub> tabs={SUB_TABS} defaultValue="deployments" ariaLabel="Workload kind">
+    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="deployments" ariaLabel="Workload kind">
       {(active) => (
         <>
           {active === 'deployments' && <DeploymentTable namespace={namespace} />}

@@ -47,7 +47,7 @@ const SUB_TABS: readonly TabDef<Sub>[] = [
 
 export function ConfigView({ namespace }: { namespace?: string }) {
   return (
-    <Tabs<Sub> tabs={SUB_TABS} defaultValue="configmaps" ariaLabel="Config & secrets">
+    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="configmaps" ariaLabel="Config & secrets">
       {(active) => (
         <>
           {active === 'configmaps' && <ConfigMapsTable namespace={namespace} />}

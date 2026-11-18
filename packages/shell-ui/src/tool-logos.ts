@@ -126,6 +126,7 @@ export const TOOL_LOGOS: Readonly<Record<string, ToolLogoMeta>> = {
   velero: svg('Velero', 'light'),
   'victoria-metrics': svg('VictoriaMetrics', 'light'),
   vllm: png('vLLM', 'light'),
+  volcano: svg('Volcano'),
   webstudio: svg('Webstudio'),
 }
 

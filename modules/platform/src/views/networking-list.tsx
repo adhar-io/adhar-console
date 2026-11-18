@@ -26,7 +26,7 @@ const SUB_TABS: readonly TabDef<Sub>[] = [
 
 export function NetworkingView({ namespace }: { namespace?: string }) {
   return (
-    <Tabs<Sub> tabs={SUB_TABS} defaultValue="services" ariaLabel="Networking kind">
+    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="services" ariaLabel="Networking kind">
       {(active) => (
         <>
           {active === 'services' && <ServicesTable namespace={namespace} />}

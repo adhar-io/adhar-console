@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { XR_FAMILIES, xrSectionsOf } from './xr-sections.ts'
+import { K8S_CATEGORIES } from './k8s-sections.ts'
 import { SETTINGS_CATEGORIES } from './settings-sections.ts'
 import type { StatusKind } from './status-badge.tsx'
 import type { NavAccess } from './nav-access.ts'
@@ -403,65 +404,19 @@ export const DEFAULT_NAV: NavSection[] = [
         description: 'Clusters & workloads',
         roles: PLATFORM_READ_ROLES,
         children: [
-          { id: 'platform.dashboard', label: 'Dashboard', to: '/platform', search: 'dashboard' },
-          { id: 'platform.clusters', label: 'Clusters', to: '/platform', search: 'clusters' },
-          { id: 'platform.namespaces', label: 'Namespaces', to: '/platform', search: 'namespaces' },
-          { id: 'platform.quotas', label: 'Quota & Limits', to: '/platform', search: 'quotas' },
-          { id: 'platform.nodes', label: 'Nodes', to: '/platform', search: 'nodes' },
-          { id: 'platform.workloads', label: 'Workloads', to: '/platform', search: 'workloads' },
-          { id: 'platform.autoscaling', label: 'Autoscaling', to: '/platform', search: 'autoscaling' },
-          { id: 'platform.pods', label: 'Pods', to: '/platform', search: 'pods' },
-          { id: 'platform.networking', label: 'Networking', to: '/platform', search: 'networking' },
-          { id: 'platform.storage', label: 'Storage', to: '/platform', search: 'storage' },
-          {
-            id: 'platform.config',
-            label: 'Config & Secrets',
+          // One row per category; the page shows that category's pages as
+          // tabs (k8s-sections.ts is shared with the platform module). Old
+          // `?section=` links still light the category that now holds them.
+          ...K8S_CATEGORIES.map((c): NavItem => ({
+            id: `platform.k8s.${c.id}`,
+            label: c.label,
             to: '/platform',
-            search: 'config',
-            roles: PLATFORM_OPS_ROLES,
-          },
-          {
-            id: 'platform.rbac',
-            label: 'RBAC',
-            to: '/platform',
-            search: 'rbac',
-            roles: PLATFORM_OPS_ROLES,
-          },
-          { id: 'platform.events', label: 'Events', to: '/platform', search: 'events' },
-          { id: 'platform.crds', label: 'Custom Resources', to: '/platform', search: 'crds' },
-          { id: 'platform.explore', label: 'Explore', to: '/platform', search: 'explore' },
-          {
-            id: 'platform.graph',
-            label: 'Knowledge Graph',
-            to: '/platform',
-            search: 'graph',
-            description: 'What runs here and how it all connects',
-          },
-          { id: 'platform.releases', label: 'Helm Releases', to: '/platform', search: 'releases' },
-          {
-            id: 'platform.shell',
-            label: 'Cloud Shell',
-            to: '/platform',
-            search: 'shell',
-            roles: PLATFORM_OPS_ROLES,
-          },
-          { id: 'platform.logs', label: 'Logs', to: '/platform', search: 'logs' },
-          { id: 'platform.metrics', label: 'Metrics', to: '/platform', search: 'metrics' },
-          {
-            id: 'platform.policy',
-            label: 'Policy',
-            to: '/platform',
-            search: 'policy',
-            roles: PLATFORM_OPS_ROLES,
-          },
-          {
-            id: 'platform.marketplace',
-            label: 'Marketplace',
-            to: '/platform',
-            search: 'marketplace',
-            badge: { kind: 'info', value: 'new' },
-            roles: PLATFORM_OPS_ROLES,
-          },
+            search: c.pages[0].id,
+            alsoActiveFor: c.pages.slice(1).map((p) => p.id),
+            pages: c.pages,
+            // A category is operator-only only when every page in it is.
+            roles: c.pages.every((p) => p.ops) ? PLATFORM_OPS_ROLES : undefined,
+          })),
         ],
       },
       {

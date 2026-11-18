@@ -264,6 +264,17 @@ export const DEFAULT_APP_LINKS: AppLink[] = [
     icon: logo('litmus'),
   },
   {
+    // The Volcano Dashboard (core/volcano, dashboard.yaml): queues, Volcano
+    // jobs and PodGroups. Read-only and platform-admin only; teams see their own
+    // queues in the console's Develop → Batch → Queues under their own RBAC.
+    id: 'volcano',
+    name: 'Volcano',
+    description: 'Batch scheduler queues and jobs',
+    url: 'https://volcano.adhar.localtest.me:8443',
+    category: 'Platform',
+    icon: logo('volcano'),
+  },
+  {
     id: 'n8n',
     name: 'n8n',
     description: 'Workflow automation',

@@ -340,4 +340,5 @@ export {
   Spinner,
 } from './primitives.tsx'
 export { XR_FAMILIES, XR_SECTION_BY_ID, XR_SECTIONS, xrSectionsOf, type XrFamily, type XrSection } from './xr-sections.ts'
+export { K8S_CATEGORIES, k8sCategoryOf, type K8sCategory, type K8sCategoryId, type K8sPage } from './k8s-sections.ts'
 export { SETTINGS_CATEGORIES, settingsCategoryOf, type SettingsCategory } from './settings-sections.ts'

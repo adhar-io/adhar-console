@@ -22,7 +22,7 @@ const SUB_TABS: readonly TabDef<Sub>[] = [
 
 export function RbacView({ namespace }: { namespace?: string }) {
   return (
-    <Tabs<Sub> tabs={SUB_TABS} defaultValue="sa" ariaLabel="RBAC kind">
+    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="sa" ariaLabel="RBAC kind">
       {(active) => (
         <>
           {active === 'sa' && <ServiceAccountsTable namespace={namespace} />}

@@ -130,6 +130,7 @@ export function QuotasView({ namespace }: { namespace?: string }) {
       </div>
 
       <Tabs<Tab>
+        variant="pills"
         tabs={[
           { id: 'quotas', label: 'Resource quotas', badge: quotasUnread ? undefined : quotaList.length },
           { id: 'limits', label: 'Limit ranges', badge: limitsUnread ? undefined : limitList.length },

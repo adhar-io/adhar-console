@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
-import { PageHeader, Spinner, XR_SECTION_BY_ID } from '@adhar/shell-ui'
+import { k8sCategoryOf, PageHeader, Spinner, XR_SECTION_BY_ID } from '@adhar/shell-ui'
+import { CategoryPage } from './components/category-page.tsx'
 import { ConnectionGate } from './components/connection-banner.tsx'
 import { ChaosView } from './views/chaos.tsx'
 import { PlatformDashboard } from './views/dashboard.tsx'
@@ -388,15 +389,29 @@ function PlatformSection({ section }: { section?: string }) {
   // via the shell's shared selection store). Views read the active namespace
   // through the data hooks; drill-down views seed their own picker from it.
   const { namespace } = useActiveNamespace()
+  // A Kubernetes page is a tab of its category's page; both come from the
+  // registry the sidebar is built from (shell-ui k8s-sections.ts). Pages that
+  // belong to another rail (Builds, Chaos) keep a page of their own.
+  const category = k8sCategoryOf(active)
 
   return (
     <ClusterProvider>
-      <div className="space-y-6">
-        <PageHeader title={def.label} />
-        <ConnectionGate>
+      {category ? (
+        <CategoryPage
+          title={category.label}
+          tabs={category.pages.map((p) => ({ id: p.id, label: p.label, description: p.description }))}
+          active={active}
+        >
           <SectionBody active={active} namespace={namespace} />
-        </ConnectionGate>
-      </div>
+        </CategoryPage>
+      ) : (
+        <div className="space-y-6">
+          <PageHeader title={def.label} />
+          <ConnectionGate>
+            <SectionBody active={active} namespace={namespace} />
+          </ConnectionGate>
+        </div>
+      )}
     </ClusterProvider>
   )
 }

@@ -1,23 +1,12 @@
-import { useEffect, useMemo } from 'react'
-import {
-  ErrorBoundary,
-  PageHeader,
-  Tabs,
-  XR_FAMILIES,
-  xrSectionsOf,
-  type TabDef,
-  type XrSection,
-} from '@adhar/shell-ui'
-import { ConnectionGate } from '../components/connection-banner.tsx'
+import { useMemo } from 'react'
+import { XR_FAMILIES, xrSectionsOf, type TabDef, type XrSection } from '@adhar/shell-ui'
+import { CategoryPage } from '../components/category-page.tsx'
 import { useXrds } from '../data/xrds.ts'
 import { XrListForKind } from './xr-kinds.tsx'
 
 /**
  * One Adhar Resources category — Data, Messaging, Security… — with its kinds
- * as tabs. The category is chosen in the sidebar (one row each, built from the
- * same xr-sections.ts registry); this page moves between its kinds, and every
- * pick is a URL (`?section=<kind>`), so Back, reload and shared links land on
- * the same tab.
+ * as tabs, from the same xr-sections.ts registry the sidebar is built from.
  */
 export function XrFamilyPage({ section, namespace }: { section: XrSection; namespace?: string }) {
   const family = XR_FAMILIES.find((f) => f.id === section.family)
@@ -42,39 +31,8 @@ export function XrFamilyPage({ section, namespace }: { section: XrSection; names
   })
 
   return (
-    <div className="space-y-6">
-      <PageHeader title={family?.label ?? section.label} />
-      <ConnectionGate>
-        <Tabs tabs={tabs} value={section.id} onChange={goToSection} ariaLabel={family?.label}>
-          {() => (
-            // One kind failing must not take the category's other tabs with it.
-            <ErrorBoundary key={section.id}>
-              <RevealTab id={section.id} />
-              <XrListForKind key={section.id} label={section.label} resource={section.plural} namespace={namespace} />
-            </ErrorBoundary>
-          )}
-        </Tabs>
-      </ConnectionGate>
-    </div>
+    <CategoryPage title={family?.label ?? section.label} tabs={tabs} active={section.id}>
+      <XrListForKind key={section.id} label={section.label} resource={section.plural} namespace={namespace} />
+    </CategoryPage>
   )
-}
-
-/**
- * A deep link to a late tab must not open with it scrolled out of the strip.
- * Rendered inside the panel so it runs once the tab row is in the DOM (the
- * row only mounts after the connection check).
- */
-function RevealTab({ id }: { id: string }) {
-  useEffect(() => {
-    document.getElementById(`tab-${id}`)?.scrollIntoView({ block: 'nearest', inline: 'center' })
-  }, [id])
-  return null
-}
-
-/** Change tab AND the URL — a history entry the host router hears. */
-function goToSection(id: string) {
-  const url = new URL(globalThis.location.href)
-  url.searchParams.set('section', id)
-  history.pushState(history.state, '', `${url.pathname}${url.search}`)
-  globalThis.dispatchEvent(new PopStateEvent('popstate', { state: history.state }))
 }

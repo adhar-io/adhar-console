@@ -118,6 +118,7 @@ symbol (`AdharSymbol`) instead.
 | `velero` | `velero.svg` | <https://raw.githubusercontent.com/cncf/artwork/main/projects/velero/icon/color/velero-icon-color.svg> | CNCF artwork (Linux Foundation trademark policy) |  |
 | `victoria-metrics` | `victoria-metrics.svg` | <https://raw.githubusercontent.com/VictoriaMetrics/VictoriaMetrics/HEAD/app/vmui/packages/vmui/assets/favicon.svg> | Project-published artwork; trademark of its owner |  |
 | `vllm` | `vllm.png` | <https://raw.githubusercontent.com/vllm-project/vllm/HEAD/docs/assets/logos/vllm-logo-only-light.png> | Project-published artwork; trademark of its owner | re-encoded; resized to ≤256 px |
+| `volcano` | `volcano.svg` | <https://raw.githubusercontent.com/cncf/artwork/main/projects/volcano/icon/color/volcano-icon-color.svg> | CNCF artwork (Linux Foundation trademark policy) | downloaded 2026-11-18; checked for scripts, handlers and external hrefs (none) |
 | `webstudio` | `webstudio.svg` | <https://raw.githubusercontent.com/webstudio-is/webstudio/HEAD/packages/icons/icons/webstudio.svg> | Project-published artwork; trademark of its owner |  |
 
 ## Fallbacks

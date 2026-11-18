@@ -18,7 +18,7 @@ const SUB_TABS: readonly TabDef<Sub>[] = [
 
 export function StorageView({ namespace }: { namespace?: string }) {
   return (
-    <Tabs<Sub> tabs={SUB_TABS} defaultValue="pvcs" ariaLabel="Storage kind">
+    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="pvcs" ariaLabel="Storage kind">
       {(active) => (
         <>
           {active === 'pvcs' && <PVCs namespace={namespace} />}

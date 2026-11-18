@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { cn } from '@adhar/utils'
 import type { StatusKind } from './status-badge.tsx'
 
@@ -25,6 +25,12 @@ interface Props<T extends string> {
   className?: string
   /** Right-side actions, only shown in horizontal mode. */
   actions?: ReactNode
+  /**
+   * Horizontal look. `underline` (default) is a page's main tab row; `pills`
+   * is a compact segmented row for a second level of tabs inside a tabbed page,
+   * so the two rows never read as the same control.
+   */
+  variant?: 'underline' | 'pills'
   children?(activeId: T): ReactNode
 }
 
@@ -37,8 +43,14 @@ export function Tabs<T extends string>({
   ariaLabel,
   className,
   actions,
+  variant = 'underline',
   children,
 }: Props<T>) {
+  // Element ids are scoped per strip: a page's tabs and a nested strip inside
+  // one of its panels can share a tab id ("quotas"), and ids must be unique.
+  const uid = useId()
+  const tabId = (id: string) => `tab-${uid}-${id}`
+  const panelId = (id: string) => `panel-${uid}-${id}`
   const visibleTabs = tabs.filter((t) => !t.hidden)
   const firstEnabled = visibleTabs.find((t) => !t.disabled)
   const [internal, setInternal] = useState<T>(defaultValue ?? (firstEnabled?.id as T))
@@ -93,7 +105,7 @@ export function Tabs<T extends string>({
     if (!el) return
     const first = !stripSettled.current
     stripSettled.current = true
-    const tab = [...el.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.id === `tab-${active}`)
+    const tab = [...el.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.id === tabId(active))
     if (!tab || el.scrollWidth <= el.clientWidth) return
     const strip = el.getBoundingClientRect()
     const box = tab.getBoundingClientRect()
@@ -134,9 +146,9 @@ export function Tabs<T extends string>({
                 type="button"
                 // The panel's `aria-labelledby` points here; without the id
                 // (the horizontal variant has it) the reference dangled.
-                id={`tab-${t.id}`}
+                id={tabId(t.id)}
                 aria-selected={isActive}
-                aria-controls={`panel-${t.id}`}
+                aria-controls={panelId(t.id)}
                 disabled={t.disabled}
                 onClick={() => setActive(t.id)}
                 className={cn(
@@ -161,8 +173,8 @@ export function Tabs<T extends string>({
         </aside>
         <div
           role="tabpanel"
-          id={`panel-${active}`}
-          aria-labelledby={`tab-${active}`}
+          id={panelId(active)}
+          aria-labelledby={tabId(active)}
           className="min-w-0"
         >
           {children?.(active)}
@@ -187,17 +199,24 @@ export function Tabs<T extends string>({
     e.preventDefault()
     const id = enabled[next].id
     setActive(id)
-    ;(e.currentTarget.querySelector(`#tab-${CSS.escape(id)}`) as HTMLElement | null)?.focus()
+    ;(e.currentTarget.querySelector(`#${CSS.escape(tabId(id))}`) as HTMLElement | null)?.focus()
   }
 
+  const pills = variant === 'pills'
+
   return (
-    <div className={cn('space-y-5', className)}>
+    <div className={cn(pills ? 'space-y-4' : 'space-y-5', className)}>
       {/* The scroller is masked at whichever edge still has tabs beyond it: a
           hard cut at the edge gives no hint that more tabs exist. The mask
           fades the last visible one instead (see `fade` above). */}
       {/* With actions, a phone stacks them above the tab list (which keeps
           the full width to scroll) instead of squeezing both into one row. */}
-      <div className="relative flex flex-col-reverse gap-1 border-b border-edge-default sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+      <div
+        className={cn(
+          'relative flex flex-col-reverse gap-1 sm:flex-row sm:justify-between sm:gap-4',
+          pills ? 'sm:items-center' : 'border-b border-edge-default sm:items-end',
+        )}
+      >
         <nav
           ref={stripRef}
           role="tablist"
@@ -205,7 +224,13 @@ export function Tabs<T extends string>({
           aria-orientation="horizontal"
           onKeyDown={onKeyDown}
           style={stripMask ? { maskImage: stripMask, WebkitMaskImage: stripMask } : undefined}
-          className="-mb-px flex min-w-0 gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className={cn(
+            'flex min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            // Pills: a sunken track sized to its tabs, the active one raised.
+            pills
+              ? 'w-fit max-w-full gap-0.5 rounded-lg border border-edge-subtle bg-surface-sunken p-0.5'
+              : '-mb-px gap-0.5',
+          )}
         >
           {visibleTabs.map((t) => {
             const isActive = t.id === active
@@ -214,21 +239,31 @@ export function Tabs<T extends string>({
                 key={t.id}
                 role="tab"
                 type="button"
-                id={`tab-${t.id}`}
+                id={tabId(t.id)}
                 aria-selected={isActive}
-                aria-controls={`panel-${t.id}`}
+                aria-controls={panelId(t.id)}
                 tabIndex={isActive ? 0 : -1}
                 disabled={t.disabled}
                 onClick={() => setActive(t.id)}
                 className={cn(
-                  'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-t-md border-b-2 px-3 py-2.5 text-sm transition-colors',
+                  'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500/40',
-                  // The active underline is the brand, not a hard black rule;
-                  // a resting tab gets a faint underline on hover so the
-                  // target reads before the click.
-                  isActive
-                    ? 'border-brand-600 font-medium text-content dark:border-brand-400'
-                    : 'border-transparent text-content-subtle hover:border-edge-strong hover:text-content',
+                  pills
+                    ? cn(
+                        'min-h-8 rounded-md px-3 py-1 text-[13px] pointer-coarse:min-h-9',
+                        isActive
+                          ? 'bg-surface-raised font-medium text-content shadow-sm ring-1 ring-edge-default'
+                          : 'text-content-muted hover:bg-surface-raised/60 hover:text-content',
+                      )
+                    : cn(
+                        'rounded-t-md border-b-2 px-3 py-2.5',
+                        // The active underline is the brand, not a hard black
+                        // rule; a resting tab gets a faint underline on hover so
+                        // the target reads before the click.
+                        isActive
+                          ? 'border-brand-600 font-medium text-content dark:border-brand-400'
+                          : 'border-transparent text-content-subtle hover:border-edge-strong hover:text-content',
+                      ),
                   t.disabled && 'cursor-not-allowed opacity-50',
                 )}
               >
@@ -238,9 +273,9 @@ export function Tabs<T extends string>({
             )
           })}
         </nav>
-        {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 pb-1 sm:pb-2">{actions}</div> : null}
+        {actions ? <div className={cn('flex shrink-0 flex-wrap items-center justify-end gap-2', !pills && 'pb-1 sm:pb-2')}>{actions}</div> : null}
       </div>
-      <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
+      <div role="tabpanel" id={panelId(active)} aria-labelledby={tabId(active)}>
         {children?.(active)}
       </div>
     </div>

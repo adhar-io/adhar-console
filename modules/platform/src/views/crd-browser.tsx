@@ -85,6 +85,7 @@ export function CrdBrowser({ namespace }: Props) {
   const active = KINDS.find((k) => k.id === tab)
   return (
     <Tabs<TabId>
+      variant="pills"
       tabs={[
         ...KINDS.map((k) => ({ id: k.id, label: k.label, badge: <KindCount gvr={k.gvr} namespace={namespace} /> })),
         { id: 'all', label: 'All definitions', badge: <CrdCount /> },

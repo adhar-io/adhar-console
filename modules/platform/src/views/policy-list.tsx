@@ -293,7 +293,7 @@ export function PolicyView() {
         <SummaryTile tone="violet" label="Exceptions" value={exceptions.length} />
       </div>
 
-      <Tabs<Sub> tabs={SUB_TABS} defaultValue={violations.length ? 'violations' : 'policies'} ariaLabel="Policy view">
+      <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue={violations.length ? 'violations' : 'policies'} ariaLabel="Policy view">
         {(active) => (
           <>
             {active === 'policies' && <PoliciesTable policies={policies} tallies={tallies} loading={loading} reporterUrl={reporterUrl} onRefresh={() => { cps.refetch(); nps.refetch(); crs.refetch(); nrs.refetch() }} fetching={cps.isFetching} />}

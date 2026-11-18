@@ -63,6 +63,7 @@ import {
   IssueBacklogPanel,
   K8sEventsPanel,
   KafkaBrokersPanel,
+  PanelOpenLink,
   PipelinesPanel,
   PlatformHealthPanel,
   PodRestartsPanel,
@@ -1496,26 +1497,9 @@ function ClusterSnapshotPanel() {
                 : 'Cluster unreachable'}
           </span>
         </div>
-        {/*
-          Arrow only — the label it used to carry ("Open Platform →") is gone,
-          and so is the live-updates line beside it.
-
-          `mr-8 sm:mr-7` is not decoration: the draggable grid parks its grab
-          handle at `right-4 top-4 h-8 w-8` (`sm:right-5 sm:top-5 sm:h-6 sm:w-6`,
-          see draggable-grid.tsx), while this card's `p-5` puts the header's
-          right edge at 20px — inside the handle on both breakpoints. The
-          margins push the arrow clear of the handle's box plus a 4px gap, so
-          the two controls never sit on top of each other and neither steals
-          the other's clicks.
-        */}
-        <Link
-          to="/platform"
-          aria-label="Open Platform"
-          title="Open Platform"
-          className="mr-8 text-xs font-medium text-brand-700 hover:text-brand-800 sm:mr-7 dark:text-brand-300 dark:hover:text-brand-200"
-        >
-          →
-        </Link>
+        {/* The same open arrow every widget uses — spacing against the drag
+            grip is set in one place (PanelOpenLink). */}
+        <PanelOpenLink to="/platform" title="Platform" />
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-[auto_1fr]">
@@ -2064,8 +2048,10 @@ function ComplianceCard({
   return (
     // Six across on a laptop leaves ~165px per card: the title and badge stack,
     // and a long badge ("Argo Rollouts unreadable") wraps inside its pill
-    // instead of running out of the card.
-    <div className="flex min-w-0 flex-col rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
+    // instead of running out of the card. The 20px top inset (the p-5 every
+    // widget has) keeps the title below the drag grip, which sits on this
+    // strip's top-centre edge from `sm` up and so lands on a middle card.
+    <div className="flex min-w-0 flex-col rounded-xl border border-edge-default bg-surface-raised px-4 pb-4 pt-5 shadow-sm">
       <div className="text-sm font-medium text-content">{title}</div>
       <div className="mt-2 max-w-full [&>span]:max-w-full [&>span]:whitespace-normal">{badge}</div>
       <div className="mt-2 text-xs leading-relaxed text-content-muted">{description}</div>
@@ -2095,16 +2081,20 @@ function PinnedAppsPanel() {
     .filter((a): a is ResolvedApp => !!a)
   return (
     <div className="flex h-full flex-col rounded-2xl border border-edge-default bg-surface-raised p-5 shadow-sm">
-      <div className="mb-3 flex items-center justify-between">
-        <div>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <div className="text-sm font-semibold text-content">Pinned apps</div>
           <div className="text-[11px] text-content-subtle">
             Jump into any backing tool · opens in a new tab
           </div>
         </div>
+        {/* One line at every width (it wrapped beside the subtitle), level
+            with the title like every widget's open arrow, and on a phone
+            held clear of the drag grip in this header row. */}
         <Link
           to="/status"
-          className="text-[11px] font-medium text-brand-700 dark:text-brand-300 hover:text-brand-800 dark:hover:text-brand-300 hover:underline"
+          data-no-drag
+          className="mr-4 inline-flex h-6 shrink-0 items-center whitespace-nowrap text-[11px] font-medium text-brand-700 hover:text-brand-800 hover:underline sm:mr-0 dark:text-brand-300 dark:hover:text-brand-300"
         >
           See all →
         </Link>

@@ -17,5 +17,7 @@ Deno.test('k8sCategoryOf resolves old per-page links to their category', () => {
   assertEquals(k8sCategoryOf('pods')?.id, 'workloads')
   assertEquals(k8sCategoryOf('rbac')?.id, 'access')
   assertEquals(k8sCategoryOf('ci'), undefined)
+  // The Dashboard is its own page, not a tab.
+  assertEquals(k8sCategoryOf('dashboard'), undefined)
   assertEquals(k8sCategoryOf(undefined), undefined)
 })

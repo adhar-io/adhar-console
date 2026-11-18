@@ -1496,33 +1496,46 @@ export function PanelHead({
         <div className="text-sm font-semibold text-content">{title}</div>
         {subtitle ? <div className="mt-0.5 truncate text-[11px] text-content-subtle">{subtitle}</div> : null}
       </div>
-      {/* Arrow-only "open" affordance. It sits in the SAME row as the drag
-          handle that draggable-grid renders at the card's top-right (`right-5
-          top-5`, 24px wide) — the right margin reserves that slot plus a small
-          gap so the two read as one aligned control group. */}
-      <Link
-        to={to}
-        aria-label={`Open ${title}`}
-        title={`Open ${title}`}
-        data-no-drag
-        className="mr-8 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-brand-700 dark:hover:text-brand-300"
-      >
-        <svg
-          width="15"
-          height="15"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-        >
-          <path d="M5 12h14" />
-          <path d="m13 6 6 6-6 6" />
-        </svg>
-      </Link>
+      <PanelOpenLink to={to} title={title} />
     </div>
+  )
+}
+
+/**
+ * A widget's arrow-only "open" control, at the right end of its header row.
+ *
+ * Its spacing is set against the drag grip draggable-grid.tsx puts on every
+ * card. On a phone the grip sits in the same header row, in the card's
+ * right padding (`right-1.5 top-5`, 24px): the arrow keeps 16px off the
+ * content edge so the two sit side by side, centred on one line with a 6px
+ * gap. From `sm` the grip moves to the top-centre edge, so the arrow aligns
+ * with the content edge — `-mr-1` puts the glyph itself, not its 24px hit
+ * box, on that edge.
+ */
+export function PanelOpenLink({ to, title }: { to: string; title: string }) {
+  return (
+    <Link
+      to={to}
+      aria-label={`Open ${title}`}
+      title={`Open ${title}`}
+      data-no-drag
+      className="mr-4 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 pointer-coarse:h-8 pointer-coarse:w-8 sm:-mr-1 dark:hover:text-brand-300"
+    >
+      <svg
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+      >
+        <path d="M5 12h14" />
+        <path d="m13 6 6 6-6 6" />
+      </svg>
+    </Link>
   )
 }
 

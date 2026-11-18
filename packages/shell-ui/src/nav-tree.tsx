@@ -404,6 +404,8 @@ export const DEFAULT_NAV: NavSection[] = [
         description: 'Clusters & workloads',
         roles: PLATFORM_READ_ROLES,
         children: [
+          // The landing page stands on its own, ahead of the categories.
+          { id: 'platform.dashboard', label: 'Dashboard', to: '/platform', search: 'dashboard' },
           // One row per category; the page shows that category's pages as
           // tabs (k8s-sections.ts is shared with the platform module). Old
           // `?section=` links still light the category that now holds them.

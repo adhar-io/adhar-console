@@ -7,8 +7,9 @@
  * `?section=` value, unchanged from when every page had its own row, so old
  * links still land on the right tab.
  *
- * Platform pages that belong to another group's rail (Builds, Chaos
- * Engineering) are deliberately not here; they keep their own page.
+ * Not here, deliberately: the Dashboard (the Kubernetes landing page, its own
+ * sidebar row and page) and pages that belong to another group's rail (Builds,
+ * Chaos Engineering) — each keeps a page of its own.
  */
 
 export type K8sCategoryId = 'cluster' | 'workloads' | 'network' | 'access' | 'observe' | 'tools'
@@ -32,7 +33,6 @@ export const K8S_CATEGORIES: K8sCategory[] = [
     id: 'cluster',
     label: 'Cluster',
     pages: [
-      { id: 'dashboard', label: 'Dashboard', description: 'Cluster pulse — capacity, pod phases, node health and recent events.' },
       { id: 'clusters', label: 'Clusters', description: 'Cluster capacity, version and API surface.' },
       { id: 'nodes', label: 'Nodes', description: 'Every worker — capacity, conditions, taints, drain.' },
       { id: 'namespaces', label: 'Namespaces', description: 'Namespaces with quota usage, limit ranges and labels.' },

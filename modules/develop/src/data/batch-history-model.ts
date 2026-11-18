@@ -976,3 +976,61 @@ export function backfillProgress(
   out.settled = waiting.length === 0
   return out
 }
+
+/**
+ * The release loop's own state, kept between renders of the dialog. A run is in
+ * `released` from the moment its release is sent until the release fails: one
+ * that failed is not in flight, and counting it there would hold its slot for
+ * the rest of the session (with "at once" 1, nothing would ever be released
+ * again). `pending` is the release on its way; `halted` is why the last one
+ * failed, and nothing is released after a failure until a person retries —
+ * a refusal that does not go away (no `patch jobs`, a quota) would otherwise be
+ * sent again on every change of the run list.
+ */
+export interface ReleaseLoop {
+  released: ReadonlySet<string>
+  pending: readonly string[]
+  halted?: string
+}
+
+export const RELEASE_LOOP_START: ReleaseLoop = { released: new Set(), pending: [] }
+
+/**
+ * What the loop sends now: `backfillProgress`'s release, and nothing while a
+ * release is on its way or after one failed. The dialog's effect is keyed on
+ * the names this returns, so a run list that changed while a release was
+ * pending is acted on once it settles: the key reads empty while pending and
+ * is computed afresh after.
+ */
+export function releaseStep(
+  runNames: readonly string[],
+  runs: readonly RunRow[],
+  parallel: number,
+  volcano: boolean,
+  loop: ReleaseLoop,
+): RunRow[] {
+  if (loop.pending.length || loop.halted !== undefined) return []
+  return backfillProgress(runNames, runs, parallel, volcano, loop.released).release
+}
+
+/** A release was sent: its runs count as in flight from now. */
+export function releaseSent(loop: ReleaseLoop, names: readonly string[]): ReleaseLoop {
+  return { released: new Set([...loop.released, ...names]), pending: [...names] }
+}
+
+/**
+ * The release settled. Runs are released one at a time, so a failure part way
+ * names the runs patched before it (`releasedBefore`): those stay in flight,
+ * the rest leave `released` and read as queued again, and the loop halts.
+ */
+export function releaseSettled(loop: ReleaseLoop, outcome: { error?: undefined } | { error: string; releasedBefore: readonly string[] }): ReleaseLoop {
+  if (outcome.error === undefined) return { released: loop.released, pending: [] }
+  const kept = new Set(outcome.releasedBefore)
+  const lost = new Set(loop.pending.filter((n) => !kept.has(n)))
+  return { released: new Set([...loop.released].filter((n) => !lost.has(n))), pending: [], halted: outcome.error }
+}
+
+/** A person asked to try again: the next step releases what is queued, failed runs first by date. */
+export function releaseRetried(loop: ReleaseLoop): ReleaseLoop {
+  return { released: loop.released, pending: loop.pending }
+}

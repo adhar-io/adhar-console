@@ -441,11 +441,31 @@ export function runKindOf(run: Pick<RunObject, 'apiVersion'>): RunKind {
   return run.apiVersion?.startsWith('batch.volcano.sh') ? 'VolcanoJob' : 'Job'
 }
 
-export type RunPhase = 'pending' | 'running' | 'stopping' | 'stopped' | 'succeeded' | 'failed' | 'deleting' | 'unknown'
+export type RunPhase = 'pending' | 'queued' | 'running' | 'stopping' | 'stopped' | 'succeeded' | 'failed' | 'deleting' | 'unknown'
 
 const condTrue = (conds: readonly Condition[] | undefined, type: string) => conds?.find((c) => c.type === type)?.status === 'True'
 
-/** The phase a person reads. `FailureTarget` / `SuccessCriteriaMet` count: the Job has decided, its pods are only leaving. */
+/**
+ * A native run a backfill created suspended and has not released: its mark
+ * (`adhar.io/batch-queued=backfill`) and no sign it ever started. Without the
+ * mark a suspended run is a person's stop; with it and a start, a stop after
+ * the release (`cmd/batch/backfill.go`'s `backfillState`, the same rule).
+ */
+export function isQueuedByBackfill(run: RunObject): boolean {
+  const s = run.status
+  return run.spec?.suspend === true &&
+    run.metadata.annotations?.[ANNOTATION.queued] === QUEUED_BY_BACKFILL &&
+    !s?.startTime &&
+    (s?.active ?? 0) === 0 &&
+    (s?.terminating ?? 0) === 0 &&
+    (s?.failed ?? 0) === 0 &&
+    (s?.succeeded ?? 0) === 0
+}
+
+/**
+ * The phase a person reads. `FailureTarget` / `SuccessCriteriaMet` count: the Job has decided, its pods are only leaving.
+ * A run a backfill still holds back is Queued, not Stopped: nobody stopped it, and Resume releases it.
+ */
 export function runPhaseOf(run: RunObject): RunPhase {
   if (run.metadata.deletionTimestamp) return 'deleting'
   if (runKindOf(run) === 'VolcanoJob') {
@@ -474,6 +494,7 @@ export function runPhaseOf(run: RunObject): RunPhase {
   if (condTrue(conds, 'Complete') || condTrue(conds, 'SuccessCriteriaMet')) return 'succeeded'
   if (condTrue(conds, 'Failed') || condTrue(conds, 'FailureTarget')) return 'failed'
   const active = run.status?.active ?? 0
+  if (isQueuedByBackfill(run)) return 'queued'
   if (run.spec?.suspend === true || condTrue(conds, 'Suspended')) {
     return active > 0 || (run.status?.terminating ?? 0) > 0 ? 'stopping' : 'stopped'
   }
@@ -483,6 +504,7 @@ export function runPhaseOf(run: RunObject): RunPhase {
 
 export const PHASE_LABEL: Record<RunPhase, string> = {
   pending: 'Pending',
+  queued: 'Queued',
   running: 'Running',
   stopping: 'Stopping',
   stopped: 'Stopped',
@@ -494,6 +516,7 @@ export const PHASE_LABEL: Record<RunPhase, string> = {
 
 export const PHASE_BADGE: Record<RunPhase, 'healthy' | 'paused' | 'progressing' | 'failed' | 'unknown'> = {
   pending: 'progressing',
+  queued: 'paused',
   running: 'progressing',
   stopping: 'progressing',
   stopped: 'paused',
@@ -724,12 +747,15 @@ export interface RunActions {
  */
 export const isBatchRun = (run: Pick<RunObject, 'metadata'>): boolean => Boolean(run.metadata.labels?.[LABEL.batchJob])
 
-/** Stop while it can still stop, resume what was stopped, restart what failed — and nothing for what is not a batch run. */
+/**
+ * Stop while it can still stop, resume what was stopped or is still queued by a backfill (resuming releases it, mark and
+ * all), restart what failed — and nothing for what is not a batch run.
+ */
 export function runActionsOf(phase: RunPhase, batchRun = true): RunActions {
   if (!batchRun) return { stop: false, resume: false, restart: false }
   return {
     stop: phase === 'pending' || phase === 'running',
-    resume: phase === 'stopped',
+    resume: phase === 'stopped' || phase === 'queued',
     restart: phase === 'failed',
   }
 }
@@ -1239,12 +1265,13 @@ export function nextRunOf(job: BatchJobXR, opts: { now?: number; reportedMs?: nu
   return nextRuns(sch.cron, now, 1, sch.timeZone)[0]
 }
 
-export type JobStatus = 'running' | 'failed' | 'not-ready' | 'stopped' | 'succeeded' | 'idle' | 'deleting'
+export type JobStatus = 'running' | 'failed' | 'not-ready' | 'queued' | 'stopped' | 'succeeded' | 'idle' | 'deleting'
 
 export const JOB_STATUS_LABEL: Record<JobStatus, string> = {
   running: 'Running',
   failed: 'Last run failed',
   'not-ready': 'Not ready',
+  queued: 'Backfill queued',
   stopped: 'Stopped',
   succeeded: 'Last run succeeded',
   idle: 'No runs yet',
@@ -1255,6 +1282,7 @@ export const JOB_STATUS_BADGE: Record<JobStatus, 'healthy' | 'paused' | 'progres
   running: 'progressing',
   failed: 'failed',
   'not-ready': 'paused',
+  queued: 'paused',
   stopped: 'paused',
   succeeded: 'healthy',
   idle: 'info',
@@ -1279,6 +1307,7 @@ export function jobStatusOf(job: BatchJobXR, runs: readonly RunRow[]): JobStatus
   const last = runs[0]
   if (last?.phase === 'failed') return 'failed'
   if (jobProblem(job)) return 'not-ready'
+  if (last?.phase === 'queued') return 'queued'
   if (last?.phase === 'stopped') return 'stopped'
   if (last?.phase === 'succeeded') return 'succeeded'
   return 'idle'

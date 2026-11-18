@@ -23,6 +23,12 @@ import {
   p90Of,
   parseCalendar,
   parseHistory,
+  RELEASE_LOOP_START,
+  type ReleaseLoop,
+  releaseRetried,
+  releaseSent,
+  releaseSettled,
+  releaseStep,
   replayPlan,
   successDurations,
   tonightRows,
@@ -793,4 +799,100 @@ Deno.test('backfill progress: on Volcano nothing is released from here — the q
   const all = rows([run('d1', {}, { queued: true }), run('d2', {}, { queued: true })])
   const p = backfillProgress(['d1', 'd2'], all, 2, true)
   assertEquals([p.release, p.queued], [[], 2])
+})
+
+/**
+ * The backfill dialog's release loop, as its effect drives it: the effect fires
+ * when the names `releaseStep` returns change, sends them, and settles. This
+ * harness is that effect without a renderer, so the two ways the loop used to
+ * stall are held here: a failed release counted in flight for the rest of the
+ * session, and a run list that changed while a release was pending never acted on.
+ */
+function releaseHarness(names: readonly string[], parallel: number) {
+  let loop: ReleaseLoop = RELEASE_LOOP_START
+  let key = ''
+  const sent: string[][] = []
+  return {
+    /** A render: returns the batch the effect sends, or undefined when the key did not change. */
+    render(runs: RunRow[]) {
+      const batch = releaseStep(names, runs, parallel, false, loop)
+      const next = batch.map((r) => r.name).join(',')
+      if (next === key) return undefined
+      key = next
+      if (!batch.length) return undefined
+      loop = releaseSent(loop, batch.map((r) => r.name))
+      sent.push(batch.map((r) => r.name))
+      return batch.map((r) => r.name)
+    },
+    ok() {
+      loop = releaseSettled(loop, {})
+    },
+    fail(error: string, releasedBefore: string[] = []) {
+      loop = releaseSettled(loop, { error, releasedBefore })
+    },
+    retry() {
+      loop = releaseRetried(loop)
+    },
+    get loop() {
+      return loop
+    },
+    sent,
+  }
+}
+
+Deno.test('backfill release loop: a failed release frees its slot and halts until a person retries', () => {
+  const names = ['d1', 'd2', 'd3']
+  const queued = rows(names.map((n) => run(n, {}, { queued: true })))
+  const h = releaseHarness(names, 1)
+  assertEquals(h.render(queued), ['d1'])
+  h.fail('forbidden')
+  // d1 is not in flight: with "at once" 1 a ghost there would hold the only slot for good.
+  assertEquals(h.loop.released.has('d1'), false)
+  assertEquals(backfillProgress(names, queued, 1, false, h.loop.released).inFlight, 0)
+  assertEquals(h.loop.halted, 'forbidden')
+  // Halted: the same refusal is not sent again on every change of the list.
+  assertEquals(h.render(queued), undefined)
+  assertEquals(h.render(rows(names.map((n) => run(n, {}, { queued: true })))), undefined)
+  h.retry()
+  assertEquals(h.render(queued), ['d1'], 'retried, the earliest date goes first')
+  h.ok()
+  assertEquals(h.loop.halted, undefined)
+  assertEquals(h.sent, [['d1'], ['d1']])
+})
+
+Deno.test('backfill release loop: a release that failed part way keeps the runs patched before it in flight', () => {
+  const names = ['d1', 'd2', 'd3']
+  const queued = rows(names.map((n) => run(n, {}, { queued: true })))
+  const h = releaseHarness(names, 2)
+  assertEquals(h.render(queued), ['d1', 'd2'])
+  h.fail('quota', ['d1'])
+  assertEquals([...h.loop.released], ['d1'])
+  // The list has not caught up: d1 still reads queued, and is counted in flight all the same.
+  const p = backfillProgress(names, queued, 2, false, h.loop.released)
+  assertEquals([p.inFlight, p.queued], [1, 2])
+  h.retry()
+  assertEquals(h.render(queued), ['d2'], 'one slot is free, and d1 is not released twice')
+})
+
+Deno.test('backfill release loop: a run list that changed while a release was pending is acted on once it settles', () => {
+  const names = ['d1', 'd2', 'd3']
+  const h = releaseHarness(names, 1)
+  assertEquals(h.render(rows(names.map((n) => run(n, {}, { queued: true })))), ['d1'])
+  // d1 ends while its release is still on its way: nothing is sent over a pending release.
+  const d1Done = rows([run('d1', DONE()), run('d2', {}, { queued: true }), run('d3', {}, { queued: true })])
+  assertEquals(releaseStep(names, d1Done, 1, false, h.loop), [])
+  assertEquals(h.render(d1Done), undefined)
+  // Settled, the next render (the one the settle itself causes) releases d2 without waiting for another list.
+  h.ok()
+  assertEquals(h.render(d1Done), ['d2'])
+  h.ok()
+  // A list that has not caught up with d2's release does not release a second batch.
+  assertEquals(h.render(d1Done), undefined)
+  assertEquals(releaseStep(names, d1Done, 1, false, h.loop), [])
+  assertEquals(h.sent, [['d1'], ['d2']])
+})
+
+Deno.test('backfill release loop: on Volcano nothing is ever sent', () => {
+  const all = rows([run('d1', {}, { queued: true })])
+  assertEquals(releaseStep(['d1'], all, 2, true, RELEASE_LOOP_START), [])
 })

@@ -181,11 +181,23 @@ export async function createBackfill(
   return out
 }
 
-/** Release queued backfill runs (`spec.suspend=false`), in the order given. */
+/** A release that failed part way: the runs patched before the failure are released, the rest are not. */
+export class BackfillReleaseError extends Error {
+  constructor(readonly releasedBefore: readonly string[], readonly run: string, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause))
+    this.name = 'BackfillReleaseError'
+  }
+}
+
+/** Release queued backfill runs (`spec.suspend=false`), in the order given. A failure names what was released before it. */
 export async function releaseBackfillRuns(runs: readonly RunRow[]): Promise<string[]> {
   const released: string[] = []
   for (const r of runs) {
-    await resumeRun(r.raw)
+    try {
+      await resumeRun(r.raw)
+    } catch (e) {
+      throw new BackfillReleaseError([...released], r.name, e)
+    }
     released.push(r.name)
   }
   return released

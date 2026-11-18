@@ -18,6 +18,7 @@ import {
   holdPatch,
   initialParamValues,
   isBatchApplication,
+  JOB_STATUS_LABEL,
   jobRows,
   jobStatusOf,
   maskParam,
@@ -37,6 +38,7 @@ import {
   parseRunTemplate,
   parseSummary,
   pendingApplications,
+  PHASE_LABEL,
   resolveParams,
   restartName,
   restartPlan,
@@ -290,6 +292,35 @@ Deno.test('phase: native Jobs', () => {
   assertEquals(runPhaseOf(run({ metadata: { name: 'x', deletionTimestamp: '2026-11-03T17:30:00Z' } })), 'deleting')
 })
 
+Deno.test('phase: a run a backfill still holds back is Queued, and only that one', () => {
+  const marked = (status: RunObject['status'], o: { value?: string; suspend?: boolean; apiVersion?: string } = {}) =>
+    runPhaseOf(run({
+      ...(o.apiVersion ? { apiVersion: o.apiVersion } : {}),
+      metadata: { name: 'importer-aa', annotations: { 'adhar.io/batch-queued': o.value ?? 'backfill' } },
+      spec: o.suspend === false ? {} : { suspend: true },
+      status,
+    }))
+  assertEquals(marked({}), 'queued')
+  assertEquals(marked(undefined), 'queued', 'no status yet')
+  // The Job controller sets Suspended on a Job created suspended: that is the queue, not a stop.
+  assertEquals(marked({ conditions: [cond('Suspended')] }), 'queued')
+  assertEquals(PHASE_LABEL.queued, 'Queued')
+  // Every other reading is what it was: a mark that someone else wrote, or a run that shows it started, is a stop.
+  assertEquals(marked({}, { value: 'someone-else' }), 'stopped')
+  assertEquals(runPhaseOf(run({ spec: { suspend: true }, status: {} })), 'stopped', 'no mark: a person’s')
+  assertEquals(marked({ startTime: '2026-11-03T02:00:00Z' }), 'stopped')
+  assertEquals(marked({ failed: 1 }), 'stopped')
+  assertEquals(marked({ succeeded: 1 }), 'stopped')
+  assertEquals(marked({ active: 1, ready: 1 }), 'stopping')
+  assertEquals(marked({ terminating: 1 }), 'stopping')
+  // Released (suspend false): the mark is gone in the same patch, and a stale one does not hold it back on the page.
+  assertEquals(marked({}, { suspend: false }), 'pending')
+  assertEquals(marked({ conditions: [cond('Complete')] }), 'succeeded')
+  assertEquals(marked({ conditions: [cond('Failed')] }), 'failed')
+  // A Volcano backfill is never queued from here: its queue decides.
+  assertEquals(marked({ state: { phase: 'Pending' } }, { apiVersion: 'batch.volcano.sh/v1alpha1' }), 'pending')
+})
+
 Deno.test('phase: Volcano Jobs', () => {
   const v = (phase?: string) => runPhaseOf(run({ apiVersion: 'batch.volcano.sh/v1alpha1', status: phase ? { state: { phase } } : {} }))
   assertEquals(v(), 'pending')
@@ -307,6 +338,8 @@ Deno.test('actions: stop what runs, resume what stopped, restart what failed', (
   assertEquals(runActionsOf('pending'), { stop: true, resume: false, restart: false })
   assertEquals(runActionsOf('stopping'), { stop: false, resume: false, restart: false })
   assertEquals(runActionsOf('stopped'), { stop: false, resume: true, restart: false })
+  // Resume releases a queued run, with the CLI's patch (`resume: a run a backfill still holds back …`); it is already suspended.
+  assertEquals(runActionsOf('queued'), { stop: false, resume: true, restart: false })
   assertEquals(runActionsOf('failed'), { stop: false, resume: false, restart: true })
   assertEquals(runActionsOf('succeeded'), { stop: false, resume: false, restart: false })
 })
@@ -686,6 +719,10 @@ Deno.test('resume: a run a backfill still holds back loses that mark in the same
   const resume = resumeRequest(held)
   assert(resume.verb === 'patch')
   assertEquals(JSON.stringify(resume.body), '{"metadata":{"annotations":{"adhar.io/batch-queued":null}},"spec":{"suspend":false}}')
+  // The run the page shows as Queued is offered Resume, and Resume sends exactly this patch.
+  held.spec = { ...(held.spec ?? {}), suspend: true }
+  held.status = {}
+  assertEquals(runActionsOf(runRow(held, []).phase).resume, true)
   // Stopping marks nothing, and a Volcano run is resumed by a Command, which carries no patch at all.
   assertEquals(stopRequest(held).verb === 'patch' && JSON.stringify((stopRequest(held) as { body: unknown }).body), '{"spec":{"suspend":true}}')
 })
@@ -793,6 +830,9 @@ Deno.test('job status: a run in progress first, then what the last run did', () 
   // A failure older than the last success is history, not a state.
   assertEquals(jobStatusOf(j, [finished('b', 'Complete'), finished('a', 'Failed')]), 'succeeded')
   assertEquals(jobStatusOf(j, [runRow(run({ status: { active: 1, ready: 1 } }), [])]), 'running')
+  const queued = runRow(run({ metadata: { name: 'q', annotations: { 'adhar.io/batch-queued': 'backfill' } }, spec: { suspend: true }, status: {} }), [])
+  assertEquals(jobStatusOf(j, [queued, finished('a', 'Complete')]), 'queued')
+  assertEquals(JOB_STATUS_LABEL.queued, 'Backfill queued')
   const broken = job('x', {}, { status: { conditions: [cond('PrerequisitesReady', 'False', undefined, 'no scheduler')] } })
   assertEquals(jobStatusOf(broken, []), 'not-ready')
   assertEquals(jobStatusOf(broken, [finished('b', 'Failed')]), 'failed')

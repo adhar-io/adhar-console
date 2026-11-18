@@ -181,6 +181,12 @@ export const TOOL_LOGO_ALIASES: Readonly<Record<string, string>> = {
   jupyter: 'jupyterhub',
   'kubeflow-spark-operator': 'spark-operator',
   spark: 'spark-operator',
+  // Volcano's own components (core/volcano) all carry the project's mark.
+  'volcano-scheduler': 'volcano',
+  'volcano-controllers': 'volcano',
+  'volcano-admission': 'volcano',
+  'volcano-dashboard': 'volcano',
+  'vc-scheduler': 'volcano',
   // AI
   'llm-d-cpu': 'llm-d',
   'llm-d-gpu': 'llm-d',

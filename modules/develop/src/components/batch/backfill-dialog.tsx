@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, canResource, Field, Input, Modal, Spinner, StatusBadge, useAccessReview, useToast } from '@adhar/shell-ui'
 import { useRunTemplate } from '../../data/batch.ts'
 import { type BatchJobXR, displayParam, JOBS_GVR, PHASE_BADGE, PHASE_LABEL, type RunRow } from '../../data/batch-model.ts'
-import { useCreateBackfill, useReleaseBackfillRuns } from '../../data/batch-history.ts'
+import { BackfillReleaseError, useCreateBackfill, useReleaseBackfillRuns } from '../../data/batch-history.ts'
 import {
   backfillDates,
   type BackfillItem,
@@ -11,6 +11,12 @@ import {
   backfillState,
   businessDateField,
   MAX_BACKFILL_DATES,
+  RELEASE_LOOP_START,
+  type ReleaseLoop,
+  releaseRetried,
+  releaseSent,
+  releaseSettled,
+  releaseStep,
 } from '../../data/batch-history-model.ts'
 import { Note } from '../../views/function-bits.tsx'
 import { type DialogFrame, ParamInput } from './dialogs.tsx'
@@ -166,16 +172,25 @@ export function BackfillDialog({
   const create = useCreateBackfill()
   const releasing = useReleaseBackfillRuns()
   const toast = useToast()
-  const released = useRef(new Set<string>())
+  const [loop, setLoop] = useState<ReleaseLoop>(RELEASE_LOOP_START)
 
-  // The release loop. It runs on every change of the run list while the dialog
-  // is open, and only ever releases what `backfillProgress` hands it.
-  const progress = started ? backfillProgress(started.items.map((i) => i.run), runs, parallel || 1, started.volcano, released.current) : undefined
-  const next = progress?.release.map((r) => r.name).join(',') ?? ''
+  // The release loop. It runs on every change of what `releaseStep` hands it
+  // while the dialog is open, and only ever releases that; the rules (a failed
+  // release frees its slot and halts, nothing while one is on its way) are the
+  // model's, so they are tested without a renderer that runs effects.
+  const batch = started ? releaseStep(started.items.map((i) => i.run), runs, parallel || 1, started.volcano, loop) : []
+  const next = batch.map((r) => r.name).join(',')
   useEffect(() => {
-    if (!progress?.release.length || releasing.isPending) return
-    for (const r of progress.release) released.current.add(r.name)
-    releasing.mutate(progress.release, { onError: (e) => toast.error('Could not release the next runs', { description: errorText(e) }) })
+    if (!batch.length) return
+    const names = batch.map((r) => r.name)
+    setLoop((l) => releaseSent(l, names))
+    releasing.mutateAsync(batch).then(
+      () => setLoop((l) => releaseSettled(l, {})),
+      (e) => {
+        setLoop((l) => releaseSettled(l, { error: errorText(e), releasedBefore: e instanceof BackfillReleaseError ? e.releasedBefore : [] }))
+        toast.error('Could not release the next runs', { description: errorText(e) })
+      },
+    )
   }, [next])
 
   const submit = async () => {
@@ -229,14 +244,30 @@ export function BackfillDialog({
         ? <Note tone='warn'>{read.data.message}</Note>
         : started
         ? (
-          <BackfillProgressView
-            items={started.items}
-            runs={runs}
-            parallel={parallel || 1}
-            volcano={started.volcano}
-            released={released.current}
-            onOpenRun={onOpenRun}
-          />
+          <div className='space-y-3'>
+            {loop.halted !== undefined
+              ? (
+                <Note tone='warn'>
+                  Releasing stopped after a refusal ({loop.halted}). The runs not released stay queued until it is tried again.{' '}
+                  <Button
+                    size='sm'
+                    variant='secondary'
+                    onClick={() => setLoop(releaseRetried)}
+                  >
+                    Try again
+                  </Button>
+                </Note>
+              )
+              : null}
+            <BackfillProgressView
+              items={started.items}
+              runs={runs}
+              parallel={parallel || 1}
+              volcano={started.volcano}
+              released={loop.released}
+              onOpenRun={onOpenRun}
+            />
+          </div>
         )
         : template && !dateField
         ? (

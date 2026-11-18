@@ -101,6 +101,8 @@ Deno.test('aliases and normalisation', () => {
   assertEquals(toolLogoKey('OpenMetadata'), 'open-metadata')
   assertEquals(toolLogoKey('vllm-gpu'), 'vllm')
   assertEquals(toolLogoKey('gpu-operator'), 'nvidia')
+  assertEquals(toolLogoKey('volcano-scheduler'), 'volcano')
+  assertEquals(toolLogoKey('volcano-dashboard'), 'volcano')
   assertEquals(toolLogoKey('terraform'), 'opentofu')
   assertEquals(toolLogoKey('metrics-server'), 'kubernetes')
   assertEquals(toolLogoKey('policy-reporter'), 'kyverno')

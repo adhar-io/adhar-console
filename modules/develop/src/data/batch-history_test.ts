@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertRejects } from 'jsr:@std/assert@^1.0.0'
 import { parseRunTemplate, type RunObject, type RunRow, runRows, type RunTemplate } from './batch-model.ts'
-import { createBackfill, fetchHistory, readNamespaceCalendars, releaseBackfillRuns, replayDeadLetters } from './batch-history.ts'
+import { BackfillReleaseError, createBackfill, fetchHistory, readNamespaceCalendars, releaseBackfillRuns, replayDeadLetters } from './batch-history.ts'
 import type { BackfillItem } from './batch-history-model.ts'
 
 /**
@@ -278,6 +278,25 @@ Deno.test('release: spec.suspend=false on each queued run, in the order given, a
       ['PATCH', `${JOBS}/d1`, { metadata: { annotations: { 'adhar.io/batch-queued': null } }, spec: { suspend: false } }],
       ['PATCH', `${JOBS}/d2`, { metadata: { annotations: { 'adhar.io/batch-queued': null } }, spec: { suspend: false } }],
     ])
+  } finally {
+    g.restore()
+  }
+})
+
+Deno.test('release: a refusal part way names the runs released before it, and patches nothing after', async () => {
+  const queued = (name: string): RunObject => ({
+    apiVersion: 'batch/v1',
+    kind: 'Job',
+    metadata: { name, namespace: 'prod', uid: name, labels: { 'adhar.io/batch-job': 'importer' }, annotations: { 'adhar.io/batch-queued': 'backfill' } },
+    spec: { suspend: true },
+  })
+  const runs: RunRow[] = runRows([queued('d1'), queued('d2'), queued('d3')], [])
+  const order = ['d1', 'd2', 'd3'].map((n) => runs.find((r) => r.name === n)!)
+  const g = fakeConsole({ [`PATCH ${JOBS}/d1`]: { status: 200, body: {} }, [`PATCH ${JOBS}/d2`]: forbidden })
+  try {
+    const e = await assertRejects(() => releaseBackfillRuns(order), BackfillReleaseError)
+    assertEquals([e.releasedBefore, e.run], [['d1'], 'd2'])
+    assertEquals(g.seen.map((s) => s.url), [`${JOBS}/d1`, `${JOBS}/d2`])
   } finally {
     g.restore()
   }

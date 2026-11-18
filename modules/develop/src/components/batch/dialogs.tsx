@@ -312,7 +312,9 @@ export function ResumeDialog({ run, onClose }: { run: RunRow; onClose(): void })
       open
       onClose={onClose}
       title={`Resume ${run.name}`}
-      description='A new pod finds the stopped execution and continues from the last committed chunk.'
+      description={run.phase === 'queued'
+        ? 'A backfill queued this run and has not released it. Resuming starts it now, whatever the backfill’s “at once” allows.'
+        : 'A new pod finds the stopped execution and continues from the last committed chunk.'}
       footer={
         <div className='flex w-full justify-end gap-2'>
           <Button variant='ghost' onClick={onClose}>Cancel</Button>

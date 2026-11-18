@@ -349,6 +349,8 @@ function PodsTab({ row, pods, loading, forbidden, error }: { row: RunRow; pods: 
           ? 'No pods yet. The Job has not created one, or the scheduler is still finding room.'
           : row.phase === 'stopped'
           ? 'No pods: a stopped run holds none. Resuming creates a new one.'
+          : row.phase === 'queued'
+          ? 'No pods: a backfill created this run suspended and has not released it yet. Resuming releases it now.'
           : 'Its pods are gone, so its logs are only in Loki.'}
       </Note>
     )

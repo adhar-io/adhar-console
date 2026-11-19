@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { k8sCategoryOf, PageHeader, Spinner, XR_SECTION_BY_ID } from '@adhar/shell-ui'
+import { k8sCategoryOf, k8sPageOf, PageHeader, Spinner, XR_SECTION_BY_ID } from '@adhar/shell-ui'
 import { CategoryPage } from './components/category-page.tsx'
 import { ConnectionGate } from './components/connection-banner.tsx'
 import { ChaosView } from './views/chaos.tsx'
@@ -59,15 +59,33 @@ type Section =
   | 'clusters'
   | 'namespaces'
   | 'nodes'
-  | 'workloads'
+  | 'deployments'
+  | 'statefulsets'
+  | 'daemonsets'
+  | 'replicasets'
+  | 'jobs'
+  | 'cronjobs'
   | 'autoscaling'
   | 'quotas'
   | 'releases'
   | 'pods'
-  | 'networking'
-  | 'storage'
-  | 'config'
-  | 'rbac'
+  | 'k8s-services'
+  | 'endpoints'
+  | 'ingresses'
+  | 'gateways'
+  | 'gateway-routes'
+  | 'gateway-classes'
+  | 'network-policies'
+  | 'pvcs'
+  | 'pvs'
+  | 'storage-classes'
+  | 'configmaps'
+  | 'secrets'
+  | 'service-accounts'
+  | 'roles'
+  | 'role-bindings'
+  | 'cluster-roles'
+  | 'cluster-role-bindings'
   | 'events'
   | 'crds'
   | 'explore'
@@ -77,7 +95,9 @@ type Section =
   | 'ci'
   | 'chaos'
   | 'graph'
-  | 'policy'
+  | 'policies'
+  | 'policy-violations'
+  | 'policy-exceptions'
   | 'observability'
   | 'marketplace'
   | 'applications'
@@ -129,12 +149,14 @@ const SECTIONS: Record<Section, SectionDef> = {
     description: 'Every worker — capacity, conditions, taints, drain, system info.',
     kind: 'k8s',
   },
-  workloads: {
-    id: 'workloads',
-    label: 'Workloads',
-    description: 'Deployments, StatefulSets, DaemonSets, Jobs, CronJobs.',
-    kind: 'k8s',
-  },
+  // One page per workload kind (tabs of the Workloads category); the old
+  // combined `workloads` id is an alias for Deployments (k8s-sections.ts).
+  deployments: { id: 'deployments', label: 'Deployments', description: 'Deployments with rollout status.', kind: 'k8s' },
+  statefulsets: { id: 'statefulsets', label: 'StatefulSets', description: 'StatefulSets.', kind: 'k8s' },
+  daemonsets: { id: 'daemonsets', label: 'DaemonSets', description: 'DaemonSets.', kind: 'k8s' },
+  replicasets: { id: 'replicasets', label: 'ReplicaSets', description: 'ReplicaSets.', kind: 'k8s' },
+  jobs: { id: 'jobs', label: 'Jobs', description: 'Jobs.', kind: 'k8s' },
+  cronjobs: { id: 'cronjobs', label: 'CronJobs', description: 'CronJobs.', kind: 'k8s' },
   quotas: {
     id: 'quotas',
     label: 'Quota & Limits',
@@ -159,30 +181,25 @@ const SECTIONS: Record<Section, SectionDef> = {
     description: 'Live pods with logs, shell, metrics, and YAML edit.',
     kind: 'k8s',
   },
-  networking: {
-    id: 'networking',
-    label: 'Networking',
-    description: 'Services + Ingresses across namespaces.',
-    kind: 'k8s',
-  },
-  storage: {
-    id: 'storage',
-    label: 'Storage',
-    description: 'PersistentVolumeClaims, PersistentVolumes, StorageClasses.',
-    kind: 'k8s',
-  },
-  config: {
-    id: 'config',
-    label: 'Config & Secrets',
-    description: 'ConfigMaps and Secrets — values always redacted.',
-    kind: 'k8s',
-  },
-  rbac: {
-    id: 'rbac',
-    label: 'RBAC',
-    description: 'ServiceAccounts, Roles, and their bindings.',
-    kind: 'k8s',
-  },
+  // One page per networking / storage / config kind (tabs of their
+  // categories); the old combined ids are aliases (k8s-sections.ts).
+  'k8s-services': { id: 'k8s-services', label: 'Services', description: 'Services.', kind: 'k8s' },
+  endpoints: { id: 'endpoints', label: 'Endpoints', description: 'Endpoints.', kind: 'k8s' },
+  ingresses: { id: 'ingresses', label: 'Ingresses', description: 'Ingresses.', kind: 'k8s' },
+  gateways: { id: 'gateways', label: 'Gateways', description: 'Gateways.', kind: 'k8s' },
+  'gateway-routes': { id: 'gateway-routes', label: 'Routes', description: 'Routes.', kind: 'k8s' },
+  'gateway-classes': { id: 'gateway-classes', label: 'Gateway Classes', description: 'Gateway Classes.', kind: 'k8s' },
+  'network-policies': { id: 'network-policies', label: 'Network Policies', description: 'Network Policies.', kind: 'k8s' },
+  pvcs: { id: 'pvcs', label: 'PersistentVolumeClaims', description: 'PersistentVolumeClaims.', kind: 'k8s' },
+  pvs: { id: 'pvs', label: 'PersistentVolumes', description: 'PersistentVolumes.', kind: 'k8s' },
+  'storage-classes': { id: 'storage-classes', label: 'StorageClasses', description: 'StorageClasses.', kind: 'k8s' },
+  configmaps: { id: 'configmaps', label: 'ConfigMaps', description: 'ConfigMaps.', kind: 'k8s' },
+  secrets: { id: 'secrets', label: 'Secrets', description: 'Secrets.', kind: 'k8s' },
+  'service-accounts': { id: 'service-accounts', label: 'ServiceAccounts', description: 'ServiceAccounts.', kind: 'k8s' },
+  roles: { id: 'roles', label: 'Roles', description: 'Roles.', kind: 'k8s' },
+  'role-bindings': { id: 'role-bindings', label: 'RoleBindings', description: 'RoleBindings.', kind: 'k8s' },
+  'cluster-roles': { id: 'cluster-roles', label: 'ClusterRoles', description: 'ClusterRoles.', kind: 'k8s' },
+  'cluster-role-bindings': { id: 'cluster-role-bindings', label: 'ClusterRoleBindings', description: 'ClusterRoleBindings.', kind: 'k8s' },
   events: {
     id: 'events',
     label: 'Events',
@@ -239,12 +256,9 @@ const SECTIONS: Record<Section, SectionDef> = {
     description: 'Live Tekton PipelineRuns with a task DAG, step logs, and re-run / cancel / delete — plus Pipelines, Tasks and Triggers.',
     kind: 'k8s',
   },
-  policy: {
-    id: 'policy',
-    label: 'Policy',
-    description: 'Kyverno PolicyReports aggregated across the cluster.',
-    kind: 'k8s',
-  },
+  policies: { id: 'policies', label: 'Policies', description: 'Kyverno policies.', kind: 'k8s' },
+  'policy-violations': { id: 'policy-violations', label: 'Violations', description: 'Kyverno violations.', kind: 'k8s' },
+  'policy-exceptions': { id: 'policy-exceptions', label: 'Exceptions', description: 'Kyverno exceptions.', kind: 'k8s' },
   observability: {
     id: 'observability',
     label: 'Observability',
@@ -383,7 +397,9 @@ export default function PlatformHome({ section }: { section?: string } = {}) {
 }
 
 function PlatformSection({ section }: { section?: string }) {
-  const active = (SECTIONS[section as Section]?.id ?? 'dashboard') as Section
+  // A retired id (`workloads`) opens the page that replaced it.
+  const canonical = k8sPageOf(section)?.id ?? section
+  const active = (SECTIONS[canonical as Section]?.id ?? 'dashboard') as Section
   const def = SECTIONS[active]
   // Cluster + Namespace selection now live in the top bar (rendered by the host
   // via the shell's shared selection store). Views read the active namespace
@@ -432,8 +448,13 @@ function SectionBody({
       return <NamespacesView />
     case 'nodes':
       return <NodesView />
-    case 'workloads':
-      return <WorkloadView namespace={namespace} />
+    case 'deployments':
+    case 'statefulsets':
+    case 'daemonsets':
+    case 'replicasets':
+    case 'jobs':
+    case 'cronjobs':
+      return <WorkloadView kind={active} namespace={namespace} />
     case 'autoscaling':
       return <AutoscalingView namespace={namespace} />
     case 'quotas':
@@ -442,14 +463,27 @@ function SectionBody({
       return <ReleasesView namespace={namespace} />
     case 'pods':
       return <PodsView namespace={namespace} />
-    case 'networking':
-      return <NetworkingView namespace={namespace} />
-    case 'storage':
-      return <StorageView namespace={namespace} />
-    case 'config':
-      return <ConfigView namespace={namespace} />
-    case 'rbac':
-      return <RbacView namespace={namespace} />
+    case 'k8s-services':
+    case 'endpoints':
+    case 'ingresses':
+    case 'gateways':
+    case 'gateway-routes':
+    case 'gateway-classes':
+    case 'network-policies':
+      return <NetworkingView kind={active} namespace={namespace} />
+    case 'pvcs':
+    case 'pvs':
+    case 'storage-classes':
+      return <StorageView kind={active} namespace={namespace} />
+    case 'configmaps':
+    case 'secrets':
+      return <ConfigView kind={active} namespace={namespace} />
+    case 'service-accounts':
+    case 'roles':
+    case 'role-bindings':
+    case 'cluster-roles':
+    case 'cluster-role-bindings':
+      return <RbacView kind={active} namespace={namespace} />
     case 'events':
       return <EventsView namespace={namespace} />
     case 'crds':
@@ -472,8 +506,12 @@ function SectionBody({
       return <MetricsView />
     case 'ci':
       return <CiRunsView namespace={namespace} />
-    case 'policy':
-      return <PolicyView />
+    case 'policies':
+      return <PolicyView view="policies" />
+    case 'policy-violations':
+      return <PolicyView view="violations" />
+    case 'policy-exceptions':
+      return <PolicyView view="exceptions" />
     case 'observability':
       return <ObservabilityView />
     case 'marketplace':

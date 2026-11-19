@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
+import { DataTable, StatusBadge } from '@adhar/shell-ui'
 import type { k8s } from '@adhar/api-clients'
 import {
   useEndpoints,
@@ -12,34 +12,36 @@ import { DrawerSection, ResourceDrawer, Row } from './resource-drawer.tsx'
 import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 import { GatewayClassesTable, GatewaysTable, IngressDrawer, NetworkPolicyDrawer, RoutesTable } from './networking-gateway.tsx'
 
-type Sub = 'services' | 'endpoints' | 'ingresses' | 'gateways' | 'routes' | 'gatewayclasses' | 'networkpolicies'
+export type NetworkingPage =
+  | 'k8s-services'
+  | 'endpoints'
+  | 'ingresses'
+  | 'gateways'
+  | 'gateway-routes'
+  | 'gateway-classes'
+  | 'network-policies'
 
-const SUB_TABS: readonly TabDef<Sub>[] = [
-  { id: 'services', label: 'Services' },
-  { id: 'endpoints', label: 'Endpoints' },
-  { id: 'ingresses', label: 'Ingresses' },
-  { id: 'gateways', label: 'Gateways' },
-  { id: 'routes', label: 'Routes' },
-  { id: 'gatewayclasses', label: 'Gateway Classes' },
-  { id: 'networkpolicies', label: 'Network Policies' },
-]
-
-export function NetworkingView({ namespace }: { namespace?: string }) {
-  return (
-    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="services" ariaLabel="Networking kind">
-      {(active) => (
-        <>
-          {active === 'services' && <ServicesTable namespace={namespace} />}
-          {active === 'endpoints' && <EndpointsTable namespace={namespace} />}
-          {active === 'ingresses' && <IngressesTable namespace={namespace} />}
-          {active === 'gateways' && <GatewaysTable namespace={namespace} />}
-          {active === 'routes' && <RoutesTable namespace={namespace} />}
-          {active === 'gatewayclasses' && <GatewayClassesTable />}
-          {active === 'networkpolicies' && <NetworkPoliciesTable namespace={namespace} />}
-        </>
-      )}
-    </Tabs>
-  )
+/**
+ * One networking kind — each is its own tab of the Networking category
+ * (shell-ui k8s-sections.ts), so there is no second tab row here.
+ */
+export function NetworkingView({ kind, namespace }: { kind: NetworkingPage; namespace?: string }) {
+  switch (kind) {
+    case 'k8s-services':
+      return <ServicesTable namespace={namespace} />
+    case 'endpoints':
+      return <EndpointsTable namespace={namespace} />
+    case 'ingresses':
+      return <IngressesTable namespace={namespace} />
+    case 'gateways':
+      return <GatewaysTable namespace={namespace} />
+    case 'gateway-routes':
+      return <RoutesTable namespace={namespace} />
+    case 'gateway-classes':
+      return <GatewayClassesTable />
+    case 'network-policies':
+      return <NetworkPoliciesTable namespace={namespace} />
+  }
 }
 
 function ServicesTable({ namespace }: { namespace?: string }) {

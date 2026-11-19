@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, StatusBadge, Tabs, type TabDef } from '@adhar/shell-ui'
+import { DataTable, StatusBadge } from '@adhar/shell-ui'
 import {
   usePersistentVolumeClaims,
   usePersistentVolumes,
@@ -8,26 +8,21 @@ import {
 import { age, formatBytes, parseQuantity } from '../data/format.ts'
 import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 
-type Sub = 'pvcs' | 'pvs' | 'scs'
+export type StoragePage = 'pvcs' | 'pvs' | 'storage-classes'
 
-const SUB_TABS: readonly TabDef<Sub>[] = [
-  { id: 'pvcs', label: 'PersistentVolumeClaims' },
-  { id: 'pvs', label: 'PersistentVolumes' },
-  { id: 'scs', label: 'StorageClasses' },
-]
-
-export function StorageView({ namespace }: { namespace?: string }) {
-  return (
-    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="pvcs" ariaLabel="Storage kind">
-      {(active) => (
-        <>
-          {active === 'pvcs' && <PVCs namespace={namespace} />}
-          {active === 'pvs' && <PVs />}
-          {active === 'scs' && <SCs />}
-        </>
-      )}
-    </Tabs>
-  )
+/**
+ * One storage kind — each is its own tab of the Storage category (shell-ui
+ * k8s-sections.ts), so there is no second tab row here.
+ */
+export function StorageView({ kind, namespace }: { kind: StoragePage; namespace?: string }) {
+  switch (kind) {
+    case 'pvcs':
+      return <PVCs namespace={namespace} />
+    case 'pvs':
+      return <PVs />
+    case 'storage-classes':
+      return <SCs />
+  }
 }
 
 function PVCs({ namespace }: { namespace?: string }) {

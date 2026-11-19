@@ -310,7 +310,8 @@ async function scan(req: Request, auth: Auth): Promise<Response> {
           severity: (['critical', 'high'].includes(g.sev) ? 'high' : 'medium') as NotificationDoc['severity'],
           title: `${g.n} resource${g.n === 1 ? '' : 's'} violate policy ${policy}`,
           description: `severity ${g.sev} · from cluster PolicyReports`,
-          href: `/platform?section=policy`,
+          // Straight to the failing resources, not the policy list.
+          href: `/platform?section=policy-violations`,
           target: { type: 'policy', id: policy, label: policy },
           prompt: `Kyverno policy "${policy}" has ${g.n} failing resources. Summarise which resources fail, why, and how to fix them.`,
         })

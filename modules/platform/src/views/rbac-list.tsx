@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DataTable, Tabs, type TabDef } from '@adhar/shell-ui'
+import { DataTable } from '@adhar/shell-ui'
 import {
   useClusterRoleBindings,
   useClusterRoles,
@@ -10,30 +10,25 @@ import {
 import { age } from '../data/format.ts'
 import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 
-type Sub = 'sa' | 'roles' | 'rolebindings' | 'clusterroles' | 'clusterrolebindings'
+export type RbacPage = 'service-accounts' | 'roles' | 'role-bindings' | 'cluster-roles' | 'cluster-role-bindings'
 
-const SUB_TABS: readonly TabDef<Sub>[] = [
-  { id: 'sa', label: 'ServiceAccounts' },
-  { id: 'roles', label: 'Roles' },
-  { id: 'rolebindings', label: 'RoleBindings' },
-  { id: 'clusterroles', label: 'ClusterRoles' },
-  { id: 'clusterrolebindings', label: 'ClusterRoleBindings' },
-]
-
-export function RbacView({ namespace }: { namespace?: string }) {
-  return (
-    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="sa" ariaLabel="RBAC kind">
-      {(active) => (
-        <>
-          {active === 'sa' && <ServiceAccountsTable namespace={namespace} />}
-          {active === 'roles' && <RolesTable namespace={namespace} />}
-          {active === 'rolebindings' && <RoleBindingsTable namespace={namespace} />}
-          {active === 'clusterroles' && <ClusterRolesTable />}
-          {active === 'clusterrolebindings' && <ClusterRoleBindingsTable />}
-        </>
-      )}
-    </Tabs>
-  )
+/**
+ * One RBAC kind — each is its own tab of the Access & policy category
+ * (shell-ui k8s-sections.ts), so there is no second tab row here.
+ */
+export function RbacView({ kind, namespace }: { kind: RbacPage; namespace?: string }) {
+  switch (kind) {
+    case 'service-accounts':
+      return <ServiceAccountsTable namespace={namespace} />
+    case 'roles':
+      return <RolesTable namespace={namespace} />
+    case 'role-bindings':
+      return <RoleBindingsTable namespace={namespace} />
+    case 'cluster-roles':
+      return <ClusterRolesTable />
+    case 'cluster-role-bindings':
+      return <ClusterRoleBindingsTable />
+  }
 }
 
 function useFilter<T extends { metadata: { name: string; namespace?: string } }>(

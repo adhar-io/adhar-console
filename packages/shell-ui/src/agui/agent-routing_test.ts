@@ -20,6 +20,8 @@ Deno.test('the section overrides the phase where the two disagree', () => {
   assertEquals(agentForRoute({ path: '/deliver', section: 'scans' }), 'security')
   assertEquals(agentForRoute({ path: '/deliver', section: 'policy' }), 'security')
   assertEquals(agentForRoute({ path: '/platform', section: 'rbac' }), 'security')
+  assertEquals(agentForRoute({ path: '/platform', section: 'cluster-roles' }), 'security')
+  assertEquals(agentForRoute({ path: '/platform', section: 'policy-violations' }), 'security')
   // CI is a delivery concern even though it is rendered by the platform module.
   assertEquals(agentForRoute({ path: '/platform', section: 'ci' }), 'delivery')
   assertEquals(agentForRoute({ path: '/platform', section: 'chaos' }), 'sre')

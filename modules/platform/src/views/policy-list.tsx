@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
-import { Button, canResource, EmptyState, StatusBadge, Tabs, useAppConfig, useCan, useToast, type StatusKind, type TabDef } from '@adhar/shell-ui'
+import { Button, canResource, EmptyState, StatusBadge, useAppConfig, useCan, useToast, type StatusKind } from '@adhar/shell-ui'
 import { cn } from '@adhar/utils'
 import type { k8s } from '@adhar/api-clients'
 import { useGeneric } from '../data/hooks.ts'
@@ -35,12 +35,11 @@ const GVR = {
   exceptions: { group: 'kyverno.io', version: 'v2', resource: 'policyexceptions', namespaced: true },
 } as const satisfies Record<string, k8s.GVR>
 
-type Sub = 'policies' | 'violations' | 'exceptions'
-const SUB_TABS: readonly TabDef<Sub>[] = [
-  { id: 'policies', label: 'Policies' },
-  { id: 'violations', label: 'Violations' },
-  { id: 'exceptions', label: 'Exceptions' },
-]
+/**
+ * Which Kyverno view to show. Each is its own tab of the Access & policy
+ * category (shell-ui k8s-sections.ts); the summary tiles sit above all three.
+ */
+export type PolicyPage = 'policies' | 'violations' | 'exceptions'
 
 /* ─────────── raw shapes (Kyverno CRDs) ─────────── */
 
@@ -202,7 +201,7 @@ function flattenViolations(reports: PolicyReport[]): Violation[] {
 
 /* ─────────── page ─────────── */
 
-export function PolicyView() {
+export function PolicyView({ view }: { view: PolicyPage }) {
   const cps = useGeneric(GVR.clusterPolicies)
   const nps = useGeneric(GVR.policies)
   const crs = useGeneric(GVR.clusterReports)
@@ -293,15 +292,9 @@ export function PolicyView() {
         <SummaryTile tone="violet" label="Exceptions" value={exceptions.length} />
       </div>
 
-      <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue={violations.length ? 'violations' : 'policies'} ariaLabel="Policy view">
-        {(active) => (
-          <>
-            {active === 'policies' && <PoliciesTable policies={policies} tallies={tallies} loading={loading} reporterUrl={reporterUrl} onRefresh={() => { cps.refetch(); nps.refetch(); crs.refetch(); nrs.refetch() }} fetching={cps.isFetching} />}
-            {active === 'violations' && <ViolationsTable violations={violations} policies={policies} loading={crs.isLoading} reporterUrl={reporterUrl} onRefresh={() => { crs.refetch(); nrs.refetch() }} fetching={crs.isFetching || nrs.isFetching} />}
-            {active === 'exceptions' && <ExceptionsTable exceptions={exceptions} loading={exs.isLoading} notInstalled={is404(exs)} />}
-          </>
-        )}
-      </Tabs>
+      {view === 'policies' && <PoliciesTable policies={policies} tallies={tallies} loading={loading} reporterUrl={reporterUrl} onRefresh={() => { cps.refetch(); nps.refetch(); crs.refetch(); nrs.refetch() }} fetching={cps.isFetching} />}
+      {view === 'violations' && <ViolationsTable violations={violations} policies={policies} loading={crs.isLoading} reporterUrl={reporterUrl} onRefresh={() => { crs.refetch(); nrs.refetch() }} fetching={crs.isFetching || nrs.isFetching} />}
+      {view === 'exceptions' && <ExceptionsTable exceptions={exceptions} loading={exs.isLoading} notInstalled={is404(exs)} />}
     </div>
   )
 }

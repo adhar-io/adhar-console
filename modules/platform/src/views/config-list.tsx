@@ -5,8 +5,6 @@ import {
   DataTable,
   EmptyState,
   StatusBadge,
-  Tabs,
-  type TabDef,
   canResource,
   useCan,
   useToast,
@@ -38,24 +36,14 @@ function guessConfigLang(key: string, value: string): CodeLanguage {
   return 'plaintext'
 }
 
-type Sub = 'configmaps' | 'secrets'
+export type ConfigPage = 'configmaps' | 'secrets'
 
-const SUB_TABS: readonly TabDef<Sub>[] = [
-  { id: 'configmaps', label: 'ConfigMaps' },
-  { id: 'secrets', label: 'Secrets' },
-]
-
-export function ConfigView({ namespace }: { namespace?: string }) {
-  return (
-    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="configmaps" ariaLabel="Config & secrets">
-      {(active) => (
-        <>
-          {active === 'configmaps' && <ConfigMapsTable namespace={namespace} />}
-          {active === 'secrets' && <SecretsTable namespace={namespace} />}
-        </>
-      )}
-    </Tabs>
-  )
+/**
+ * ConfigMaps or Secrets — each is its own tab of the Config & Secrets
+ * category (shell-ui k8s-sections.ts), so there is no second tab row here.
+ */
+export function ConfigView({ kind, namespace }: { kind: ConfigPage; namespace?: string }) {
+  return kind === 'secrets' ? <SecretsTable namespace={namespace} /> : <ConfigMapsTable namespace={namespace} />
 }
 
 /* ── base64 helpers (Secrets store values base64-encoded) ───────────────── */

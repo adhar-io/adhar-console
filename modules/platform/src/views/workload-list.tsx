@@ -5,8 +5,6 @@ import {
   canResource,
   DataTable,
   StatusBadge,
-  Tabs,
-  type TabDef,
   useCan,
   useToast,
 } from '@adhar/shell-ui'
@@ -16,7 +14,6 @@ import {
   useCronJobs,
   useDaemonSets,
   useDeployments,
-  useHorizontalPodAutoscalers,
   useJobs,
   useReplicaSets,
   useStatefulSets,
@@ -26,34 +23,28 @@ import type { k8s } from '@adhar/api-clients'
 import { ListEmpty, ListShell, matchesSearch, scopeLabel } from './list-shell.tsx'
 import { WorkloadDrawer, type WorkloadKind } from './workload-drawer.tsx'
 
-type Sub = 'deployments' | 'replicasets' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs' | 'hpa'
+export type WorkloadKindPage = 'deployments' | 'replicasets' | 'statefulsets' | 'daemonsets' | 'jobs' | 'cronjobs'
 
-const SUB_TABS: readonly TabDef<Sub>[] = [
-  { id: 'deployments', label: 'Deployments' },
-  { id: 'replicasets', label: 'ReplicaSets' },
-  { id: 'statefulsets', label: 'StatefulSets' },
-  { id: 'daemonsets', label: 'DaemonSets' },
-  { id: 'jobs', label: 'Jobs' },
-  { id: 'cronjobs', label: 'CronJobs' },
-  { id: 'hpa', label: 'HPAs' },
-]
-
-export function WorkloadView({ namespace }: { namespace?: string }) {
-  return (
-    <Tabs<Sub> variant="pills" tabs={SUB_TABS} defaultValue="deployments" ariaLabel="Workload kind">
-      {(active) => (
-        <>
-          {active === 'deployments' && <DeploymentTable namespace={namespace} />}
-          {active === 'replicasets' && <ReplicaSetTable namespace={namespace} />}
-          {active === 'statefulsets' && <StatefulSetTable namespace={namespace} />}
-          {active === 'daemonsets' && <DaemonSetTable namespace={namespace} />}
-          {active === 'jobs' && <JobTable namespace={namespace} />}
-          {active === 'cronjobs' && <CronJobTable namespace={namespace} />}
-          {active === 'hpa' && <HpaTable namespace={namespace} />}
-        </>
-      )}
-    </Tabs>
-  )
+/**
+ * One workload kind — each is its own tab of the Workloads category
+ * (shell-ui k8s-sections.ts), so there is no second tab row here. HPAs live
+ * on the Autoscaling tab beside them.
+ */
+export function WorkloadView({ kind, namespace }: { kind: WorkloadKindPage; namespace?: string }) {
+  switch (kind) {
+    case 'deployments':
+      return <DeploymentTable namespace={namespace} />
+    case 'replicasets':
+      return <ReplicaSetTable namespace={namespace} />
+    case 'statefulsets':
+      return <StatefulSetTable namespace={namespace} />
+    case 'daemonsets':
+      return <DaemonSetTable namespace={namespace} />
+    case 'jobs':
+      return <JobTable namespace={namespace} />
+    case 'cronjobs':
+      return <CronJobTable namespace={namespace} />
+  }
 }
 
 function DeploymentTable({ namespace }: { namespace?: string }) {
@@ -410,110 +401,6 @@ function CronJobTable({ namespace }: { namespace?: string }) {
         rows={rows}
         rowKey={(cj) => `${cj.metadata.namespace}/${cj.metadata.name}`}
         empty={<ListEmpty what="CronJobs" search={search} onClearSearch={() => setSearch('')} hint={`Nothing is scheduled in ${scopeLabel(namespace)}.`} />}
-      />
-    </ListShell>
-  )
-}
-
-interface HpaObject {
-  metadata: { name: string; namespace?: string; creationTimestamp?: string }
-  spec?: {
-    minReplicas?: number
-    maxReplicas?: number
-    scaleTargetRef?: { kind?: string; name?: string }
-    metrics?: Array<{ type?: string; resource?: { name?: string; target?: { averageUtilization?: number } } }>
-  }
-  status?: { currentReplicas?: number; desiredReplicas?: number; conditions?: Array<{ type: string; status: string }> }
-}
-
-function HpaTable({ namespace }: { namespace?: string }) {
-  const q = useHorizontalPodAutoscalers(namespace)
-  const [search, setSearch] = useState('')
-  const all = (q.data ?? []) as unknown as HpaObject[]
-  const rows = useMemo(
-    () =>
-      all.filter(
-        (h) =>
-          matchesSearch(h.metadata.name, search) ||
-          matchesSearch(h.metadata.namespace, search) ||
-          matchesSearch(h.spec?.scaleTargetRef?.name, search),
-      ),
-    [all, search],
-  )
-  return (
-    <ListShell
-      title="Horizontal Pod Autoscalers"
-      total={all.length}
-      visible={rows.length}
-      loading={q.isLoading}
-      error={q.isError ? q.error : undefined}
-      onRefresh={() => q.refetch()}
-      search={search}
-      onSearchChange={setSearch}
-    >
-      <DataTable
-        loading={q.isLoading}
-        columns={[
-          {
-            key: 'name',
-            header: 'Name',
-            cell: (h) => (
-              <div className="min-w-[13rem]">
-                <div className="break-words font-medium text-content">{h.metadata.name}</div>
-                <div className="text-xs text-content-muted">{h.metadata.namespace}</div>
-              </div>
-            ),
-          },
-          {
-            key: 'target',
-            header: 'Target',
-            cell: (h) => (
-              <code className="font-mono text-[11px] text-content-muted">
-                {h.spec?.scaleTargetRef?.kind}/{h.spec?.scaleTargetRef?.name}
-              </code>
-            ),
-          },
-          {
-            key: 'replicas',
-            header: 'Replicas',
-            numeric: true,
-            cell: (h) =>
-              `${h.status?.currentReplicas ?? '—'}/${h.spec?.maxReplicas ?? '∞'}`,
-          },
-          {
-            key: 'min',
-            header: 'Min',
-            numeric: true,
-            cell: (h) => h.spec?.minReplicas ?? 1,
-          },
-          {
-            key: 'metrics',
-            header: 'Metrics',
-            cell: (h) => {
-              const ms = h.spec?.metrics ?? []
-              if (!ms.length) return <span className="text-content-subtle">—</span>
-              return (
-                <div className="flex flex-wrap gap-1 font-mono text-[10px]">
-                  {ms.map((m, i) => (
-                    <span
-                      key={i}
-                      className="rounded bg-surface-sunken px-1.5 py-0.5 text-content-muted"
-                    >
-                      {m.resource?.name ?? m.type}
-                      {m.resource?.target?.averageUtilization
-                        ? `@${m.resource.target.averageUtilization}%`
-                        : ''}
-                    </span>
-                  ))}
-                </div>
-              )
-            },
-          },
-          { key: 'age', header: 'Age', cell: (h) => age(h.metadata.creationTimestamp) },
-        ]}
-        rows={rows}
-        rowKey={(h) => `${h.metadata.namespace}/${h.metadata.name}`}
-        empty={<ListEmpty what="autoscalers" search={search} onClearSearch={() => setSearch('')} hint={`No HorizontalPodAutoscaler exists in ${scopeLabel(namespace)}. Create one under Autoscaling.`} />}
       />
     </ListShell>
   )

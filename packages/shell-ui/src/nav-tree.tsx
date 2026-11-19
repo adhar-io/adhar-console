@@ -414,11 +414,21 @@ export const DEFAULT_NAV: NavSection[] = [
             label: c.label,
             to: '/platform',
             search: c.pages[0].id,
-            alsoActiveFor: c.pages.slice(1).map((p) => p.id),
+            alsoActiveFor: [...c.pages.slice(1).map((p) => p.id), ...c.pages.flatMap((p) => p.aliases ?? [])],
             pages: c.pages,
             // A category is operator-only only when every page in it is.
             roles: c.pages.every((p) => p.ops) ? PLATFORM_OPS_ROLES : undefined,
           })),
+          // Full-page tools: each its own row and page, after the categories.
+          { id: 'platform.shell', label: 'Cloud Shell', to: '/platform', search: 'shell', roles: PLATFORM_OPS_ROLES },
+          {
+            id: 'platform.marketplace',
+            label: 'Marketplace',
+            to: '/platform',
+            search: 'marketplace',
+            badge: { kind: 'info', value: 'new' },
+            roles: PLATFORM_OPS_ROLES,
+          },
         ],
       },
       {

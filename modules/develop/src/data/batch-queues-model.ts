@@ -1,6 +1,6 @@
 import type { Condition, Meta } from './functions-model.ts'
 import type { BatchJobXR } from './batch-model.ts'
-import { LABEL } from './batch-model.ts'
+import { DEFAULT_WORKERS, LABEL } from './batch-model.ts'
 
 /**
  * Develop → Batch → Queues, the pure half (design 0025 §4.3, §7.2 Phase 2):
@@ -385,7 +385,6 @@ export function gangsOfJob(job: string, runs: readonly string[], pgs: readonly P
 /** The composition's defaults for a run pod (xrd/batchjob.xrd.yaml) and for the gang (§6.2). */
 const DEFAULT_CPU = '1'
 const DEFAULT_MEMORY = '1536Mi'
-const DEFAULT_WORKERS = 4
 
 /** What one run of a job asks Volcano for: one pod, or a manager and its workers that start together (§4.5). */
 export interface GangPlan {

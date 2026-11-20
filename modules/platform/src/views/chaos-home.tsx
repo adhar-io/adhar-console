@@ -29,10 +29,15 @@ export interface HomeProps {
   /** The top-bar namespace, when one is selected: everything here is scoped to it. */
   namespace?: string
   enginesLoading: boolean
+  /** The engines could not be listed — nothing below may read as "nothing running". */
+  enginesError?: Error
+  onRetryEngines(): void
   workflows: ChaosWorkflow[]
   runs: ResilienceRun[]
   reports: ChaosRunReport[]
   reportsLoading: boolean
+  reportsError?: Error | null
+  onRetryReports(): void
   reportsConfigured: boolean
   scorer?: Map<string, ScorerApp>
   canLaunch: boolean
@@ -61,6 +66,7 @@ export function ChaosHome(p: HomeProps) {
   const monthAgo = Date.now() - 30 * 86_400_000
   const recentReports = p.reports.filter((r) => Date.parse(r.finishedAt) >= monthAgo)
   const survived = recentReports.filter((r) => runVerdict(r) === 'survived').length
+  const inProgress = liveEngines.length + liveGd.length + liveRuns.length
 
   return (
     <div className="space-y-5">
@@ -68,13 +74,29 @@ export function ChaosHome(p: HomeProps) {
         <div className="flex flex-wrap items-center gap-2 border-b border-edge-default px-4 py-2.5">
           <span className="relative flex size-2.5">
             {anything ? <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" /> : null}
-            <span className={cn('relative inline-flex size-2.5 rounded-full', anything ? 'bg-rose-500' : 'bg-emerald-500')} />
+            {/* Green only once the engines have been read and nothing is running: while
+                loading, or when they could not be read, it is not known to be calm. */}
+            <span className={cn('relative inline-flex size-2.5 rounded-full', anything ? 'bg-rose-500' : p.enginesLoading || p.enginesError ? 'bg-slate-400' : 'bg-emerald-500')} />
           </span>
           <h2 className="text-[13px] font-semibold text-content">Running now</h2>
-          <span className="text-[11px] text-content-subtle">{anything ? `${liveEngines.length + liveGd.length + liveRuns.length} in progress` : 'nothing is being broken on purpose'}</span>
+          {/* Nothing is claimed until the engines have been read. */}
+          {!p.enginesLoading && !p.enginesError ? (
+            <span className="text-[11px] text-content-subtle">{anything ? `${inProgress} in progress` : 'nothing is being broken on purpose'}</span>
+          ) : null}
         </div>
         {p.enginesLoading ? (
-          <div className="space-y-2 p-4"><Skeleton height={44} /><Skeleton height={44} /></div>
+          <div className="space-y-2 p-4" aria-busy="true"><Skeleton height={44} /><Skeleton height={44} /></div>
+        ) : p.enginesError && !anything ? (
+          // An unreadable engine list must not read as "nothing is running":
+          // during an incident that is exactly the wrong reassurance.
+          <EmptyState
+            bare
+            compact
+            tone="error"
+            title="Experiments could not be read"
+            description={`Whether a fault is applied right now is unknown. ${p.enginesError.message}`}
+            action={<Button size="sm" onClick={p.onRetryEngines}>Try again</Button>}
+          />
         ) : !anything ? (
           <div className="flex flex-wrap items-center gap-3 px-4 py-4">
             <p className="min-w-0 flex-1 basis-64 text-[12px] text-content-muted">
@@ -115,7 +137,7 @@ export function ChaosHome(p: HomeProps) {
                   key={w.metadata.name}
                   kind="Game day"
                   title={w.metadata.name}
-                  sub={`${w.metadata.labels?.['adhar.io/chaos-target'] ?? ''} · ${cur?.scenario?.title ?? 'between scenarios'}`}
+                  sub={[w.metadata.labels?.['adhar.io/chaos-target'], cur?.scenario?.title ?? 'between scenarios'].filter(Boolean).join(' · ')}
                   status={<StatusBadge kind="progressing" pulse>{workflowPhase(w) === 'stopping' ? 'stopping' : 'running'}</StatusBadge>}
                   progress={steps.length ? done / steps.length : undefined}
                   meta={`${done} of ${steps.length} scenarios`}
@@ -139,18 +161,27 @@ export function ChaosHome(p: HomeProps) {
       </section>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Tile label="Injecting now" value={p.enginesLoading ? undefined : String(p.engines.filter(isLive).length)} hint="Faults applied to a target this moment" alarm={p.engines.some(isLive)} />
-        <Tile label="Experiments" value={p.enginesLoading ? undefined : String(p.engines.length)} hint={p.namespace ? `ChaosEngines targeting ${p.namespace}` : 'ChaosEngines on this cluster'} />
+        {/* An unreadable source shows a dash, never a zero that means "none". */}
+        <Tile label="Injecting now" value={p.enginesLoading ? undefined : p.enginesError ? '—' : String(p.engines.filter(isLive).length)} hint={p.enginesError ? 'Experiments could not be read' : 'Faults applied to a target this moment'} alarm={p.engines.some(isLive)} />
+        <Tile label="Experiments" value={p.enginesLoading ? undefined : p.enginesError ? '—' : String(p.engines.length)} hint={p.enginesError ? 'Experiments could not be read' : p.namespace ? `ChaosEngines targeting ${p.namespace}` : 'ChaosEngines on this cluster'} />
         <Tile
           label="Hypotheses held"
           value={p.enginesLoading ? undefined : tally.judged ? `${tally.held}/${tally.judged}` : '—'}
-          hint={tally.judged
+          hint={p.enginesLoading
+            ? 'Latest verdict per experiment and fault'
+            : p.enginesError && !tally.judged
+            ? 'Experiments could not be read'
+            : tally.judged
             ? `Latest verdict per experiment and fault${tally.errored ? ` · ${tally.errored} ended without one` : ''}`
             : tally.errored
             ? `${tally.errored} experiment${tally.errored === 1 ? '' : 's'} ended without a verdict`
             : 'No experiment has a verdict yet'}
         />
-        <Tile label="Suite runs survived · 30d" value={p.reportsLoading ? undefined : recentReports.length ? `${survived}/${recentReports.length}` : '—'} hint={recentReports.length ? 'Recorded resilience runs that survived every fault' : 'No suite run recorded in 30 days'} />
+        <Tile
+          label="Suite runs survived · 30d"
+          value={p.reportsLoading ? undefined : recentReports.length ? `${survived}/${recentReports.length}` : '—'}
+          hint={p.reportsLoading ? 'Recorded resilience runs that survived every fault' : p.reportsError ? 'Run reports could not be read' : recentReports.length ? 'Recorded resilience runs that survived every fault' : 'No suite run recorded in 30 days'}
+        />
       </div>
 
       <AppResilience {...p} />
@@ -176,7 +207,7 @@ function LiveRow({ kind, title, sub, status, progress, meta, onWatch }: { kind: 
           </div>
         ) : null}
         {meta ? <span className="shrink-0 font-mono text-[11px] tabular-nums text-content-subtle">{meta}</span> : null}
-        <Button size="sm" variant="primary" onClick={onWatch}>Watch live</Button>
+        <Button size="sm" onClick={onWatch}>Watch live</Button>
       </div>
     </li>
   )
@@ -229,14 +260,22 @@ function AppResilience(p: HomeProps) {
         {rows.length ? <Button size="sm" variant="ghost" onClick={() => p.onTab('reports')}>All run reports</Button> : null}
       </div>
       {p.reportsLoading ? (
-        <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} height={56} />)}</div>
+        <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2" aria-busy="true">{[0, 1].map((i) => <Skeleton key={i} height={104} />)}</div>
+      ) : p.reportsError ? (
+        <EmptyState
+          compact
+          tone="error"
+          title="Run reports could not be read"
+          description={p.reportsError.message}
+          action={<Button onClick={p.onRetryReports}>Try again</Button>}
+        />
       ) : !p.reportsConfigured ? (
         <EmptyState compact title="Run reports are not being kept" description="The console database is not configured, so suite runs are not recorded. Configure it and every run from then on gets a report here." />
       ) : !rows.length ? (
         <EmptyState
           title="No suite runs recorded yet"
           description="A report is recorded every time the resilience runner tests an application — hourly, on promotion, or when you run a suite from Application suites."
-          action={<Button variant="primary" onClick={() => p.onTab('suites')}>Go to application suites</Button>}
+          action={<Button onClick={() => p.onTab('suites')}>Go to application suites</Button>}
         />
       ) : (
         <ul className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
@@ -275,8 +314,8 @@ function AppResilience(p: HomeProps) {
                     </span>
                   ) : null}
                   <span className="ml-auto flex gap-1.5">
-                    {row.previous ? <Button size="xs" variant="ghost" onClick={() => p.onCompare(row.previous!.id, row.latest.id)}>Compare with previous</Button> : null}
-                    <Button size="xs" onClick={() => p.onOpenReport(row.latest.id)}>Open report</Button>
+                    {row.previous ? <Button size="xs" className="pointer-coarse:h-9" variant="ghost" onClick={() => p.onCompare(row.previous!.id, row.latest.id)}>Compare with previous</Button> : null}
+                    <Button size="xs" className="pointer-coarse:h-9" onClick={() => p.onOpenReport(row.latest.id)}>Open report</Button>
                   </span>
                 </div>
               </li>

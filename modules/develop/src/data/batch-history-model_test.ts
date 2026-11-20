@@ -896,3 +896,19 @@ Deno.test('backfill release loop: on Volcano nothing is ever sent', () => {
   const all = rows([run('d1', {}, { queued: true })])
   assertEquals(releaseStep(['d1'], all, 2, true, RELEASE_LOOP_START), [])
 })
+
+// Design 0025 Phase 4: the archive's part in a read survives parsing, and so does each event's `archived` mark.
+Deno.test('parseHistory keeps the archive and the stream state; rows keep the archived mark', () => {
+  const r = parseHistory({
+    state: 'read',
+    events: [{ id: 'a', type: 'io.adhar.batch.run.succeeded', subject: 'prod/importer', time: '2026-03-01T02:00:00Z', archived: true }],
+    archive: { state: 'read', events: 1 },
+    stream: { state: 'unavailable', reason: 'no-bus', detail: 'opt-in' },
+  })
+  assert(r.state === 'read')
+  assertEquals(r.archive, { state: 'read', events: 1 })
+  assertEquals(r.stream, { reason: 'no-bus', detail: 'opt-in' })
+  assertEquals(historyRows(r.events)[0].archived, true)
+  const plain = parseHistory({ state: 'read', events: [], archive: { state: 'whatever' } })
+  assert(plain.state === 'read' && plain.archive === undefined && plain.stream === undefined)
+})

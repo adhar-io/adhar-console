@@ -12,6 +12,7 @@ import {
   parseResults,
   parseSuite,
   RESULTS_CONFIGMAP,
+  suitesElsewhere,
   RESULTS_NAMESPACE,
   SUITE_LABEL,
   type ApplicationSuites,
@@ -89,15 +90,18 @@ export function useApplicationSuites(namespace?: string) {
   })
 
   const results = resultsQ.data?.results ?? new Map<string, AppResult>()
-  const suites = (suitesQ.data ?? []).filter((s) => !namespace || s.namespace === namespace)
+  const all = suitesQ.data ?? []
+  const suites = all.filter((s) => !namespace || s.namespace === namespace)
   const apps: ApplicationSuites[] = joinSuites(suites, results, envQ.data ?? new Map())
   return {
     apps,
     results,
+    elsewhere: suitesElsewhere(all, namespace),
     isLoading: suitesQ.isLoading,
     suitesError: suitesQ.error ? (suitesQ.error as Error) : undefined,
     resultsError: resultsQ.error ? (resultsQ.error as Error).message : resultsQ.data?.error,
     refetchResults: () => resultsQ.refetch(),
+    refetchSuites: () => void suitesQ.refetch(),
   }
 }
 

@@ -217,6 +217,7 @@ function OverviewTab({ row, job, forbiddenPods }: { row: RunRow; job?: BatchJobX
             ['Took', row.durationMs !== undefined ? <DurationText key='d' ms={row.durationMs} running={isActivePhase(row.phase)} /> : undefined],
             ['Attempts', String(row.attempts)],
             ['Kind', row.kind === 'VolcanoJob' ? 'Volcano Job' : 'Job'],
+            ['Mode', row.mode === 'chunked' ? 'Remote chunking (1 manager + workers over RabbitMQ)' : row.mode === 'partitioned' ? 'Partitioned (1 manager + workers)' : undefined],
             ['Image', row.image ? <span key='i' className='font-mono text-[12px]'>{row.image}</span> : undefined],
           ]}
         />

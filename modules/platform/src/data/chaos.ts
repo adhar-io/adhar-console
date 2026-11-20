@@ -12,8 +12,8 @@ import {
   LITMUS_GROUP,
   LITMUS_VERSION,
   RESULTS_GVR,
+  canDeleteRun,
   faultById,
-  isLive,
   podsAffected,
   type ChaosEngine,
   type ChaosFault,
@@ -173,7 +173,14 @@ export function useInstalledFaults() {
   })
   const names = query.data ?? new Set<string>()
   const installed: ChaosFault[] = CHAOS_FAULTS.filter((f) => names.has(f.id))
-  return { installed, definitions: names.size, isLoading: query.isLoading }
+  // A failed read must not read as "nothing is installed".
+  return {
+    installed,
+    definitions: names.size,
+    isLoading: query.isLoading,
+    error: query.error ? (query.error as Error) : undefined,
+    refetch: () => void query.refetch(),
+  }
 }
 
 /**
@@ -239,11 +246,11 @@ export function stopChaosEngine(namespace: string, name: string, cluster?: strin
 /**
  * Delete a run and its result.
  *
- * Offered only for runs that are not currently injecting — the view gates on
- * that, and the reason is in `stopChaosEngine` above.
+ * Offered only for runs that can no longer apply anything (`canDeleteRun`) —
+ * the view gates on that too, and the reason is in `stopChaosEngine` above.
  */
 export async function deleteChaosEngine(engine: ChaosEngine, cluster?: string): Promise<unknown> {
-  if (isLive(engine)) throw new Error('Stop the run first — deleting it now could leave the fault applied')
+  if (!canDeleteRun(engine)) throw new Error('Stop the run first — deleting it now could leave the fault applied')
   const ns = engine.metadata.namespace ?? CHAOS_NAMESPACE
   const fault = engine.spec?.experiments?.[0]?.name
   await kube.delete(ENGINES_GVR, ns, engine.metadata.name, { cluster })
@@ -451,6 +458,12 @@ export function useChaosWorkflows(namespace?: string) {
   return {
     ...query,
     data: namespace ? all.filter((w) => w.metadata.labels?.['adhar.io/chaos-target'] === namespace) : query.data,
+    /**
+     * Every game day, whatever it targets: a new name must be unique among
+     * all of them (applying a taken one would rewrite that workflow), not
+     * just among the ones the namespace filter shows.
+     */
+    all,
     /** Argo Workflows' CRD is absent: game days need the optional package. */
     notInstalled: isNotFound(query.error),
   }

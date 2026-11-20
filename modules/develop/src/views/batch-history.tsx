@@ -28,12 +28,17 @@ import { Note } from './function-bits.tsx'
  *
  * The bus is opt-in, so "there is no bus" is a state with its own words here,
  * and never an empty table: an empty history would say nothing ran.
+ *
+ * Past the stream, the run-summary archive (design 0025 Phase 4): the batch
+ * observer keeps every finished run's final event in the object store, and for
+ * an open job the BFF adds the ones the stream no longer holds — marked
+ * "archived", because they are the end of each run and nothing before it.
  */
 
 const SINCE = [{ id: '24h', label: 'Last 24 hours' }, { id: '7d', label: 'Last 7 days' }, { id: '30d', label: 'Last 30 days' }, {
   id: '90d',
   label: 'Everything kept (90 days)',
-}] as const
+}, { id: '365d', label: 'Last 12 months (archive)' }] as const
 type Since = (typeof SINCE)[number]['id']
 const LIMIT = 2_000
 
@@ -172,8 +177,18 @@ export function HistoryTable({
       header: 'Event',
       value: (r) => r.label,
       cell: (r) => (
-        <span title={r.event}>
+        <span title={r.event} className='inline-flex items-center gap-1.5'>
           <StatusBadge kind={r.tone}>{r.label}</StatusBadge>
+          {r.archived
+            ? (
+              <span
+                className='rounded border border-edge-default px-1 text-[10px] uppercase tracking-wide text-content-subtle'
+                title='From the run-summary archive: the stream no longer holds this run'
+              >
+                archived
+              </span>
+            )
+            : null}
         </span>
       ),
     },
@@ -307,6 +322,20 @@ export function HistoryTable({
             run since. <span className='font-mono'>adhar batch history</span> reads all of it.
           </Note>
         )
+        : null}
+      {read?.state === 'read' && read.stream
+        ? (
+          <Note tone='warn'>
+            The event stream could not be read ({read.stream.detail}), so this is the run-summary archive alone: how each finished run ended, and nothing
+            before it.
+          </Note>
+        )
+        : null}
+      {read?.state === 'read' && read.archive?.state === 'unreachable'
+        ? <Note tone='warn'>The run-summary archive could not be read, so runs older than the event stream are not here. {read.archive.detail}</Note>
+        : null}
+      {read?.state === 'read' && read.archive?.state === 'skipped' && (since === '90d' || since === '365d')
+        ? <Note>Runs older than the event stream are kept in the run-summary archive. Open a job to include them.</Note>
         : null}
       {read?.state === 'read' && read.degraded
         ? (

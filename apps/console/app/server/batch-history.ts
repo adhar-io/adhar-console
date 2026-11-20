@@ -2,6 +2,7 @@ import type { AccessCheck } from '@adhar/auth'
 import { apiServerFetch, type K8sIdentity, resolveIdentity } from './k8s/gateway.ts'
 import { checkAccess, MAX_BATCH } from './k8s/access.ts'
 import { getK8sServiceToken } from './tool-registry.ts'
+import { type ArchiveRead, consoleArchiveStore, readArchive } from './batch-archive.ts'
 
 /**
  * `GET /api/batch/history` — what happened to batch jobs beyond the runs the
@@ -56,6 +57,8 @@ export interface BatchEvent {
   subject: string
   time?: string
   data?: Record<string, unknown>
+  /** Set on an event read from the run-summary archive rather than the stream (batch-archive.ts). */
+  archived?: boolean
   [extension: string]: unknown
 }
 
@@ -272,6 +275,11 @@ export const historyCheck = (namespace: string): AccessCheck => ({ verb: 'list',
 export interface HistoryDeps {
   identity(req: Request): Promise<K8sIdentity | null>
   read(): Promise<StreamRead>
+  /**
+   * The run-summary archive (Phase 4) for one namespace — or one job — that the caller may see. Absent: no
+   * archive (the tests that predate it).
+   */
+  archive?(q: { namespace: string; job?: string; sinceMs?: number; limit: number }): Promise<ArchiveRead>
   /** For each namespace, in order: may this person list BatchJobs there? */
   allowed(id: K8sIdentity, namespaces: string[]): Promise<{ results: boolean[]; degraded: boolean }>
   now(): number
@@ -285,6 +293,11 @@ const defaultDeps: HistoryDeps = {
       return Promise.resolve({ state: 'unavailable', reason: 'no-identity', detail: 'The console has no ServiceAccount token to read the event bridge with.' })
     }
     return sharedRead(() => readTopic(serviceProxyBridge(token)))
+  },
+  archive: (q) => {
+    const store = consoleArchiveStore()
+    if (!store) return Promise.resolve({ state: 'absent', detail: 'This console runs outside a cluster with an object store.' })
+    return readArchive(store, q)
   },
   allowed: async (id, namespaces) => {
     const results: boolean[] = []
@@ -322,25 +335,63 @@ export async function handleBatchHistory(req: Request, deps: HistoryDeps = defau
   }
 
   const stream = await deps.read()
-  if (stream.state !== 'read') return json({ state: 'unavailable', reason: stream.reason, detail: stream.detail, events: [] }, 200, id.refreshedCookie)
-
-  const wanted = matching(stream.events, query)
-  const namespaces = [...new Set(wanted.map(namespaceOf))].sort()
+  const wanted = stream.state === 'read' ? matching(stream.events, query) : []
+  // The access review covers the namespace asked for too: the archive is read only for one the caller may see.
+  const namespaces = [...new Set([...wanted.map(namespaceOf), ...(query.namespace ? [query.namespace] : [])])].sort()
   const access = namespaces.length ? await deps.allowed(id, namespaces) : { results: [], degraded: false }
   const visible = new Set(namespaces.filter((_, i) => access.results[i] === true))
   const shown = wanted.filter((e) => visible.has(namespaceOf(e)))
+
+  // The run-summary archive: each finished run's final event, kept past the stream's retention. Read for a
+  // named namespace (the History view names a job), never for "everything" — listing every tenant's archive
+  // per request is not a read this handler makes.
+  let archive: { state: string; detail?: string; events?: number; problems?: string[] } | undefined
+  let archived: BatchEvent[] = []
+  if (deps.archive) {
+    if (!query.namespace) {
+      archive = { state: 'skipped', detail: 'Open a job to include its runs archived beyond the event stream.' }
+    } else if (!visible.has(query.namespace)) {
+      archive = { state: 'skipped', detail: 'The archive is read only for namespaces you may list BatchJobs in.' }
+    } else {
+      const read = await deps.archive({ namespace: query.namespace, job: query.job, sinceMs: query.sinceMs, limit: query.limit })
+        .catch((e): ArchiveRead => ({ state: 'unreachable', detail: e instanceof Error ? e.message : String(e) }))
+      if (read.state === 'read') {
+        archived = read.events
+        archive = { state: 'read', events: read.events.length, ...(read.problems.length ? { problems: read.problems.slice(0, 5) } : {}) }
+      } else {
+        archive = { state: read.state, detail: read.detail }
+      }
+    }
+  }
+
+  if (stream.state !== 'read' && archive?.state !== 'read') {
+    return json({ state: 'unavailable', reason: stream.reason, detail: stream.detail, events: [], ...(archive ? { archive } : {}) }, 200, id.refreshedCookie)
+  }
+
+  // An archived event the stream still holds is the same event (the observer archives what it publishes): shown
+  // once, as the stream's.
+  const onStream = new Set(shown.map((e) => e.id).filter(Boolean))
+  const extra = archived.filter((e) => !e.id || !onStream.has(e.id)).map((e) => ({ ...e, archived: true }))
+  const merged = extra.length
+    ? [...shown, ...extra].map((e, i) => ({ e, i, at: Date.parse(e.time ?? '') })).sort((a, b) =>
+      (Number.isFinite(a.at) ? a.at : -Infinity) - (Number.isFinite(b.at) ? b.at : -Infinity) || a.i - b.i
+    ).map((x) => x.e)
+    : shown
   return json(
     {
       state: 'read',
       // Oldest first, the newest `limit` of them.
-      events: shown.slice(Math.max(0, shown.length - query.limit)),
-      total: shown.length,
+      events: merged.slice(Math.max(0, merged.length - query.limit)),
+      total: merged.length,
       // The stream is larger than the console keeps, so older events exist than are here.
-      truncated: stream.truncated,
+      truncated: stream.state === 'read' && stream.truncated,
       // The read ran out of time before the stream's end, so what happened LAST is not here.
-      behind: stream.behind === true,
+      behind: stream.state === 'read' && stream.behind === true,
       // An access review could not be answered: a namespace may be missing for that reason alone.
       degraded: access.degraded,
+      ...(archive ? { archive } : {}),
+      // The stream could not be read and this is the archive alone: finished runs only.
+      ...(stream.state !== 'read' ? { stream: { state: 'unavailable', reason: stream.reason, detail: stream.detail } } : {}),
     },
     200,
     id.refreshedCookie,

@@ -107,9 +107,13 @@ export interface BatchJobParameters {
   job?: string
   image?: string
   imagePullSecrets?: string[]
-  mode?: 'single' | 'partitioned' | 'chunked'
+  mode?: BatchMode
   workers?: number
   gridSize?: number
+  /** Mode chunked (Phase 4, D11): the two RabbitMQ Queue XRs of the job's namespace that carry the chunks. */
+  chunking?: { requestQueue?: string; replyQueue?: string }
+  /** OpenLineage, opt-in (D11): the platform's OpenMetadata unless `url` names another receiver. */
+  lineage?: { enabled?: boolean; url?: string; endpoint?: string; credentialsSecretRef?: { name?: string; key?: string } }
   scheduler?: 'auto' | 'volcano' | 'kubernetes'
   schedule?: {
     cron?: string
@@ -615,6 +619,8 @@ export interface RunRow {
   namespace: string
   name: string
   kind: RunKind
+  /** Single, or which distribution a manager-and-workers run is (D11): its kind cannot say. */
+  mode: BatchMode
   batchJob?: string
   application?: string
   environment?: string
@@ -696,6 +702,7 @@ export function runRow(run: RunObject, allPods: readonly RunPod[], now = Date.no
     namespace: m.namespace ?? '',
     name: m.name,
     kind: runKindOf(run),
+    mode: runModeOf(run),
     batchJob: labels[LABEL.batchJob],
     application: labels[LABEL.application],
     environment: labels[LABEL.environment],
@@ -861,6 +868,54 @@ export function actionGates(action: BatchAction, target: { namespace: string; na
     case 'logs':
       return [{ gvr: PODS_GVR, verb: 'get', namespace, subresource: 'log' }]
   }
+}
+
+/* ─────────────────────────── mode: how a job's work is spread (§4.5, §5.10, §5.11, D11) ─────────────────────────── */
+
+export type BatchMode = 'single' | 'partitioned' | 'chunked'
+
+/** A partitioned or chunked run's workers when the definition names none: the XRD's default (D25). */
+export const DEFAULT_WORKERS = 2
+
+/** The env the BatchJob composition puts on every pod of a chunked run (D11). */
+export const DISTRIBUTION_ENV = 'ADHAR_BATCH_DISTRIBUTION'
+
+/** The definition's mode; the XRD's default is single. */
+export function modeOfJob(job: BatchJobXR): BatchMode {
+  return job.spec?.parameters?.mode ?? 'single'
+}
+
+/**
+ * A run's mode, read from the run object. Partitioned and chunked runs are the SAME
+ * kind of object (an Indexed Job natively, a Volcano gang on Volcano), so only the
+ * distribution the composition writes on their pods tells them apart.
+ */
+export function runModeOf(run: { spec?: RunObject['spec']; apiVersion?: string }): BatchMode {
+  if (envOf(run, DISTRIBUTION_ENV) === 'chunked') return 'chunked'
+  if (runKindOf(run) === 'VolcanoJob' || run.spec?.completionMode === 'Indexed') return 'partitioned'
+  return 'single'
+}
+
+/** The drawer's Mode line: the mode and what it means for this job. */
+export function modeLabel(job: BatchJobXR): string {
+  const p = job.spec?.parameters ?? {}
+  const workers = p.workers ?? DEFAULT_WORKERS
+  switch (modeOfJob(job)) {
+    case 'partitioned':
+      return `Partitioned: 1 manager + ${workers} workers, ${p.gridSize ?? 4 * workers} partitions over the job repository's database`
+    case 'chunked':
+      return `Remote chunking: 1 manager + ${workers} workers over RabbitMQ (chunks on Queue ${p.chunking?.requestQueue ?? '—'}, replies on Queue ${p.chunking?.replyQueue ?? '—'})`
+    default:
+      return 'Single: one pod'
+  }
+}
+
+/** The drawer's Lineage line (D11); undefined while lineage is off. */
+export function lineageLabel(job: BatchJobXR): string | undefined {
+  const l = job.spec?.parameters?.lineage
+  if (!l?.enabled) return undefined
+  const to = l.url ? l.url : "the platform's OpenMetadata"
+  return l.credentialsSecretRef?.name ? `OpenLineage to ${to}, token from Secret ${l.credentialsSecretRef.name}` : `OpenLineage to ${to}`
 }
 
 /** Which kind of run a job creates, before its template has been read: the template's `kind` decides afterwards. */

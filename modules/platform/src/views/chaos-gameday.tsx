@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { type ReactNode, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -18,6 +18,7 @@ import {
 } from '@adhar/shell-ui'
 import { cn, formatRelative, podRegexFromPods } from '@adhar/utils'
 import {
+  applicationOf,
   buildGameDay,
   CATEGORY_BLURB,
   CATEGORY_LABEL,
@@ -29,7 +30,7 @@ import {
   scenarioById,
   totalSeconds,
 } from '../data/chaos-scenarios.ts'
-import { CHAOS_NAMESPACE, isLive, modeLabel, resultNameFor, type TargetMode } from '../data/chaos-kinds.ts'
+import { CHAOS_NAMESPACE, faultById, isLive, modeLabel, resultNameFor, type TargetMode } from '../data/chaos-kinds.ts'
 import {
   type ChaosWorkflow,
   createGameDay,
@@ -45,7 +46,7 @@ import {
 } from '../data/chaos.ts'
 import { gameDayInputFrom, gameDayRun, type GameDayPhase, orderSteps, rerunName, workflowPhase } from '../data/chaos-live.ts'
 import { useProbeTimeline, useTargetPods } from '../data/chaos-live-hooks.ts'
-import { isProtectedNamespace, launchAllowed, MAX_GAMEDAY_SECONDS, reviewLaunch } from '../data/chaos-safety.ts'
+import { fieldErrors, isProtectedNamespace, launchAllowed, MAX_GAMEDAY_SECONDS, reviewLaunch } from '../data/chaos-safety.ts'
 import { ChaosDrawer, LiveMetricsPanel, Panel, ProbePanel, runBadge, RunHero, StepList, TargetPodsPanel, useNow } from './chaos-run-canvas.tsx'
 import { BLAST_TONE, GuardRow } from './chaos-launch.tsx'
 
@@ -87,9 +88,9 @@ export function ChaosGameDays({ namespace, onNew, onOpen }: { namespace?: string
         </div>
       </div>
       {workflows.error ? (
-        <EmptyState compact title="Game days could not be read" description={(workflows.error as Error).message} action={<Button onClick={() => void workflows.refetch()}>Try again</Button>} />
+        <EmptyState tone="error" title="Game days could not be read" description={(workflows.error as Error).message} action={<Button onClick={() => void workflows.refetch()}>Try again</Button>} />
       ) : workflows.isLoading ? (
-        <div className="space-y-2">{[0, 1, 2].map((i) => <Skeleton key={i} height={58} />)}</div>
+        <div className="space-y-px overflow-hidden rounded-xl border border-edge-default" aria-busy="true">{[0, 1, 2].map((i) => <Skeleton key={i} height={58} className="rounded-none" />)}</div>
       ) : list.length === 0 ? (
         <EmptyState
           title="No game days yet"
@@ -168,15 +169,20 @@ function GameDayRow({ wf, onOpen }: { wf: ChaosWorkflow; onOpen(o: { namespace: 
 
 const MODES: TargetMode[] = ['one', 'percent', 'all']
 
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+
 export function GameDayBuilder({
   initialScenarios,
   taken = [],
+  installedFaults,
   onClose,
   onCreated,
 }: {
   initialScenarios?: string[]
-  /** Workflow names that exist already. */
+  /** Workflow names that exist already — every game day's, not just the ones the namespace filter shows. */
   taken?: string[]
+  /** The faults with a definition on this cluster; undefined while that is unknown. */
+  installedFaults?: Set<string>
   onClose(): void
   onCreated(o: { namespace: string; name: string }): void
 }) {
@@ -187,24 +193,38 @@ export function GameDayBuilder({
   useOverlayDismiss(true, onClose, { focusRef: panelRef })
   const namespaces = useTargetNamespaces()
   const [name, setName] = useState('')
+  const [nameTouched, setNameTouched] = useState(false)
   const [namespace, setNamespace] = useState('')
   const [selector, setSelector] = useState('')
   const [mode, setMode] = useState<TargetMode>('one')
   const [value, setValue] = useState('50')
   const [picked, setPicked] = useState<string[]>(initialScenarios?.length ? initialScenarios : ['pod-delete-one'])
   const [strategy, setStrategy] = useState<'serial' | 'parallel'>('serial')
-  const [recovery, setRecovery] = useState(30)
+  // Kept as typed, so clearing the field to retype does not snap it to 0.
+  const [recoveryText, setRecoveryText] = useState('30')
   const [probeUrl, setProbeUrl] = useState('')
   const [confirm, setConfirm] = useState('')
   const [busy, setBusy] = useState(false)
 
   const chosen = picked.map(scenarioById).filter((s): s is Scenario => Boolean(s))
+  const errors = fieldErrors({ mode, percent: value, label: selector, probeUrl, recovery: strategy === 'serial' ? recoveryText : undefined })
+  const recovery = errors.recovery ? 0 : Math.max(0, Number(recoveryText) || 0)
   const duration = totalSeconds(chosen, { strategy, recoverySeconds: recovery })
   const highBlast = chosen.filter((s) => s.blast === 'high')
   const nsLabels = namespaces.data?.find((n) => n.name === namespace)?.labels
+  // A name is suggested from the target, as the experiment launcher does, so
+  // the form does not open on a "Blocked" rail for a field nobody has reached.
+  const suggested = useMemo(() => {
+    const base = slug(`${applicationOf(selector) ?? (namespace || 'chaos')}-gameday`).slice(0, 50)
+    return taken.includes(base) ? rerunName(base, taken) : base
+  }, [selector, namespace, taken])
+  const runName = (nameTouched ? name : suggested).trim()
+  // A scenario whose fault has no definition on this cluster would fail its
+  // step the moment the workflow reached it.
+  const missing = installedFaults ? chosen.filter((s) => !installedFaults.has(s.fault)) : []
   const guards = useMemo(() => {
     const g = reviewLaunch({
-      name: name.trim(),
+      name: runName,
       namespace: namespace || undefined,
       namespaceLabels: nsLabels,
       label: selector,
@@ -216,9 +236,14 @@ export function GameDayBuilder({
       hasProbe: !!probeUrl.trim(),
       taken,
     })
-    return chosen.length ? g : [{ level: 'block' as const, message: 'Pick at least one scenario.' }, ...g]
-  }, [name, namespace, nsLabels, selector, mode, value, highBlast.length, chosen, duration, probeUrl, taken])
-  const allowed = launchAllowed(guards, confirm, name.trim())
+    const pre = [
+      ...(chosen.length ? [] : [{ level: 'block' as const, message: 'Pick at least one scenario.' }]),
+      ...missing.map((s) => ({ level: 'block' as const, message: `${s.title} needs the ${faultById(s.fault)?.label ?? s.fault} fault (${s.fault}), which is not installed on this cluster.` })),
+    ]
+    return [...pre, ...g]
+  }, [runName, namespace, nsLabels, selector, mode, value, highBlast.length, chosen, duration, probeUrl, taken, missing])
+  const formValid = Object.keys(errors).length === 0
+  const allowed = formValid && launchAllowed(guards, confirm, runName)
   const needsConfirm = guards.some((g) => g.level === 'confirm') && !guards.some((g) => g.level === 'block')
 
   const byCategory = useMemo(() => {
@@ -238,7 +263,7 @@ export function GameDayBuilder({
     try {
       const target: ChaosTarget = { namespace, label: selector.trim(), mode, percent: mode === 'percent' ? value : undefined }
       const manifest = buildGameDay({
-        name: name.trim(),
+        name: runName,
         target,
         scenarios: picked,
         strategy,
@@ -249,7 +274,6 @@ export function GameDayBuilder({
       toast.success(`${created.metadata.name} started`)
       void qc.invalidateQueries({ queryKey: ['chaos'] })
       onCreated({ namespace: created.metadata.namespace ?? CHAOS_NAMESPACE, name: created.metadata.name })
-      onClose()
     } catch (e) {
       toast.error((e as Error).message)
     } finally {
@@ -261,9 +285,14 @@ export function GameDayBuilder({
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true" aria-label="New game day">
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
       <div ref={panelRef} className="relative flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-edge-default bg-surface-raised shadow-2xl">
-        <div className="border-b border-edge-default px-5 py-3">
-          <div className="text-sm font-semibold text-content">New game day</div>
-          <div className="text-[11px] text-content-subtle">Litmus runs these as one Argo workflow (an optional package). Everything is bounded and reversible.</div>
+        <div className="flex items-start gap-3 border-b border-edge-default px-4 py-3 sm:px-5">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-content">New game day</div>
+            <div className="text-[11px] text-content-subtle">Litmus runs these as one Argo workflow (an optional package). Everything is bounded and reversible.</div>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 shrink-0 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">
+            ✕
+          </button>
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 sm:p-5 lg:grid-cols-[1fr_340px]">
@@ -275,15 +304,19 @@ export function GameDayBuilder({
                   <div className="text-[11px] text-content-muted">{CATEGORY_BLURB[category]}</div>
                 </div>
                 <div className="mt-1.5 space-y-1.5">
-                  {list.map((s) => <ScenarioCard key={s.id} scenario={s} order={picked.indexOf(s.id)} onToggle={() => toggle(s.id)} />)}
+                  {list.map((s) => <ScenarioCard key={s.id} scenario={s} order={picked.indexOf(s.id)} missing={installedFaults ? !installedFaults.has(s.fault) : false} onToggle={() => toggle(s.id)} />)}
                 </div>
               </div>
             ))}
           </div>
 
           <div className="space-y-3 lg:sticky lg:top-0 lg:self-start">
-            <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="friday-gameday" /></Field>
-            <Field label="Target namespace" hint="Where the pods being broken live. Platform namespaces are not offered.">
+            <Field label="Name">
+              <Input value={nameTouched ? name : suggested} onChange={(e) => { setNameTouched(true); setName(e.target.value) }} placeholder="friday-gameday" />
+            </Field>
+            {/* Hints sit under the field here: beside the label, the 340px
+                column squeezed the labels onto three lines. */}
+            <Field label="Target namespace">
               <Select
                 value={namespace}
                 onChange={(e) => setNamespace(e.target.value)}
@@ -292,46 +325,52 @@ export function GameDayBuilder({
                   ...(namespaces.data ?? []).filter((n) => !isProtectedNamespace(n.name)).map((n) => ({ value: n.name, label: n.name })),
                 ]}
               />
+              <Hint>Where the pods being broken live. Platform namespaces are not offered.</Hint>
             </Field>
-            <Field label="App label" hint="One label, e.g. app=checkout. Empty targets every pod in the namespace.">
-              <Input value={selector} onChange={(e) => setSelector(e.target.value)} placeholder="app=checkout" />
+            <Field label="App label" error={errors.label}>
+              <Input value={selector} onChange={(e) => setSelector(e.target.value)} placeholder="app=checkout" aria-invalid={!!errors.label || undefined} />
+              {errors.label ? null : <Hint>One label, e.g. app=checkout. Empty targets every pod in the namespace.</Hint>}
             </Field>
             <div className="grid grid-cols-2 gap-2">
               <Field label="Mode">
                 <Select value={mode} onChange={(e) => setMode(e.target.value as TargetMode)} options={MODES.map((m) => ({ value: m, label: modeLabel(m, value) }))} />
               </Field>
-              {mode === 'percent' ? <Field label="Percent"><Input value={value} onChange={(e) => setValue(e.target.value)} /></Field> : <div />}
+              {mode === 'percent' ? <Field label="Percent" error={errors.percent}><Input type="number" min={1} max={100} value={value} onChange={(e) => setValue(e.target.value)} aria-invalid={!!errors.percent || undefined} /></Field> : <div />}
             </div>
-            <Field label="Order" hint="Serial isolates cause; parallel is a worst-case storm.">
+            <Field label="Order">
               <Select
                 value={strategy}
                 onChange={(e) => setStrategy(e.target.value as 'serial' | 'parallel')}
                 options={[{ value: 'serial', label: 'One at a time, with recovery' }, { value: 'parallel', label: 'All at once' }]}
               />
+              <Hint>Serial isolates cause; parallel is a worst-case storm.</Hint>
             </Field>
             {strategy === 'serial' ? (
-              <Field label="Recovery between scenarios" hint="Seconds of quiet, so recovery is observable.">
-                <Input type="number" min={0} value={String(recovery)} onChange={(e) => setRecovery(Math.max(0, Number(e.target.value) || 0))} />
+              <Field label="Recovery between scenarios" error={errors.recovery}>
+                <Input type="number" min={0} step={1} value={recoveryText} onChange={(e) => setRecoveryText(e.target.value)} aria-invalid={!!errors.recovery || undefined} />
+                {errors.recovery ? null : <Hint>Seconds of quiet, so recovery is observable.</Hint>}
               </Field>
             ) : null}
-            <Field label="Steady-state probe" hint="Polled every 5s throughout each fault. One failed poll fails that scenario and stops the run.">
-              <Input value={probeUrl} onChange={(e) => setProbeUrl(e.target.value)} placeholder="http://checkout.payments.svc.cluster.local/health" />
+            <Field label="Steady-state probe" error={errors.probeUrl}>
+              <Input value={probeUrl} onChange={(e) => setProbeUrl(e.target.value)} placeholder="http://checkout.payments.svc.cluster.local/health" aria-invalid={!!errors.probeUrl || undefined} />
+              {errors.probeUrl ? null : <Hint>Polled every 5s throughout each fault. One failed poll fails that scenario and stops the run.</Hint>}
             </Field>
 
             <div className="rounded-lg border border-edge-default bg-surface-sunken p-3 text-[12px]">
-              <div className="font-medium text-content">{picked.length} scenario{picked.length === 1 ? '' : 's'} · about {formatSeconds(duration)}</div>
+              <div className="font-medium text-content">{chosen.length} scenario{chosen.length === 1 ? '' : 's'} · about {formatSeconds(duration)}</div>
               {chosen.length ? <div className="mt-1 text-[11px] text-content-muted">{chosen.map((s, i) => `${i + 1}. ${s.title}`).join(' → ')}</div> : null}
             </div>
             {guards.length ? <ul className="space-y-1.5">{guards.map((g, i) => <GuardRow key={i} g={g} />)}</ul> : null}
             {needsConfirm ? (
-              <Field label="Confirm" hint={`Type ${name.trim() || 'the name'} to confirm.`}>
-                <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={name.trim()} />
+              <Field label="Confirm">
+                <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={runName} aria-label="Type the game day name to confirm" />
+                <Hint>Type {runName || 'the name'} to confirm.</Hint>
               </Field>
             ) : null}
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-edge-default px-5 py-3">
+        <div className="flex justify-end gap-2 border-t border-edge-default px-4 py-3 sm:px-5">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button variant="danger" disabled={!allowed || busy} onClick={() => void launch()}>{busy ? 'Starting…' : 'Start game day'}</Button>
         </div>
@@ -341,7 +380,11 @@ export function GameDayBuilder({
   )
 }
 
-function ScenarioCard({ scenario, order, onToggle }: { scenario: Scenario; order: number; onToggle(): void }) {
+function Hint({ children }: { children: ReactNode }) {
+  return <p className="text-[11px] leading-snug text-content-subtle">{children}</p>
+}
+
+function ScenarioCard({ scenario, order, missing, onToggle }: { scenario: Scenario; order: number; missing: boolean; onToggle(): void }) {
   const on = order >= 0
   return (
     <button
@@ -359,6 +402,7 @@ function ScenarioCard({ scenario, order, onToggle }: { scenario: Scenario; order
       {/* The hypothesis is the experiment. Without it this is just breakage. */}
       <div className="mt-1 pl-6 text-[11px] text-content-muted"><span className="font-medium text-content-subtle">Expect:</span> {scenario.hypothesis}</div>
       <div className="pl-6 text-[11px] text-content-subtle">{scenario.rationale}</div>
+      {missing ? <div className="pl-6 text-[11px] text-amber-700 dark:text-amber-400">Its fault ({scenario.fault}) is not installed on this cluster.</div> : null}
     </button>
   )
 }
@@ -417,7 +461,7 @@ export function GameDayDrawer({ namespace, name, taken = [], notInstalled, onClo
     <>
       {canStop && (phase === 'running' || phase === 'pending') ? (
         <Button size="sm" variant="danger" disabled={busy !== null} title="Stop after the current step; the revert step still runs and removes every engine" onClick={() => void act('stop', () => stopGameDay(namespace, name, cluster), 'Stopping — the revert step will recover every fault')}>
-          Stop
+          {busy === 'stop' ? 'Stopping…' : 'Stop'}
         </Button>
       ) : null}
       {canCreate && input ? (
@@ -433,7 +477,7 @@ export function GameDayDrawer({ namespace, name, taken = [], notInstalled, onClo
             }, `${next} started`)
           }}
         >
-          Re-run
+          {busy === 'rerun' ? 'Starting…' : 'Re-run'}
         </Button>
       ) : null}
       {canDelete ? (
@@ -445,9 +489,9 @@ export function GameDayDrawer({ namespace, name, taken = [], notInstalled, onClo
           onClick={() => void act('delete', async () => {
             await deleteGameDay(namespace, name, cluster)
             onClose()
-          }, 'Game day deleted')}
+          }, `${name} deleted`)}
         >
-          Delete
+          {busy === 'delete' ? 'Deleting…' : 'Delete'}
         </Button>
       ) : null}
     </>
@@ -458,11 +502,11 @@ export function GameDayDrawer({ namespace, name, taken = [], notInstalled, onClo
       {notInstalled ? (
         <div className="p-5"><EmptyState title="Game days need Argo Workflows" description="A game day runs as an Argo Workflow, and Argo Workflows is not installed on this cluster, so this link cannot open one. Enable the argo-workflows package to build and run game days." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
       ) : wfq.isLoading ? (
-        <div className="space-y-3 p-5"><Skeleton height={120} /><Skeleton height={200} /></div>
+        <div className="space-y-4 p-4 sm:p-5" aria-busy="true"><Skeleton height={150} /><Skeleton height={260} /></div>
       ) : wfq.gone ? (
         <div className="p-5"><EmptyState title="This game day no longer exists" description="Its workflow was deleted. The engines it created were removed by its revert step." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
       ) : wfq.error ? (
-        <div className="p-5"><EmptyState title="The game day could not be read" description={(wfq.error as Error).message} action={<Button onClick={() => void wfq.refetch()}>Try again</Button>} /></div>
+        <div className="p-5"><EmptyState tone="error" title="The game day could not be read" description={(wfq.error as Error).message} action={<Button onClick={() => void wfq.refetch()}>Try again</Button>} /></div>
       ) : wf && run ? (
         <div className="space-y-4 p-4 sm:p-5">
           <RunHero run={run} now={now} target={pods.data ? { ready: pods.data.ready, total: pods.data.total } : undefined} />

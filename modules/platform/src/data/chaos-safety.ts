@@ -102,6 +102,63 @@ export function reviewLaunch(r: LaunchReview): Guard[] {
   return out.sort((a, b) => rank[a.level] - rank[b.level])
 }
 
+/** `app=checkout` or a bare key — the one-label selector Litmus takes. */
+export const LABEL_SELECTOR = /^[A-Za-z0-9]([A-Za-z0-9._/-]*[A-Za-z0-9])?(=[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)?$/
+
+export interface FormFields {
+  /** TOTAL_CHAOS_DURATION as typed; omitted where the form has no duration (a game day). */
+  seconds?: string
+  maxSeconds?: number
+  mode?: 'one' | 'percent' | 'all'
+  percent?: string
+  label?: string
+  probeUrl?: string
+  probeCode?: string
+  /** A game day's pause between scenarios. */
+  recovery?: string
+}
+
+export type FieldErrors = Partial<Record<'seconds' | 'percent' | 'label' | 'probeUrl' | 'probeCode' | 'recovery', string>>
+
+/**
+ * What is wrong with each field, said under the field as it is typed — so the
+ * form can hold Next until it is fixed instead of the review step being the
+ * first place a typo shows up. The rails in `reviewLaunch` still decide
+ * whether a launch is allowed; this only moves the message to where the
+ * mistake is.
+ */
+export function fieldErrors(f: FormFields): FieldErrors {
+  const out: FieldErrors = {}
+  if (f.seconds !== undefined) {
+    const n = Number(f.seconds)
+    const cap = f.maxSeconds ?? MAX_FAULT_SECONDS
+    if (f.seconds.trim() === '' || !Number.isFinite(n) || n <= 0) out.seconds = 'A positive number of seconds.'
+    else if (n > cap) out.seconds = `At most ${cap}s.`
+  }
+  if (f.mode === 'percent') {
+    const n = Number(f.percent)
+    if (!f.percent?.trim() || !Number.isFinite(n) || n <= 0 || n > 100) out.percent = 'Between 1 and 100.'
+  }
+  if (f.label?.trim() && !LABEL_SELECTOR.test(f.label.trim())) out.label = 'One label as key=value, e.g. app=checkout.'
+  if (f.probeUrl?.trim()) {
+    let ok = false
+    try {
+      const u = new URL(f.probeUrl.trim())
+      ok = u.protocol === 'http:' || u.protocol === 'https:'
+    } catch { /* not a URL */ }
+    if (!ok) out.probeUrl = 'An http:// or https:// URL the probe can reach.'
+    if (f.probeCode !== undefined) {
+      const c = Number(f.probeCode)
+      if (!/^\d{3}$/.test(f.probeCode.trim()) || c < 100 || c > 599) out.probeCode = 'A status code, 100–599.'
+    }
+  }
+  if (f.recovery !== undefined) {
+    const n = Number(f.recovery)
+    if (f.recovery.trim() === '' || !Number.isInteger(n) || n < 0) out.recovery = 'Whole seconds, 0 or more.'
+  }
+  return out
+}
+
 /** Launch is possible when nothing blocks and, if anything needs it, the name was typed back. */
 export function launchAllowed(guards: Guard[], typed: string, name: string): boolean {
   if (guards.some((g) => g.level === 'block')) return false

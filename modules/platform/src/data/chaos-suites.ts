@@ -549,3 +549,21 @@ export function formatMs(ms: number | undefined): string {
   if (ms === undefined) return '—'
   return ms >= 1000 ? `${Number((ms / 1000).toFixed(2))} s` : `${Number(ms.toFixed(1))} ms`
 }
+
+/**
+ * Where the suites a namespace filter hides are: namespace → how many, most first.
+ *
+ * Application suites live in the namespaces their services run in (an
+ * environment's: dev, test, prod), and the console's namespace selector is
+ * often left on a platform namespace such as adhar-system, which never holds
+ * one. Without this the page says "No application suites in adhar-system" while
+ * six of them sit one switch away (2026-11-20).
+ */
+export function suitesElsewhere(suites: SuiteDefinition[], namespace?: string): Array<{ namespace: string; count: number }> {
+  if (!namespace) return []
+  const counts = new Map<string, number>()
+  for (const s of suites) {
+    if (s.namespace && s.namespace !== namespace) counts.set(s.namespace, (counts.get(s.namespace) ?? 0) + 1)
+  }
+  return [...counts].map(([ns, count]) => ({ namespace: ns, count })).sort((a, b) => b.count - a.count || a.namespace.localeCompare(b.namespace))
+}

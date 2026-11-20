@@ -28,8 +28,13 @@ const SIMULATES: Partial<Record<FaultFamily, string>> = {
   node: 'Upgrades, drains and lost machines',
 }
 
-export function ChaosLibrary({ installed, canLaunch, canGameDay, gameDaysMissing, onRunFault, onGameDay }: {
+export function ChaosLibrary({ installed, faultsLoading, faultsError, onRetryFaults, canLaunch, canGameDay, gameDaysMissing, onRunFault, onGameDay }: {
   installed: ChaosFault[]
+  /** The cluster's fault definitions are still being read: say nothing about what is installed yet. */
+  faultsLoading?: boolean
+  /** They could not be read: every fault would otherwise read as "Not installed here". */
+  faultsError?: Error
+  onRetryFaults?(): void
   canLaunch: boolean
   canGameDay: boolean
   /** Argo Workflows is not installed, so no scenario can be run as a game day here. */
@@ -47,14 +52,15 @@ export function ChaosLibrary({ installed, canLaunch, canGameDay, gameDaysMissing
   const scenarios = SCENARIOS.filter((s) => (blast === 'all' || s.blast === blast) && (!needle || `${s.id} ${s.title} ${s.hypothesis} ${s.rationale} ${s.fault}`.toLowerCase().includes(needle)))
   const categories = [...new Set(scenarios.map((s) => s.category))] as ScenarioCategory[]
 
-  const chip = (on: boolean) => cn('rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors', on ? 'bg-brand-600 text-white' : 'bg-surface-sunken text-content-muted hover:text-content')
+  const known = !faultsLoading && !faultsError
+  const chip = (on: boolean) => cn('min-h-8 rounded-full px-3 text-[11px] font-medium transition-colors sm:min-h-7', on ? 'bg-brand-600 text-white' : 'bg-surface-sunken text-content-muted hover:text-content')
 
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-lg bg-surface-sunken p-0.5" role="tablist" aria-label="Library">
           {(['faults', 'scenarios'] as const).map((v) => (
-            <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)} className={cn('rounded-md px-3 py-1 text-[12px] font-medium', view === v ? 'bg-surface-raised text-content shadow-xs' : 'text-content-muted hover:text-content')}>
+            <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)} className={cn('min-h-8 rounded-md px-3 text-[12px] font-medium', view === v ? 'bg-surface-raised text-content shadow-xs' : 'text-content-muted hover:text-content')}>
               {v === 'faults' ? `Faults (${CHAOS_FAULTS.length})` : `Game-day scenarios (${SCENARIOS.length})`}
             </button>
           ))}
@@ -65,15 +71,22 @@ export function ChaosLibrary({ installed, canLaunch, canGameDay, gameDaysMissing
         {view === 'faults' ? (
           <>
             {(['all', ...Object.keys(FAMILY_LABEL)] as Array<FaultFamily | 'all'>).map((f) => (
-              <button key={f} type="button" className={chip(family === f)} onClick={() => setFamily(f)}>{f === 'all' ? 'Every family' : FAMILY_LABEL[f]}</button>
+              <button key={f} type="button" aria-pressed={family === f} className={chip(family === f)} onClick={() => setFamily(f)}>{f === 'all' ? 'Every family' : FAMILY_LABEL[f]}</button>
             ))}
             <span className="mx-1 w-px self-stretch bg-edge-default" />
           </>
         ) : null}
         {(['all', 'low', 'medium', 'high'] as const).map((b) => (
-          <button key={b} type="button" className={chip(blast === b)} onClick={() => setBlast(b)}>{b === 'all' ? 'Any blast radius' : `${b} blast`}</button>
+          <button key={b} type="button" aria-pressed={blast === b} className={chip(blast === b)} onClick={() => setBlast(b)}>{b === 'all' ? 'Any blast radius' : `${b} blast`}</button>
         ))}
       </div>
+
+      {faultsError ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          <span className="min-w-0 flex-1">The fault definitions on this cluster could not be read ({faultsError.message}), so which faults can run here is unknown.</span>
+          {onRetryFaults ? <Button size="sm" onClick={onRetryFaults}>Try again</Button> : null}
+        </div>
+      ) : null}
 
       {view === 'faults' ? (
         faults.length ? (
@@ -81,7 +94,7 @@ export function ChaosLibrary({ installed, canLaunch, canGameDay, gameDaysMissing
             {faults.map((f) => {
               const present = ids.has(f.id)
               return (
-                <article key={f.id} className={cn('flex flex-col rounded-xl border border-edge-default bg-surface-raised p-3.5', !present && 'opacity-70')}>
+                <article key={f.id} className={cn('flex flex-col rounded-xl border border-edge-default bg-surface-raised p-3.5', known && !present && 'opacity-70')}>
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <h3 className="text-[13px] font-semibold text-content">{f.label}</h3>
@@ -96,7 +109,9 @@ export function ChaosLibrary({ installed, canLaunch, canGameDay, gameDaysMissing
                     <div className="flex gap-2"><dt className="w-20 shrink-0 text-content-subtle">Knobs</dt><dd className="m-0 text-content-muted">{f.knobs.map((k) => `${k.label} ${k.value || '—'}`).join(' · ')}</dd></div>
                   </dl>
                   <div className="mt-auto flex items-center justify-between pt-3">
-                    <span className={cn('text-[11px]', present ? 'text-emerald-700 dark:text-emerald-400' : 'text-content-subtle')}>{present ? 'Installed on this cluster' : 'Not installed here'}</span>
+                    <span className={cn('text-[11px]', present ? 'text-emerald-700 dark:text-emerald-400' : 'text-content-subtle')}>
+                      {faultsLoading ? 'Checking this cluster…' : faultsError ? 'Unknown on this cluster' : present ? 'Installed on this cluster' : 'Not installed here'}
+                    </span>
                     {canLaunch && present ? <Button size="sm" onClick={() => onRunFault(f.id)}>Run</Button> : null}
                   </div>
                 </article>
@@ -124,7 +139,7 @@ export function ChaosLibrary({ installed, canLaunch, canGameDay, gameDaysMissing
                       <h4 className="min-w-0 flex-1 text-[13px] font-semibold text-content">{s.title}</h4>
                       <Badge tone={BLAST_TONE[s.blast]}>{s.blast}</Badge>
                     </div>
-                    <div className="mt-0.5 text-[10.5px] text-content-subtle"><span className="font-mono">{s.fault}</span> · {formatSeconds(s.seconds)}{ids.has(s.fault) ? '' : ' · fault not installed here'}</div>
+                    <div className="mt-0.5 text-[10.5px] text-content-subtle"><span className="font-mono">{s.fault}</span> · {formatSeconds(s.seconds)}{!known || ids.has(s.fault) ? '' : ' · fault not installed here'}</div>
                     <p className="mt-1.5 text-[12px] text-content"><span className="font-medium text-content-subtle">Expect:</span> {s.hypothesis}</p>
                     <p className="mt-1 text-[11.5px] text-content-muted">{s.rationale}</p>
                     {canGameDay ? (

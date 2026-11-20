@@ -9,6 +9,7 @@ import {
   parseSuite,
   runOutcome,
   runPhase,
+  suitesElsewhere,
   type ConfigMapLike,
 } from './chaos-suites.ts'
 
@@ -198,4 +199,19 @@ Deno.test('an errored fault keeps its recovery but not the 0% probe Litmus wrote
   assertEquals(suite['pod-delete'].probeSuccessPercentage, 100)
   assertEquals(suite['pod-network-latency'].probeSuccessPercentage, undefined)
   assertEquals(suite['pod-network-latency'].recoverySeconds, 22)
+})
+
+Deno.test('a namespace with no suites is told where the suites are, most first', () => {
+  const suite = (namespace: string, app: string) => parseSuite({ metadata: { name: `${app}-resilience`, namespace }, data: {} } as ConfigMapLike)
+  const all = [suite('dev', 'a'), suite('dev', 'b'), suite('test', 'a'), suite('dev', 'c'), suite('prod', 'a'), suite('test', 'b')]
+  assertEquals(suitesElsewhere(all, 'adhar-system'), [
+    { namespace: 'dev', count: 3 },
+    { namespace: 'test', count: 2 },
+    { namespace: 'prod', count: 1 },
+  ])
+  // The selected namespace's own suites are not "elsewhere".
+  assertEquals(suitesElsewhere(all, 'dev').map((e) => e.namespace), ['test', 'prod'])
+  // No filter: everything is already shown.
+  assertEquals(suitesElsewhere(all, undefined), [])
+  assertEquals(suitesElsewhere([], 'adhar-system'), [])
 })

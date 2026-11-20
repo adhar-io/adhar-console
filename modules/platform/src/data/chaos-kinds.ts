@@ -392,6 +392,18 @@ export function isLive(e: ChaosEngine): boolean {
   return phase === 'injected' || phase === 'recovering'
 }
 
+/**
+ * A run may be deleted only once nothing can still be applied by it: not
+ * while the fault is live, and not while an active engine's runner is still
+ * starting (`injecting`) — that runner is moments from applying the fault,
+ * and deleting the engine under it leaves nothing to recover it. Stop first
+ * (`engineState: stop` reads as `stopped`), then delete.
+ */
+export function canDeleteRun(e: ChaosEngine): boolean {
+  const phase = phaseOf(e)
+  return phase !== 'injected' && phase !== 'recovering' && phase !== 'injecting'
+}
+
 /** How long the fault runs, from the engine's own knobs. */
 export function durationOf(e: ChaosEngine): number | undefined {
   const v = envOf(e).TOTAL_CHAOS_DURATION

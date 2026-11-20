@@ -83,11 +83,36 @@ export interface BatchEvent {
   subject: string
   time?: string
   data?: Record<string, unknown>
+  /** Read from the run-summary archive (design 0025 Phase 4), not the stream: a finished run past the stream's retention. */
+  archived?: boolean
+}
+
+/**
+ * The run-summary archive's part in a read. `read`: consulted (`events` of them were returned). `skipped`: not
+ * consulted — it is read for one job at a time. `absent`: this cluster archives nothing. `unreachable`: it could
+ * not be read.
+ */
+export interface ArchiveState {
+  state: 'read' | 'skipped' | 'absent' | 'unreachable'
+  detail?: string
+  events?: number
 }
 
 export type HistoryRead =
-  /** `truncated`: the oldest events were dropped (the stream is over the cap). `behind`: the read ended early, so the NEWEST are missing. */
-  | { state: 'read'; events: BatchEvent[]; total: number; truncated: boolean; behind: boolean; degraded: boolean }
+  /**
+   * `truncated`: the oldest events were dropped (the stream is over the cap). `behind`: the read ended early, so the NEWEST are missing.
+   * `stream`: set when the stream could not be read and the events are the archive's alone (finished runs only).
+   */
+  | {
+    state: 'read'
+    events: BatchEvent[]
+    total: number
+    truncated: boolean
+    behind: boolean
+    degraded: boolean
+    archive?: ArchiveState
+    stream?: { reason: string; detail: string }
+  }
   /** The stream could not be read: no bus on this cluster, or a bridge that did not answer. */
   | { state: 'unavailable'; reason: string; detail: string }
 
@@ -101,6 +126,9 @@ export function parseHistory(body: unknown): HistoryRead {
     return { state: 'unavailable', reason: 'unreadable', detail: 'The console answered with something that is not a batch history.' }
   }
   const events = o.events.filter((e): e is BatchEvent => typeof obj(e)?.type === 'string' && typeof obj(e)?.subject === 'string')
+  const archive = obj(o.archive)
+  const archiveState = str(archive?.state)
+  const stream = obj(o.stream)
   return {
     state: 'read',
     events,
@@ -108,6 +136,10 @@ export function parseHistory(body: unknown): HistoryRead {
     truncated: o.truncated === true,
     behind: o.behind === true,
     degraded: o.degraded === true,
+    ...(archiveState === 'read' || archiveState === 'skipped' || archiveState === 'absent' || archiveState === 'unreachable'
+      ? { archive: { state: archiveState, ...(str(archive?.detail) ? { detail: str(archive?.detail) } : {}), ...(num(archive?.events) !== undefined ? { events: num(archive?.events) } : {}) } }
+      : {}),
+    ...(stream ? { stream: { reason: str(stream.reason) ?? 'unreachable', detail: str(stream.detail) ?? 'The event stream could not be read.' } } : {}),
   }
 }
 
@@ -149,6 +181,8 @@ export interface HistoryRow {
   exitCode?: number
   deadLettered?: number
   detail: string
+  /** Read from the run-summary archive, not the stream. */
+  archived: boolean
 }
 
 const seconds = (s: number) => {
@@ -213,6 +247,7 @@ function historyRow(e: BatchEvent, i: number): HistoryRow | undefined {
     exitCode: num(obj(d.outcome)?.exitCode),
     deadLettered: num(obj(d.counts)?.deadLettered),
     detail: eventDetail(d),
+    archived: e.archived === true,
   }
 }
 

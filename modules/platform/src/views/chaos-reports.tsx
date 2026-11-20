@@ -5,6 +5,7 @@ import {
   EmptyState,
   Input,
   Select,
+  Skeleton,
   StatusBadge,
   usePublicUrl,
   useToast,
@@ -207,8 +208,8 @@ export function ChaosReports({ namespace, commit, app, onFilter, onRunSuites, on
         const prev = historyOf(all, r).previous
         return (
           <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-            {prev ? <Button variant="ghost" size="xs" title="Compare with the run before it" onClick={() => onCompare(prev.id, r.id)}>Compare</Button> : null}
-            <Button variant="ghost" size="xs" disabled={downloads.busy === r.id} onClick={() => void downloads.pdf(r)}>PDF</Button>
+            {prev ? <Button variant="ghost" size="xs" className="pointer-coarse:h-9" title="Compare with the run before it" onClick={() => onCompare(prev.id, r.id)}>Compare</Button> : null}
+            <Button variant="ghost" size="xs" className="pointer-coarse:h-9" disabled={downloads.busy === r.id} onClick={() => void downloads.pdf(r)}>PDF</Button>
           </div>
         )
       },
@@ -249,7 +250,7 @@ export function ChaosReports({ namespace, commit, app, onFilter, onRunSuites, on
         </div>
       </div>
       {q.error ? (
-        <EmptyState compact title="Reports could not be read" description={(q.error as Error).message} action={<Button onClick={() => void q.refetch()}>Try again</Button>} />
+        <EmptyState tone="error" title="Reports could not be read" description={(q.error as Error).message} action={<Button onClick={() => void q.refetch()}>Try again</Button>} />
       ) : (
         <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
           <DataTable
@@ -297,7 +298,10 @@ export function ReportDrawer({ id, onClose, onCompare }: { id: string; onClose()
       onClose={onClose}
     >
       {q.isLoading ? (
-        <div className="p-5 text-[12px] text-content-subtle">Loading the report…</div>
+        <div className="space-y-3 p-5" aria-busy="true" aria-label="Loading the report"><Skeleton height={20} width="60%" /><Skeleton height={420} /></div>
+      ) : q.error && !r ? (
+        // A failed read says nothing about whether the report exists.
+        <div className="p-5"><EmptyState tone="error" title="Reports could not be read" description={(q.error as Error).message} action={<Button onClick={() => void q.refetch()}>Try again</Button>} /></div>
       ) : !r ? (
         <div className="p-5"><EmptyState title="This report is not in the history" description="It may have been pruned — the console keeps the newest 50 runs per application — or the link is from another console." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
       ) : (
@@ -349,7 +353,12 @@ export function CompareDrawer({ a, b, onClose, onPick }: { a: string; b: string;
   return (
     <ChaosDrawer widthKey="platform.chaos-compare" base="max-w-5xl" eyebrow="Compare runs" title={nowR?.app ?? 'Runs'} onClose={onClose}>
       {q.isLoading ? (
-        <div className="p-5 text-[12px] text-content-subtle">Loading the reports…</div>
+        <div className="space-y-4 p-4 sm:p-5" aria-busy="true" aria-label="Loading the reports">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><Skeleton height={104} /><Skeleton height={104} /></div>
+          <Skeleton height={200} />
+        </div>
+      ) : q.error && (!then || !nowR) ? (
+        <div className="p-5"><EmptyState tone="error" title="Reports could not be read" description={(q.error as Error).message} action={<Button onClick={() => void q.refetch()}>Try again</Button>} /></div>
       ) : !then || !nowR ? (
         <div className="p-5"><EmptyState title="One of these runs is not in the history" description="It may have been pruned (the newest 50 runs per application are kept)." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
       ) : then.app !== nowR.app ? (
@@ -374,7 +383,7 @@ export function CompareDrawer({ a, b, onClose, onPick }: { a: string; b: string;
                     <span className={cn('inline-block h-0.5 w-4', i === 0 ? 'border-t-2 border-dashed border-content-subtle' : 'bg-brand-500')} />{i === 0 ? 'Then' : 'Now'}
                   </div>
                   {i === 0 ? (
-                    <Select className="mt-1" value={r.id} onChange={(e) => onPick(e.target.value, nowR.id)} aria-label="Run to compare against" options={peers.map((x) => ({ value: x.id, label: `${x.finishedAt.slice(0, 16).replace('T', ' ')} · ${x.environment}${x.commit ? ` · ${shortSha(x.commit)}` : ''}` }))} />
+                    <Select className="mt-1" value={r.id} onChange={(e) => onPick(e.target.value, nowR.id)} aria-label="Run to compare against" options={peers.map((x) => ({ value: x.id, label: `${x.finishedAt.slice(0, 16).replace('T', ' ')} UTC · ${x.environment}${x.commit ? ` · ${shortSha(x.commit)}` : ''}` }))} />
                   ) : (
                     <div className="mt-1 text-[13px] font-medium text-content">{r.finishedAt.slice(0, 16).replace('T', ' ')} UTC · {r.environment}{r.commit ? ` · ${shortSha(r.commit)}` : ''}</div>
                   )}

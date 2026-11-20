@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import { useRouter } from '@tanstack/react-router'
 import {
   Badge,
   Button,
@@ -7,7 +8,7 @@ import {
   CONSOLE_PERMISSIONS,
   EmptyState,
   Modal,
-  Spinner,
+  Skeleton,
   StatusBadge,
   useCan,
   useToast,
@@ -31,6 +32,7 @@ import {
   type RunOutcome,
   type SuiteEnvironmentRow,
 } from '../data/chaos-suites.ts'
+import { useActiveNamespace } from '../data/client.ts'
 import {
   startResilienceRun,
   useApplicationSuites,
@@ -57,8 +59,15 @@ import {
  * result.
  */
 export function ApplicationSuites({ namespace, onWatch }: { namespace?: string; onWatch(job: string): void }) {
-  const { apps, results, isLoading, suitesError, resultsError } = useApplicationSuites(namespace)
+  const { apps, results, elsewhere, isLoading, suitesError, resultsError, refetchSuites } = useApplicationSuites(namespace)
+  const { setNamespace } = useActiveNamespace()
   const runs = useResilienceRuns()
+  const router = useRouter({ warn: false })
+  // The next step for an empty page: a service from a template ships a suite.
+  const createService = () => {
+    if (router) void router.navigate({ to: '/catalog', search: { section: 'create' } as never })
+    else location.assign('/catalog?section=create')
+  }
 
   return (
     <section className="space-y-3">
@@ -70,39 +79,62 @@ export function ApplicationSuites({ namespace, onWatch }: { namespace?: string; 
         </p>
         <RunnerNotice state={runs.data} error={runs.error as Error | null} />
       </div>
-        {suitesError ? (
-          <div className="text-[12px] text-rose-600 dark:text-rose-400">
-            Suites could not be read: {suitesError.message}.
-          </div>
-        ) : null}
-        {resultsError ? (
-          <div className="text-[12px] text-amber-700 dark:text-amber-400">
-            The runner&apos;s results could not be read ({resultsError}) — suites are shown without their last results.
-          </div>
-        ) : null}
+      {resultsError && !suitesError ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
+          The runner&apos;s results could not be read ({resultsError}) — suites are shown without their last results.
+        </div>
+      ) : null}
 
-        {isLoading ? (
-          <div className="flex items-center gap-2 text-[12px] text-content-muted">
-            <Spinner /> Reading suites…
-          </div>
-        ) : apps.length === 0 && !suitesError ? (
-          <EmptyState
-            title={namespace ? `No application suites in ${namespace}` : 'No application suites yet'}
-            description={
-              <>
-                Services created from a template ship their suite in <code>deploy/base/resilience.yaml</code> — a
-                ConfigMap <code>&lt;app&gt;-resilience</code> labelled <code>adhar.io/resilience-suite: &quot;true&quot;</code>{' '}
-                that names the faults to run, their hypotheses and the load-test thresholds. Add one to any other
-                service and it appears here once deployed.
-                {results.size > 0
-                  ? ` The runner has results for ${results.size} application${results.size === 1 ? '' : 's'} tested with the platform default suite.`
-                  : ''}
-              </>
-            }
-          />
-        ) : (
-          apps.map((a) => <ApplicationCard key={a.app} entry={a} runs={runs.data} onWatch={onWatch} />)
-        )}
+      {isLoading ? (
+        // Sized like an application card, so nothing jumps when they land.
+        <div className="space-y-3" aria-busy="true" aria-label="Reading suites">
+          {[0, 1].map((i) => <Skeleton key={i} height={216} />)}
+        </div>
+      ) : suitesError ? (
+        // A failed read is not "no suites": say what failed and offer a retry.
+        <EmptyState
+          tone="error"
+          title="Application suites could not be read"
+          description={suitesError.message}
+          action={<Button onClick={refetchSuites}>Try again</Button>}
+        />
+      ) : apps.length === 0 ? (
+        <EmptyState
+          title={namespace ? `No application suites in ${namespace}` : 'No application suites yet'}
+          action={elsewhere.length > 0 ? undefined : <Button onClick={createService}>Create a service from a template</Button>}
+          description={elsewhere.length > 0 ? (
+            <>
+              Application suites live in the namespaces their services run in, and this one has none. Found in{' '}
+              {elsewhere.map((e, i) => (
+                <span key={e.namespace}>
+                  {i > 0 ? ', ' : ''}
+                  <button type="button" className="font-medium text-brand-700 hover:underline dark:text-brand-300" onClick={() => setNamespace(e.namespace)}>
+                    {e.namespace}
+                  </button>{' '}
+                  ({e.count})
+                </span>
+              ))}
+              {' — '}
+              <button type="button" className="font-medium text-brand-700 hover:underline dark:text-brand-300" onClick={() => setNamespace(undefined)}>
+                show all namespaces
+              </button>
+              .
+            </>
+          ) : (
+            <>
+              Services created from a template ship their suite in <code>deploy/base/resilience.yaml</code> — a
+              ConfigMap <code>&lt;app&gt;-resilience</code> labelled <code>adhar.io/resilience-suite: &quot;true&quot;</code>{' '}
+              that names the faults to run, their hypotheses and the load-test thresholds. Add one to any other
+              service and it appears here once deployed.
+              {results.size > 0
+                ? ` The runner has results for ${results.size} application${results.size === 1 ? '' : 's'} tested with the platform default suite.`
+                : ''}
+            </>
+          )}
+        />
+      ) : (
+        apps.map((a) => <ApplicationCard key={a.app} entry={a} runs={runs.data} onWatch={onWatch} />)
+      )}
     </section>
   )
 }
@@ -161,9 +193,10 @@ function ApplicationCard({ entry, runs, onWatch }: { entry: AppSuites; runs?: Re
             key={r.namespace}
             type="button"
             onClick={() => setSelected(r.namespace)}
+            aria-pressed={r.namespace === row?.namespace}
             title={r.namespace !== r.environment ? `namespace ${r.namespace}` : undefined}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors',
+              'inline-flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium transition-colors sm:min-h-7',
               r.namespace === row?.namespace
                 ? 'bg-brand-600 text-white'
                 : 'text-content-muted hover:bg-surface-sunken hover:text-content',
@@ -498,6 +531,8 @@ function RunControl(
       onWatch(res.job)
     } else if (res.error === 'already_running') {
       toast.info(`A run is already in progress for ${app} in ${row.environment}`)
+      // The server names the run in progress: show it rather than leave the click with nowhere to go.
+      if (res.job) onWatch(res.job)
     } else {
       toast.error(res.detail || res.error || 'The suite could not be started.')
     }
@@ -507,7 +542,7 @@ function RunControl(
   return (
     <div className="flex max-w-xs flex-col items-end gap-1 text-right">
       {canRun ? (
-        <Button size="sm" variant="primary" disabled={!!disabledReason || starting} title={disabledReason} onClick={() => void start()}>
+        <Button size="sm" disabled={!!disabledReason || starting} title={disabledReason} onClick={() => void start()}>
           {starting ? 'Starting…' : active ? 'Running…' : 'Run suite'}
         </Button>
       ) : null}
@@ -522,11 +557,11 @@ function RunControl(
             ) : null}
           </div>
           <div className="text-[11px] text-content-muted">{runOutcomeMessage(outcome)}</div>
-          <div className="flex gap-2">
-            <Button variant="link" size="xs" onClick={() => onWatch(run.job)}>
+          <div className="flex gap-3">
+            <Button variant="link" size="xs" className="pointer-coarse:h-9" onClick={() => onWatch(run.job)}>
               {active ? 'Watch live' : 'Open run'}
             </Button>
-            <Button variant="link" size="xs" onClick={() => setViewing(run.job)}>
+            <Button variant="link" size="xs" className="pointer-coarse:h-9" onClick={() => setViewing(run.job)}>
               {active ? 'Follow log' : 'View log'}
             </Button>
           </div>
@@ -553,11 +588,15 @@ export function RunLog({ job, live, onClose }: { job: string; live: boolean; onC
       }
     >
       {log.isLoading ? (
-        <div className="flex items-center gap-2 text-[12px] text-content-muted">
-          <Spinner /> Reading the log…
-        </div>
+        <Skeleton height={240} />
       ) : log.error ? (
-        <div className="text-[12px] text-rose-600 dark:text-rose-400">{(log.error as Error).message}</div>
+        <EmptyState
+          compact
+          tone="error"
+          title="The log could not be read"
+          description={(log.error as Error).message}
+          action={<Button size="sm" onClick={() => void log.refetch()}>Try again</Button>}
+        />
       ) : (
         <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-md bg-surface-sunken p-3 text-left font-mono text-[11px] text-content">
           {log.data?.log || (log.data?.pod ? (log.data.detail ?? 'No output yet.') : 'The run has no pod yet.')}

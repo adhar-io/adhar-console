@@ -15,7 +15,8 @@ import {
 } from '../data/chaos-kinds.ts'
 import { createChaosEngine, useChaosCluster, useTargetNamespaces } from '../data/chaos.ts'
 import { useTargetPods } from '../data/chaos-live-hooks.ts'
-import { type Guard, isProtectedNamespace, launchAllowed, MAX_FAULT_SECONDS, reviewLaunch } from '../data/chaos-safety.ts'
+import { rerunName } from '../data/chaos-live.ts'
+import { fieldErrors, type Guard, isProtectedNamespace, LABEL_SELECTOR, launchAllowed, MAX_FAULT_SECONDS, reviewLaunch } from '../data/chaos-safety.ts'
 
 /**
  * New experiment — a three-step guided flow with the blast radius on screen
@@ -33,8 +34,6 @@ import { type Guard, isProtectedNamespace, launchAllowed, MAX_FAULT_SECONDS, rev
 const MODES: TargetMode[] = ['one', 'percent', 'all']
 const APP_KINDS: AppKind[] = ['deployment', 'statefulset', 'daemonset', 'rollout']
 const KIND_TEXT: Record<AppKind, string> = { deployment: 'a Deployment', statefulset: 'a StatefulSet', daemonset: 'a DaemonSet', rollout: 'an Argo Rollout' }
-/** `app=checkout` or a bare key — the one-label selector Litmus takes. */
-const SELECTOR = /^[A-Za-z0-9]([A-Za-z0-9._/-]*[A-Za-z0-9])?(=[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)?$/
 type Step = 'fault' | 'target' | 'review'
 const STEPS: Array<[Step, string]> = [['fault', 'Fault'], ['target', 'Target'], ['review', 'Review & launch']]
 
@@ -87,7 +86,7 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
     const t = setTimeout(() => setProbeSel({ ns: targetNs, label: label.trim() }), 400)
     return () => clearTimeout(t)
   }, [targetNs, label])
-  const selectorOk = probeSel.label === '' || SELECTOR.test(probeSel.label)
+  const selectorOk = probeSel.label === '' || LABEL_SELECTOR.test(probeSel.label)
   const matched = useTargetPods({
     namespace: probeSel.ns || undefined,
     selector: probeSel.label || undefined,
@@ -99,7 +98,10 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
   const knob = (key: string, fallback: string) => env[key] ?? fallback
   const durationDefault = fault?.knobs.find((k) => k.env === 'TOTAL_CHAOS_DURATION')?.value ?? '60'
   const duration = knob('TOTAL_CHAOS_DURATION', durationDefault)
-  const suggested = slug(`${label.split('=')[1] || targetNs || 'chaos'}-${faultId}`).slice(0, 63)
+  // Suggested from the target, and never one that is taken: the default
+  // opened the review on "A run named … already exists" for any second run.
+  const base = slug(`${label.split('=')[1] || targetNs || 'chaos'}-${faultId}`).slice(0, 60).replace(/-+$/, '')
+  const suggested = taken.includes(base) ? rerunName(base, taken) : base
   const runName = nameTouched ? name : suggested
   const nsLabels = namespaces.data?.find((n) => n.name === targetNs)?.labels
 
@@ -129,7 +131,7 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
   const launch = async () => {
     setBusy(true)
     try {
-      const code = Number(probeCode) || 200
+      const code = Number(probeCode)
       const created = await createChaosEngine({
         fault: faultId,
         name: runName,
@@ -152,7 +154,20 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
     }
   }
 
-  const targetReady = fault?.node || (targetNs && !isProtectedNamespace(targetNs))
+  // Said under each field as it is typed, and Next waits for them: the review
+  // step should be where the run is confirmed, not where a typo is found.
+  const errors = fieldErrors({
+    seconds: duration,
+    mode: fault?.node ? undefined : mode,
+    percent,
+    label: fault?.node ? undefined : label,
+    probeUrl,
+    probeCode,
+  })
+  const targetValid = Object.keys(errors).length === 0
+  const targetReady = !!(fault?.node || (targetNs && !isProtectedNamespace(targetNs))) && targetValid
+  // Only a fault this cluster has a definition for can be launched.
+  const faultReady = !!fault && installed.some((f) => f.id === faultId)
   const families = [...new Set(installed.map((f) => f.family))]
   const list = installed.filter((f) => family === 'all' || f.family === family)
   const idx = STEPS.findIndex(([s]) => s === step)
@@ -169,9 +184,9 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
         <>
           <Button variant="ghost" onClick={idx === 0 ? onClose : () => setStep(STEPS[idx - 1][0])}>{idx === 0 ? 'Cancel' : 'Back'}</Button>
           {step === 'review' ? (
-            <Button variant="danger" disabled={!allowed || busy} onClick={() => void launch()}>{busy ? 'Launching…' : 'Launch experiment'}</Button>
+            <Button variant="danger" disabled={!allowed || !faultReady || !targetReady || busy} onClick={() => void launch()}>{busy ? 'Launching…' : 'Launch experiment'}</Button>
           ) : (
-            <Button variant="primary" disabled={step === 'fault' ? !fault : !targetReady} onClick={() => setStep(STEPS[idx + 1][0])}>Next</Button>
+            <Button variant="primary" disabled={step === 'fault' ? !faultReady : !targetReady} title={step === 'target' && !targetReady ? (targetValid ? 'Choose a target namespace' : 'Fix the fields marked above') : undefined} onClick={() => setStep(STEPS[idx + 1][0])}>Next</Button>
           )}
         </>
       }
@@ -181,9 +196,9 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
           <li key={s} className="flex min-w-0 items-center gap-2">
             <button
               type="button"
-              disabled={i > idx && !(i === 2 && targetReady) && !(i === 1 && fault)}
+              disabled={i > idx && !(i === 2 && faultReady && targetReady) && !(i === 1 && faultReady)}
               onClick={() => setStep(s)}
-              className={cn('flex items-center gap-1.5 rounded-full px-2 py-0.5 font-medium', i === idx ? 'bg-brand-600 text-white' : i < idx ? 'text-brand-700 dark:text-brand-300' : 'text-content-subtle')}
+              className={cn('flex min-h-8 items-center gap-1.5 rounded-full px-2.5 font-medium disabled:cursor-not-allowed', i === idx ? 'bg-brand-600 text-white' : i < idx ? 'text-brand-700 dark:text-brand-300' : 'text-content-subtle')}
             >
               <span className={cn('flex size-4 items-center justify-center rounded-full text-[10px]', i === idx ? 'bg-white/20' : 'bg-surface-sunken')}>{i < idx ? '✓' : i + 1}</span>
               <span className="truncate">{l}</span>
@@ -202,7 +217,7 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
           ) : null}
           <div className="flex flex-wrap gap-1">
             {(['all', ...families] as Array<FaultFamily | 'all'>).map((f) => (
-              <button key={f} type="button" onClick={() => setFamily(f)} className={cn('rounded-full px-2.5 py-0.5 text-[11px] font-medium', family === f ? 'bg-brand-600 text-white' : 'bg-surface-sunken text-content-muted hover:text-content')}>
+              <button key={f} type="button" aria-pressed={family === f} onClick={() => setFamily(f)} className={cn('min-h-8 rounded-full px-3 text-[11px] font-medium', family === f ? 'bg-brand-600 text-white' : 'bg-surface-sunken text-content-muted hover:text-content')}>
                 {f === 'all' ? 'All faults' : FAMILY_LABEL[f]}
               </button>
             ))}
@@ -212,6 +227,7 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
               <button
                 key={f.id}
                 type="button"
+                aria-pressed={f.id === faultId}
                 onClick={() => pickFault(f.id)}
                 className={cn('rounded-lg border px-3 py-2 text-left transition-colors', f.id === faultId ? 'border-brand-400 bg-brand-50/70 ring-1 ring-brand-400 dark:bg-brand-500/10' : 'border-edge-default hover:bg-surface-sunken')}
               >
@@ -232,10 +248,10 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
 
       {step === 'target' && fault ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 rounded-lg bg-surface-sunken px-3 py-2 text-[12px]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-surface-sunken px-3 py-2 text-[12px]">
             <span className="font-semibold text-content">{fault.label}</span>
             <Badge tone={BLAST_TONE[fault.blast]}>{fault.blast} blast</Badge>
-            <span className="truncate text-content-muted">{fault.blurb}</span>
+            <span className="min-w-0 text-content-muted sm:truncate">{fault.blurb}</span>
           </div>
           {fault.node ? (
             <Field label="Node" hint="Empty lets the runner pick one. Name a node to be precise.">
@@ -254,7 +270,7 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
                 />
               </Field>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="App label" hint="One label, e.g. app=checkout. Strongly advised.">
+                <Field label="App label" hint="One label, e.g. app=checkout. Strongly advised." error={errors.label}>
                   <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="app=checkout" />
                 </Field>
                 <Field label="App kind" hint={detectedKind && !appKindPicked ? 'Read from the matching pods.' : undefined}>
@@ -267,23 +283,23 @@ export function LaunchWizard({ installed, initialFault, taken = [], onClose, onL
                   <Select value={mode} onChange={(e) => setMode(e.target.value as TargetMode)} options={MODES.map((m) => ({ value: m, label: modeLabel(m, percent) }))} />
                 </Field>
                 {mode === 'percent' ? (
-                  <Field label="Percent of pods"><Input type="number" min={1} max={100} value={percent} onChange={(e) => setPercent(e.target.value)} /></Field>
+                  <Field label="Percent of pods" error={errors.percent}><Input type="number" min={1} max={100} value={percent} onChange={(e) => setPercent(e.target.value)} aria-invalid={!!errors.percent || undefined} /></Field>
                 ) : <div className="hidden sm:block" />}
               </div>
             </>
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {fault.knobs.map((k) => (
-              <Field key={k.env} label={k.label} hint={k.env === 'TOTAL_CHAOS_DURATION' ? `At most ${MAX_FAULT_SECONDS}s.` : k.hint}>
-                <Input value={knob(k.env, k.value)} onChange={(e) => setEnv((prev) => ({ ...prev, [k.env]: e.target.value }))} />
+              <Field key={k.env} label={k.label} hint={k.env === 'TOTAL_CHAOS_DURATION' ? `At most ${MAX_FAULT_SECONDS}s.` : k.hint} error={k.env === 'TOTAL_CHAOS_DURATION' ? errors.seconds : undefined}>
+                <Input value={knob(k.env, k.value)} onChange={(e) => setEnv((prev) => ({ ...prev, [k.env]: e.target.value }))} aria-invalid={(k.env === 'TOTAL_CHAOS_DURATION' && !!errors.seconds) || undefined} />
               </Field>
             ))}
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_120px]">
-            <Field label="Steady-state probe" hint="Polled every 5s through the fault. One failed poll fails the run — that is the hypothesis being tested.">
-              <Input value={probeUrl} onChange={(e) => setProbeUrl(e.target.value)} placeholder="http://checkout.payments.svc.cluster.local/health" />
+            <Field label="Steady-state probe" hint="Polled every 5s through the fault. One failed poll fails the run — that is the hypothesis being tested." error={errors.probeUrl}>
+              <Input value={probeUrl} onChange={(e) => setProbeUrl(e.target.value)} placeholder="http://checkout.payments.svc.cluster.local/health" aria-invalid={!!errors.probeUrl || undefined} />
             </Field>
-            <Field label="Expect status"><Input value={probeCode} onChange={(e) => setProbeCode(e.target.value)} /></Field>
+            <Field label="Expect status" error={errors.probeCode}><Input inputMode="numeric" value={probeCode} onChange={(e) => setProbeCode(e.target.value)} aria-invalid={!!errors.probeCode || undefined} /></Field>
           </div>
         </div>
       ) : null}
@@ -324,7 +340,8 @@ function TargetMatch({ namespace, label, settled, selectorOk, pods, loading, err
   kind: AppKind
 }) {
   const where = `${namespace}${label ? ` matching ${label}` : ''}`
-  if (!selectorOk) return <p className="text-[12px] text-amber-700 dark:text-amber-400">One label as key=value, e.g. app=checkout.</p>
+  // The label field says what is wrong with it.
+  if (!selectorOk) return null
   if (!settled || loading) return <p className="text-[12px] text-content-subtle">Looking for pods in {where}…</p>
   if (error) return <p className="text-[12px] text-content-subtle">The pods in {namespace} could not be listed ({error.message}); the run will select its own targets.</p>
   if (pods === 0) {

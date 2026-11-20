@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -29,6 +29,7 @@ import {
 } from '@adhar/utils'
 import { BandLegend, ChaosChart, METRIC_TOKEN } from '../components/chaos-chart.tsx'
 import {
+  canDeleteRun,
   CHAOS_NAMESPACE,
   ENGINES_GVR,
   envOf,
@@ -127,24 +128,25 @@ export function ChaosDrawer({
 }) {
   const width = useDrawerWidth(widthKey, { base })
   const panelRef = useRef<HTMLElement>(null)
+  const titleId = useId()
   useOverlayDismiss(true, onClose, { focusRef: panelRef })
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex justify-end" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <button type="button" aria-label="Close" className="absolute inset-0 bg-scrim/50" onClick={onClose} />
       <aside ref={panelRef} tabIndex={-1} className={cn('relative flex h-full w-full flex-col border-l border-edge-default bg-surface-app shadow-2xl outline-none', width.className)}>
         <header className="flex shrink-0 flex-wrap items-start gap-x-3 gap-y-2 border-b border-edge-default bg-surface-raised px-4 py-3 sm:px-5">
           <div className="min-w-[12rem] flex-1">
             {eyebrow ? <div className="text-[11px] font-semibold uppercase tracking-wider text-content-subtle">{eyebrow}</div> : null}
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="min-w-0 truncate text-[15px] font-semibold text-content">{title}</h2>
+              <h2 id={titleId} className="min-w-0 truncate text-[15px] font-semibold text-content">{title}</h2>
               {badge}
             </div>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-1.5">
             {actions}
             <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
-            <button type="button" onClick={onClose} aria-label="Close" className="rounded-md px-2 py-1 text-content-subtle hover:bg-surface-sunken hover:text-content">
+            <button type="button" onClick={onClose} aria-label="Close" className="flex size-8 items-center justify-center rounded-md text-content-subtle hover:bg-surface-sunken hover:text-content">
               ✕
             </button>
           </div>
@@ -591,15 +593,17 @@ export function ExperimentRunDrawer({ namespace = CHAOS_NAMESPACE, name, onClose
   const actions = engine ? (
     <>
       {canStop && live ? (
-        <Button size="sm" variant="danger" disabled={busy !== null || phaseOf(engine) === 'recovering'} onClick={() => void act('stop', () => stopChaosEngine(namespace, name, cluster), 'Stopping — Litmus is recovering the fault')}>
-          Stop
+        <Button size="sm" variant="danger" disabled={busy !== null || phaseOf(engine) === 'recovering'} title={phaseOf(engine) === 'recovering' ? 'Stop requested — Litmus is recovering the fault' : undefined} onClick={() => void act('stop', () => stopChaosEngine(namespace, name, cluster), 'Stopping — Litmus is recovering the fault')}>
+          {busy === 'stop' ? 'Stopping…' : 'Stop'}
         </Button>
       ) : null}
       {canCreate ? (
         <Button
           size="sm"
-          disabled={busy !== null || live}
-          title={live ? 'Wait for this run to finish, or stop it, before running it again' : 'Run the same fault against the same target again'}
+          // Not until the run is over — a run still starting counts too, or a
+          // second copy of the same fault could land on the same pods.
+          disabled={busy !== null || !isOver(engine)}
+          title={!isOver(engine) ? 'Wait for this run to finish, or stop it, before running it again' : 'Run the same fault against the same target again'}
           onClick={() => {
             const next = rerunName(name, all.map((e) => e.metadata.name))
             void act('rerun', async () => {
@@ -608,21 +612,21 @@ export function ExperimentRunDrawer({ namespace = CHAOS_NAMESPACE, name, onClose
             }, `${next} launched`)
           }}
         >
-          Re-run
+          {busy === 'rerun' ? 'Launching…' : 'Re-run'}
         </Button>
       ) : null}
       {canDelete ? (
         <Button
           size="sm"
           variant="ghost"
-          disabled={busy !== null || isLive(engine)}
-          title={isLive(engine) ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
+          disabled={busy !== null || !canDeleteRun(engine)}
+          title={!canDeleteRun(engine) ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
           onClick={() => void act('delete', async () => {
             await deleteChaosEngine(engine, cluster)
             onClose()
-          }, 'Run deleted')}
+          }, `${name} deleted`)}
         >
-          Delete
+          {busy === 'delete' ? 'Deleting…' : 'Delete'}
         </Button>
       ) : null}
     </>
@@ -638,11 +642,11 @@ export function ExperimentRunDrawer({ namespace = CHAOS_NAMESPACE, name, onClose
       onClose={onClose}
     >
       {eq.isLoading ? (
-        <div className="space-y-3 p-5"><Skeleton height={120} /><Skeleton height={180} /></div>
+        <div className="space-y-4 p-4 sm:p-5" aria-busy="true"><Skeleton height={150} /><Skeleton height={96} /><Skeleton height={220} /></div>
       ) : eq.gone ? (
         <div className="p-5"><EmptyState title="This run no longer exists" description="It was deleted — by someone else, or by the game day that created it once it finished. Its verdict is gone with it; suite runs keep theirs in Run reports." action={<Button variant="primary" onClick={onClose}>Close</Button>} /></div>
       ) : eq.error ? (
-        <div className="p-5"><EmptyState title="The run could not be read" description={(eq.error as Error).message} action={<Button onClick={() => void eq.refetch()}>Try again</Button>} /></div>
+        <div className="p-5"><EmptyState tone="error" title="The run could not be read" description={(eq.error as Error).message} action={<Button onClick={() => void eq.refetch()}>Try again</Button>} /></div>
       ) : engine && run ? (
         <div className="space-y-4 p-4 sm:p-5">
           <RunHero

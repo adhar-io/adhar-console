@@ -116,9 +116,11 @@ Deno.test('gang plan: one pod for a single run, manager + workers for a partitio
   assertEquals([single.shape, single.members, single.request.cpu, single.request.memory], ['single', 1, 1, 1536 * 2 ** 20])
   const example = gangPlanOf(job(EXAMPLE))
   assertEquals([example.shape, example.members, example.request.cpu, example.request.memory], ['gang', 5, 2.5, 5 * 2 ** 30])
-  // Worker sizes are their own; workers default to 4.
+  // Worker sizes are their own; workers default to the XRD's 2 (D25), on a chunked job too.
   const sized = gangPlanOf(job({ mode: 'partitioned', resources: { cpu: '1', memory: '2Gi', workerCpu: '250m', workerMemory: '512Mi' } }))
-  assertEquals([sized.members, sized.request.cpu, sized.request.memory], [5, 2, 4 * 2 ** 30])
+  assertEquals([sized.members, sized.request.cpu, sized.request.memory], [3, 1.5, 3 * 2 ** 30])
+  const chunked = gangPlanOf(job({ mode: 'chunked', chunking: { requestQueue: 'a', replyQueue: 'b' } }))
+  assertEquals([chunked.shape, chunked.members, chunked.workers], ['gang', 3, 2])
 })
 
 const leaf = (name: string, spec: VolcanoQueue['spec']): VolcanoQueue => ({ metadata: { name, labels: { 'adhar.io/tier': name.split('-').at(-1)! } }, spec: { parent: 'adhar-batch', ...spec } })

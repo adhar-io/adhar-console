@@ -7,6 +7,7 @@ import {
   DataTable,
   EmptyState,
   LitmusIcon,
+  Skeleton,
   StatusBadge,
   Tabs,
   useCan,
@@ -16,6 +17,7 @@ import {
 } from '@adhar/shell-ui'
 import { formatAbsolute, formatRelative } from '@adhar/utils'
 import {
+  canDeleteRun,
   CHAOS_NAMESPACE,
   durationOf,
   ENGINES_GVR,
@@ -42,7 +44,8 @@ import { ChaosLibrary } from './chaos-library.tsx'
 import { LaunchWizard } from './chaos-launch.tsx'
 import { ExperimentRunDrawer, SuiteRunDrawer } from './chaos-run-canvas.tsx'
 import type { ChaosTab } from './chaos-actions.ts'
-import { readChaosParams, useChaosReports, writeChaosParams, type ChaosParams } from '../data/chaos-report-hooks.ts'
+import { useChaosReports } from '../data/chaos-report-hooks.ts'
+import { useChaosParams } from '../data/chaos-nav.ts'
 import { useApplicationSuites, useResilienceRuns } from '../data/chaos-suite-hooks.ts'
 import { useScorerResilience } from '../data/chaos-live-hooks.ts'
 import { rerunManifest, rerunName } from '../data/chaos-live.ts'
@@ -85,20 +88,14 @@ import {
 const CHAOS_TABS: ChaosTab[] = ['overview', 'experiments', 'suites', 'gamedays', 'reports', 'library']
 
 export function ChaosView({ namespace }: { namespace?: string }) {
-  const [params, setParams] = useState<ChaosParams>(() => readChaosParams())
-  const patch = (p: ChaosParams) => {
-    setParams((prev) => {
-      const next = { ...prev, ...p }
-      for (const k of Object.keys(next) as Array<keyof ChaosParams>) if (!next[k]) delete next[k]
-      return next
-    })
-    writeChaosParams(p)
-  }
+  // In step with the URL both ways: Back closes the drawer it opened, and a
+  // link to `?run=` while the page is open opens it (chaos-nav.ts).
+  const [params, patch] = useChaosParams()
   const tab: ChaosTab = params.tab && CHAOS_TABS.includes(params.tab as ChaosTab) ? params.tab as ChaosTab : 'overview'
   const setTab = (t: ChaosTab) => patch({ tab: t === 'overview' ? undefined : t, ...(t === 'reports' ? {} : { commit: undefined, app: undefined }) })
 
   const { cluster: activeCluster } = useChaosCluster()
-  const { engines, all: allEngines, installed, isLoading, error } = useChaosEngines(namespace)
+  const { engines, all: allEngines, installed, isLoading, error, refetch: refetchEngines } = useChaosEngines(namespace)
   const live = engines.filter(isLive)
   const faults = useInstalledFaults()
   const results = useChaosResults(engines.some((e) => isLive(e) || phaseOf(e) === 'injecting'))
@@ -122,16 +119,19 @@ export function ChaosView({ namespace }: { namespace?: string }) {
     return (row?.faults ?? []).filter((f) => f.inSuite).map((f) => ({ name: f.name, ...(f.hypothesis ? { hypothesis: f.hypothesis } : {}) }))
   }, [suiteRun, suites.apps])
   const [cmpA, cmpB] = (params.compare ?? '').split('~')
+  // What the game-day builder may offer: none without Litmus, unknown while
+  // the definitions are being read (or could not be).
+  const faultIds = useMemo(
+    () => (!installed ? new Set<string>() : faults.isLoading || faults.error ? undefined : new Set(faults.installed.map((f) => f.id))),
+    [installed, faults.isLoading, faults.error, faults.installed],
+  )
 
   const openReport = (id: string) => patch({ report: id, compare: undefined })
   const openCompare = (a: string, b: string) => patch({ compare: `${a}~${b}`, report: undefined })
 
-  // No page-wide "New experiment": experiments start where the context is —
-  // the overview's quick actions, a fault's Run in the library, or the empty
-  // Experiments tab. Game days are created from their own tab.
-  const actions = tab === 'gamedays' && canGameDay && !workflows.notInstalled
-    ? <Button size="sm" variant="primary" onClick={() => setBuilding({})}>New game day</Button>
-    : null
+  // No page-wide "New experiment" or "New game day" in the header: both start
+  // where the context is — the overview's quick actions, a fault's Run or a
+  // scenario pick in the library, or the empty Experiments / Game days tab.
 
   const remote = activeCluster !== undefined
   const tabs = [
@@ -145,12 +145,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Actions sit right of the tabs on a wide screen and above them on a
-          phone, where the tab strip needs the whole row to scroll. */}
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-start">
-        <div className="min-w-0 flex-1"><Tabs tabs={tabs} value={tab} onChange={setTab} ariaLabel="Chaos Engineering" /></div>
-        {actions ? <div className="flex justify-end">{actions}</div> : null}
-      </div>
+      <Tabs tabs={tabs} value={tab} onChange={setTab} ariaLabel="Chaos Engineering" />
 
       {/* The overview's "Running now" already leads with them. */}
       {live.length > 0 && tab !== 'overview' ? <LiveBanner engines={live} onOpen={(n) => patch({ run: n })} /> : null}
@@ -174,20 +169,20 @@ export function ChaosView({ namespace }: { namespace?: string }) {
         </div>
       ) : null}
 
-      {error ? (
-        <EmptyState compact title="Chaos runs could not be read" description={(error as Error).message} />
-      ) : null}
-
       {tab === 'overview' ? (
         <ChaosHome
           engines={installed ? engines : []}
           results={results}
           namespace={namespace}
           enginesLoading={isLoading}
+          enginesError={error as Error | undefined}
+          onRetryEngines={refetchEngines}
           workflows={workflows.data ?? []}
           runs={runs.data?.runs.filter((r) => !namespace || r.namespace === namespace) ?? []}
           reports={reportItems}
           reportsLoading={reports.isLoading}
+          reportsError={reports.error as Error | null}
+          onRetryReports={() => void reports.refetch()}
           reportsConfigured={reports.data?.configured !== false}
           scorer={scorer.data}
           canLaunch={canLaunch && installed}
@@ -202,7 +197,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
           onCompare={openCompare}
         />
       ) : tab === 'experiments' && installed ? (
-        <ExperimentsTab engines={engines} results={results} loading={isLoading} canLaunch={canLaunch} faultCount={faults.installed.length} definitions={faults.definitions} onOpen={(n) => patch({ run: n })} onNew={() => setLaunching({})} allNames={allEngines.map((e) => e.metadata.name)} />
+        <ExperimentsTab engines={engines} results={results} loading={isLoading} error={error as Error | undefined} onRetry={refetchEngines} canLaunch={canLaunch} faultCount={faults.installed.length} definitions={faults.definitions} onOpen={(n) => patch({ run: n })} onNew={() => setLaunching({})} allNames={allEngines.map((e) => e.metadata.name)} />
       ) : tab === 'suites' ? (
         <ApplicationSuites namespace={namespace} onWatch={(j) => patch({ job: j })} />
       ) : tab === 'gamedays' ? (
@@ -210,7 +205,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
       ) : tab === 'reports' ? (
         <ChaosReports namespace={namespace} commit={params.commit ?? ''} app={params.app ?? ''} onFilter={(f) => patch(f)} onRunSuites={() => setTab('suites')} onOpen={openReport} onCompare={openCompare} />
       ) : tab === 'library' && installed ? (
-        <ChaosLibrary installed={faults.installed} canLaunch={canLaunch} canGameDay={canGameDay && !workflows.notInstalled} gameDaysMissing={workflows.notInstalled} onRunFault={(id) => setLaunching({ fault: id })} onGameDay={(s) => setBuilding({ scenarios: s })} />
+        <ChaosLibrary installed={faults.installed} faultsLoading={faults.isLoading} faultsError={faults.error} onRetryFaults={faults.refetch} canLaunch={canLaunch} canGameDay={canGameDay && !workflows.notInstalled} gameDaysMissing={workflows.notInstalled} onRunFault={(id) => setLaunching({ fault: id })} onGameDay={(s) => setBuilding({ scenarios: s })} />
       ) : null}
 
       {launching && canLaunch ? (
@@ -226,7 +221,16 @@ export function ChaosView({ namespace }: { namespace?: string }) {
         />
       ) : null}
       {building && canGameDay ? (
-        <GameDayBuilder initialScenarios={building.scenarios} taken={(workflows.data ?? []).map((w) => w.metadata.name)} onClose={() => setBuilding(null)} onCreated={(o) => patch({ gameday: o.name, tab: tab === 'overview' ? undefined : 'gamedays' })} />
+        <GameDayBuilder
+          initialScenarios={building.scenarios}
+          taken={workflows.all.map((w) => w.metadata.name)}
+          installedFaults={faultIds}
+          onClose={() => setBuilding(null)}
+          onCreated={(o) => {
+            setBuilding(null)
+            patch({ gameday: o.name, tab: tab === 'overview' ? undefined : 'gamedays' })
+          }}
+        />
       ) : null}
 
       {/* Keyed by the run: a re-run opens in place, and what the canvas
@@ -234,7 +238,7 @@ export function ChaosView({ namespace }: { namespace?: string }) {
           not carry over to the new one. */}
       {params.run ? <ExperimentRunDrawer key={params.run} name={params.run} onClose={() => patch({ run: undefined })} onOpenRun={(n) => patch({ run: n })} /> : null}
       {params.gameday ? (
-        <GameDayDrawer key={params.gameday} namespace={CHAOS_NAMESPACE} name={params.gameday} notInstalled={workflows.notInstalled} taken={(workflows.data ?? []).map((w) => w.metadata.name)} onClose={() => patch({ gameday: undefined })} onOpen={(o) => patch({ gameday: o.name })} />
+        <GameDayDrawer key={params.gameday} namespace={CHAOS_NAMESPACE} name={params.gameday} notInstalled={workflows.notInstalled} taken={workflows.all.map((w) => w.metadata.name)} onClose={() => patch({ gameday: undefined })} onOpen={(o) => patch({ gameday: o.name })} />
       ) : null}
       {params.job && suiteRun ? (
         <SuiteRunDrawer key={suiteRun.job} run={suiteRun} faults={suiteFaults} onClose={() => patch({ job: undefined })} onViewLog={() => setLogJob(suiteRun.job)} />
@@ -244,12 +248,20 @@ export function ChaosView({ namespace }: { namespace?: string }) {
         // say so rather than open nothing.
         <ChaosDrawer widthKey="platform.chaos-suite-run" eyebrow="Resilience suite" title={params.job} onClose={() => patch({ job: undefined })}>
           <div className="p-5">
-            {runs.isLoading || runs.isFetching ? (
-              <EmptyState compact title="Reading the suite run…" description="Waiting for the runner's Job to be listed." />
+            {runs.isLoading || (runs.isFetching && !runs.error) ? (
+              <div className="space-y-3" aria-busy="true" aria-label="Reading the suite run"><Skeleton height={120} /><Skeleton height={200} /></div>
+            ) : runs.error ? (
+              // A failed read says nothing about whether the run exists.
+              <EmptyState
+                tone="error"
+                title="Suite runs could not be read"
+                description={(runs.error as Error).message}
+                action={<Button onClick={() => void runs.refetch()}>Try again</Button>}
+              />
             ) : (
               <EmptyState
                 title="This suite run is not on the cluster any more"
-                description={runs.error ? (runs.error as Error).message : 'Its Job was cleaned up (the runner keeps only recent ones). Its result lives on in Run reports.'}
+                description="Its Job was cleaned up (the runner keeps only recent ones). Its result lives on in Run reports."
                 action={<Button variant="primary" onClick={() => patch({ job: undefined, tab: 'reports' })}>Go to run reports</Button>}
               />
             )}
@@ -285,7 +297,7 @@ function LiveBanner({ engines, onOpen }: { engines: ChaosEngine[]; onOpen(name: 
       </div>
       <div className="mt-1.5 space-y-0.5">
         {engines.map((e) => (
-          <button key={`${e.metadata.namespace}/${e.metadata.name}`} type="button" onClick={() => onOpen(e.metadata.name)} className="block text-left text-[12px] text-rose-700 hover:underline dark:text-rose-300">
+          <button key={`${e.metadata.namespace}/${e.metadata.name}`} type="button" onClick={() => onOpen(e.metadata.name)} className="block min-h-8 max-w-full text-left text-[12px] text-rose-700 [overflow-wrap:anywhere] hover:underline sm:min-h-0 dark:text-rose-300">
             <span className="font-medium">{e.metadata.name}</span> — {faultOf(e)} on {targetSummary(e)}
           </button>
         ))}
@@ -318,10 +330,13 @@ const PHASE_LABEL: Record<ChaosPhase, string> = {
   unknown: 'unknown',
 }
 
-function ExperimentsTab({ engines, results, loading, canLaunch, faultCount, definitions, onOpen, onNew, allNames }: {
+function ExperimentsTab({ engines, results, loading, error, onRetry, canLaunch, faultCount, definitions, onOpen, onNew, allNames }: {
   engines: ChaosEngine[]
   results: Map<string, ChaosResult>
   loading: boolean
+  /** The engines could not be listed: say so, never "No chaos experiments". */
+  error?: Error
+  onRetry(): void
   canLaunch: boolean
   faultCount: number
   definitions: number
@@ -432,32 +447,43 @@ function ExperimentsTab({ engines, results, loading, canLaunch, faultCount, defi
         <div className="min-w-0 flex-1">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-content"><LitmusIcon size={16} /> Experiments</h2>
           <p className="text-[12px] text-content-muted">
-            Every ChaosEngine on this cluster — click one to watch it live. {faultCount} of {definitions || faultCount} installed fault definitions are catalogued here.
+            Every ChaosEngine on this cluster — click one to watch it live.
+            {/* Only once the definitions have been read: "0 of 0" while loading is not a fact. */}
+            {definitions ? ` ${faultCount} of ${definitions} installed fault definitions are catalogued here.` : ''}
           </p>
         </div>
       </div>
-      <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
-        <DataTable
-          columns={columns}
-          rows={engines}
-          rowKey={(e) => `${e.metadata.namespace}/${e.metadata.name}`}
-          onRowClick={(e) => onOpen(e.metadata.name)}
-          loading={loading}
-          tableId="chaos-experiments"
-          features={{ search: true, filters: true, columns: true, density: true, export: true }}
-          defaultSort={{ key: 'created', dir: 'desc' }}
-          searchPlaceholder="Search runs…"
-          empty={
-            <EmptyState
-              title="No chaos experiments"
-              description={canLaunch
-                ? 'Nothing is being broken on purpose right now. Start with pod-delete on a non-critical workload — it is the experiment real clusters survive.'
-                : 'Nothing is being broken on purpose right now. Ask a platform admin to run an experiment, or for permission to create ChaosEngines.'}
-              action={canLaunch ? <Button variant="primary" onClick={onNew}>New experiment</Button> : undefined}
-            />
-          }
+      {error ? (
+        <EmptyState
+          tone="error"
+          title="Chaos runs could not be read"
+          description={error.message}
+          action={<Button onClick={onRetry}>Try again</Button>}
         />
-      </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-edge-default bg-surface-raised">
+          <DataTable
+            columns={columns}
+            rows={engines}
+            rowKey={(e) => `${e.metadata.namespace}/${e.metadata.name}`}
+            onRowClick={(e) => onOpen(e.metadata.name)}
+            loading={loading}
+            tableId="chaos-experiments"
+            features={{ search: true, filters: true, columns: true, density: true, export: true }}
+            defaultSort={{ key: 'created', dir: 'desc' }}
+            searchPlaceholder="Search runs…"
+            empty={
+              <EmptyState
+                title="No chaos experiments"
+                description={canLaunch
+                  ? 'Nothing is being broken on purpose right now. Start with pod-delete on a non-critical workload — it is the experiment real clusters survive.'
+                  : 'Nothing is being broken on purpose right now. Ask a platform admin to run an experiment, or for permission to create ChaosEngines.'}
+                action={canLaunch ? <Button variant="primary" onClick={onNew}>New experiment</Button> : undefined}
+              />
+            }
+          />
+        </div>
+      )}
     </section>
   )
 }
@@ -466,15 +492,14 @@ function RowActions({ engine, allNames, onOpen }: { engine: ChaosEngine; allName
   const toast = useToast()
   const qc = useQueryClient()
   const { cluster } = useChaosCluster()
-  const live = isLive(engine)
   const phase = phaseOf(engine)
   const ns = engine.metadata.namespace ?? CHAOS_NAMESPACE
   const canStop = useCan(canResource(ENGINES_GVR, 'patch', { namespace: ns, name: engine.metadata.name }))
   const canDelete = useCan(canResource(ENGINES_GVR, 'delete', { namespace: ns, name: engine.metadata.name }))
   const canCreate = useCan(canResource(ENGINES_GVR, 'create', { namespace: ns }))
-  const [busy, setBusy] = useState(false)
-  const run = async (f: () => Promise<unknown>, ok: string) => {
-    setBusy(true)
+  const [busy, setBusy] = useState<'stop' | 'rerun' | 'delete' | null>(null)
+  const run = async (what: 'stop' | 'rerun' | 'delete', f: () => Promise<unknown>, ok: string) => {
+    setBusy(what)
     try {
       await f()
       toast.success(ok)
@@ -482,45 +507,60 @@ function RowActions({ engine, allNames, onOpen }: { engine: ChaosEngine; allName
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
   const over = isOver(engine)
+  const deletable = canDeleteRun(engine)
+  // Row buttons stay compact on a desktop, and grow to a finger's width on touch.
+  const tap = 'pointer-coarse:h-9 pointer-coarse:px-3'
   return (
     <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
       {/* A finished run has already recovered; there is nothing to stop. */}
       {!over && canStop ? (
-        <Button variant="ghost" size="xs" disabled={busy || phase === 'recovering'} onClick={() => void run(() => stopChaosEngine(ns, engine.metadata.name, cluster), 'Stopping — Litmus is recovering the fault')}>Stop</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          className={tap}
+          disabled={busy !== null || phase === 'recovering' || engine.spec?.engineState === 'stop'}
+          title={phase === 'recovering' || engine.spec?.engineState === 'stop' ? 'Stop requested — Litmus is recovering the fault' : undefined}
+          onClick={() => void run('stop', () => stopChaosEngine(ns, engine.metadata.name, cluster), 'Stopping — Litmus is recovering the fault')}
+        >
+          {busy === 'stop' ? 'Stopping…' : 'Stop'}
+        </Button>
       ) : null}
       {over && canCreate ? (
         <Button
           variant="ghost"
           size="xs"
-          disabled={busy}
+          className={tap}
+          disabled={busy !== null}
           title="Run the same fault against the same target again"
           onClick={() => {
             const next = rerunName(engine.metadata.name, allNames)
-            void run(async () => {
+            void run('rerun', async () => {
               await applyChaosEngine(rerunManifest(engine, next), cluster)
               onOpen(next)
             }, `${next} launched`)
           }}
         >
-          Re-run
+          {busy === 'rerun' ? 'Launching…' : 'Re-run'}
         </Button>
       ) : null}
-      {/* Deleting a live run can strand the injected fault with nothing left
-          to recover it, so the only route to delete is: stop, then go. */}
+      {/* Deleting a run whose fault is applied — or whose runner is about to
+          apply it — can strand the fault with nothing left to recover it, so
+          the only route to delete is: stop, then go. */}
       {canDelete ? (
         <Button
           variant="ghost"
           size="xs"
-          disabled={live || busy}
-          title={live ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
-          onClick={() => void run(() => deleteChaosEngine(engine, cluster), 'Run deleted')}
+          className={tap}
+          disabled={!deletable || busy !== null}
+          title={!deletable ? 'Stop the run first — deleting it now could leave the fault applied' : undefined}
+          onClick={() => void run('delete', () => deleteChaosEngine(engine, cluster), `${engine.metadata.name} deleted`)}
         >
-          Delete
+          {busy === 'delete' ? 'Deleting…' : 'Delete'}
         </Button>
       ) : null}
     </div>

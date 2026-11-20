@@ -189,3 +189,18 @@ Deno.test('page: History and Tonight are tabs of Batch, and ?view=history shows 
   assertStringIncludes(html, 'Slot missed')
   assertEquals(html.includes('No batch events in this period'), false)
 })
+
+// Design 0025 Phase 4: a run the stream no longer holds comes from the run-summary archive and says so on its
+// row; a history that is the archive alone (no stream) says that it is finished runs only, never "everything";
+// and an archive that could not be read is not silence.
+Deno.test('history: archived runs are marked, and the archive alone is never mistaken for the whole history', () => {
+  const archived = { ...EVENTS[1], archived: true }
+  const html = table(read({ events: [EVENTS[0], archived], total: 2, archive: { state: 'read', events: 1 } }))
+  assertEquals((html.match(/>archived</g) ?? []).length, 1)
+  const alone = table(read({ events: [archived], total: 1, stream: { reason: 'no-bus', detail: 'opt-in' }, archive: { state: 'read', events: 1 } }))
+  assertStringIncludes(alone, 'the run-summary archive alone')
+  const failed = table(read({ archive: { state: 'unreachable', detail: 'HTTP 503' } }))
+  assertStringIncludes(failed, 'run-summary archive could not be read')
+  const skipped = table(read({ archive: { state: 'skipped' } }), { since: '90d' })
+  assertStringIncludes(skipped, 'Open a job to include them')
+})

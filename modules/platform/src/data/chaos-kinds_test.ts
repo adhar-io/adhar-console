@@ -1,6 +1,7 @@
 import { assertEquals } from 'jsr:@std/assert@1'
 import {
   appKindOfPods,
+  canDeleteRun,
   CHAOS_FAULTS,
   type ChaosResult,
   errorReason,
@@ -184,4 +185,16 @@ Deno.test('errorReason unwraps the JSON reason Litmus nests in errorOutput', () 
   assertEquals(errorReason(r('target not found')), 'target not found')
   assertEquals(errorReason(r('', 'TARGET_SELECTION_ERROR')), 'TARGET_SELECTION_ERROR')
   assertEquals(errorReason(undefined), undefined)
+})
+
+Deno.test('a run can be deleted only once nothing it started can still be applied', () => {
+  // Live, recovering, or a runner still starting up: stop first.
+  assertEquals(canDeleteRun(withStatus('running', 'Running')), false)
+  assertEquals(canDeleteRun(withStatus('running', 'Running', 'Awaited', 'stop')), false)
+  assertEquals(canDeleteRun(withStatus('initialized', 'Waiting for Job Creation')), false)
+  assertEquals(canDeleteRun(engine()), false)
+  // Stopped, or finished with whatever verdict.
+  assertEquals(canDeleteRun(withStatus('initialized', 'Waiting for Job Creation', 'Awaited', 'stop')), true)
+  assertEquals(canDeleteRun(withStatus('completed', 'Completed', 'Pass')), true)
+  assertEquals(canDeleteRun(withStatus('completed', 'Completed', 'Error')), true)
 })

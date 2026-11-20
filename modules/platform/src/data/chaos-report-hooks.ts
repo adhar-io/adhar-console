@@ -108,13 +108,5 @@ export function readChaosParams(search = typeof location === 'undefined' ? '' : 
   return out
 }
 
-/** Patch the params in place (replace, not push): filters are not navigation. */
-export function writeChaosParams(patch: ChaosParams): void {
-  if (typeof location === 'undefined') return
-  const q = new URLSearchParams(location.search)
-  for (const [k, v] of Object.entries(patch)) {
-    if (v) q.set(k, v)
-    else q.delete(k)
-  }
-  history.replaceState(history.state, '', `${location.pathname}?${q.toString()}`)
-}
+// Writing them — and keeping the page in step with Back, Forward and links
+// from elsewhere — is `useChaosParams` in chaos-nav.ts.

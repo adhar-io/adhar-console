@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1'
-import { isProductionNamespace, isProtectedNamespace, launchAllowed, MAX_FAULT_SECONDS, reviewLaunch, type LaunchReview } from './chaos-safety.ts'
+import { fieldErrors, isProductionNamespace, isProtectedNamespace, launchAllowed, MAX_FAULT_SECONDS, reviewLaunch, type LaunchReview } from './chaos-safety.ts'
 
 const base: LaunchReview = { name: 'cart-pod-delete', namespace: 'shop-test', label: 'app=cart', mode: 'one', blast: 'low', seconds: 30, hasProbe: true }
 
@@ -48,4 +48,33 @@ Deno.test('namespace classification', () => {
   assert(isProductionNamespace('payments-production'))
   assert(isProductionNamespace('shop', { 'adhar.io/environment': 'prod' }))
   assert(!isProductionNamespace('product-catalog'))
+})
+
+Deno.test('fieldErrors names the field that is wrong, and nothing for a valid form', () => {
+  assertEquals(fieldErrors({ seconds: '30', mode: 'one', label: 'app=cart', probeUrl: 'http://cart.shop.svc/health', probeCode: '200' }), {})
+  assertEquals(fieldErrors({ seconds: '' }).seconds, 'A positive number of seconds.')
+  assertEquals(fieldErrors({ seconds: 'abc' }).seconds, 'A positive number of seconds.')
+  assertEquals(fieldErrors({ seconds: String(MAX_FAULT_SECONDS + 1) }).seconds, `At most ${MAX_FAULT_SECONDS}s.`)
+  assertEquals(fieldErrors({ seconds: '900', maxSeconds: 3600 }).seconds, undefined)
+  assertEquals(fieldErrors({ mode: 'percent', percent: '0' }).percent, 'Between 1 and 100.')
+  assertEquals(fieldErrors({ mode: 'percent', percent: '' }).percent, 'Between 1 and 100.')
+  // The percent only matters when the mode uses it.
+  assertEquals(fieldErrors({ mode: 'one', percent: '' }).percent, undefined)
+  assertEquals(fieldErrors({ label: 'app = cart' }).label !== undefined, true)
+  assertEquals(fieldErrors({ label: 'app.kubernetes.io/name=cart' }).label, undefined)
+})
+
+Deno.test('a probe must be an http(s) URL with a real status code; no probe needs neither', () => {
+  assertEquals(fieldErrors({ probeUrl: 'cart/health', probeCode: '200' }).probeUrl !== undefined, true)
+  assertEquals(fieldErrors({ probeUrl: 'ftp://cart', probeCode: '200' }).probeUrl !== undefined, true)
+  assertEquals(fieldErrors({ probeUrl: 'http://cart', probeCode: '20x' }).probeCode, 'A status code, 100–599.')
+  assertEquals(fieldErrors({ probeUrl: 'http://cart', probeCode: '700' }).probeCode, 'A status code, 100–599.')
+  assertEquals(fieldErrors({ probeUrl: '', probeCode: 'nonsense' }), {})
+})
+
+Deno.test('a game day recovery pause is whole seconds, zero allowed', () => {
+  assertEquals(fieldErrors({ recovery: '0' }), {})
+  assertEquals(fieldErrors({ recovery: '-5' }).recovery, 'Whole seconds, 0 or more.')
+  assertEquals(fieldErrors({ recovery: '1.5' }).recovery, 'Whole seconds, 0 or more.')
+  assertEquals(fieldErrors({ recovery: '' }).recovery, 'Whole seconds, 0 or more.')
 })

@@ -22,6 +22,8 @@ import {
   JOB_STATUS_LABEL,
   jobOwner,
   jobProblem,
+  lineageLabel,
+  modeLabel,
   observabilityLinks,
   runKindOfJob,
   type RunRow,
@@ -208,7 +210,8 @@ function OverviewTab({ row, job, now }: { row: JobRow; job: BatchJobXR; now: num
           rows={[
             ['Spring Batch job', p.job ? <span key='j' className='font-mono text-[12px]'>{p.job}</span> : undefined],
             ['Image', p.image ? <span key='i' className='font-mono text-[12px]'>{p.image}</span> : undefined],
-            ['Mode', p.mode ?? 'single'],
+            ['Mode', modeLabel(job)],
+            ['Lineage', lineageLabel(job)],
             ['Scheduler', job.status?.scheduler ?? p.scheduler ?? 'auto'],
             ['Queue', job.status?.queue],
             ['Priority', p.priority ?? 'standard'],

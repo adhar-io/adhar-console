@@ -16,7 +16,10 @@
       "Bash(timeout 170 node shot.mjs dialog light 1440 shots/05-dialog-off-light-1440.png)",
       "Bash(git checkout *)",
       "Bash(grep -n \"Account menu\\\\|ring-surface-sidebar\\\\|maxHeight: pos.maxH }\\\\$\\\\|flex flex-col overflow-y-auto\" packages/shell-ui/src/topbar.tsx)",
-      "Bash(grep -n \"stripRef = \\\\|stripSettled = \\\\|id={\\\\`tab-\" packages/shell-ui/src/tabs.tsx)"
+      "Bash(grep -n \"stripRef = \\\\|stripSettled = \\\\|id={\\\\`tab-\" packages/shell-ui/src/tabs.tsx)",
+      "Bash(~/.deno/bin/deno lint *)",
+      "Bash(~/.deno/bin/deno task *)",
+      "Bash(echo \"exit $?\")"
     ]
   }
 }

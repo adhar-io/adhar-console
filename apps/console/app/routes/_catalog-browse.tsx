@@ -772,7 +772,7 @@ function CatalogHeader({ onRegister }: { onRegister(): void }) {
             // takes the button's touch floor too — the base rule leaves bare
             // `a[href]` alone, because a link inside a sentence is not a control.
             role="button"
-            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white pointer-coarse:h-11 sm:flex-none sm:justify-start"
+            className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-brand-600 px-3 text-[13px] font-semibold text-white shadow-sm transition-colors visited:text-white hover:bg-brand-700 hover:text-white sm:flex-none sm:justify-start"
           >
             <span className="text-white">
               <IconPlus />
@@ -3903,7 +3903,7 @@ function EntityDrawer({
                 </button>
               ) : null}
               <span aria-hidden className="mx-1 hidden h-5 w-px bg-edge-default lg:block" />
-              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} className="pointer-coarse:h-11 pointer-coarse:w-11" />
+              <DrawerWidenButton wide={width.wide} onToggle={width.toggle} />
               <button
                 ref={closeBtnRef}
                 type="button"
@@ -5494,9 +5494,9 @@ function CopyButton({ text, label = 'Copy', ariaLabel, className, iconOnly = fal
  */
 const HEADER_FOCUS = 'outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised'
 const HEADER_ICON_BTN =
-  `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content pointer-coarse:h-11 pointer-coarse:w-11 ${HEADER_FOCUS}`
+  `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-content-subtle transition-colors hover:bg-surface-sunken hover:text-content ${HEADER_FOCUS}`
 const HEADER_CHIP =
-  `inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content-muted shadow-xs transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content pointer-coarse:h-11 ${HEADER_FOCUS}`
+  `inline-flex h-8 min-w-0 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-edge-default bg-surface-raised px-3 text-xs font-medium text-content-muted shadow-xs transition-colors hover:border-edge-strong hover:bg-surface-sunken hover:text-content ${HEADER_FOCUS}`
 
 function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll(): void }) {
   // No routes is a normal answer, not a failure: a library, a database or a
@@ -5528,7 +5528,7 @@ function EntityRoutesBar({ routes, onSeeAll }: { routes: EntityRoute[]; onSeeAll
           label="Copy URL"
           ariaLabel={`Copy ${primary.url}`}
           iconOnly
-          className={cn(HEADER_CHIP, 'w-8 justify-center px-0 pointer-coarse:w-11')}
+          className={cn(HEADER_CHIP, 'w-8 justify-center px-0')}
         />
       </span>
       {rest.length ? (

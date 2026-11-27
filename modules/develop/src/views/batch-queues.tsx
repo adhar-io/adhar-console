@@ -23,7 +23,7 @@ import {
 } from '../data/batch-queues-model.ts'
 import { useBatchPodGroups, useBatchQueues, usePodGroupNamespaceWatch, useSchedulerDescriptor } from '../data/batch-queues.ts'
 import { Note } from './function-bits.tsx'
-import { Loading, TABLE, TD, TH, useNow, When } from '../components/batch/bits.tsx'
+import { Loading, ROW_HOVER, TABLE, TD, TH, useNow, When } from '../components/batch/bits.tsx'
 import { GangBadge, GangProgress, GangWait } from '../components/batch/gang.tsx'
 
 /**
@@ -220,7 +220,7 @@ function QueueTable({ rows, selected, onSelect }: { rows: readonly QueueRow[]; s
               key={r.name}
               onClick={() => onSelect(r.name)}
               aria-selected={selected === r.name}
-              className={cn('cursor-pointer hover:bg-surface-sunken', selected === r.name && 'bg-brand-50/60 dark:bg-brand-500/10')}
+              className={cn(ROW_HOVER, selected === r.name && 'bg-brand-50/60 dark:bg-brand-500/10')}
             >
               <td className={TD}>
                 <div className='font-mono text-[12px] text-content'>{r.name}</div>
@@ -271,7 +271,7 @@ function GangTable({ gangs, loading, onOpenRun }: { gangs: ReturnType<typeof gan
         </thead>
         <tbody className='divide-y divide-edge-subtle'>
           {gangs.map((g) => (
-            <tr key={g.key} onClick={g.run ? () => onOpenRun(g.namespace, g.run!.name) : undefined} className={cn(g.run && 'cursor-pointer hover:bg-surface-sunken')}>
+            <tr key={g.key} onClick={g.run ? () => onOpenRun(g.namespace, g.run!.name) : undefined} className={cn(g.run && ROW_HOVER)}>
               <td className={TD}>
                 <div className='font-mono text-[12px] text-content'>{g.run?.name ?? g.name}</div>
                 <div className='text-[11px] text-content-subtle'>{[g.batchJob, g.namespace].filter(Boolean).join(' · ')}</div>

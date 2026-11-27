@@ -715,6 +715,68 @@ Deno.test('toSrc: cached data survives a failed refetch; errors are classified',
 
 /* ─────────── following a commit ─────────── */
 
+// A configuration commit — the Console's own "scale(dev): … [skip ci]" — is not built: it ships with
+// the image already deployed and reaches an environment with that environment's next promotion,
+// because Kargo renders the stage branch from the head of main each time. The trace used to run it
+// through build → freight, find nothing, and say "Not built yet" for a change already live
+// (transaction-service, 2026-11-25).
+const SHA3 = '3333333ccccccccccccccccccccccccccccccccc';
+function configTrace(at: string, opts: { withRun?: boolean; msg?: string } = {}) {
+  const { app, envs, runs, commits, artifacts, appFr } = happy();
+  const cfg = commit(SHA3, at, opts.msg ?? 'scale(dev): cart — Autoscaling off · hold 3 instances [skip ci]');
+  const extraRuns = opts.withRun
+    ? [readRun(run('app-ci-cart-3', SHA3, { start: at, end: at, digest: D2, gate: 'passed' }), NOW)]
+    : [];
+  return traceCommit(SHA3, {
+    app,
+    repo: 'cart',
+    commits: [cfg, ...commits],
+    pulls: [],
+    runs: [...extraRuns, ...runs],
+    artifacts,
+    freight: appFr,
+    envs,
+    now: NOW,
+  });
+}
+
+Deno.test('traceCommit: a [skip ci] configuration commit reaches each environment with its next promotion', () => {
+  const t = configTrace('2026-10-21T09:10:00Z');
+  assertEquals(t.kind, 'config');
+  const by = (id: string) => t.steps.find((s) => s.id === id)!;
+  assertEquals(by('build').status, 'not needed');
+  assertEquals(by('build').skipped, true);
+  assertEquals(by('scan').status, 'not needed');
+  assertEquals(by('image').status, 'unchanged');
+  assertEquals(by('freight').status, 'carried');
+  // Promoted to dev at 09:20 and test at 10:00, both after the commit; prod last on the 20th.
+  assertEquals(t.reached, ['dev', 'test']);
+  assertEquals(by('env:prod').tone, 'waiting');
+  assert(t.headline.startsWith('Configuration change — live in dev, test'), t.headline);
+  assert(t.headline.endsWith('prod on its next promotion'), t.headline);
+  assert(!t.steps.some((s) => s.tone === 'failed'), 'nothing about a configuration change failed');
+});
+
+Deno.test('traceCommit: a configuration commit is in an environment only if a promotion came AFTER it', () => {
+  // dev was promoted at 09:20, BEFORE this 09:30 commit: dev still runs the old render.
+  const t = configTrace('2026-10-21T09:30:00Z');
+  assertEquals(t.reached, ['test']);
+  assertEquals(t.steps.find((s) => s.id === 'env:dev')!.tone, 'waiting');
+  assertEquals(t.steps.find((s) => s.id === 'env:dev')!.detail, 'goes out with the next promotion to dev');
+});
+
+Deno.test('traceCommit: a [skip ci] commit that a pipeline DID build is traced as a build', () => {
+  const t = configTrace('2026-10-21T09:10:00Z', { withRun: true });
+  assertEquals(t.kind, 'build');
+  assertEquals(t.steps.find((s) => s.id === 'build')!.tone, 'done');
+});
+
+Deno.test('traceCommit: an unmarked commit with no run is still "not built yet", not a configuration change', () => {
+  const t = configTrace('2026-10-21T09:10:00Z', { msg: 'feat: add a field' });
+  assertEquals(t.kind, 'build');
+  assertEquals(t.headline, 'Not built yet');
+});
+
 Deno.test('traceCommit: reached test, waiting for prod', () => {
   const { app, envs, runs, commits, artifacts, appFr } = happy();
   const t = traceCommit(SHA2.slice(0, 7), {

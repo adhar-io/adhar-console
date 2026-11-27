@@ -61,24 +61,19 @@ const VARIANTS: Record<ButtonVariant, string> = {
 }
 
 /**
- * Heights are the mouse sizes; `pointer-coarse:` raises them to 44px.
- *
- * Measured on a 390px viewport: every visible control on a page was between
- * 32 and 36px tall, including the primary action. 44px is the size a finger
- * can hit without aiming — the figure both Apple's and Google's guidance
- * settle on, and what WCAG 2.5.5 asks for.
- *
- * A variant query, not a breakpoint: the thing that decides is whether the
- * pointer is a finger, and a touch laptop at 1440px is still a finger. `xs`
- * stays where it is — it exists for toolbar chips inside dense rows, and
- * growing those would relayout the row they sit in rather than make anything
- * easier to hit.
+ * Heights are the mouse sizes. On a touch screen `sm` and `md` both become
+ * 40px through the app-wide rule in `styles.css` ("One control height on a
+ * touch screen"), the same rule that sizes the hand-rolled links, dropdowns
+ * and inputs a button sits beside — so a row stays level. Do not add a
+ * `pointer-coarse:` height here: it would opt the button out of that rule and
+ * put it out of step with its neighbours again. `xs` stays 28px; it exists
+ * for chips inside dense rows.
  */
 const SIZES: Record<ButtonSize, string> = {
   xs: 'h-7 rounded-md px-2 text-xs gap-1',
-  sm: 'h-8 pointer-coarse:h-11 rounded-md px-2.5 text-sm gap-1.5',
-  md: 'h-9 pointer-coarse:h-11 rounded-md px-4 text-sm gap-2',
-  lg: 'h-10 pointer-coarse:h-12 rounded-lg px-5 text-base gap-2',
+  sm: 'h-8 rounded-md px-2.5 text-sm gap-1.5',
+  md: 'h-9 rounded-md px-4 text-sm gap-2',
+  lg: 'h-10 pointer-coarse:h-11 rounded-lg px-5 text-base gap-2',
 }
 
 const BASE =

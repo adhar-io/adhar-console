@@ -290,7 +290,7 @@ function Note({ title, children }: { title: string; children?: React.ReactNode }
 }
 
 const ACTION =
-  'inline-flex min-h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/30 dark:hover:text-brand-300 pointer-coarse:min-h-11'
+  'inline-flex min-h-8 items-center gap-1.5 rounded-md border border-edge-default bg-surface-raised px-2.5 py-1 text-[12px] font-medium text-content-muted shadow-sm transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/30 dark:hover:text-brand-300 pointer-coarse:min-h-9'
 
 /** A header action: an internal console link, or an external one with an arrow. */
 function ActionLink({ href, external, children, title }: { href: string; external?: boolean; children: React.ReactNode; title?: string }) {
@@ -325,7 +325,7 @@ function CopyButton({ text, what = 'Copied' }: { text: string; what?: string }) 
         }
       }}
       title={`Copy ${text}`}
-      className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/30 dark:hover:text-brand-300 pointer-coarse:min-h-11"
+      className="inline-flex min-h-7 shrink-0 items-center gap-1 rounded-md border border-edge-default bg-surface-raised px-2 text-[11px] font-medium text-content-muted transition-colors hover:border-brand-200 hover:text-brand-700 dark:hover:border-brand-500/30 dark:hover:text-brand-300 pointer-coarse:min-h-9"
     >
       <IconCopy /> Copy
     </button>
@@ -1273,7 +1273,7 @@ export function DeployFrequencyCard({ deployment, onOpen }: { deployment: Entity
       events={events}
       rows={rows}
       action={onOpen ? (
-        <button type="button" onClick={onOpen} className="inline-flex min-h-8 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 pointer-coarse:min-h-11">
+        <button type="button" onClick={onOpen} className="inline-flex min-h-8 items-center text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300 pointer-coarse:min-h-9">
           Deployment →
         </button>
       ) : undefined}

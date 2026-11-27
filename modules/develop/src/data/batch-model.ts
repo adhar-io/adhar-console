@@ -918,6 +918,27 @@ export function lineageLabel(job: BatchJobXR): string | undefined {
   return l.credentialsSecretRef?.name ? `OpenLineage to ${to}, token from Secret ${l.credentialsSecretRef.name}` : `OpenLineage to ${to}`
 }
 
+/**
+ * The two kit features the batch framework closed without (2026-11-22, design 0025
+ * §15.2): the platform composes them and the kit does not run them. The wording is
+ * the BatchJob composition's `status.message` and the CLI's, so all three say one thing.
+ */
+export const DEFERRED_CHUNKING_NOTE = 'remote chunking needs a kit with KIT-4.1; this kit refuses the run with exit 2 unsupported-distribution'
+export const DEFERRED_LINEAGE_NOTE = 'lineage emission is not in the kit; no events are sent'
+
+/**
+ * What the job drawer says about a job that declares a deferred kit feature. Read
+ * from the definition, so a control plane older than the composition's own warning
+ * still says it; a note the job's message already carries is not repeated.
+ */
+export function deferredNotes(job: BatchJobXR): string[] {
+  const message = job.status?.message ?? ''
+  const notes: string[] = []
+  if (modeOfJob(job) === 'chunked' && !message.includes(DEFERRED_CHUNKING_NOTE)) notes.push(DEFERRED_CHUNKING_NOTE)
+  if (job.spec?.parameters?.lineage?.enabled && !message.includes(DEFERRED_LINEAGE_NOTE)) notes.push(DEFERRED_LINEAGE_NOTE)
+  return notes
+}
+
 /** Which kind of run a job creates, before its template has been read: the template's `kind` decides afterwards. */
 export function runKindOfJob(job: BatchJobXR): RunKind {
   const mode = job.spec?.parameters?.mode

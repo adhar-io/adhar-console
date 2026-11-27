@@ -96,6 +96,13 @@
   --color-surface-sunken: oklch(0.968 0.012 260);
   --color-surface-raised: oklch(1 0 0);
   /*
+   * A table header's fill: between `sunken` and `raised`, the same mix
+   * DataTable's header uses. `bg-surface-muted` was written on 27 hand-built
+   * table headers (Batch, Functions) before the token existed, so every one
+   * of them rendered with no background at all.
+   */
+  --color-surface-muted: oklch(0.981 0.007 260);
+  /*
    * The app chrome — sidebar rail and topbar — is white, not the faint
    * blue-grey it used to be. At 0.972 against a 0.981 page it read as a
    * slightly dirty panel rather than a deliberate surface, and it sat BELOW
@@ -444,32 +451,6 @@ body {
     textarea {
       font-size: max(16px, 1em);
     }
-
-    /*
-     * A floor on the touch target for anything shaped like a button.
-     *
-     * `Button` sets its own on a coarse pointer, but plenty of page actions
-     * are hand-rolled `<button>`s that never go through it — measured on a
-     * 390px viewport, the catalog's own "Create new" and "Register existing"
-     * were 36px. This is the floor under all of them.
-     *
-     * Deliberately not `a[href]`: a link in a sentence is not a button, and
-     * giving every one of them a 44px box would stretch the lines of prose
-     * they sit in. Links that are controls carry `role="button"` or are
-     * already laid out as rows with their own height.
-     */
-    button,
-    [role='button'],
-    summary {
-      min-height: 44px;
-    }
-
-    /* Icon-only controls need the width as much as the height. */
-    button:empty,
-    button:has(> svg:only-child),
-    [role='button']:has(> svg:only-child) {
-      min-width: 44px;
-    }
   }
   input:focus-visible,
   select:focus-visible,
@@ -778,6 +759,9 @@ body {
   --color-surface-canvas: oklch(0.165 0.022 265);
   --color-surface-sunken: oklch(0.135 0.020 265);
   --color-surface-raised: oklch(0.213 0.026 265);
+  /* A wash, not a fixed shade: these headers sit on raised cards and on the
+     drawer's own surface, and a fixed dark shade vanished on the second. */
+  --color-surface-muted: oklch(0.96 0.008 262 / 0.05);
   --color-surface-sidebar: oklch(0.185 0.024 265);
   /* Lifts off the 0.185 sidebar rather than sinking below it. */
   --color-surface-hover: oklch(0.252 0.030 265);
@@ -918,5 +902,94 @@ body {
   table.w-full:not([data-datatable], [data-wrap]) th,
   table.w-full:not([data-datatable], [data-wrap]) td {
     white-space: nowrap;
+  }
+}
+
+/*
+ * One control height on a touch screen.
+ *
+ * This replaces a blanket `button { min-height: 44px }`. That floor ignored
+ * what a control was: a 24px drag grip became a 24x44 sliver, the round
+ * avatar an oval, every chip in a segmented row ballooned inside its track,
+ * and a button stood 8px taller than the link or dropdown beside it, because
+ * the floor only reached `<button>`.
+ *
+ * Instead the standard control sizes (32 and 36px) all become 40px for a
+ * finger, whatever element they are, so a row of mixed buttons, links,
+ * dropdowns and inputs stays level. Square icon controls grow on both axes
+ * and stay square. Anything smaller (28px chips in dense rows) or sized by
+ * padding (tabs) is left as designed, and a control that names its own touch
+ * size (`pointer-coarse:h-*`) keeps it.
+ *
+ * In `@layer utilities` with one element of specificity over `.h-8`: a base
+ * rule would lose to the height utility it is adjusting.
+ */
+@layer utilities {
+  @media (pointer: coarse) {
+    :is(button, a, select, [role='button'], input:not([type='checkbox'], [type='radio'], [type='range'])):is(.h-8, .h-9, .size-8, .size-9):not([class*='pointer-coarse:h-'], [class*='pointer-coarse:size-']) {
+      height: 2.5rem;
+    }
+    /* A 28px dropdown is the one small control that joins in: its text is
+       already forced to 16px on touch (the iOS zoom rule above), which does
+       not fit a 28px box, and it nearly always sits beside a button. */
+    select.h-7:not([class*='pointer-coarse:h-']) {
+      height: 2.5rem;
+    }
+    :is(button, a, [role='button']):is(.h-8.w-8, .h-9.w-9, .size-8, .size-9):not([class*='pointer-coarse:w-'], [class*='pointer-coarse:size-']) {
+      width: 2.5rem;
+    }
+    /* An icon-only button sized by padding (a `Button` with just an icon)
+       would come out 35x40; give it the same width as its height. */
+    :is(button, a, [role='button']):is(.h-8, .h-9):has(> svg:only-child):not([class*='pointer-coarse:']) {
+      min-width: 2.5rem;
+    }
+  }
+}
+
+/*
+ * One dropdown.
+ *
+ * The app has ~160 native `<select>`s styled by hand beside the shared
+ * `Select`. The shared one drew its own chevron; the rest showed whatever
+ * arrow the OS supplies — a heavy black wedge on macOS, a different one on
+ * every phone — jammed against a right edge with no padding of its own, so no
+ * two dropdowns matched. Every single-choice select now gets the same drawn
+ * chevron, room for it, a pointer cursor and a hover edge.
+ *
+ * In `@layer utilities` at (0,1,1): the right padding has to beat a `px-2` on
+ * the element or the label runs under the chevron. A select that opts out
+ * with `appearance-none` draws its own and is left alone.
+ */
+@layer utilities {
+  select:not([multiple], [size], .appearance-none) {
+    appearance: none;
+    cursor: pointer;
+    padding-right: 1.75rem;
+    text-overflow: ellipsis;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 0.875rem;
+  }
+  .dark select:not([multiple], [size], .appearance-none) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+  select:not([multiple], [size], .appearance-none):disabled {
+    cursor: not-allowed;
+  }
+  /* Here rather than in base: a `border-edge-default` on the element would
+     outrank a base-layer hover. An invalid field keeps its error edge. */
+  select:not([multiple], [size], .appearance-none, [aria-invalid='true']):hover:not(:disabled, :focus-visible) {
+    border-color: var(--color-edge-strong);
+  }
+}
+
+@layer base {
+  /* The native option list otherwise opens white on a dark page in browsers
+     that paint it from the element instead of the colour scheme. */
+  select option,
+  select optgroup {
+    background-color: var(--color-surface-raised);
+    color: var(--color-content);
   }
 }

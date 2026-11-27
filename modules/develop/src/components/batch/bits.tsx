@@ -6,7 +6,15 @@ import { Note } from '../../views/function-bits.tsx'
 
 /** Small pieces shared by the Batch page and its two drawers. */
 
-export const TABLE = 'min-w-full text-[12px]'
+export const TABLE = 'min-w-full text-[13px]'
+/**
+ * A clickable table row's hover, the same as DataTable's. `hover:bg-surface-sunken`
+ * turned the row darker than the page in dark mode: sunken is the deepest shade
+ * there, so the row under the pointer looked switched off, not picked out.
+ */
+export const ROW_HOVER = 'cursor-pointer hover:bg-brand-50/50 dark:hover:bg-brand-500/10'
+/** An application's band inside a grouped table: the header's tint, not the full sunken shade (a near-black stripe in dark mode). */
+export const GROUP_BAND = 'bg-surface-muted px-3 py-1.5 text-left text-[11px] font-semibold text-content-muted'
 export const TH = 'px-3 py-2 text-left font-medium text-content-subtle whitespace-nowrap'
 export const TD = 'px-3 py-2 align-top'
 export const NEW_JOB_HREF = '/catalog?section=create&family=batch'

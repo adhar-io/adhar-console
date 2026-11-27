@@ -22,7 +22,7 @@ import {
   tonightRows,
   unforecastJobs,
 } from '../data/batch-history-model.ts'
-import { TABLE, TD, TH, Until, When } from '../components/batch/bits.tsx'
+import { GROUP_BAND, TABLE, TD, TH, Until, When } from '../components/batch/bits.tsx'
 import type { DialogFrame } from '../components/batch/dialogs.tsx'
 import { Note, Section } from './function-bits.tsx'
 
@@ -151,7 +151,8 @@ export function TonightView({
       : `The batch history could not be read (${history.detail}), so expected ends and dead-letter counts come only from the runs the cluster still holds.`
     : historyError && !history
     ? `The batch history could not be read (${
-      errorText(historyError)
+      // The read's own message already opens with these words; keep only its reason.
+      errorText(historyError).replace(/^The batch history could not be read \((.*)\)\.?$/, '$1')
     }), so expected ends and dead-letter counts come only from the runs the cluster still holds.`
     : history?.state === 'read' && (history.truncated || history.behind || history.degraded)
     ? 'Part of the batch history could not be read, so an expected end may rest on fewer runs than there were.'
@@ -452,7 +453,7 @@ export function DlqTable({
           {jobs.map((j) => (
             <tbody key={j.key} className='divide-y divide-edge-subtle border-t border-edge-default'>
               <tr>
-                <th colSpan={6} scope='rowgroup' className='bg-surface-sunken px-3 py-1.5 text-left text-[11px] font-semibold text-content-muted'>
+                <th colSpan={6} scope='rowgroup' className={GROUP_BAND}>
                   <span className='inline-flex items-center gap-2'>
                     <JobName name={j.job} open={openJob?.(j.namespace, j.job)} />
                     <span className='font-normal text-content-subtle'>

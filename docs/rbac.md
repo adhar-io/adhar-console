@@ -91,12 +91,41 @@ permissions **by name**, never by re-typing the strings.
 | `aiKnowledgeRate` | `update ai-knowledge` | `POST /api/ai/feedback` |
 | `applicationsCreate` | `create applications` | `POST /api/scaffold` |
 | `applicationsDelete` | `delete applications` | `POST /api/apps/delete`; repository step of `/api/catalog/teardown` |
+| `workflowsAdmin` | `update workflows-admin` | `GET /api/workflows/engine`, `POST /api/workflows/engine/schedules/suspend-all` (each schedule is then patched as the user), `DELETE /api/workflows/archive/:ns/:uid` |
 | `appScale` | `update application-scaling` (in the environment's namespace) | `POST /api/catalog/scaling` (commit to the app's overlay) and `POST /api/catalog/scaling/settle`; the Kargo Promotion and the scale write that follow run as the user, so `create promotions.kargo.akuity.io` in the project and `patch rollouts/scale` (or `deployments/scale`) apply too |
 
 Checks are cluster-scoped unless a namespace is added (`consoleCheck(perm, ns)`).
 A ClusterRoleBinding satisfies both; a namespaced RoleBinding satisfies only
 checks asked in its namespace — which is how a team that is `admin` of its own
 namespace may run resilience suites there and nowhere else.
+
+### Workflows (Argo Workflows)
+
+Team actions on workflow runs need **no** console permission: they are
+Kubernetes RBAC on `argoproj.io` objects in the run's namespace, asked as the
+user — the same SSAR whether the browser goes through the gateway (list,
+watch, submit, stop, suspend, delete) or through the BFF for what only
+argo-server serves (`apps/console/app/server/workflows/authz.ts`, one check
+per route):
+
+| BFF route (`/api/workflows/…`) | Check, as the user, in `:ns` |
+| --- | --- |
+| `GET runs/:ns/:name` (hydrated run), `GET runs/:ns/:name/artifacts/…`, `GET archive/:ns/:uid` | `get workflows.argoproj.io` |
+| `POST runs/:ns/:name/retry`, `POST runs/:ns/:name/approve` | `update workflows.argoproj.io` (approve also applies the node's approver list and `forbidSelfApproval`) |
+| `POST runs/:ns/:name/resubmit`, `POST archive/:ns/:uid/{retry,resubmit}` | `create workflows.argoproj.io` |
+| `GET runs/:ns/:name/logs` | `get pods/log` |
+| `GET archive/:ns` | `list workflows.argoproj.io` |
+| `POST lint` | `create <kind>` in the body's namespace (`clusterworkflowtemplates`: cluster-wide) |
+| `GET capabilities` | signed in |
+
+argo-server has no per-user impersonation. Where the API server accepts the
+user's token the BFF forwards it; otherwise it calls argo-server with a
+10-minute token for `adhar-system/adhar-console-argo` (a ServiceAccount that
+holds `argoproj.io` rights only). In that mode the check above **is** the
+boundary, so every argo-server path carries the authorised namespace, an
+archived item from another namespace is answered `404`, and no query value
+reaches argo-server except the allow-listed archive filters — never a
+`fieldSelector`.
 
 To add a permission: add it to `CONSOLE_PERMISSIONS`, gate the handler with
 `requirePermission`, wrap the UI action in `<Can>`, grant it in the platform's
@@ -164,6 +193,7 @@ Shipped in the platform repo at
 | `admin` (aggregated; bound per team namespace) | `create resilience-runs`, `update application-scaling` in that namespace |
 | `oidc:security-reviewer`, `oidc:security-admin` | `approve scan-waivers` |
 | `oidc:security-admin` | `update scan-policies` |
+| `oidc:platform-admin`, `oidc:platform-engineer` | `update workflows-admin` — through the `cluster-admin` row above; no one else holds it by default |
 
 Workspace administration, organisation settings and billing are not granted
 here: they are organisation-scoped (above), so an RBAC grant of them — the old

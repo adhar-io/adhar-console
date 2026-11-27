@@ -1799,6 +1799,10 @@ export interface TraceStep {
   at?: string;
   detail?: string;
   href?: string;
+  /** The word shown instead of the tone's ("not needed", "unchanged") when the tone alone would mislead. */
+  status?: string;
+  /** A step the change legitimately does not go through (a configuration commit is not built). */
+  skipped?: boolean;
 }
 
 export interface CommitTrace {
@@ -1813,6 +1817,33 @@ export interface CommitTrace {
   headline: string;
   run?: RunView;
   freight?: kargo.Freight;
+  /**
+   * `config`: a commit nothing builds — the Console's own GitOps edits (scale, env vars, routes)
+   * and anything marked `[skip ci]` — which reaches an environment when its next promotion renders
+   * `main` (Kargo renders the stage branch from the head of `main` every time). `build`: everything else.
+   */
+  kind: 'build' | 'config';
+}
+
+/** CI skip markers Gitea Actions, Tekton triggers and the Console's own commits honour. */
+const SKIP_CI = /\[(skip ci|ci skip|no ci|skip actions|actions skip)\]/i;
+
+/** A commit no pipeline builds: marked to skip CI, and no run references it. */
+export function isConfigCommit(message: string | undefined, hasRun: boolean): boolean {
+  return !hasRun && SKIP_CI.test(message ?? '');
+}
+
+/**
+ * The promotion into `env` that carried a configuration commit: the first that SUCCEEDED and was
+ * created at or after the commit. Kargo renders the stage branch from the head of `main` when the
+ * promotion runs, so any later promotion — of the same freight or a newer one — includes it.
+ */
+function promotionAfter(env: EnvView, committedAt: string | undefined, phases: string[]) {
+  const t = Date.parse(committedAt ?? '');
+  if (!Number.isFinite(t)) return undefined;
+  return [...env.promotions]
+    .filter((p) => phases.includes(p.phase) && Date.parse(p.created) >= t)
+    .sort((a, b) => a.created.localeCompare(b.created))[0];
 }
 
 export interface TraceInput {
@@ -1889,6 +1920,9 @@ export function traceCommit(sha: string, i: TraceInput): CommitTrace {
   }
 
   const runs = i.runs.filter((r) => shaEq(r.commit, full));
+  if (commit && isConfigCommit(commit.message, runs.length > 0)) {
+    return traceConfigCommit(commit, steps, i, now);
+  }
   const run = runs.find((r) => r.trigger === 'push' && r.state === 'succeeded') ??
     runs.find((r) => r.trigger === 'push') ?? runs[0];
   steps.push(
@@ -2053,7 +2087,120 @@ export function traceCommit(sha: string, i: TraceInput): CommitTrace {
     headline: headline(steps, i.envs, now),
     ...(run ? { run } : {}),
     ...(freight ? { freight } : {}),
+    kind: 'build',
   };
+}
+
+/**
+ * A configuration commit (2026-11-25). The trace used to run it through build → scan → image →
+ * freight like any other, found none of them, and reported "Not built yet" with every stage
+ * waiting — for a change that was already live: the Console's own "scale(dev): … hold 3
+ * instances [skip ci]" on transaction-service had been rendered into stage/dev two seconds after
+ * it was committed. Nothing builds such a commit; it ships with the image already deployed, and
+ * reaches each environment with that environment's next promotion.
+ */
+function traceConfigCommit(
+  commit: gitea.Commit,
+  steps: TraceStep[],
+  i: TraceInput,
+  now: number,
+): CommitTrace {
+  steps.push({
+    id: 'build',
+    label: 'Build',
+    tone: 'none',
+    status: 'not needed',
+    skipped: true,
+    detail: 'a configuration change; nothing to build',
+  });
+  steps.push({
+    id: 'scan',
+    label: 'Scan gate',
+    tone: 'none',
+    status: 'not needed',
+    skipped: true,
+    detail: 'no new image to scan',
+  });
+  // What it ships with: the newest freight already in an environment.
+  const running = [...i.envs].map((e) => e.freight).filter((f): f is kargo.Freight => Boolean(f))
+    .sort((a, b) => b.created.localeCompare(a.created))[0];
+  const image = running?.images?.[0];
+  steps.push({
+    id: 'image',
+    label: 'Image',
+    tone: running ? 'done' : 'none',
+    status: 'unchanged',
+    skipped: true,
+    detail: running
+      ? `ships with ${image?.tag ? image.tag.slice(0, 7) : (image?.digest ?? '').slice(0, 19)}`
+      : 'nothing is deployed yet',
+  });
+  steps.push({
+    id: 'freight',
+    label: 'Freight',
+    tone: running ? 'done' : 'none',
+    status: running ? 'carried' : 'next freight',
+    skipped: true,
+    detail: running ? `rides on ${kargo.freightDisplayName(running)}` : 'rides on the next freight',
+  });
+  const reached: string[] = [];
+  for (const e of i.envs) {
+    const done = promotionAfter(e, commit.created, ['Succeeded']);
+    const inFlight = !done && promotionAfter(e, commit.created, ['Running', 'Pending']);
+    const failed = !done && !inFlight && promotionAfter(e, commit.created, ['Failed', 'Errored']);
+    const step: TraceStep = done
+      ? { id: `env:${e.name}`, label: e.name, tone: 'done', at: done.finished ?? done.created, detail: 'running this change' }
+      : inFlight
+      ? { id: `env:${e.name}`, label: e.name, tone: 'running', detail: 'being rendered into this environment' }
+      : failed
+      ? {
+        id: `env:${e.name}`,
+        label: e.name,
+        tone: 'failed',
+        at: failed.finished ?? failed.created,
+        detail: `promotion ${failed.phase.toLowerCase()}${failed.message ? `: ${failed.message}` : ''}`,
+      }
+      : {
+        id: `env:${e.name}`,
+        label: e.name,
+        tone: 'waiting',
+        detail: `goes out with the next promotion to ${e.name}`,
+      };
+    if (step.tone === 'done') reached.push(e.name);
+    steps.push(step);
+  }
+  return {
+    sha: commit.sha,
+    short: commit.sha.slice(0, 7),
+    subject: firstLine(commit.message),
+    author: commit.author?.login,
+    committedAt: commit.created,
+    steps,
+    reached,
+    headline: configHeadline(steps, now),
+    ...(running ? { freight: running } : {}),
+    kind: 'config',
+  };
+}
+
+function configHeadline(steps: TraceStep[], now: number): string {
+  const envSteps = steps.filter((s) => s.id.startsWith('env:'));
+  const failed = envSteps.find((s) => s.tone === 'failed');
+  if (failed) return `Configuration change — promotion to ${failed.label} failed`;
+  const rendering = envSteps.find((s) => s.tone === 'running');
+  if (rendering) return `Configuration change — rolling out to ${rendering.label}`;
+  const live = envSteps.filter((s) => s.tone === 'done');
+  if (!live.length) {
+    return envSteps.length
+      ? `Configuration change — goes out with the next promotion to ${envSteps[0].label}`
+      : 'Configuration change — no environment to deliver it to';
+  }
+  const last = live[live.length - 1];
+  const when = last.at ? ` ${relTime(last.at, now)}` : '';
+  const pending = envSteps.filter((s) => s.tone === 'waiting').map((s) => s.label);
+  return pending.length
+    ? `Configuration change — live in ${live.map((s) => s.label).join(', ')}${when}; ${pending.join(', ')} on its next promotion`
+    : `Configuration change — live in ${live.map((s) => s.label).join(', ')}${when}`;
 }
 
 function headline(steps: TraceStep[], envs: readonly EnvView[], now: number): string {

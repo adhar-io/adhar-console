@@ -1,0 +1,43 @@
+# A `steps` entrypoint: the designer shows it read-only, one column per group,
+# and offers "Convert to DAG".
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: steps-pipeline
+spec:
+  entrypoint: pipeline
+  templates:
+  - name: pipeline
+    steps:
+    # group 1
+    - - name: fetch
+        template: sh
+        arguments: {parameters: [{name: cmd, value: "fetch"}]}
+    # group 2 runs in parallel
+    - - name: test
+        template: sh
+        arguments: {parameters: [{name: cmd, value: "test"}]}
+        continueOn:
+          failed: true    # a red test still publishes the report
+      - name: lint
+        template: sh
+        arguments: {parameters: [{name: cmd, value: "lint"}]}
+    - - name: report
+        template: sh
+        when: "{{steps.test.status}} != Skipped"
+        arguments: {parameters: [{name: cmd, value: "report {{steps.fetch.outputs.result}}"}]}
+  - name: sh
+    inputs:
+      parameters:
+      - name: cmd
+    script:
+      image: docker.io/library/busybox:1.37
+      command: [sh]
+      source: |
+        echo "running: $CMD"
+      env:
+      - name: CMD
+        value: "{{inputs.parameters.cmd}}"
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {cpu: 50m, memory: 32Mi}

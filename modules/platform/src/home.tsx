@@ -38,7 +38,6 @@ import {
   RoutesView,
   SecretStoresView,
   TopicsView,
-  WorkflowsView,
 } from './views/xr-kinds.tsx'
 import { XrFamilyPage } from './views/xr-family.tsx'
 import { PlatformCatalog } from './views/catalog.tsx'
@@ -52,6 +51,16 @@ import { useActiveNamespace } from './data/client.ts'
 // The knowledge graph pulls in @xyflow (+ its stylesheet) — the heaviest
 // dependency in Home that only one section uses — so it loads on demand.
 const KnowledgeGraph = lazy(() => import('./views/knowledge-graph.tsx').then((m) => ({ default: m.KnowledgeGraph })))
+
+// Workflows (Argo, design 0026 §6.1) is a module of its own: every `workflows`
+// / `workflow-*` section loads it on demand, which keeps its canvas (@xyflow),
+// its data layer and its views out of Home's chunk (workflows/chunks_test.ts).
+const WorkflowsArea = lazy(() => import('./workflows/area.tsx').then((m) => ({ default: m.WorkflowsArea })))
+
+/** `workflows` and every `workflow-*` section belong to the Workflows area. */
+function isWorkflowSection(section: string | undefined): boolean {
+  return section === 'workflows' || Boolean(section?.startsWith('workflow-'))
+}
 
 type Section =
   | 'dashboard'
@@ -108,7 +117,6 @@ type Section =
   | 'caches'
   | 'buckets'
   | 'topics'
-  | 'workflows'
   | 'environments'
   | 'domains'
   | 'api-contracts'
@@ -324,13 +332,8 @@ const SECTIONS: Record<Section, SectionDef> = {
   },
   // Functions (`/platform?section=functions`) is served by the generic XR view
   // from the shared registry (XR_SECTION_BY_ID, above PlatformSection); they
-  // are managed under Develop → Functions.
-  workflows: {
-    id: 'workflows',
-    label: 'Workflows',
-    description: 'Long-running orchestrations — Temporal namespaces.',
-    kind: 'xr',
-  },
+  // are managed under Develop → Functions. `workflows` is the Workflows area
+  // (Argo), dispatched in PlatformHome before this table is consulted.
   environments: {
     id: 'environments',
     label: 'Environments',
@@ -386,6 +389,15 @@ export default function PlatformHome({ section }: { section?: string } = {}) {
   // from the registry the sidebar is built from (shell-ui xr-sections.ts).
   const xr = section ? XR_SECTION_BY_ID[section] : undefined
   const { namespace: xrNamespace } = useActiveNamespace()
+  if (isWorkflowSection(section)) {
+    return (
+      <ClusterProvider>
+        <Suspense fallback={<div className="flex justify-center py-16 text-content-subtle" aria-busy="true"><Spinner size={16} /></div>}>
+          <WorkflowsArea section={section!} />
+        </Suspense>
+      </ClusterProvider>
+    )
+  }
   if (xr) {
     return (
       <ClusterProvider>
@@ -532,8 +544,6 @@ function SectionBody({
       return <BucketsView namespace={namespace} />
     case 'topics':
       return <TopicsView namespace={namespace} />
-    case 'workflows':
-      return <WorkflowsView namespace={namespace} />
     case 'environments':
       return <EnvironmentsView />
     case 'domains':

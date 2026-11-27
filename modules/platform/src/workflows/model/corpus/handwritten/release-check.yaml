@@ -1,0 +1,166 @@
+# Release check for the payments service.
+#
+# Owned by team-payments; edited by hand AND in the designer, so every comment
+# in this file has to survive a canvas edit (design 0026, INV-6).
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: release-check
+  namespace: payments-dev
+  labels:
+    adhar.io/team: payments            # who to page
+    adhar.io/application: transaction-service
+  annotations:
+    workflows.argoproj.io/title: Release check
+    workflows.argoproj.io/description: >-
+      Builds the candidate, checks it from three sides and asks a person
+      before anything is tagged.
+    adhar.io/designer-positions: '{"build":[0,116],"lint":[312,0],"unit":[312,116],"scan":[312,232],"approve":[624,116],"tag":[936,116],"exit-main/notify":[0,404]}'
+    example.com/owned-by-another-tool: keep-me   # the designer has never heard of this key
+spec:
+  entrypoint: main
+  onExit: exit-main
+  serviceAccountName: adhar-workflow
+  activeDeadlineSeconds: 3600   # one hour is generous
+  # Fields below this line are ones the designer does not model.
+  podGC:
+    strategy: OnPodCompletion
+    deleteDelayDuration: 60s
+  ttlStrategy: {secondsAfterCompletion: 86400, secondsAfterFailure: 604800}
+  workflowMetadata:
+    labels:
+      adhar.io/has-approvals: "true"
+  arguments:
+    parameters:
+    - name: revision
+      description: Git revision to check
+    - name: environment
+      value: dev
+      enum: [dev, test]   # prod goes through Kargo, not through here
+    - name: notify
+      value: "on"         # a string, not a boolean: quoted on purpose
+  templates:
+  # ── the graph ─────────────────────────────────────────────────────────
+  - name: main
+    dag:
+      tasks:
+      - name: build
+        template: build
+        arguments:
+          parameters:
+          - {name: revision, value: "{{workflow.parameters.revision}}"}
+      # Three independent checks; each one alone can fail the run.
+      - name: lint
+        depends: build
+        template: lint
+      - name: unit
+        depends: build.Succeeded
+        template: unit
+        # only shards that exist
+        withItems: [1, 2, 3]
+        arguments:
+          parameters: [{name: shard, value: "{{item}}"}]
+      - name: scan
+        depends: "build"
+        template: scan
+        when: "{{workflow.parameters.environment}} != dev"
+      - name: approve
+        # Skipped scans still let a person decide.
+        depends: "lint && unit && (scan.Succeeded || scan.Skipped)"
+        templateRef:
+          name: adhar-steps
+          template: approval
+          clusterScope: true
+        arguments:
+          parameters:
+          - name: question
+            value: "Tag {{workflow.parameters.revision}} as a release candidate?"
+          - name: approvers
+            value: ws-team-payments
+      - name: tag
+        depends: approve
+        when: "{{tasks.approve.outputs.parameters.decision}} == approve"
+        template: tag
+        hooks:
+          running:
+            expression: tasks.tag.status == "Running"
+            template: announce
+  - name: build
+    inputs:
+      parameters:
+      - name: revision
+    outputs:
+      parameters:
+      - name: image
+        valueFrom:
+          path: /tmp/image
+          default: none
+    retryStrategy:
+      limit: "2"
+      retryPolicy: OnError
+    container:
+      image: ghcr.io/adhar-io/builder:1.4.2
+      command: [sh, -c]
+      args:
+      - |
+        set -eu
+        # comments inside a block scalar are text, not YAML
+        echo "building $REVISION"
+        echo "ghcr.io/acme/txn:$REVISION" > /tmp/image
+      env:
+      - name: REVISION
+        value: "{{inputs.parameters.revision}}"
+      resources:
+        requests: {cpu: 500m, memory: 512Mi}
+        limits: {cpu: "1", memory: 1Gi}
+  - name: lint
+    script:
+      image: docker.io/library/python:3.13-slim
+      command: [python]
+      source: |
+        import sys
+        print("lint ok")
+        sys.exit(0)
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: 500m, memory: 256Mi}
+  - name: unit
+    inputs:
+      parameters: [{name: shard}]
+    container:
+      image: ghcr.io/adhar-io/builder:1.4.2
+      args: ["test", "--shard", "{{inputs.parameters.shard}}"]
+      resources:
+        requests: {cpu: 250m, memory: 256Mi}
+        limits: {cpu: "1", memory: 512Mi}
+  - name: scan
+    http:
+      url: https://scanner.adhar-system.svc.cluster.local/scan
+      method: POST
+      timeoutSeconds: 30
+      successCondition: response.statusCode == 200
+  - name: tag
+    resource:
+      action: create
+      setOwnerReference: true
+      manifest: |
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          generateName: release-tag-
+        data:
+          revision: "{{workflow.parameters.revision}}"
+  - name: announce
+    container:
+      image: docker.io/curlimages/curl:8.11.0
+      args: [-fsS, "https://chat.example.com/hook"]
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}
+        limits: {cpu: 100m, memory: 32Mi}
+  # ── exit lane ─────────────────────────────────────────────────────────
+  - name: exit-main
+    dag:
+      tasks:
+      - name: notify
+        template: announce
+        when: "{{workflow.status}} != Succeeded"

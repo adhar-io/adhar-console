@@ -304,6 +304,16 @@ export const IconPipeline = (p: Props) => (
   </Svg>
 )
 
+/** Workflows (Argo): a start node fanning out to two steps that join again. */
+export const IconWorkflow = (p: Props) => (
+  <Svg {...p}>
+    <rect x="2.5" y="9.5" width="5" height="5" rx="1.2" />
+    <rect x="16.5" y="3.5" width="5" height="5" rx="1.2" />
+    <rect x="16.5" y="15.5" width="5" height="5" rx="1.2" />
+    <path d="M7.5 12h3a2 2 0 0 0 2-2V8a2 2 0 0 1 2-2h2M12.5 12v2a2 2 0 0 0 2 2v2h2" />
+  </Svg>
+)
+
 export const IconRoute = (p: Props) => (
   <Svg {...p}>
     <circle cx="6" cy="19" r="2.5" />

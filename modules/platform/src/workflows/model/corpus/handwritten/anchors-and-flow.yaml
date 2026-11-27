@@ -1,0 +1,64 @@
+# Anchors, aliases, merge keys, flow style and every scalar style in one file.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata: {name: anchors-and-flow, namespace: data-dev, labels: {"adhar.io/team": data}}
+spec:
+  entrypoint: main
+  templateDefaults: &defaults
+    retryStrategy: {limit: 3, backoff: {duration: 10s, factor: 2}}
+  x-common-resources: &res   # an extension key the API server would prune; the designer must not
+    requests: {cpu: 100m, memory: 64Mi}
+    limits: {cpu: 200m, memory: 128Mi}
+  arguments:
+    parameters:
+      - name: plain
+        value: hello world
+      - name: single
+        value: 'it''s quoted'
+      - name: double
+        value: "tab\there, quote \" and unicode é"
+      - name: looks-like-a-number
+        value: "0123"
+      - name: looks-like-a-bool
+        value: 'yes'
+      - name: empty
+        value: ""
+      - name: folded
+        value: >
+          folded text that
+          continues on a second line
+
+          and has a second paragraph
+      - name: literal-keep
+        value: |+
+          keeps the trailing blank lines
+
+      - name: literal-strip
+        value: |-
+          no newline at the end
+      - name: emoji
+        value: "✓ done — 完了"
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - {name: extract, template: run, arguments: {parameters: [{name: cmd, value: extract}]}}
+          - {name: transform, template: run, depends: "extract", arguments: {parameters: [{name: cmd, value: transform}]}}
+          - name: load
+            template: run
+            depends: "transform.Succeeded && extract.Succeeded"
+            arguments:
+              parameters:
+                - name: cmd
+                  value: load
+    - name: run
+      <<: *defaults
+      inputs: {parameters: [{name: cmd}]}
+      container:
+        image: quay.io/acme/etl:2.0.1
+        args: ["{{inputs.parameters.cmd}}"]
+        resources: *res
+        env: [
+          {name: A, value: "1"},
+          {name: B, value: "2"},   # the second one
+        ]

@@ -1,0 +1,18 @@
+# What a submit creates: a Workflow that only references a template. There is
+# no graph to draw here, and the designer must still open and save it.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: release-check-
+  namespace: payments-dev
+  labels:
+    workflows.argoproj.io/workflow-template: release-check
+spec:
+  workflowTemplateRef:
+    name: release-check
+  arguments:
+    parameters:
+      - name: revision
+        value: 4152409d   # hex that happens to be all digits elsewhere: stays a string
+      - name: environment
+        value: test

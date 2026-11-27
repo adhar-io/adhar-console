@@ -65,6 +65,26 @@ export interface WatchSpec {
   search?: Record<string, string>
   /** Page size for the priming list. */
   limit?: number
+  /**
+   * Extra request headers for the priming/resync LIST — `accept` asking for
+   * `PartialObjectMetadataList` makes a metadata-only list (labels, no status).
+   */
+  headers?: Record<string, string>
+  /**
+   * Extra request headers for the WATCH; `headers` when absent. A metadata-only
+   * watch must ask for `PartialObjectMetadata` and NOT name the List kind: the
+   * API server picks the first transform in the Accept header without telling
+   * list from watch endpoints, and a watch negotiated as
+   * `PartialObjectMetadataList` answers 200 and streams no frames at all
+   * (measured on kube-apiserver 1.36.2). A list asked for the singular kind is
+   * a 406. So the two requests need different headers.
+   */
+  watchHeaders?: Record<string, string>
+}
+
+/** The headers one request of a watch source sends. */
+export function requestHeaders(spec: WatchSpec, kind: 'list' | 'watch'): Record<string, string> | undefined {
+  return kind === 'watch' ? (spec.watchHeaders ?? spec.headers) : spec.headers
 }
 
 export interface WatchHandlers {
@@ -119,7 +139,7 @@ export async function runWatch(
         limit: String(spec.limit ?? 2000),
         ...(spec.search ?? {}),
       })
-      const listRes = await apiServerFetch(token, path, { search: `?${listQuery}` })
+      const listRes = await apiServerFetch(token, path, { search: `?${listQuery}`, headers: requestHeaders(spec, 'list') })
       if (!listRes.ok) {
         if (listRes.status === 404) {
           log(`[watch] ${spec.id}: not installed on this cluster — source disabled`)
@@ -162,7 +182,7 @@ export async function runWatch(
         allowWatchBookmarks: 'true',
         ...(spec.search ?? {}),
       })
-      const watchRes = await apiServerFetch(token, path, { search: `?${watchQuery}` })
+      const watchRes = await apiServerFetch(token, path, { search: `?${watchQuery}`, headers: requestHeaders(spec, 'watch') })
       if (!watchRes.ok || !watchRes.body) throw new Error(`watch failed (${watchRes.status})`)
 
       // Only reset the backoff once a watch is actually established, so a

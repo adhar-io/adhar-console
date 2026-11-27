@@ -42,6 +42,8 @@ import { handleAppDelete } from './app/server/app-delete.ts'
 import { handleFunctionInvoke } from './app/server/function-invoke.ts'
 import { handleResilienceRuns } from './app/server/resilience-runs.ts'
 import { handleResilienceReports, startResilienceReports } from './app/server/resilience-reports.ts'
+import { handleWorkflows } from './app/server/workflows/handler.ts'
+import { startWorkflowRecorder } from './app/server/workflows/recorder.ts'
 import { handleScanSecurity } from './app/server/scan-waivers.ts'
 import { handleCoderExternalAuth, handleCoderIdentity, handleCoderIdeSession } from './app/server/coder-ide.ts'
 import { handleAlertmanagerWebhook } from './app/server/alertmanager.ts'
@@ -452,6 +454,14 @@ async function route(req: Request): Promise<Response> {
   const reports = path.match(/^\/api\/resilience\/reports(\/.*)?$/)
   if (reports) return handleResilienceReports(req, reports[1] ?? '')
 
+  // Argo Workflows (design 0026 §6.4): only what argo-server alone serves —
+  // archive, retry, resubmit, approvals, lint, artifacts, the hydrated run —
+  // plus step logs (live pod, then Loki) and the engine page. Every route asks
+  // ONE SSAR as the user first and pins argo-server to that namespace.
+  // Kubernetes objects themselves go through /api/k8s as the user.
+  const workflows = path.match(/^\/api\/workflows(\/.*)?$/)
+  if (workflows) return handleWorkflows(req, workflows[1] ?? '')
+
   // Alertmanager's receiver: platform alerts land in the Notification Center
   // for everyone. Bearer-token auth (Alertmanager is not a user) — see the
   // handler for why an unset token refuses rather than accepts.
@@ -576,6 +586,10 @@ const stopMembershipMigration = startMembershipMigration()
 // latest result, so the console freezes every run as it lands, commit and all.
 const stopResilienceReports = startResilienceReports()
 
+// Argo Workflows lifecycle (metadata-only watch) and approvals → notifications.
+// Off until the CRD exists; looks again every ten minutes (workflows/recorder.ts).
+const stopWorkflowRecorder = startWorkflowRecorder()
+
 console.log(`adhar-console listening on http://${HOSTNAME}:${PORT}  (dist: ${DIST})`)
 console.log(`  auth: ${isServerAuthConfigured() ? 'keycloak' : 'stub (KEYCLOAK_URL/AUTH_* not set)'}`)
 
@@ -601,6 +615,7 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
       stopGraph()
       stopMembershipMigration()
       stopResilienceReports()
+      stopWorkflowRecorder()
       setTimeout(() => {
         console.warn('[server] drain deadline reached — closing remaining connections')
         Deno.exit(0)

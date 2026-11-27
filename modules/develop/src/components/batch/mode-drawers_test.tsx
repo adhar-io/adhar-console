@@ -2,7 +2,7 @@ import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert@^1.0
 import { renderToStaticMarkup } from 'npm:react-dom@^19.2.0/server'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { type BatchJobXR, jobRows, lineageLabel, modeLabel, modeOfJob, type RunObject, runModeOf, runRow, runRows } from '../../data/batch-model.ts'
+import { type BatchJobXR, DEFERRED_CHUNKING_NOTE, DEFERRED_LINEAGE_NOTE, deferredNotes, jobRows, lineageLabel, modeLabel, modeOfJob, type RunObject, runModeOf, runRow, runRows } from '../../data/batch-model.ts'
 import { type DrawerFrame, RunDrawer } from './run-drawer.tsx'
 import { JobDrawer } from './job-drawer.tsx'
 
@@ -93,4 +93,34 @@ Deno.test('run drawer: a chunked run says so, a single one says nothing about it
   assertStringIncludes(open(run('ledger-aa', { indexed: true, distribution: 'chunked' })), 'Remote chunking (1 manager + workers over RabbitMQ)')
   const single = open(run('ledger-bb', {}))
   assert(!single.includes('Remote chunking') && !single.includes('Partitioned ('), 'a single run carries no mode line')
+})
+
+/**
+ * The framework closed with remote chunking and lineage emission deferred in the kit
+ * (design 0025 §15.2). The drawer says so for a job that declares either, in the
+ * composition's own words, once, and for no other job.
+ */
+Deno.test('job drawer: a chunked or lineage job says what the kit does not run yet', () => {
+  assertEquals(DEFERRED_CHUNKING_NOTE, 'remote chunking needs a kit with KIT-4.1; this kit refuses the run with exit 2 unsupported-distribution')
+  assertEquals(DEFERRED_LINEAGE_NOTE, 'lineage emission is not in the kit; no events are sent')
+  assertEquals(deferredNotes(CHUNKED), [DEFERRED_CHUNKING_NOTE, DEFERRED_LINEAGE_NOTE])
+  assertEquals(deferredNotes(job({ mode: 'chunked', chunking: { requestQueue: 'a', replyQueue: 'b' } })), [DEFERRED_CHUNKING_NOTE])
+  assertEquals(deferredNotes(job({ lineage: { enabled: true, url: 'http://marquez:5000' } })), [DEFERRED_LINEAGE_NOTE])
+  assertEquals(deferredNotes(job({ lineage: { enabled: false } })), [])
+  assertEquals(deferredNotes(job({ mode: 'partitioned' })), [])
+  assertEquals(deferredNotes(job()), [])
+
+  const open = (j: BatchJobXR) =>
+    mount(() => {}, <JobDrawer row={jobRows([j], runRows([], [], NOW), { now: NOW })[0]} now={NOW} tab='overview' onTab={() => {}} onClose={() => {}} onOpenRun={() => {}} Frame={DrawerShell} />)
+  const count = (html: string, text: string) => html.split(text).length - 1
+  const html = open(CHUNKED)
+  assertEquals(count(html, DEFERRED_CHUNKING_NOTE), 1)
+  assertEquals(count(html, DEFERRED_LINEAGE_NOTE), 1)
+  // The composition's status.message carries the same words: said once, not twice.
+  const composed = open({ ...CHUNKED, status: { message: `on demand; ${DEFERRED_CHUNKING_NOTE}; ${DEFERRED_LINEAGE_NOTE}` } })
+  assertEquals(count(composed, DEFERRED_CHUNKING_NOTE), 1)
+  assertEquals(count(composed, DEFERRED_LINEAGE_NOTE), 1)
+  for (const plain of [open(job()), open(job({ mode: 'partitioned' }))]) {
+    assert(!plain.includes('Not in the kit yet'), 'a single or partitioned job without lineage carries no note')
+  }
 })

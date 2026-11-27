@@ -186,7 +186,7 @@ export function Dashboard() {
         ) : null}
         <div className="ml-auto flex items-center gap-2">
           <MiniSelect ariaLabel="Auto-refresh" value={refresh} onChange={setRefresh} options={REFRESH_OPTIONS} />
-          <Button size="sm" onClick={refreshAll} leading={<IconRefresh />} aria-label="Refresh now">
+          <Button size="sm" className="w-8 px-0 sm:w-auto sm:px-2.5" onClick={refreshAll} leading={<IconRefresh />} aria-label="Refresh now">
             <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>

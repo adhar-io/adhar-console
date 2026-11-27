@@ -403,9 +403,6 @@ export function BucketsView({ namespace }: { namespace?: string }) {
 export function TopicsView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="topics" namespace={namespace} />
 }
-export function WorkflowsView({ namespace }: { namespace?: string }) {
-  return <XrListForKind resource="compositeworkflows" namespace={namespace} />
-}
 export function EnvironmentsView({ namespace }: { namespace?: string }) {
   return <XrListForKind resource="environments" namespace={namespace} />
 }

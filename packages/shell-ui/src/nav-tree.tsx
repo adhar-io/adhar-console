@@ -28,6 +28,7 @@ import {
   IconShield,
   IconSparkle,
   IconTarget,
+  IconWorkflow,
 } from './icons.tsx'
 
 export interface NavItem {
@@ -429,6 +430,26 @@ export const DEFAULT_NAV: NavSection[] = [
             badge: { kind: 'info', value: 'new' },
             roles: PLATFORM_OPS_ROLES,
           },
+        ],
+      },
+      {
+        // Argo Workflows (design 0026 §6.1). Visible to everyone who builds
+        // software, because teams own their workflows; whether the engine is
+        // installed is the page's capability probe, not the nav's business.
+        // Designer, Schedules and Triggers join this list with W2 and W4.
+        id: 'platform-workflows',
+        label: 'Workflows',
+        to: '/platform',
+        search: 'workflows',
+        icon: <IconWorkflow />,
+        description: 'Automate, approve and orchestrate',
+        roles: LIFECYCLE_ROLES,
+        children: [
+          { id: 'platform.workflows', label: 'Overview', to: '/platform', search: 'workflows' },
+          { id: 'platform.workflow-catalog', label: 'Catalog', to: '/platform', search: 'workflow-catalog' },
+          { id: 'platform.workflow-runs', label: 'Runs', to: '/platform', search: 'workflow-runs' },
+          { id: 'platform.workflow-history', label: 'History', to: '/platform', search: 'workflow-history' },
+          { id: 'platform.workflow-engine', label: 'Engine', to: '/platform', search: 'workflow-engine', roles: PLATFORM_OPS_ROLES },
         ],
       },
       {

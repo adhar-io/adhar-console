@@ -22,6 +22,7 @@ import {
   JOB_STATUS_LABEL,
   jobOwner,
   jobProblem,
+  deferredNotes,
   lineageLabel,
   modeLabel,
   observabilityLinks,
@@ -29,7 +30,7 @@ import {
   type RunRow,
 } from '../../data/batch-model.ts'
 import { ExternalLink, Facts, Note, Section } from '../../views/function-bits.tsx'
-import { ConditionsTable, DurationText, ErrorLine, ExitCode, jobSubtitle, Loading, RunBadge, SlaBadge, TABLE, TD, TH, Until, When } from './bits.tsx'
+import { ConditionsTable, DurationText, ErrorLine, ExitCode, jobSubtitle, Loading, ROW_HOVER, RunBadge, SlaBadge, TABLE, TD, TH, Until, When } from './bits.tsx'
 import { HoldDialog, ReleaseDialog, RunNowDialog } from './dialogs.tsx'
 import { BackfillDialog } from './backfill-dialog.tsx'
 import { BatchHistory } from '../../views/batch-history.tsx'
@@ -189,6 +190,7 @@ function OverviewTab({ row, job, now }: { row: JobRow; job: BatchJobXR; now: num
     <div className='space-y-5'>
       {problem ? <Note tone='warn'>{problem}</Note> : null}
       {job.status?.message && job.status.message !== problem ? <Note>{job.status.message}</Note> : null}
+      {deferredNotes(job).map((note) => <Note key={note} tone='warn'>Not in the kit yet: {note}.</Note>)}
 
       <Section title='Schedule'>
         <Facts
@@ -355,7 +357,7 @@ function RunsTab({ row, onOpenRun }: { row: JobRow; onOpenRun(name: string): voi
           </thead>
           <tbody className='divide-y divide-edge-subtle'>
             {row.runs.slice(0, 50).map((r) => (
-              <tr key={r.key} className='cursor-pointer hover:bg-surface-sunken' onClick={() => onOpenRun(r.name)}>
+              <tr key={r.key} className={ROW_HOVER} onClick={() => onOpenRun(r.name)}>
                 <td className={cn(TD, 'font-mono')}>
                   <button type='button' className='text-left text-brand-700 hover:underline dark:text-brand-300' onClick={(e) => { e.stopPropagation(); onOpenRun(r.name) }}>{r.name}</button>
                 </td>

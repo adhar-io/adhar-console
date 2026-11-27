@@ -436,7 +436,7 @@ function Stepper({ value, onChange, min, max, disabled, label }: { value: number
   const [text, setText] = useState(String(value))
   useEffect(() => setText(String(value)), [value])
   const set = (n: number) => onChange(Math.min(max, Math.max(min, n)))
-  const btn = 'inline-flex size-8 items-center justify-center text-content-muted transition-colors hover:bg-surface-sunken hover:text-content focus-visible:relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent pointer-coarse:size-11'
+  const btn = 'inline-flex size-8 items-center justify-center text-content-muted transition-colors hover:bg-surface-sunken hover:text-content focus-visible:relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent'
   return (
     <div className={cn('inline-flex items-stretch overflow-hidden rounded-md border border-edge-default bg-surface-raised shadow-xs', disabled && 'opacity-60')}>
       <button type="button" className={btn} disabled={disabled || value <= min} onClick={() => set(value - 1)} aria-label={`${label}: one fewer`}>
@@ -474,7 +474,7 @@ function Chip({ active, onClick, children, disabled, title }: { active?: boolean
       title={title}
       onClick={onClick}
       className={cn(
-        'inline-flex min-h-7 items-center rounded-md border px-2 text-[12px] font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-11',
+        'inline-flex min-h-7 items-center rounded-md border px-2 text-[12px] font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 disabled:cursor-not-allowed disabled:opacity-50 pointer-coarse:min-h-9',
         active
           ? 'border-brand-300 bg-brand-50 text-brand-800 dark:border-brand-500/40 dark:bg-brand-500/15 dark:text-brand-200'
           : 'border-edge-default bg-surface-raised text-content-muted hover:border-edge-strong hover:text-content',

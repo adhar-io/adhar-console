@@ -129,6 +129,14 @@ export const CONSOLE_PERMISSIONS = Object.freeze({
   // environment's namespace, like resilienceRun — who may make it. The
   // rollout itself (Kargo promotion, scale subresource) runs as the user.
   appScale: p('application-scaling', 'update', 'Change how many instances an application runs in an environment, and its autoscaling (committed to its GitOps overlay).'),
+
+  // Workflows (Argo Workflows, design 0026): the operations that act on the
+  // ENGINE rather than on one team's runs — deleting archived runs from the
+  // shared Postgres archive, reading the engine page, suspending every
+  // schedule at once. Team actions on their own runs need no console
+  // permission: they are Kubernetes RBAC on argoproj.io workflows in the
+  // run's namespace, asked as the user.
+  workflowsAdmin: p('workflows-admin', 'update', 'Administer the workflow engine: the Engine page, deleting archived runs, suspending all schedules.'),
 } as const)
 
 export type ConsolePermissionName = keyof typeof CONSOLE_PERMISSIONS

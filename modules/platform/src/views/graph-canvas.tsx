@@ -23,7 +23,7 @@ import {
   useInternalNode,
   useReactFlow,
 } from '@xyflow/react'
-import flowCss from '@xyflow/react/dist/style.css?inline'
+import { ensureFlowCss } from '../components/flow-css.ts'
 import { cn } from '@adhar/utils'
 import { useToast } from '@adhar/shell-ui'
 import { isProblem, pathEdgeKeys, reachable, shortestPath } from '../data/graph-lens.ts'
@@ -48,25 +48,8 @@ import { EDGE_PHRASE, type EdgeKind, type GraphEdge, type GraphNode, KIND_COLOR,
  * the canvas covers the whole display rather than sitting under the shell).
  */
 
-/* React Flow ships its CSS separately; a federated remote does not carry its
-   stylesheet to the host, so inject it once (same pattern as the terminal). */
-const STYLE_ID = 'adhar-xyflow-css'
-function ensureFlowCss() {
-  if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return
-  const el = document.createElement('style')
-  el.id = STYLE_ID
-  el.textContent = `${flowCss}
-.adhar-graph .react-flow__attribution{display:none}
-.adhar-graph .react-flow__controls{box-shadow:none;border:1px solid var(--color-edge-default);border-radius:10px;overflow:hidden}
-.adhar-graph .react-flow__controls-button{background:var(--color-surface-raised);border-bottom:1px solid var(--color-edge-subtle);color:var(--color-content-muted)}
-.adhar-graph .react-flow__controls-button:hover{background:var(--color-surface-sunken)}
-.adhar-graph .react-flow__controls-button svg{fill:currentColor}
-.adhar-graph .react-flow__minimap{border:1px solid var(--color-edge-default);border-radius:10px;overflow:hidden;background:var(--color-surface-raised)}
-.adhar-graph .react-flow__edge-textbg{fill:var(--color-surface-raised)}
-.adhar-graph .react-flow__edge-text{fill:var(--color-content-muted);font-size:10px}
-`
-  document.head.appendChild(el)
-}
+/* React Flow's stylesheet and this canvas's chrome rules (`.adhar-graph`) are
+   injected by the module's one shared helper; the workflow canvas uses it too. */
 
 /** Raw colours for the minimap and edges (Tailwind classes cannot reach SVG fills there). */
 export const KIND_HEX: Record<NodeKind, string> = {
@@ -319,7 +302,7 @@ const LENSES: Array<{ id: Lens; label: string; hint: string; key: string }> = [
 ]
 
 export function GraphCanvas(props: GraphCanvasProps) {
-  ensureFlowCss()
+  ensureFlowCss('adhar-graph')
   return (
     <ReactFlowProvider>
       <Canvas {...props} />

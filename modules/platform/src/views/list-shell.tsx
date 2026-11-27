@@ -91,7 +91,7 @@ export function ListShell({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder}
             className={cn(
-              'h-8 w-full rounded-lg border border-edge-default bg-surface-raised pl-8 pr-7 text-sm pointer-coarse:h-10 text-content placeholder:text-content-subtle',
+              'h-8 w-full rounded-lg border border-edge-default bg-surface-raised pl-8 pr-7 text-sm text-content placeholder:text-content-subtle',
               'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20',
             )}
           />
@@ -118,7 +118,7 @@ export function ListShell({
               aria-label="Refresh"
               disabled={loading}
               className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors pointer-coarse:h-10 pointer-coarse:w-10',
+                'flex h-8 w-8 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors',
                 'hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40',
                 'disabled:cursor-not-allowed disabled:opacity-60',

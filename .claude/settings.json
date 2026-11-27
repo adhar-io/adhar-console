@@ -19,7 +19,10 @@
       "Bash(grep -n \"stripRef = \\\\|stripSettled = \\\\|id={\\\\`tab-\" packages/shell-ui/src/tabs.tsx)",
       "Bash(~/.deno/bin/deno lint *)",
       "Bash(~/.deno/bin/deno task *)",
-      "Bash(echo \"exit $?\")"
+      "Bash(echo \"exit $?\")",
+      "Bash(grep -rnoE \"[a-z0-9:\\\\[\\\\]-]*pointer-coarse:[^ \\\\\"'\\\\`]+\" apps modules packages --include=\"*.tsx\" --include=\"*.ts\")",
+      "Bash(awk -F: '{f=$1; sub\\(/^[^:]+:[0-9]+:/,\"\"\\); c[f\" \"$0]++} END{for\\(k in c\\) print c[k], k}')",
+      "Bash(sort -k2)"
     ]
   }
 }

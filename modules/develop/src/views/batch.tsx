@@ -49,7 +49,9 @@ import {
   BatchNotInstalled,
   DurationText,
   ExitCode,
+  GROUP_BAND,
   NEW_JOB_HREF,
+  ROW_HOVER,
   RunBadge,
   SlaBadge,
   TABLE,
@@ -362,7 +364,7 @@ function JobsView({
   return (
     <>
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-5'>
-        <StatTile label='Jobs' value={loading ? '…' : rows.length} hint={loading ? undefined : `${scheduled} scheduled`} />
+        <StatTile className='col-span-2 sm:col-span-1' label='Jobs' value={loading ? '…' : rows.length} hint={loading ? undefined : `${scheduled} scheduled`} />
         <StatTile label='Running' value={loading || runsLoading ? '…' : count.running} tone='info' on={(values.status ?? []).includes('running')} onClick={() => toggle('status', 'running')} />
         <StatTile label='Last run failed' value={loading || runsLoading ? '…' : count.failed} tone='amber' on={(values.status ?? []).includes('failed')} onClick={() => toggle('status', 'failed')} />
         <StatTile label='Held' value={loading ? '…' : count.held} tone='violet' hint='schedule suspended' on={(values.status ?? []).includes('held')} onClick={() => toggle('status', 'held')} />
@@ -390,7 +392,8 @@ function JobsView({
             <table className={TABLE}>
               <thead className='bg-surface-muted'>
                 <tr>
-                  <th className={TH}>Job</th>
+                  {/* Wide enough that a name breaks at most once on a phone, instead of at every hyphen. */}
+                  <th className={cn(TH, 'min-w-[13rem]')}>Job</th>
                   <th className={TH}>Environment</th>
                   <th className={TH}>Schedule</th>
                   <th className={TH}>Next run</th>
@@ -411,7 +414,7 @@ function JobsView({
               {groups.map((g) => (
                 <tbody key={g.application} className='divide-y divide-edge-subtle border-t border-edge-default'>
                   <tr>
-                    <th colSpan={7} scope='rowgroup' className='bg-surface-sunken px-3 py-1.5 text-left text-[11px] font-semibold text-content-muted'>
+                    <th colSpan={7} scope='rowgroup' className={GROUP_BAND}>
                       {g.application}
                       {g.rows[0].project ? <span className='font-normal text-content-subtle'> · project {g.rows[0].project}</span> : null}
                     </th>
@@ -450,7 +453,7 @@ function JobsView({
 function JobRowView({ row, now, runsLoading, onOpen }: { row: JobRow; now: number; runsLoading: boolean; onOpen(): void }) {
   const last = row.lastRun
   return (
-    <tr className='cursor-pointer hover:bg-surface-sunken' onClick={onOpen}>
+    <tr className={ROW_HOVER} onClick={onOpen}>
       <td className={TD}>
         <div className='flex flex-wrap items-center gap-1.5'>
           <button

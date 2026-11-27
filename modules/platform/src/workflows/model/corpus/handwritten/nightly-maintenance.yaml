@@ -1,0 +1,59 @@
+---
+# A CronWorkflow: the spec the designer edits sits under workflowSpec.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: nightly-maintenance
+  namespace: payments-dev
+spec:
+  schedules:
+    - "15 2 * * *"      # after the backups
+    - "15 14 * * 6"     # and once on Saturday afternoon
+  timezone: Asia/Singapore
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  workflowSpec:
+    entrypoint: maintain
+    activeDeadlineSeconds: 1800
+    templates:
+      - name: maintain
+        dag:
+          tasks:
+            - name: vacuum
+              template: psql
+              arguments:
+                parameters:
+                  - name: statement
+                    value: VACUUM (ANALYZE)
+            - name: wait
+              template: settle   # a timer, not an approval
+              depends: vacuum
+            - name: reindex
+              template: psql
+              depends: wait
+              arguments:
+                parameters:
+                  - name: statement
+                    value: REINDEX DATABASE CONCURRENTLY app
+      - name: psql
+        inputs:
+          parameters:
+            - name: statement
+        container:
+          image: ghcr.io/cloudnative-pg/postgresql:18.4
+          command: [psql]
+          args: ["-c", "{{inputs.parameters.statement}}"]
+          envFrom:
+            - secretRef:
+                name: txn-db-app
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      - name: settle
+        suspend:
+          duration: "90s"

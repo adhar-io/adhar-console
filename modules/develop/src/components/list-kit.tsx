@@ -108,13 +108,14 @@ export function Chip({ children, onClear }: { children: ReactNode; onClear(): vo
 
 export type Tone = 'slate' | 'brand' | 'amber' | 'emerald' | 'info' | 'violet';
 
-export function StatTile({ label, value, hint, tone = 'slate', on = false, onClick }: {
+export function StatTile({ label, value, hint, tone = 'slate', on = false, onClick, className }: {
   label: string;
   value: number | string;
   hint?: string;
   tone?: Tone;
   on?: boolean;
   onClick?(): void;
+  className?: string;
 }) {
   const color = {
     slate: 'text-content',
@@ -134,6 +135,7 @@ export function StatTile({ label, value, hint, tone = 'slate', on = false, onCli
         'flex flex-col gap-0.5 rounded-xl border px-3 py-2 text-left transition-colors',
         on ? 'border-content bg-surface-sunken ring-1 ring-content/10' : 'border-edge-default bg-surface-raised',
         onClick && 'hover:border-edge-strong',
+        className,
       )}
     >
       <span className='text-[10px] font-semibold uppercase tracking-wider text-content-subtle'>{label}</span>

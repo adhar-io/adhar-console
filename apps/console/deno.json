@@ -33,7 +33,8 @@
     "drizzle-orm/": "npm:/drizzle-orm@^0.36.4/",
     "postgres": "npm:postgres@^3.4.5",
     "monaco-editor": "npm:monaco-editor@^0.52.2",
-    "monaco-editor/min/vs/editor/editor.main.css": "npm:monaco-editor@^0.52.2/min/vs/editor/editor.main.css"
+    "monaco-editor/min/vs/editor/editor.main.css": "npm:monaco-editor@^0.52.2/min/vs/editor/editor.main.css",
+    "yaml": "npm:yaml@2.9.1"
   },
   "compilerOptions": {
     "jsx": "react-jsx",

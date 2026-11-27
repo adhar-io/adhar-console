@@ -1,0 +1,38 @@
+# Written for Argo 2.x and never touched: `dependencies` lists, not `depends`.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: legacy-dependencies
+spec:
+  entrypoint: diamond
+  templates:
+  - name: diamond
+    dag:
+      tasks:
+      - name: A
+        template: echo
+      - name: B
+        dependencies: [A]
+        template: echo
+      - name: C
+        dependencies:
+        - A      # the left side
+        template: echo
+      - name: D
+        dependencies: [B, C]
+        template: echo
+        arguments:
+          parameters:
+          - name: message
+            value: "{{tasks.B.outputs.result}} {{tasks.C.outputs.result}}"
+  - name: echo
+    inputs:
+      parameters:
+      - {name: message, value: hi}
+    script:
+      image: docker.io/library/busybox:1.37
+      command: [sh]
+      source: echo "$MESSAGE"
+      env:
+      - {name: MESSAGE, value: "{{inputs.parameters.message}}"}
+      resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 50m, memory: 32Mi}}

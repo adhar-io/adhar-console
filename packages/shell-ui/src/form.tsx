@@ -67,8 +67,8 @@ const FIELD_BASE =
   'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-content-subtle disabled:shadow-none disabled:hover:border-edge-default'
 
 const FIELD_HEIGHT = {
-  sm: 'h-8 pointer-coarse:h-11 text-[13px]',
-  md: 'h-9 pointer-coarse:h-11',
+  sm: 'h-8 text-[13px]',
+  md: 'h-9',
 } as const
 
 export type FieldSize = keyof typeof FIELD_HEIGHT
@@ -162,7 +162,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         className={cn(
           FIELD_BASE,
           FIELD_HEIGHT[controlSize],
-          'cursor-pointer appearance-none pr-8 disabled:cursor-not-allowed',
+          // The chevron, its padding and the pointer cursor come from the
+          // app-wide select rule in `styles.css` ("One dropdown").
+          'disabled:cursor-not-allowed',
           invalid ? FIELD_STATES.error : FIELD_STATES.default,
           className,
         )}
@@ -175,22 +177,6 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
             </option>
           ))}
       </select>
-      {/* A drawn chevron: the `▾` glyph it replaces sat on the text baseline,
-          a pixel or two low, and changed weight with the font. */}
-      <svg
-        aria-hidden
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.25"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-content-subtle"
-      >
-        <path d="m6 9 6 6 6-6" />
-      </svg>
     </div>
   )
 })

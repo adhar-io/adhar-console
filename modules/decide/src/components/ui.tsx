@@ -232,7 +232,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
           aria-checked={o.id === value}
           onClick={() => onChange(o.id)}
           className={cn(
-            'shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+            'shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors pointer-coarse:min-h-9 pointer-coarse:px-3',
             o.id === value ? 'bg-surface-sunken text-content shadow-sm' : 'text-content-muted hover:text-content',
           )}
         >

@@ -61,6 +61,7 @@ import {
   teamApps,
   type Tone,
   toSrc,
+  isConfigCommit,
   traceCommit,
   type TraceStep,
 } from '../data/value-stream.ts';
@@ -510,7 +511,7 @@ function AppPicker({ apps, selected, summaries, onPick }: {
         aria-haspopup='listbox'
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className='flex h-9 max-w-full items-center gap-2 rounded-lg border border-edge-default bg-surface-raised px-3 text-left text-sm shadow-sm hover:border-edge-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 pointer-coarse:h-11'
+        className='flex h-9 max-w-full items-center gap-2 rounded-lg border border-edge-default bg-surface-raised px-3 text-left text-sm shadow-sm hover:border-edge-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40'
       >
         <span
           className={cn('h-2 w-2 shrink-0 rounded-full', HEALTH_DOT[sel?.health ?? 'unknown'])}
@@ -627,7 +628,7 @@ function PlatformToggle(
       role='switch'
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className='flex h-8 items-center gap-2 rounded-lg px-2 text-[12px] text-content-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 pointer-coarse:h-11'
+      className='flex h-8 items-center gap-2 rounded-lg px-2 text-[12px] text-content-muted hover:text-content focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40'
     >
       <span
         className={cn(
@@ -1304,6 +1305,7 @@ function FollowCommit({ commits, loading, repo, trace, selected, onPick }: {
                 {commits.map((c) => (
                   <option key={c.sha} value={c.sha}>
                     {c.sha.slice(0, 7)} · {c.message.split('\n')[0].slice(0, 60)}
+                    {isConfigCommit(c.message, false) ? ' (config)' : ''}
                   </option>
                 ))}
               </Select>
@@ -1356,6 +1358,16 @@ function FollowCommit({ commits, loading, repo, trace, selected, onPick }: {
               <span className='min-w-0 truncate text-[13px] text-content'>
                 {trace.subject ?? 'commit not in the recent history'}
               </span>
+              {trace.kind === 'config'
+                ? (
+                  <span
+                    className='rounded-full bg-sky-50 px-2 py-0.5 text-[10.5px] font-medium text-sky-700 ring-1 ring-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:ring-sky-900'
+                    title='Nothing builds this commit. It ships with the image already deployed and reaches each environment with its next promotion.'
+                  >
+                    Configuration change
+                  </span>
+                )
+                : null}
               {trace.author
                 ? (
                   <span className='text-[11px] text-content-subtle'>
@@ -1396,7 +1408,7 @@ function TraceNode({ step: s, prev, last }: { step: TraceStep; prev?: TraceStep;
         {label}
       </span>
       <span className={cn('mt-0.5 block text-[11px]', TONE_TEXT[s.tone])}>
-        {s.tone === 'none' ? 'unknown' : TONE_WORD[s.tone].toLowerCase()}
+        {s.status ?? (s.tone === 'none' ? 'unknown' : TONE_WORD[s.tone].toLowerCase())}
         {s.at ? ` · ${relTime(s.at)}` : ''}
       </span>
       {gap != null && gap >= 0
@@ -1426,8 +1438,12 @@ function TraceNode({ step: s, prev, last }: { step: TraceStep; prev?: TraceStep;
           <span
             aria-hidden
             className={cn(
-              'absolute left-4 right-0 top-[7px] h-0.5 rounded-full',
-              s.tone === 'done' ? 'bg-emerald-400/80' : 'bg-slate-200 dark:bg-slate-700',
+              'absolute left-4 right-0 top-[7px]',
+              s.skipped
+                ? 'h-0 border-t-2 border-dashed border-slate-300 dark:border-slate-600'
+                : s.tone === 'done'
+                ? 'h-0.5 rounded-full bg-emerald-400/80'
+                : 'h-0.5 rounded-full bg-slate-200 dark:bg-slate-700',
             )}
           />
         )

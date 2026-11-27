@@ -779,7 +779,7 @@ function LiveDot({ status }: { status: LiveStatus | 'polling' }) {
 
 const FIELD =
   'h-9 w-full rounded-lg border bg-surface-raised text-sm text-content placeholder:text-content-subtle ' +
-  'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20 pointer-coarse:h-11'
+  'focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/20'
 
 function TextField({
   value,
@@ -879,7 +879,7 @@ function RefreshButton({ onClick, busy, className }: { onClick(): void; busy?: b
       aria-label="Refresh"
       title="Relist and rewatch"
       className={cn(
-        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors pointer-coarse:h-11 pointer-coarse:w-11',
+        'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-edge-default bg-surface-raised text-content-muted transition-colors',
         'hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300',
         className,
       )}

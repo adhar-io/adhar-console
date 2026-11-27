@@ -641,7 +641,7 @@ export function MonitorButton({ url, compact = false }: { url: string; compact?:
         compact
           ? 'min-h-8 rounded-md bg-surface-raised px-2 py-1 text-[10px] text-content-muted ring-1 ring-edge-default hover:text-brand-700 dark:hover:text-brand-300 sm:min-h-0 sm:px-1.5'
           // Matches the catalog drawer header's link chips (HEADER_CHIP).
-          : 'h-8 whitespace-nowrap rounded-lg border border-edge-default bg-surface-raised px-3 text-xs text-content-muted shadow-xs outline-none hover:border-edge-strong hover:bg-surface-sunken hover:text-content focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised pointer-coarse:h-11',
+          : 'h-8 whitespace-nowrap rounded-lg border border-edge-default bg-surface-raised px-3 text-xs text-content-muted shadow-xs outline-none hover:border-edge-strong hover:bg-surface-sunken hover:text-content focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-surface-raised',
       )}
     >
       <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">

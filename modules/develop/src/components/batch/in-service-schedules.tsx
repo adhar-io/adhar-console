@@ -12,7 +12,7 @@ import {
   type TriggerView,
 } from '../../data/batch-schedules-model.ts'
 import { ExternalLink, Note } from '../../views/function-bits.tsx'
-import { DurationText, TABLE, TD, TH, Until, useNow, When } from './bits.tsx'
+import { DurationText, GROUP_BAND, TABLE, TD, TH, Until, useNow, When } from './bits.tsx'
 
 /**
  * Develop → Batch → Jobs, the in-service group (design 0025 §5.20.8, CON-Q.3):
@@ -103,7 +103,7 @@ export function InServiceSchedulesView({
               {groups.map((g) => (
                 <tbody key={g.application} className='divide-y divide-edge-subtle border-t border-edge-default'>
                   <tr>
-                    <th colSpan={COLS} scope='rowgroup' className='bg-surface-sunken px-3 py-1.5 text-left text-[11px] font-semibold text-content-muted'>
+                    <th colSpan={COLS} scope='rowgroup' className={GROUP_BAND}>
                       {g.application}
                     </th>
                   </tr>

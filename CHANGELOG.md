@@ -6,6 +6,12 @@ All notable changes to Adhar Console are documented here. Format based on
 
 ## [Unreleased]
 
+## [0.1.187] - 2026-11-27
+
+### Changed
+
+- Workflow builder
+
 ## [0.1.186] - 2026-11-20
 
 ### Fixed

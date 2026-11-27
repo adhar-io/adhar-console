@@ -4,8 +4,18 @@ import type { ReleaseNote } from './types.ts'
 
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    "version": "0.1.187",
+    "date": "2026-11-27",
+    "changes": [
+      {
+        "type": "change",
+        "text": "Workflow builder"
+      }
+    ]
+  },
+  {
     "version": "0.1.186",
-    "date": "2026-11-20",
+    "date": "2026-11-21",
     "changes": [
       {
         "type": "fix",
@@ -410,16 +420,6 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       {
         "type": "change",
         "text": "Performance and chaos reports"
-      }
-    ]
-  },
-  {
-    "version": "0.1.147",
-    "date": "2026-10-22",
-    "changes": [
-      {
-        "type": "change",
-        "text": "Visual Designer for Angular and other frameworks"
       }
     ]
   }

@@ -85,7 +85,7 @@ export function redo(s: Session, opts: SessionOptions = {}): Session {
   return { ...s, ...view(s, doc, opts), undo: [...s.undo, s.doc].slice(-MAX_UNDO), redo: s.redo.slice(0, -1), changes: [], typing: false }
 }
 
-/** The text a save writes: exactly the current snapshot's. */
+/** The text a save writes: exactly the current snapshot's. Send THIS to the cluster, never JSON made from `toJS` (see `doc.ts` `toJS`). */
 export function text(s: Session): string {
   return print(s.doc)
 }

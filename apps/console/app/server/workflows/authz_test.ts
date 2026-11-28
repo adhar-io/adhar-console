@@ -27,6 +27,7 @@ const TABLE: Array<[Route, { verb: string; group: string; resource: string; subr
   [{ op: 'archive.retry', namespace: ns, uid }, { verb: 'create', group: ARGO_GROUP, resource: 'workflows', namespace: ns }],
   [{ op: 'archive.resubmit', namespace: ns, uid }, { verb: 'create', group: ARGO_GROUP, resource: 'workflows', namespace: ns }],
   [{ op: 'archive.delete', namespace: ns, uid }, consoleCheck(CONSOLE_PERMISSIONS.workflowsAdmin) as never],
+  [{ op: 'drafts.test-run', namespace: ns }, { verb: 'create', group: ARGO_GROUP, resource: 'workflowtemplates', namespace: ns }],
   [{ op: 'engine.get' }, consoleCheck(CONSOLE_PERMISSIONS.workflowsAdmin) as never],
   [{ op: 'engine.suspend-all' }, consoleCheck(CONSOLE_PERMISSIONS.workflowsAdmin) as never],
 ]
@@ -52,6 +53,7 @@ Deno.test('the table covers every route the BFF serves', () => {
     'archive.resubmit',
     'archive.delete',
     'lint',
+    'drafts.test-run',
     'engine.get',
     'engine.suspend-all',
   ]

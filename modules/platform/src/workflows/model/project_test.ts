@@ -203,3 +203,28 @@ Deno.test('the projection is deterministic and does not depend on the input obje
     assertEquals(JSON.stringify(graph(text)), JSON.stringify(graph(text)), f)
   }
 })
+
+Deno.test('an empty steps group takes no column and does not cut the chain', () => {
+  const g = graph(`apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: {generateName: gaps-}
+spec:
+  entrypoint: main
+  templates:
+  - name: main
+    steps:
+    - - {name: a, template: e}
+    - []
+    - - {name: b, template: e}
+      - {name: c, template: e}
+    - []
+    - []
+    - - {name: d, template: e}
+  - name: e
+    suspend: {}
+`)
+  assertEquals(g.readOnly, 'steps')
+  assertEquals(g.nodes.map((n) => [n.id, n.column]), [['a', 0], ['b', 1], ['c', 1], ['d', 2]])
+  assertEquals(g.edges.map((e) => `${e.source}>${e.target}`), ['a>b', 'a>c', 'b>d', 'c>d'])
+  assertEquals(findNode(g, 'd')!.position.x, 2 * COL_GAP)
+})

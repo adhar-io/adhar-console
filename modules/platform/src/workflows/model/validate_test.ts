@@ -367,3 +367,56 @@ Deno.test('the canvas edits a conjunction; anything else is text', () => {
   assert(isCanvasEditable('a && b.Failed'))
   assert(!isCanvasEditable('a || b'))
 })
+
+/* ───────── found by the verifier: every place the CRD carries a rule ───────── */
+
+Deno.test('one artifact location: everywhere the full CRD says it, with a place in the text', () => {
+  const two = 's3: {key: k}, raw: {data: d}'
+  const cases: Record<string, { yaml: string; path: (string | number)[] }> = {
+    'templates[].inputs.artifacts[]': { yaml: CEL_FIXTURES['cel/one-artifact-location'], path: ['spec', 'templates', 2, 'inputs', 'artifacts', 0, 'http'] },
+    'templates[].outputs.artifacts[]': { yaml: dag('- {name: a, template: out}', `- name: out\n  suspend: {}\n  outputs:\n    artifacts:\n    - {name: o, path: /o, ${two}}`), path: ['spec', 'templates', 2, 'outputs', 'artifacts', 0, 'raw'] },
+    'tasks[].arguments.artifacts[]': { yaml: dag(`- name: a\n  template: echo\n  arguments:\n    artifacts:\n    - {name: x, ${two}}`), path: ['spec', 'templates', 0, 'dag', 'tasks', 0, 'arguments', 'artifacts', 0, 'raw'] },
+    'spec.arguments.artifacts[]': { yaml: dag('- {name: a, template: echo}', '', `arguments:\n  artifacts:\n  - {name: x, ${two}}`), path: ['spec', 'arguments', 'artifacts', 0, 'raw'] },
+    'templates[].archiveLocation': { yaml: dag('- {name: a, template: arch}', `- name: arch\n  suspend: {}\n  archiveLocation: {archiveLogs: true, ${two}}`), path: ['spec', 'templates', 2, 'archiveLocation', 'raw'] },
+    'templateDefaults.archiveLocation': { yaml: dag('- {name: a, template: echo}', '', `templateDefaults:\n  archiveLocation: {${two}}`), path: ['spec', 'templateDefaults', 'archiveLocation', 'raw'] },
+    'data.source.artifactPaths': { yaml: dag('- {name: a, template: list}', `- name: list\n  data:\n    source:\n      artifactPaths: {name: in, ${two}}\n    transformation: [{expression: "true"}]`), path: ['spec', 'templates', 2, 'data', 'source', 'artifactPaths', 'raw'] },
+    'resource.manifestFrom.artifact': { yaml: dag('- {name: a, template: apply}', `- name: apply\n  resource:\n    action: apply\n    manifestFrom:\n      artifact: {name: m, ${two}}`), path: ['spec', 'templates', 2, 'resource', 'manifestFrom', 'artifact', 'raw'] },
+  }
+  for (const [at, c] of Object.entries(cases)) {
+    const found = validate(parse(c.yaml)).filter((x) => x.code === 'cel/one-artifact-location')
+    assertEquals(found.map((x) => x.path), [c.path], at)
+    assert(found[0].range && c.yaml.slice(found[0].range.start, found[0].range.end) === c.path[c.path.length - 1], at)
+    assertEquals(codes(c.yaml).filter((x) => x.startsWith('cel/')), ['cel/one-artifact-location'], at)
+  }
+  // One location in each of those places is fine.
+  for (const [at, c] of Object.entries(cases)) {
+    const one = c.yaml.replace(', raw: {data: d}', '').replace(/\n\s+http: \{url: [^\n]+\}/, '')
+    assert(one !== c.yaml, at)
+    assert(!codes(one).includes('cel/one-artifact-location'), at)
+  }
+})
+
+Deno.test('templateDefaults is a template: the per-object rules hold inside it, the list rules do not', () => {
+  const td = (body: string) => dag('- {name: a, template: echo}', '', `templateDefaults:\n${indent(body, 2)}`)
+  const cel = (yaml: string) => codes(yaml).filter((c) => c.startsWith('cel/'))
+  assertEquals(cel(td('resource:\n  action: apply\n  manifest: "kind: ConfigMap"\n  manifestFrom: {artifact: {name: m}}')), ['cel/manifest-or-manifest-from'])
+  assertEquals(diag(td('resource:\n  action: apply\n  manifest: "kind: ConfigMap"\n  manifestFrom: {artifact: {name: m}}'), 'cel/manifest-or-manifest-from').path, ['spec', 'templateDefaults', 'resource', 'manifestFrom'])
+  assertEquals(cel(td('dag:\n  tasks:\n  - {name: x, template: echo}\n  - {name: y, template: echo, depends: x, dependencies: [x]}')), ['cel/depends-and-dependencies'])
+  assertEquals(cel(td('dag:\n  tasks:\n  - {name: x, template: echo}\n  - {name: y, template: echo, depends: x, continueOn: {failed: true}}')), ['cel/continue-on-with-depends'])
+  assertEquals(cel(td('dag:\n  tasks:\n  - {name: x, template: echo}\n  - {name: 2y, template: echo, depends: x}')), ['cel/task-name-digit'])
+  assertEquals(cel(td('dag:\n  tasks:\n  - {name: x, template: echo, withSequence: {count: "3", end: "5"}}')), ['cel/sequence-count-or-end'])
+  assertEquals(cel(td('steps:\n- - {name: x, template: echo, withSequence: {count: "3", end: "5"}}')), ['cel/sequence-count-or-end'])
+  assertEquals(cel(td(`dag:\n  tasks:\n${indent(many(201, (i) => `- {name: t${i}, template: echo}`), 2)}`)), ['cel/dag-max-tasks'])
+  // Upstream writes these three on the `templates` LIST (`self.all(t, …)`); templateDefaults is not in it.
+  assertEquals(cel(td('timeout: 5m\nactiveDeadlineSeconds: 60\ndag:\n  tasks:\n  - {name: x, template: echo}\nsuspend: {}')), [])
+  // A clean templateDefaults adds nothing.
+  assertEquals(codes(td('retryStrategy: {limit: 2}')), [])
+})
+
+Deno.test('a string that names the same missing task twice is one finding', () => {
+  const yaml = dag(`- name: a\n  template: echo\n  when: "{{tasks.ghost.outputs.result}} == 1 || {{tasks.ghost.outputs.result}} == 2"`)
+  assertEquals(codes(yaml).filter((c) => c === 'graph/dangling-task-reference').length, 1)
+  // Two different strings are still two findings.
+  const two = dag(`- name: a\n  template: echo\n  when: "{{tasks.ghost.status}} == Succeeded"\n  arguments: {parameters: [{name: x, value: "{{tasks.ghost.outputs.result}}"}]}`)
+  assertEquals(codes(two).filter((c) => c === 'graph/dangling-task-reference').length, 2)
+})

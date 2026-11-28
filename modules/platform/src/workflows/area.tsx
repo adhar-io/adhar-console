@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { lazy, Suspense, useCallback } from 'react'
 import { Button, Can, CONSOLE_PERMISSIONS, consoleCheck, EmptyState, PageHeader, Tabs, useCan } from '@adhar/shell-ui'
 import { ConnectionGate } from '../components/connection-banner.tsx'
 import { LATER_SECTIONS, SECTIONS, type WorkflowSection } from './data/gvr.ts'
@@ -12,13 +12,18 @@ import { OverviewView } from './views/overview.tsx'
 import { RunView } from './views/run-view.tsx'
 import { RunsView, type RunsTab } from './views/runs.tsx'
 
+// The designer brings the YAML model (`yaml`) and, once a document is open,
+// the edit canvas (@xyflow): neither belongs in the chunk every Workflows page loads.
+const DesignerView = lazy(() => import('./views/designer.tsx').then((m) => ({ default: m.DesignerView })))
+
 /**
  * Platform → Workflows (design 0026 §6.1): the section router, the capability
  * gate and the run drawer every page can open.
  *
  * Loaded on demand by `home.tsx` for every `workflows` / `workflow-*` section.
- * The canvas (@xyflow) is NOT among its static imports: the run view loads it
- * when its Graph tab renders (W1 acceptance 5, `chunks_test.ts`).
+ * The canvases (@xyflow) are NOT among its static imports: the run view loads
+ * the run canvas when its Graph tab renders and the designer loads the edit
+ * canvas when it opens a document (W1 acceptance 5, `chunks_test.ts`).
  *
  * The gate asks one thing — the capability probe — and when Argo's CRDs are
  * absent every page says so in one honest state, with the way to enable it for
@@ -28,6 +33,7 @@ import { RunsView, type RunsTab } from './views/runs.tsx'
 const TITLES: Record<WorkflowSection, { label: string; description: string }> = {
   workflows: { label: 'Overview', description: 'What is running, what needs you, and what just happened.' },
   'workflow-catalog': { label: 'Catalog', description: 'Workflow templates you can run, with how they have been doing.' },
+  'workflow-designer': { label: 'Designer', description: 'Build a workflow on a canvas, and test-run it in dev.' },
   'workflow-runs': { label: 'Runs', description: 'Every run in your namespaces, live.' },
   'workflow-history': { label: 'History', description: 'Finished runs from the archive (60 days).' },
   'workflow-engine': { label: 'Engine', description: 'The workflow controller, archive and limits.' },
@@ -71,7 +77,19 @@ export function WorkflowsArea({ section }: { section: string }) {
                 ) : active === 'workflows' ? (
                   <OverviewView scope={scope} caps={caps.caps} platform={platform} onOpenRun={openRun} onSection={(s, extra) => goToSection(s, extra)} />
                 ) : active === 'workflow-catalog' ? (
-                  <CatalogView scope={scope} q={params.q} onQuery={(q) => setParams({ q: q || undefined })} onOpenRun={openRun} onHistory={(e) => goToSection('workflow-history', { ...(e.namespace ? { ns: e.namespace } : {}), q: e.name })} />
+                  <CatalogView scope={scope} q={params.q} onQuery={(q) => setParams({ q: q || undefined })} onOpenRun={openRun} onHistory={(e) => goToSection('workflow-history', { ...(e.namespace ? { ns: e.namespace } : {}), q: e.name })} onDesign={(e) => goToSection('workflow-designer', { ...(e.namespace ? { ns: e.namespace } : {}), q: e.name, view: e.kind })} />
+                ) : active === 'workflow-designer' ? (
+                  <Suspense fallback={<Loading label="Loading the designer…" />}>
+                    <DesignerView
+                      scope={scope}
+                      caps={caps.caps}
+                      ns={params.ns}
+                      name={params.q}
+                      kind={params.view}
+                      onParams={(p) => setParams(p)}
+                      onOpenRun={(r) => setParams({ run: `${r.namespace}/${r.name}`, node: undefined, tab: 'graph' }, true)}
+                    />
+                  </Suspense>
                 ) : active === 'workflow-runs' ? (
                   <RunsView scope={scope} tab={params.view} onTab={(t: RunsTab) => setParams({ view: t })} onOpen={openRun} />
                 ) : active === 'workflow-history' ? (

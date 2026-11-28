@@ -59,6 +59,7 @@ export type Route =
   | { op: 'archive.resubmit'; namespace: string; uid: string }
   | { op: 'archive.delete'; namespace: string; uid: string }
   | { op: 'lint' }
+  | { op: 'drafts.test-run'; namespace: string }
   | { op: 'engine.get' }
   | { op: 'engine.suspend-all' }
 
@@ -115,6 +116,13 @@ export function matchRoute(method: string, subpath: string): RouteMatch {
       return want('GET', { op: 'run.artifact', ...base, nodeId: e, artifact: f })
     }
     return { error: 'not_found', detail: 'Unknown run action.' }
+  }
+
+  if (a === 'drafts') {
+    if (parts.length < 2) return { error: 'not_found', detail: 'Name a namespace: /drafts/<namespace>/test-run.' }
+    if (!ns(b)) return invalid('The namespace')
+    if (parts.length === 3 && c === 'test-run') return want('POST', { op: 'drafts.test-run', namespace: b })
+    return { error: 'not_found', detail: 'Unknown draft action.' }
   }
 
   if (a === 'archive') {

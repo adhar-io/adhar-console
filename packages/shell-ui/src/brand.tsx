@@ -99,10 +99,17 @@ export function AdharWordmark({
 export function AdharWordmarkStack({
   fontSize = 20,
   subtitle,
+  tracking,
   className,
 }: {
   fontSize?: number
   subtitle?: string
+  /**
+   * Extra space between the ADHAR letters, in em — a wider lockup without a
+   * taller one. Letter-spacing also trails the last letter, so the subtitle
+   * is pulled in by the same amount to end under the R, not past it.
+   */
+  tracking?: number
   className?: string
 }) {
   return (
@@ -110,7 +117,7 @@ export function AdharWordmarkStack({
       className={className}
       style={{ display: 'inline-flex', flexDirection: 'column', width: 'fit-content' }}
     >
-      <AdharWordmark fontSize={fontSize} style={{ width: '100%' }} />
+      <AdharWordmark fontSize={fontSize} style={{ width: '100%', ...(tracking ? { letterSpacing: `${tracking}em` } : null) }} />
       {subtitle ? (
         <span
           aria-label={subtitle}
@@ -119,6 +126,7 @@ export function AdharWordmarkStack({
             display: 'flex',
             justifyContent: 'space-between',
             width: '100%',
+            paddingRight: tracking ? fontSize * tracking : undefined,
             marginTop: fontSize * 0.16,
             fontSize: Math.max(8, fontSize * 0.38),
             fontWeight: 600,

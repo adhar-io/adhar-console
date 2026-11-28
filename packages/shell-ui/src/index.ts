@@ -230,6 +230,7 @@ export {
   type SeriesPoint,
   type TimeSeries,
   type Threshold,
+  type ChartMarker,
 } from './charts.tsx'
 export {
   NOTIFICATION_KIND_LABEL,

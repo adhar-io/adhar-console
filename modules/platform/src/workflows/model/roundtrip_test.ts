@@ -1,5 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert@^1.0.0'
 import { walk } from 'jsr:@std/fs@^1.0.0/walk'
+import { visit } from 'yaml'
 import type { WfDoc } from './doc.ts'
 import { commentsOf, edit, parse, print, reprint, splitStream, toJS } from './doc.ts'
 import type { Op } from './ops.ts'
@@ -168,6 +169,35 @@ Deno.test('acceptance 1: an edit that changes nothing is JSON-equal and keeps ev
   }
   assertEquals(checked, DOCS.length - Object.keys(UNPARSEABLE).length)
   assert(comments > 1000, `only ${comments} comments in the corpus: the check is not exercising much`)
+})
+
+Deno.test('acceptance 1: an edit leaves every number as it was written, so the cluster reads what it read before', () => {
+  // This library reads YAML 1.2 and Kubernetes 1.1: `mode: 0644` is 644 here and octal 420 there. JSON-equality cannot
+  // see a number re-spelt (both sides are this library), so the spelling itself is compared, scalar by scalar.
+  const numbers = (doc: WfDoc): string[] => {
+    const out: string[] = []
+    visit(doc.doc, {
+      Scalar(_k, s) {
+        if (typeof s.value === 'number' || typeof s.value === 'bigint') out.push(doc.source.slice(s.range![0], s.range![1]))
+      },
+    })
+    return out
+  }
+  let total = 0
+  const sensitive: string[] = []
+  for (const d of DOCS) {
+    const doc = parse(d.text)
+    if (doc.errors.length) continue
+    const before = numbers(doc)
+    for (const [how, text] of [['reprint', reprint(doc)], ['no-op edit', edit(doc, () => {}).source]] as const) {
+      assertEquals(numbers(parse(text)), before, `${where(d)}: ${how} re-spelt a number`)
+    }
+    total += before.length
+    for (const n of before) if (n !== JSON.stringify(Number(n))) sensitive.push(`${d.file}: ${n}`)
+  }
+  assert(total > 100, `only ${total} numbers in the corpus`)
+  // The corpus really holds the dangerous spellings (an octal file mode among them), or this test proves nothing.
+  assert(sensitive.some((s) => /: 0[0-7]{3}$/.test(s)), `no octal-looking number in the corpus: ${sensitive.join(', ')}`)
 })
 
 Deno.test('the projection is deterministic over the corpus', () => {

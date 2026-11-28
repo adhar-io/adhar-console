@@ -245,9 +245,15 @@ export function validate(d: WfDoc, opts: ValidateOptions = {}): Diagnostic[] {
   checkMetrics(shape.spec, sp)
   checkParameters(obj(shape.spec.arguments)?.parameters, [...sp, 'arguments', 'parameters'], undefined)
   if (obj(shape.spec.templateDefaults)) {
+    // `templateDefaults` is a template too. The CRD's per-object rules apply inside it (the three written on the
+    // `templates` LIST — one type, timeout, activeDeadlineSeconds — do not: it is not in that list).
     const td = obj(shape.spec.templateDefaults)!
-    checkMetrics(td, [...sp, 'templateDefaults'])
-    checkMaxParameters(td, [...sp, 'templateDefaults'])
+    const defaults: TemplateAt = { name: 'templateDefaults', index: -1, path: [...sp, 'templateDefaults'], body: td }
+    checkMetrics(td, defaults.path)
+    checkMaxParameters(td, defaults.path)
+    checkManifest(td, defaults.path, undefined)
+    if (td.dag !== undefined) checkDag(defaults)
+    for (const s of stepGroupsOf(defaults).flat()) checkSequence(s, {})
   }
   const deadline = shape.spec.activeDeadlineSeconds
   if (shape.templates.length && shape.entry) {
@@ -337,7 +343,12 @@ export function validate(d: WfDoc, opts: ValidateOptions = {}): Diagnostic[] {
     })
   }
 
-  /** `at most one artifact location`: every item of every list named `artifacts`. */
+  /**
+   * `at most one artifact location`, everywhere the CRD says it: every item of
+   * every list named `artifacts` (inputs, outputs, arguments), a template's
+   * `archiveLocation`, `data.source.artifactPaths` and
+   * `resource.manifestFrom.artifact`.
+   */
   function checkArtifacts(v: unknown, at: Path) {
     if (Array.isArray(v)) {
       v.forEach((x, i) => checkArtifacts(x, [...at, i]))
@@ -345,18 +356,25 @@ export function validate(d: WfDoc, opts: ValidateOptions = {}): Diagnostic[] {
     }
     const o = obj(v)
     if (!o) return
+    const one = (a: unknown, p: Path, what: string) => {
+      const art = obj(a)
+      if (!art) return
+      const set = ARTIFACT_LOCATIONS.filter((loc) => art[loc] !== undefined)
+      if (set.length > 1) add('cel/one-artifact-location', `${what} names ${set.length} locations (${set.join(', ')}); it can have one.`, [...p, set[1]], { key: true })
+    }
     for (const [k, x] of Object.entries(o)) {
-      if (k === 'artifacts' && Array.isArray(x)) {
-        x.forEach((a, i) => {
-          const art = obj(a)
-          if (!art) return
-          const set = ARTIFACT_LOCATIONS.filter((loc) => art[loc] !== undefined)
-          if (set.length > 1) {
-            add('cel/one-artifact-location', `The artifact "${str(art.name) ?? i}" names ${set.length} locations (${set.join(', ')}); it can have one.`, [...at, k, i, set[1]], { key: true })
-          }
-        })
-      }
+      if (k === 'artifacts' && Array.isArray(x)) x.forEach((a, i) => one(a, [...at, k, i], `The artifact "${str(obj(a)?.name) ?? i}"`))
+      else if (k === 'archiveLocation') one(x, [...at, k], 'archiveLocation')
+      else if (k === 'artifactPaths') one(x, [...at, k], 'artifactPaths')
+      else if (k === 'manifestFrom') one(obj(x)?.artifact, [...at, k, 'artifact'], 'manifestFrom.artifact')
       checkArtifacts(x, [...at, k])
+    }
+  }
+
+  function checkManifest(b: Record<string, unknown>, at: Path, template: string | undefined) {
+    const res = obj(b.resource)
+    if (res && res.manifest !== undefined && res.manifestFrom !== undefined) {
+      add('cel/manifest-or-manifest-from', 'A resource template takes `manifest` or `manifestFrom`, not both.', [...at, 'resource', 'manifestFrom'], { key: true, template })
     }
   }
 
@@ -387,10 +405,7 @@ export function validate(d: WfDoc, opts: ValidateOptions = {}): Diagnostic[] {
     checkServiceAccount(b, t.path, template)
     checkParameters(obj(b.inputs)?.parameters, [...t.path, 'inputs', 'parameters'], template)
 
-    const res = obj(b.resource)
-    if (res && res.manifest !== undefined && res.manifestFrom !== undefined) {
-      add('cel/manifest-or-manifest-from', 'A resource template takes `manifest` or `manifestFrom`, not both.', [...t.path, 'resource', 'manifestFrom'], { key: true, template })
-    }
+    checkManifest(b, t.path, template)
 
     for (const type of ['container', 'script'] as const) {
       const c = obj(b[type])
@@ -510,7 +525,8 @@ export function validate(d: WfDoc, opts: ValidateOptions = {}): Diagnostic[] {
 
     const reported = new Set<string>()
     const readsFrom = (reader: TaskAt | undefined, text: { value: string; path: Path }) => {
-      for (const ref of taskRefs(text.value)) {
+      // A string that names the same task twice is one finding, not two.
+      for (const ref of new Set(taskRefs(text.value))) {
         const extra = reader ? at(reader) : { template: dag }
         if (!names.has(ref)) {
           add('graph/dangling-task-reference', `${reader ? `"${reader.name}"` : `The outputs of "${dag}"`} read${reader ? 's' : ''} from the task "${ref}", and "${dag}" has no task of that name.`, text.path, extra)

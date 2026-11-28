@@ -415,6 +415,37 @@ export function deleteArchived(namespace: string, uid: string, cluster?: string)
   return bff('DELETE', `/archive/${enc(namespace)}/${enc(uid)}`, { cluster })
 }
 
+/* ─────────────────────────── the designer: drafts, test runs, lint ─────────────────────────── */
+
+export interface TestRunResult {
+  ok?: boolean
+  /** The draft WorkflowTemplate the server saved (`<name>-draft-<user>`), and when the janitor removes it. */
+  draft?: { name: string; namespace: string; expires: string }
+  /** The run that was started; absent for a dry run. */
+  workflow?: { name?: string; namespace?: string; uid?: string; phase?: string }
+  dryRun?: boolean
+}
+
+/**
+ * Save the template as the caller's draft in a dev namespace and start a run
+ * of it (`POST /api/workflows/drafts/:ns/test-run`, §6.4). The template goes
+ * as YAML TEXT — exactly `session.text()` — never as JSON made from parsed
+ * YAML: the API server reads YAML 1.1 (`mode: 0644` is 420 there), so a JSON
+ * detour would test-run something other than what Argo CD later applies.
+ * `dryRun` asks admission only (validation level B): nothing is saved or run.
+ */
+export function testRunDraft(namespace: string, body: { yaml: string; parameters?: Record<string, string>; dryRun?: boolean }, cluster?: string): Promise<TestRunResult> {
+  return bff<TestRunResult>('POST', `/drafts/${enc(namespace)}/test-run`, { body, cluster })
+}
+
+export type LintKind = 'WorkflowTemplate' | 'CronWorkflow' | 'ClusterWorkflowTemplate' | 'Workflow'
+
+/** argo-server's own validation (level C, §6.7): template resolution, expressions, `templateRef` existence. */
+export async function lintManifest(body: { namespace?: string; kind: LintKind; manifest: Record<string, unknown> }, cluster?: string): Promise<{ valid: boolean; message?: string }> {
+  const r = await bff<{ valid?: boolean; message?: string }>('POST', '/lint', { body, cluster })
+  return { valid: r.valid === true, message: r.message }
+}
+
 /* ─────────────────────────── the engine (platform staff) ─────────────────────────── */
 
 /**

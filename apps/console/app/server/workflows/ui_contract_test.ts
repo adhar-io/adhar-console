@@ -2,7 +2,8 @@ import { assert, assertEquals } from 'jsr:@std/assert@1'
 import * as ui from '../../../../../modules/platform/src/workflows/data/api.ts'
 import { submitterSlug as uiSlug } from '../../../../../modules/platform/src/workflows/data/nodes.ts'
 import { isMine } from '../../../../../modules/platform/src/workflows/views/runs.tsx'
-import { matchRoute, parseApprove, parseArchiveFilters, parseResubmit, parseRetry, type Route, submitterSlug } from './model.ts'
+import { parseTestRun } from './drafts.ts'
+import { matchRoute, parseApprove, parseArchiveFilters, parseLint, parseResubmit, parseRetry, type Route, submitterSlug } from './model.ts'
 
 /**
  * The browser's data layer (modules/platform/src/workflows/data/api.ts) and
@@ -50,12 +51,14 @@ const CALLS: Array<[string, () => Promise<unknown>, Route['op'], ((b: unknown) =
   ['archive delete', () => ui.deleteArchived('shop-dev', UID), 'archive.delete'],
   ['engine', () => ui.getEngine(), 'engine.get'],
   ['suspend all', () => ui.suspendAllSchedules({ reason: 'incident 42' }), 'engine.suspend-all'],
+  // W2: the designer.
+  ['test run', () => ui.testRunDraft('shop-dev', { yaml: 'apiVersion: argoproj.io/v1alpha1\nkind: WorkflowTemplate\nmetadata: {name: nightly}\n', parameters: { env: 'dev' } }), 'drafts.test-run', parseTestRun],
+  ['draft dry run', () => ui.testRunDraft('shop-dev', { yaml: 'kind: WorkflowTemplate\n', dryRun: true }), 'drafts.test-run', parseTestRun],
+  ['lint', () => ui.lintManifest({ namespace: 'shop-dev', kind: 'WorkflowTemplate', manifest: { kind: 'WorkflowTemplate', metadata: { name: 'nightly' }, spec: {} } }), 'lint', parseLint],
 ]
 
 /** BFF routes the W1 UI does not call yet, and who will. */
-const NOT_CALLED_IN_W1: Partial<Record<Route['op'], string>> = {
-  lint: 'the W2 designer (§6.7) validates through it',
-}
+const NOT_CALLED_IN_W1: Partial<Record<Route['op'], string>> = {}
 
 for (const [what, fn, op, parse] of CALLS) {
   Deno.test(`the UI's ${what} request is a route the BFF serves (${op})`, async () => {

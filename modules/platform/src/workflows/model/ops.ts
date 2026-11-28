@@ -1,17 +1,17 @@
 import { isMap, isScalar, isSeq, Pair } from 'yaml'
 import type { Document, YAMLMap, YAMLSeq } from 'yaml'
 import type { Path, WfDoc } from './doc.ts'
-import { createValue, deleteNode, edit, getIn, insertNode, mapStrings, nodeAt, setNode } from './doc.ts'
+import { createValue, deleteNode, DocEditError, edit, getIn, insertNode, mapStrings, nodeAt, own, setNode, setScalarString, toJS } from './doc.ts'
 import type { Condition } from './depends.ts'
 import { addTerm, conjunctionTerms, CONDITIONS, dependsTerms, fromDependencies, parseDepends, removeTask, renameTask, setCondition } from './depends.ts'
 import type { CatalogueStep, TemplateRef } from './kinds.ts'
-import { APPROVAL_REF, kindOfRef, paletteEntry, refOf } from './kinds.ts'
+import { APPROVAL_REF, kindOfRef, palette, paletteEntry, refOf } from './kinds.ts'
 import type { Positions } from './positions.ts'
 import { decodePositions, encodePositions } from './positions.ts'
 import { allNodes, project } from './project.ts'
 import type { Shape, TaskAt, TemplateAt } from './shape.ts'
 import { arr, obj, shapeOf, stepGroupsOf, str, TASK_NAME, tasksOf, templateUses, uidOf } from './shape.ts'
-import { dependenciesOf, findCycle } from './validate.ts'
+import { dependenciesOf } from './validate.ts'
 
 /**
  * The designer's edits (design 0026 §6.5). Each takes a snapshot and returns
@@ -139,10 +139,43 @@ function locate(d: WfDoc, uid: string): Target {
 
 /* ─────────────────────────── YAML tree helpers ─────────────────────────── */
 
+/**
+ * The map at `path`, ready to be changed: an alias on the way is replaced by
+ * its own copy and the map's merge keys are written out (`doc.ts` `own`), so
+ * setting or deleting a key changes this map and nothing that shared it.
+ */
 function mapAt(doc: Document, path: Path): YAMLMap {
-  const n = nodeAt(doc, path)
+  const n = own(doc, path, { whole: true })
   if (!isMap(n)) throw new OpError('invalid', `${path.join('.')} is not a map.`)
   return n
+}
+
+/** The value at `path` as the document reads (aliases followed, merge keys folded in), and whether anything is there. */
+function valueAt(d: WfDoc, path: Path): { found: boolean; value?: unknown } {
+  let cur: unknown = toJS(d)
+  for (const key of path) {
+    if (Array.isArray(cur) && typeof key === 'number' && key >= 0 && key < cur.length) cur = cur[key]
+    else if (cur && typeof cur === 'object' && !Array.isArray(cur) && Object.prototype.hasOwnProperty.call(cur, key)) cur = (cur as Record<string, unknown>)[key as string]
+    else return { found: false }
+  }
+  return { found: true, value: cur }
+}
+
+/** Whether `to` can be reached from `from` along `edges`. */
+function reaches(edges: ReadonlyArray<{ source: string; target: string }>, from: string, to: string): boolean {
+  const seen = new Set([from])
+  const queue = [from]
+  while (queue.length) {
+    const n = queue.pop()!
+    if (n === to) return true
+    for (const e of edges) {
+      if (e.source === n && !seen.has(e.target)) {
+        seen.add(e.target)
+        queue.push(e.target)
+      }
+    }
+  }
+  return false
 }
 
 const keyIs = (p: Pair, key: string) => (isScalar(p.key) ? p.key.value : p.key) === key
@@ -151,7 +184,7 @@ const keyIs = (p: Pair, key: string) => (isScalar(p.key) ? p.key.value : p.key) 
 function setKeyAfter(doc: Document, map: YAMLMap, after: string, key: string, value: unknown): void {
   const existing = map.items.find((p) => keyIs(p, key))
   if (existing) {
-    if (isScalar(existing.value) && typeof value === 'string') existing.value.value = value
+    if (isScalar(existing.value) && typeof value === 'string') setScalarString(existing.value, value)
     else existing.value = createValue(doc, value)
     return
   }
@@ -181,7 +214,8 @@ function replaceKey(doc: Document, map: YAMLMap, from: string, to: string, value
  * parent map is left behind.
  */
 function unsetting(d: WfDoc, path: Path): Op {
-  if (nodeAt(d, path) !== undefined) return { op: 'set', path, value: getIn(d, path) }
+  const was = valueAt(d, path)
+  if (was.found) return { op: 'set', path, value: was.value }
   let n = path.length
   while (n > 1 && nodeAt(d, path.slice(0, n - 1)) === undefined) n--
   return { op: 'unset', path: path.slice(0, n) }
@@ -214,13 +248,30 @@ function pruneEmpty(doc: Document, path: Path): void {
 
 /* ─────────────────────────── the operations ─────────────────────────── */
 
-/** Apply one operation. Throws `OpError` when it cannot apply; the input snapshot is never changed. */
+/** Apply one operation. Throws `OpError` — and nothing else — when it cannot apply; the input snapshot is never changed. */
 export function applyOp(d: WfDoc, op: Op, opts: ApplyOptions = {}): OpResult {
+  try {
+    return run(d, op, opts)
+  } catch (e) {
+    // `doc.ts` refuses an edit it cannot write (a list where a map is needed, YAML the library cannot print); the canvas knows one error type.
+    if (e instanceof DocEditError) throw new OpError('invalid', e.message)
+    throw e
+  }
+}
+
+function sameRef(a: TemplateRef, b: TemplateRef): boolean {
+  return a.name === b.name && a.template === b.template && Boolean(a.clusterScope) === Boolean(b.clusterScope)
+}
+
+function run(d: WfDoc, op: Op, opts: ApplyOptions): OpResult {
   switch (op.op) {
     case 'addNode':
       return addNode(d, op, opts)
-    case 'addRef':
-      return addTask(d, { ...op, title: `${op.ref.name}/${op.ref.template}` }, opts)
+    case 'addRef': {
+      // A step the catalogue knows brings its title and the arguments it REQUIRES (§6.5), as dropping it from the palette does.
+      const known = palette(opts.catalogue, { batch: true, gamedays: true }).find((e) => e.ref !== undefined && sameRef(e.ref, op.ref))
+      return addTask(d, { ...op, arguments: op.arguments ?? known?.arguments, title: known?.title ?? `${op.ref.name}/${op.ref.template}` }, opts)
+    }
     case 'connect':
       return connect(d, op)
     case 'disconnect':
@@ -232,6 +283,9 @@ export function applyOp(d: WfDoc, op: Op, opts: ApplyOptions = {}): OpResult {
     case 'set': {
       need(d)
       if (!op.path.length) fail('invalid', 'set needs a path.')
+      // Setting a field to what it already holds is no edit: no reprint, no undo step.
+      const was = valueAt(d, op.path)
+      if (was.found && op.value !== undefined && JSON.stringify(was.value) === JSON.stringify(op.value)) return { doc: d, changes: [], inverse: [] }
       return {
         doc: edit(d, (doc) => setNode(doc, op.path, op.value)),
         changes: [`Set ${op.path.join('.')}`],
@@ -240,8 +294,9 @@ export function applyOp(d: WfDoc, op: Op, opts: ApplyOptions = {}): OpResult {
     }
     case 'unset': {
       need(d)
-      if (nodeAt(d, op.path) === undefined) return { doc: d, changes: [], inverse: [] }
-      const before = getIn(d, op.path)
+      const was = valueAt(d, op.path)
+      if (!was.found) return { doc: d, changes: [], inverse: [] }
+      const before = was.value
       const index = typeof op.path[op.path.length - 1] === 'number' ? (op.path[op.path.length - 1] as number) : undefined
       return {
         doc: edit(d, (doc) => void deleteNode(doc, op.path)),
@@ -437,7 +492,8 @@ function connect(d: WfDoc, op: Extract<Op, { op: 'connect' }>): OpResult {
 
   const edges = tasks.flatMap((t) => dependenciesOf(t.body).map((s) => ({ source: s, target: t.name })))
   const already = edges.some((e) => e.source === source && e.target === target)
-  if (!already && findCycle(tasks.map((t) => t.name), [...edges, { source, target }])) {
+  // Only a circle THIS edge would close refuses it: a document that already holds one elsewhere (validation says so) can still be edited.
+  if (!already && reaches(edges, target, source)) {
     fail('cycle', `"${source}" already waits for "${target}"; connecting them the other way round would make a circle.`)
   }
 
@@ -553,15 +609,16 @@ function removeNode(d: WfDoc, op: Extract<Op, { op: 'removeNode' }>, opts: Apply
   const doc = edit(d, (y) => {
     for (const other of tasks) {
       if (other.name === task.name) continue
-      const map = mapAt(y, other.path)
       const depends = str(other.body.depends)
       if (other.body.depends !== undefined && depends && dependsTerms(depends).some((t) => t.task === task.name)) {
+        const map = mapAt(y, other.path)
         const r = removeTask(depends, task.name)
         if (r.depends === undefined) map.delete('depends')
         else setKeyAfter(y, map, 'name', 'depends', r.depends)
       }
       const deps = arr(other.body.dependencies).map(str)
       if (deps.includes(task.name)) {
+        const map = mapAt(y, other.path)
         const rest = deps.filter((x) => x !== task.name)
         if (rest.length) {
           // Highest index first, so earlier deletions do not shift later ones.
@@ -690,24 +747,34 @@ function convertStepsToDag(d: WfDoc, template: string | undefined): OpResult {
 
   const doc = edit(d, (y) => {
     const tmap = mapAt(y, t.path)
-    const stepsSeq = nodeAt(y, [...t.path, 'steps'])
+    const stepsPath = [...t.path, 'steps']
+    const stepsSeq = own(y, stepsPath)
     if (!isSeq(stepsSeq)) return fail('invalid', `"${t.name}".steps is not a list.`)
     const tasks: unknown[] = []
-    ;(stepsSeq as YAMLSeq).items.forEach((groupNode, g) => {
-      if (!isSeq(groupNode)) return
-      const prev = g > 0 ? groups[g - 1] : []
+    // The group a group waits for is the last one BEFORE it that holds a step: an empty group (`- []`) runs nothing and must not cut the chain.
+    let prev: TaskAt[] = []
+    ;(stepsSeq as YAMLSeq).items.forEach((_group, g) => {
+      // A group or a step written as an alias (`- *deploy`) becomes this template's own copy first; it is about to be changed.
+      const groupNode = own(y, [...stepsPath, g])
+      if (!isSeq(groupNode) || !groupNode.items.length) return
       const depends = prev.map(tolerant).join(' && ')
-      groupNode.items.forEach((stepNode, i) => {
-        if (!isMap(stepNode)) return
+      groupNode.items.forEach((_step, i) => {
+        const stepNode = own(y, [...stepsPath, g, i], { whole: true })
+        if (!isMap(stepNode)) return fail('invalid', `Step ${i + 1} of group ${g + 1} in "${t.name}" is not a map; fix it in the YAML first.`)
         // A comment written above the group belongs to its first task now.
         if (i === 0 && groupNode.commentBefore) {
           stepNode.commentBefore = [groupNode.commentBefore, stepNode.commentBefore].filter(Boolean).join('\n')
         }
         stepNode.flow = false
         if (stepNode.has('continueOn')) stepNode.delete('continueOn')
-        if (depends) setKeyAfter(y, stepNode, 'name', 'depends', depends)
+        if (depends) {
+          setKeyAfter(y, stepNode, 'name', 'depends', depends)
+          const stepName = groups[g]?.[i]?.name ?? ''
+          if (/^[0-9]/.test(stepName)) changes.push(`"${stepName}" begins with a digit, which a DAG task that waits for another may not: rename it`)
+        }
         tasks.push(stepNode)
       })
+      prev = groups[g] ?? []
     })
     const pair = tmap.items.find((p) => keyIs(p, 'steps'))!
     if (isScalar(pair.key)) pair.key.value = 'dag'

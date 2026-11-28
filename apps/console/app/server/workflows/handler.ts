@@ -6,6 +6,7 @@ import { getTool } from '../tool-registry.ts'
 import { openStore, writeAudit } from '../workspace/store.ts'
 import { argoClient, ArgoUnavailable, argoErrorText, argoPath, type ArgoMode } from './argo-server.ts'
 import { AUDIT_ACTION, checkFor } from './authz.ts'
+import { DRAFT_FIELD_MANAGER, DRAFT_LABEL, draftExpiry, parseTestRun, stampDraft, testRunManifest } from './drafts.ts'
 import { type LogDeps, parseLogQuery, runLogs } from './logs.ts'
 import {
   actorLabel,
@@ -51,6 +52,7 @@ import {
  *   POST   /archive/:ns/:uid/{retry,resubmit}                                     create workflows
  *   DELETE /archive/:ns/:uid                                                      workflowsAdmin
  *   POST   /lint                                 {namespace, kind, manifest}      create <kind> in namespace
+ *   POST   /drafts/:ns/test-run                  {yaml, parameters?, dryRun?}     create workflowtemplates (+ the user's own create workflows); dev tier only
  *   GET    /engine                                                                workflowsAdmin
  *   POST   /engine/schedules/suspend-all         {namespaces?, reason}            workflowsAdmin (+ the user's own patch rights)
  *
@@ -362,6 +364,8 @@ async function handle(req: Request, subpath: string, deps: WorkflowsDeps): Promi
     case 'lint':
       if (!lint?.ok) return fail(400, 'invalid', 'lint needs a body.')
       return await lintRoute(ctx, lint.value)
+    case 'drafts.test-run':
+      return await draftTestRun(ctx, route)
     case 'engine.get':
       return await engineGet(ctx)
     case 'engine.suspend-all':
@@ -685,6 +689,122 @@ async function lintRoute(ctx: Ctx, l: LintRequest): Promise<Response> {
     return json({ valid: false, message: await argoErrorText(res) })
   }
   return await fromArgo(res, mode, `linting a ${l.kind}`)
+}
+
+/* ─────────────────────────── drafts ─────────────────────────── */
+
+/** The API server's own words for a refusal (a Status object's `message`): Kyverno and RBAC speak here. */
+async function k8sMessage(res: Response): Promise<string> {
+  const text = await res.text().catch(() => '')
+  try {
+    const b = JSON.parse(text) as { message?: string }
+    return typeof b?.message === 'string' ? b.message : text.slice(0, 2000)
+  } catch {
+    return text.slice(0, 2000)
+  }
+}
+
+async function fromK8s(res: Response, what: string, extra: Record<string, unknown> = {}): Promise<Response> {
+  const message = await k8sMessage(res)
+  switch (res.status) {
+    case 400:
+    case 422:
+      return fail(400, 'invalid', message || `${what} was refused as invalid.`, extra)
+    case 401:
+    case 403:
+      return fail(403, 'forbidden', message || `Not permitted: ${what}.`, extra)
+    case 404:
+      return fail(404, 'not_found', message || `${what}: not found.`, extra)
+    case 409:
+      return fail(409, 'conflict', message || `${what}: conflict.`, extra)
+    default:
+      return fail(502, 'upstream_error', `The API server answered HTTP ${res.status} for ${what}${message ? `: ${message}` : ''}.`, extra)
+  }
+}
+
+const TIER_LABEL = 'adhar.io/tier'
+
+/**
+ * The designer's test run (design 0026 §6.4, §6.9; W2-C3): save the template
+ * as this user's DRAFT in a dev namespace, then start a run of it. Both writes
+ * are the user's own, through the gateway — the console adds no privilege, and
+ * Kyverno #7 (drafts only in `adhar.io/tier: dev`, expiring within 7 days)
+ * judges the same request it would judge from kubectl.
+ *
+ * The BFF checks the tier itself as well: #7 is `failurePolicy: Ignore`, and
+ * "a draft landed in prod while Kyverno was down" is not a risk to leave to
+ * a webhook. What it cannot confirm it refuses.
+ *
+ * `dryRun` is validation level B (§6.7): the same apply with `dryRun=All` —
+ * RBAC, the CRD and admission answer, nothing is stored, nothing runs.
+ */
+async function draftTestRun(ctx: Ctx, r: R<'drafts.test-run'>): Promise<Response> {
+  const p = parseTestRun(await readJson(ctx.req))
+  if (!p.ok) return fail(400, 'invalid', p.detail)
+  const ns = r.namespace
+  const action = AUDIT_ACTION['drafts.test-run'] as string
+
+  const nsRes = await ctx.deps.k8s(ctx.id, `/api/v1/namespaces/${ns}`).catch(() => null)
+  if (!nsRes?.ok) {
+    await nsRes?.body?.cancel()
+    if (nsRes?.status === 404) return fail(404, 'not_found', `No namespace ${ns}.`)
+    return fail(403, 'tier_unknown', `The console could not confirm that ${ns} is a dev namespace (reading it answered ${nsRes ? `HTTP ${nsRes.status}` : 'nothing'}). Drafts and test runs are for dev namespaces only.`)
+  }
+  const tier = ((await nsRes.json().catch(() => ({}))) as { metadata?: { labels?: Record<string, string> } }).metadata?.labels?.[TIER_LABEL]
+  if (tier !== 'dev') {
+    return fail(403, 'not_dev', `Namespace ${ns} is ${tier ? `tier ${tier}` : 'not a dev namespace'}: drafts and test runs are for dev namespaces only (${TIER_LABEL}: dev). Publish the template to run it elsewhere.`)
+  }
+
+  const kubeUser = kubeUsername(ctx.who, userPrefix(), Deno.env.get('K8S_IMPERSONATE_USERNAME_CLAIM') ?? 'preferred_username')
+  const stamped = stampDraft(p.value.yaml, { namespace: ns, kubeUser, expires: draftExpiry(ctx.deps.now()) })
+  if (!stamped.ok) return fail(400, 'invalid', stamped.detail)
+  const draft = { name: stamped.value.name, namespace: ns, expires: stamped.value.expires }
+  const target = { id: `${ns}/${draft.name}`, label: `${ns}/${draft.name} (draft of ${stamped.value.base})` }
+  const path = `/apis/argoproj.io/v1alpha1/namespaces/${ns}/workflowtemplates/${encodeURIComponent(draft.name)}`
+
+  // Never write over something that is not a draft, whatever its name.
+  const existing = await ctx.deps.k8s(ctx.id, path).catch(() => null)
+  if (existing?.ok) {
+    const cur = (await existing.json().catch(() => ({}))) as WfObject
+    if (cur.metadata?.labels?.[DRAFT_LABEL] !== 'true') {
+      return fail(409, 'not_a_draft', `${ns}/${draft.name} exists and is not a draft; the console will not overwrite it. Rename the template.`)
+    }
+  } else {
+    await existing?.body?.cancel()
+    if (existing?.status !== 404) {
+      if (existing?.status === 401 || existing?.status === 403) return fail(403, 'forbidden', `Saving a draft needs get and patch workflowtemplates.argoproj.io in namespace ${ns}.`)
+      return fail(502, 'upstream_error', `The API server answered ${existing ? `HTTP ${existing.status}` : 'nothing'} reading ${ns}/${draft.name}.`)
+    }
+  }
+
+  const applied = await ctx.deps.k8s(ctx.id, path, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/apply-patch+yaml' },
+    search: qs({ fieldManager: DRAFT_FIELD_MANAGER, force: 'true', ...(p.value.dryRun ? { dryRun: 'All' } : {}) }),
+    body: stamped.value.yaml,
+  })
+  if (!applied.ok) {
+    const out = await fromK8s(applied, `saving the draft ${ns}/${draft.name}`)
+    if (!p.value.dryRun) await record(ctx, action, target, { step: 'apply', status: out.status }, 'failure')
+    return out
+  }
+  await applied.body?.cancel()
+  if (p.value.dryRun) return json({ ok: true, dryRun: true, draft })
+
+  const run = await ctx.deps.k8s(ctx.id, `/apis/argoproj.io/v1alpha1/namespaces/${ns}/workflows`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(testRunManifest(ns, draft.name, p.value.parameters)),
+  })
+  if (!run.ok) {
+    // The draft IS saved: say so, so the designer can keep it and show why the run was refused.
+    const out = await fromK8s(run, `starting a run of ${ns}/${draft.name}`, { draft })
+    await record(ctx, action, target, { step: 'submit', status: out.status }, 'failure')
+    return out
+  }
+  const wf = (await run.json().catch(() => ({}))) as WfObject
+  await record(ctx, action, target, { run: wf.metadata?.name, parameters: p.value.parameters.map((x) => x.name), expires: draft.expires }, 'success')
+  return json({ ok: true, draft, workflow: workflowRef(wf) })
 }
 
 /* ─────────────────────────── engine ─────────────────────────── */

@@ -191,9 +191,8 @@ export function toTimeSeries(series: RangeSeries[], name: (s: RangeSeries, i: nu
  * TimeSeriesChart + deploy annotations + a toggleable legend.
  *
  * The shell chart's built-in legend is hidden (it can't toggle) and replaced by
- * one where a click hides a series and Alt/⌥-click isolates it. Annotations are
- * drawn as an overlay using the chart's own geometry (fixed padding on a 640-wide
- * viewBox, x-domain = the visible samples' extent).
+ * one where a click hides a series and Alt/⌥-click isolates it. Deploys are
+ * handed to the chart as markers, so they are placed by its real geometry.
  */
 export function SignalChart({
   series,
@@ -241,41 +240,19 @@ export function SignalChart({
       else next.add(name)
       return next
     })
-  // Geometry of TimeSeriesChart: viewBox 640 × height, padding l44 r12 t10 b22.
-  const W = 640
-  const xPct = (t: number) => extent ? ((44 + ((t - extent.t0) / (extent.t1 - extent.t0)) * (W - 56)) / W) * 100 : 0
   return (
     <div className="min-w-0">
-      <div className="relative">
-        <TimeSeriesChart
-          series={visible}
-          height={height}
-          formatY={(v) => formatValue(v, unit)}
-          thresholds={thresholds}
-          yMax={yMax}
-          emptyLabel={emptyLabel ?? (series.length ? 'All series hidden' : 'No samples')}
-          className="[&>div.mt-1]:hidden"
-        />
-        {marks.length ? (
-          <div className="pointer-events-none absolute inset-0" aria-hidden={false}>
-            {marks.map((a, i) => (
-              <div
-                key={`${a.t}-${i}`}
-                className="group absolute flex w-3 -translate-x-1/2 justify-center"
-                style={{ left: `${xPct(a.t)}%`, top: `${(10 / height) * 100}%`, bottom: `${(22 / height) * 100}%` }}
-              >
-                <div className="h-full border-l border-dashed border-content-subtle/70" />
-                <span
-                  tabIndex={0}
-                  title={`${a.label}${a.detail ? ` — ${a.detail}` : ''} · ${new Date(a.t).toLocaleString()}`}
-                  aria-label={`Deploy ${a.label} at ${new Date(a.t).toLocaleString()}`}
-                  className="pointer-events-auto absolute -top-1 size-2 rotate-45 rounded-[1px] bg-content-muted ring-2 ring-surface-raised"
-                />
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      <TimeSeriesChart
+        series={visible}
+        height={height}
+        formatY={(v) => formatValue(v, unit)}
+        thresholds={thresholds}
+        markers={annotations}
+        markerLabel="Deploy"
+        yMax={yMax}
+        emptyLabel={emptyLabel ?? (series.length ? 'All series hidden' : 'No samples')}
+        className="[&>div.mt-1]:hidden"
+      />
       {legend === 'auto' && (series.length > 1 || marks.length) ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-content-muted">
           {series.length > 1

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { AdharAiMark } from './assist/mark.tsx'
 import { XR_FAMILIES, xrSectionsOf } from './xr-sections.ts'
 import { K8S_CATEGORIES } from './k8s-sections.ts'
 import { SETTINGS_CATEGORIES } from './settings-sections.ts'
@@ -436,7 +437,7 @@ export const DEFAULT_NAV: NavSection[] = [
         // Argo Workflows (design 0026 §6.1). Visible to everyone who builds
         // software, because teams own their workflows; whether the engine is
         // installed is the page's capability probe, not the nav's business.
-        // Designer, Schedules and Triggers join this list with W2 and W4.
+        // Schedules and Triggers join this list with W4.
         id: 'platform-workflows',
         label: 'Workflows',
         to: '/platform',
@@ -447,6 +448,7 @@ export const DEFAULT_NAV: NavSection[] = [
         children: [
           { id: 'platform.workflows', label: 'Overview', to: '/platform', search: 'workflows' },
           { id: 'platform.workflow-catalog', label: 'Catalog', to: '/platform', search: 'workflow-catalog' },
+          { id: 'platform.workflow-designer', label: 'Designer', to: '/platform', search: 'workflow-designer' },
           { id: 'platform.workflow-runs', label: 'Runs', to: '/platform', search: 'workflow-runs' },
           { id: 'platform.workflow-history', label: 'History', to: '/platform', search: 'workflow-history' },
           { id: 'platform.workflow-engine', label: 'Engine', to: '/platform', search: 'workflow-engine', roles: PLATFORM_OPS_ROLES },
@@ -518,13 +520,13 @@ export const DEFAULT_NAV: NavSection[] = [
   },
 ]
 
+/**
+ * Adhar AI in the sidebar is the Adhar AI mark itself — the same gradient
+ * tile and spark the page and the ⌘K overlay open with — not a generic
+ * monochrome sparkle, so the row and the place it leads to share one face.
+ */
 function IconSparkNav() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M12 2l1.9 5.6L19.5 9l-5.6 1.9L12 16.5l-1.9-5.6L4.5 9l5.6-1.4L12 2z" />
-      <path d="M19 15l.8 2.2 2.2.8-2.2.8L19 21l-.8-2.2-2.2-.8 2.2-.8L19 15z" opacity=".7" />
-    </svg>
-  )
+  return <AdharAiMark size={20} />
 }
 
 function IconBellNav() {

@@ -31,7 +31,10 @@ metadata:
   labels:
     app.kubernetes.io/part-of: adhar-platform
     adhar.io/catalog: "true"
-    adhar.io/catalog-tags: approvals,checks,load
+    # Dot-separated: a label value cannot hold a comma, and the API server
+    # rejecting this one object held back the whole argo-workflows sync
+    # (TestEveryStackLabelIsOneTheAPIServerAccepts). The console splits on , or .
+    adhar.io/catalog-tags: approvals.checks.load
   annotations:
     workflows.argoproj.io/title: Platform steps
     workflows.argoproj.io/description: >-

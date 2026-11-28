@@ -343,15 +343,33 @@ export interface Threshold {
   color?: string
 }
 
+/** A moment worth marking on the time axis — a deploy, an incident, a config change. */
+export interface ChartMarker {
+  t: number
+  label: string
+  detail?: string
+}
+
+/** Markers closer together than this (px) are drawn as one. */
+const MARKER_GAP = 12
+
 /**
  * A proper time-series chart for the metrics surfaces: gridlines, a time
  * axis, a value axis, several series on one plot (filled area for the first,
- * lines for the rest), optional threshold lines and a hover crosshair with a
- * tooltip. Still plain SVG, still theme-aware through tokens, so it costs
+ * lines for the rest), optional threshold lines, event markers and a hover
+ * crosshair with a tooltip. Still plain SVG, still theme-aware through tokens, so it costs
  * nothing to ship and looks identical in both modes.
  *
  * Nothing is interpolated: a series only draws where it has samples, so a
  * gap in collection shows as a gap, which is what an operator needs to see.
+ *
+ * Vertical rules are kept quiet on purpose. The grid is solid hairlines one
+ * step off the surface (dashes read as "threshold", and thresholds are the
+ * only dashed thing here). An event marker is a small diamond on the top edge
+ * of the plot with a rule that fades out on its way down, so a busy window —
+ * forty deploys in a day — is a row of ticks along the top, not a fence drawn
+ * across the data; markers that would touch are drawn as one, and pointing at
+ * one draws its rule in full and names the events in the tooltip.
  */
 export function TimeSeriesChart({
   series,
@@ -359,6 +377,8 @@ export function TimeSeriesChart({
   formatY = defaultFormat,
   formatTime = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   thresholds = [],
+  markers = [],
+  markerLabel = 'Event',
   yMax,
   emptyLabel = 'Awaiting samples…',
   className,
@@ -368,6 +388,10 @@ export function TimeSeriesChart({
   formatY?(v: number): string
   formatTime?(t: number): string
   thresholds?: Threshold[]
+  /** Events drawn on the time axis; ones outside the plotted span are skipped. */
+  markers?: ChartMarker[]
+  /** What one marker is called in the tooltip ("Deploy"). */
+  markerLabel?: string
   /** Pin the top of the value axis (e.g. 100 for a percentage). */
   yMax?: number
   emptyLabel?: string
@@ -413,7 +437,7 @@ export function TimeSeriesChart({
   const top = yMax ?? niceCeil(peak || 1)
   const gridVals = [0, 0.25, 0.5, 0.75, 1].map((f) => f * top)
   // The value axis is as wide as its longest label (9px mono ≈ 5.5px a char).
-  const PAD = { l: Math.max(28, Math.ceil(Math.max(...gridVals.map((v) => formatY(v).length)) * 5.6) + 10), r: 12, t: 10, b: 22 }
+  const PAD = { l: Math.max(28, Math.ceil(Math.max(...gridVals.map((v) => formatY(v).length)) * 5.6) + 10), r: 12, t: markers.length ? 14 : 10, b: 22 }
   const tickCount = W < 420 ? 2 : 4
   const plotW = W - PAD.l - PAD.r
   const plotH = H - PAD.t - PAD.b
@@ -435,6 +459,25 @@ export function TimeSeriesChart({
   const hoverPts = hoverT === null ? [] : data.filter((s) => s.points.length).map((s) => ({ s, p: nearest(s.points, hoverT) }))
   const hoverX = hoverPts.length ? x(hoverPts[0].p[0]) : null
 
+  // Event markers, merged where they would overlap.
+  const clusters: Array<{ x0: number; x: number; items: ChartMarker[] }> = []
+  for (const m of markers.filter((m) => m.t >= t0 && m.t <= t1).sort((a, b) => a.t - b.t)) {
+    const mx = x(m.t)
+    const last = clusters[clusters.length - 1]
+    if (last && mx - last.x0 < MARKER_GAP) {
+      last.items.push(m)
+      last.x = (last.x0 + mx) / 2
+    } else clusters.push({ x0: mx, x: mx, items: [m] })
+  }
+  // The pointer picks a marker by where it is, not by the sample it snapped to.
+  const hoverCluster = hover === null
+    ? null
+    : clusters.reduce<(typeof clusters)[number] | null>(
+      (best, c) => (Math.abs(c.x - hover) <= 7 && (!best || Math.abs(c.x - hover) < Math.abs(best.x - hover)) ? c : best),
+      null,
+    )
+  const markerNoun = (n: number) => (n === 1 ? markerLabel : `${n} ${markerLabel.toLowerCase()}s`)
+
   return (
     <div ref={boxRef} className={cn('relative', className)}>
       <svg
@@ -451,14 +494,18 @@ export function TimeSeriesChart({
       >
         <defs>
           <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={primary.color ?? 'var(--color-brand-500)'} stopOpacity="0.28" />
+            <stop offset="0%" stopColor={primary.color ?? 'var(--color-brand-500)'} stopOpacity="0.18" />
             <stop offset="100%" stopColor={primary.color ?? 'var(--color-brand-500)'} stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id={`${gradId}-m`} gradientUnits="userSpaceOnUse" x1="0" x2="0" y1={PAD.t} y2={PAD.t + plotH}>
+            <stop offset="0%" stopColor="var(--color-content-subtle)" stopOpacity="0.5" />
+            <stop offset="45%" stopColor="var(--color-content-subtle)" stopOpacity="0" />
           </linearGradient>
         </defs>
         {/* gridlines + value axis */}
         {gridVals.map((v) => (
           <g key={v}>
-            <line x1={PAD.l} x2={W - PAD.r} y1={y(v)} y2={y(v)} stroke="var(--color-edge-default)" strokeWidth="1" strokeDasharray={v === 0 ? undefined : '3 4'} />
+            <line x1={PAD.l} x2={W - PAD.r} y1={Math.round(y(v)) + 0.5} y2={Math.round(y(v)) + 0.5} stroke={v === 0 ? 'var(--color-edge-default)' : 'var(--color-edge-subtle)'} strokeWidth="1" />
             <text x={PAD.l - 6} y={y(v) + 3} textAnchor="end" fontSize="9" fill="var(--color-content-subtle)" fontFamily="var(--font-mono)">
               {formatY(v)}
             </text>
@@ -489,6 +536,21 @@ export function TimeSeriesChart({
             ) : null}
           </g>
         ))}
+        {/* event rules: behind the data, fading out as they go down */}
+        {clusters.map((c) => {
+          const cx = Math.round(c.x) + 0.5
+          const on = c === hoverCluster
+          return (
+            <rect
+              key={`r${c.x0}`}
+              x={cx - 0.5}
+              y={PAD.t}
+              width="1"
+              height={plotH}
+              fill={on ? 'var(--color-content-muted)' : `url(#${gradId}-m)`}
+            />
+          )
+        })}
         {/* series */}
         {data.map((s, i) => {
           if (s.points.length < 2) return null
@@ -500,19 +562,41 @@ export function TimeSeriesChart({
             <g key={s.name}>
               {i === 0 && !s.dashed ? <path d={`${d} L${x(last[0]).toFixed(1)},${(PAD.t + plotH).toFixed(1)} L${x(first[0]).toFixed(1)},${(PAD.t + plotH).toFixed(1)} Z`} fill={`url(#${gradId})`} /> : null}
               <path d={d} fill="none" stroke={color} strokeWidth={s.dashed ? 1.25 : 1.75} strokeDasharray={s.dashed ? '5 4' : undefined} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-              {!s.dashed ? <circle cx={x(last[0])} cy={y(last[1])} r="3" fill={color} /> : null}
+              {!s.dashed ? <circle cx={x(last[0])} cy={y(last[1])} r="3" fill={color} stroke="var(--color-surface-raised)" strokeWidth="1.5" /> : null}
             </g>
           )
         })}
         {/* crosshair */}
         {hoverX !== null ? (
           <g>
-            <line x1={hoverX} x2={hoverX} y1={PAD.t} y2={PAD.t + plotH} stroke="var(--color-content-subtle)" strokeWidth="1" strokeDasharray="2 3" />
+            <line x1={Math.round(hoverX) + 0.5} x2={Math.round(hoverX) + 0.5} y1={PAD.t} y2={PAD.t + plotH} stroke="var(--color-edge-strong)" strokeWidth="1" />
             {hoverPts.map(({ s, p }, i) => (
               <circle key={s.name} cx={x(p[0])} cy={y(p[1])} r="3.5" fill={s.color ?? (i === 0 ? 'var(--color-brand-500)' : 'var(--color-accent-500)')} stroke="var(--color-surface-raised)" strokeWidth="1.5" />
             ))}
           </g>
         ) : null}
+        {/* event markers: diamonds on the top edge, above the data */}
+        {clusters.map((c) => {
+          const cx = Math.round(c.x) + 0.5
+          const on = c === hoverCluster
+          const s = c.items.length > 1 ? 6.5 : 5
+          return (
+            <rect
+              key={`m${c.x0}`}
+              x={cx - s / 2}
+              y={PAD.t - s / 2}
+              width={s}
+              height={s}
+              rx="1"
+              transform={`rotate(45 ${cx} ${PAD.t})`}
+              fill={on ? 'var(--color-content)' : 'var(--color-content-muted)'}
+              stroke="var(--color-surface-raised)"
+              strokeWidth="1.5"
+            >
+              <title>{`${markerNoun(c.items.length)}: ${c.items.map((m) => m.label).join(', ')} · ${new Date(c.items[0].t).toLocaleString()}`}</title>
+            </rect>
+          )
+        })}
       </svg>
       {hoverPts.length ? (
         <div
@@ -527,6 +611,19 @@ export function TimeSeriesChart({
               <span className="tabular-nums">{formatY(p[1])}</span>
             </div>
           ))}
+          {hoverCluster ? (
+            <div className="mt-1 border-t border-edge-subtle pt-1">
+              <div className="text-content-subtle">{markerNoun(hoverCluster.items.length)}</div>
+              {hoverCluster.items.slice(0, 3).map((m, i) => (
+                <div key={i} className="flex items-center gap-1.5 whitespace-nowrap">
+                  <span className="inline-block size-1.5 rotate-45 bg-content-muted" />
+                  <span>{m.label}</span>
+                  {m.detail ? <span className="text-content-subtle">{m.detail}</span> : null}
+                </div>
+              ))}
+              {hoverCluster.items.length > 3 ? <div className="text-content-subtle">+{hoverCluster.items.length - 3} more</div> : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {data.length > 1 ? (

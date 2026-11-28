@@ -61,12 +61,11 @@ export const FINISHED_SELECTOR = `${LABEL.completed}=true`
 export const LIST_LIMIT = 200
 
 /** Every Workflows section id (`?section=`), in nav order. */
-export const SECTIONS = ['workflows', 'workflow-catalog', 'workflow-runs', 'workflow-history', 'workflow-engine'] as const
+export const SECTIONS = ['workflows', 'workflow-catalog', 'workflow-designer', 'workflow-runs', 'workflow-history', 'workflow-engine'] as const
 export type WorkflowSection = typeof SECTIONS[number]
 
-/** Sections designed but not built in W1 (designer W2; schedules, triggers W4). */
+/** Sections designed but not built yet (schedules, triggers W4). */
 export const LATER_SECTIONS: Record<string, string> = {
-  'workflow-designer': 'The designer arrives with phase W2.',
   'workflow-schedules': 'Schedules arrive with phase W4.',
   'workflow-triggers': 'Triggers arrive with phase W4.',
 }

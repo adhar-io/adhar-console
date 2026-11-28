@@ -39,6 +39,11 @@ export function checkFor(route: Route, lint?: LintRequest): AccessCheck | null {
     case 'archive.retry':
     case 'archive.resubmit':
       return wf('create', route.namespace)
+    case 'drafts.test-run':
+      // The draft is a WorkflowTemplate the user applies; the run it starts is
+      // created AS THE USER through the gateway, so `create workflows` is
+      // answered by the API server itself on that request.
+      return wf('create', route.namespace, 'workflowtemplates')
     case 'run.logs':
       return { verb: 'get', group: '', resource: 'pods', subresource: 'log', namespace: route.namespace }
     case 'archive.list':
@@ -67,4 +72,5 @@ export const AUDIT_ACTION: Partial<Record<Route['op'], string>> = {
   'archive.resubmit': 'workflow.resubmit',
   'archive.delete': 'workflow.delete',
   'engine.suspend-all': 'workflow.engine.suspend-all',
+  'drafts.test-run': 'workflow.draft.test-run',
 }

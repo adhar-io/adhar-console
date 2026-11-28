@@ -118,6 +118,54 @@ Deno.test('positive control: the workflow canvas does reach @xyflow', async () =
   assert(xyflowIn(bare), 'the walker should see @xyflow/react from the canvas — if not, it is blind and the tests below prove nothing')
 })
 
+Deno.test('positive control: the designer canvas does reach @xyflow, and the designer does reach yaml', async () => {
+  assert(xyflowIn(await closure(join(SRC, 'workflows/canvas/designer-canvas.tsx'))), 'the walker should see @xyflow/react from the designer canvas')
+  assert(yamlIn(await closure(join(SRC, 'workflows/views/designer.tsx'))), 'the walker should see yaml from the designer — if not, the yaml checks below prove nothing')
+})
+
+/**
+ * W2: the designer page, its palette, inspector, YAML panel and test-run
+ * dialog carry no @xyflow — the designer loads its canvas with React.lazy
+ * once a document is open (design 0026 §6.8 "lazy designer and run graph
+ * chunks").
+ */
+for (const entry of ['workflows/views/designer.tsx', 'workflows/views/test-run-dialog.tsx', 'workflows/canvas/palette.tsx', 'workflows/canvas/inspector.tsx', 'workflows/canvas/yaml-panel.tsx']) {
+  Deno.test(`${entry} does not statically reach @xyflow (W2)`, async () => {
+    const path = xyflowIn(await closure(join(SRC, entry)))
+    assertEquals(path, undefined, `@xyflow reached through:\n  ${(path ?? []).join('\n  → ')}\nLoad the canvas with React.lazy instead.`)
+  })
+}
+
+/** Only the two canvases import React Flow directly; anything else that needs it is a canvas too and belongs behind a lazy import. */
+Deno.test('only the run canvas and the designer canvas import @xyflow directly', async () => {
+  const direct: string[] = []
+  for await (const f of walkFiles(join(SRC, 'workflows'))) {
+    if (!/\.tsx?$/.test(f) || /_test\.tsx?$/.test(f)) continue
+    if (staticImports(await Deno.readTextFile(f)).some((s) => s.startsWith('@xyflow'))) direct.push(rel(f))
+  }
+  assertEquals(direct.sort(), ['modules/platform/src/workflows/canvas/designer-canvas.tsx', 'modules/platform/src/workflows/canvas/workflow-canvas.tsx'])
+})
+
+async function* walkFiles(dir: string): AsyncGenerator<string> {
+  for await (const e of Deno.readDir(dir)) {
+    const p = join(dir, e.name)
+    if (e.isDirectory) yield* walkFiles(p)
+    else if (e.isFile) yield p
+  }
+}
+
+function yamlIn(bare: Map<string, string[]>): string[] | undefined {
+  for (const [spec, path] of bare) if (spec === 'yaml' || spec.startsWith('npm:yaml')) return path.map(rel)
+  return undefined
+}
+
+for (const entry of ['workflows/views/overview.tsx', 'workflows/area.tsx', 'home.tsx']) {
+  Deno.test(`${entry} does not statically reach the designer's yaml model (W2)`, async () => {
+    const path = yamlIn(await closure(join(SRC, entry)))
+    assertEquals(path, undefined, `yaml reached through:\n  ${(path ?? []).join('\n  → ')}\nLoad the designer with React.lazy instead.`)
+  })
+}
+
 for (const entry of ['workflows/views/overview.tsx', 'workflows/area.tsx', 'home.tsx']) {
   Deno.test(`${entry} does not statically reach @xyflow (W1 acceptance 5)`, async () => {
     const path = xyflowIn(await closure(join(SRC, entry)))

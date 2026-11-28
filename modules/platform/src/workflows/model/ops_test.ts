@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertThrows } from 'jsr:@std/assert@^1.0.0'
 import type { WfDoc } from './doc.ts'
-import { commentsOf, getIn, parse, toJS } from './doc.ts'
+import { commentsOf, getIn, parse, sameContent, toJS } from './doc.ts'
 import type { Op } from './ops.ts'
 import { applyOp, applyOps, DRAFT_EXPIRES_ANNOTATION, DRAFT_LABEL, draftExpiry, HAS_APPROVALS_LABEL, OpError, POSITIONS_ANNOTATION, renameTaskTokens, usesApprovals } from './ops.ts'
 import { decodePositions } from './positions.ts'
@@ -473,4 +473,266 @@ spec:
   assertEquals(g.edges.length, 6)
   assertEquals(g.diagnostics.filter((x) => x.level !== 'info').map((x) => x.code), [])
   assert(g.nodes.every((n) => n.position.fromAnnotation))
+})
+
+/* ───────── found by the verifier: the breaking inputs ───────── */
+
+const head = (tasksYaml: string, more = '') => `apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata: {name: x}
+spec:
+  entrypoint: main
+  activeDeadlineSeconds: 60
+  templates:
+  - name: main
+    dag:
+      tasks:
+${tasksYaml.replace(/^\n/, '').replace(/\s+$/, '')}
+  - name: e
+    suspend: {}
+${more}`
+
+Deno.test('every refusal is an OpError: nothing the YAML library or doc.ts throws reaches the canvas', () => {
+  const d = parse(head(`      - name: a
+        template: e`))
+  // A list asked of a scalar, a path through a scalar: doc.ts refuses, the op reports it.
+  assertEquals(code(() => applyOp(d, { op: 'insert', path: ['spec', 'entrypoint'], value: 'x' }, opts)), 'invalid')
+  assertEquals(code(() => applyOp(d, { op: 'set', path: ['spec', 'entrypoint', 'deeper'], value: 1 }, opts)), 'invalid')
+  // The library cannot print a !!binary scalar with unlimited line width; that is a refusal too, not a RangeError.
+  const binary = parse(d.source.replace('metadata: {name: x}', 'metadata: {name: x, annotations: {blob: !!binary aGVsbG8=}}'))
+  assertEquals(binary.errors, [])
+  assertEquals(code(() => applyOp(binary, { op: 'rename', node: 'a', to: 'b' }, opts)), 'invalid')
+  assertEquals(binary.source.includes('aGVsbG8='), true)
+})
+
+Deno.test('setting a field to what it already holds is no edit; unsetting an inherited key removes it', () => {
+  // `mode: 0644` again: the same value must not reprint (or push an undo step).
+  const d = parse(head(`      - &base
+        name: a
+        template: e
+        arguments: {parameters: [{name: mode, value: 0644}]}
+      - <<: *base
+        name: b`))
+  const value = ['spec', 'templates', 0, 'dag', 'tasks', 0, 'arguments', 'parameters', 0, 'value']
+  for (const op of [
+    { op: 'set', path: value, value: 644 },
+    { op: 'set', path: ['spec', 'entrypoint'], value: 'main' },
+    { op: 'set', path: ['spec', 'templates', 1], value: { name: 'e', suspend: {} } },
+    // b inherits `template` through the merge: the same value there is no edit either.
+    { op: 'set', path: ['spec', 'templates', 0, 'dag', 'tasks', 1, 'template'], value: 'e' },
+  ] as Op[]) {
+    const r = applyOp(d, op, opts)
+    assertEquals(r.doc, d, JSON.stringify(op))
+    assertEquals(r.inverse, [])
+  }
+  // A different type is a change: the string "644" is not the number.
+  assert(applyOp(d, { op: 'set', path: value, value: '644' }, opts).doc !== d)
+  // b's `template` comes from the merge; unset removes it from b and only from b, and the inverse puts it back.
+  const inherited = ['spec', 'templates', 0, 'dag', 'tasks', 1, 'template']
+  const r = undoes(d, { op: 'unset', path: inherited }, false)
+  assertEquals(tasks(r.doc), [{ name: 'a', template: 'e', arguments: { parameters: [{ name: 'mode', value: 644 }] } }, { arguments: { parameters: [{ name: 'mode', value: 644 }] }, name: 'b' }])
+  assert(r.doc.source.includes('value: 0644'), r.doc.source)
+})
+
+Deno.test('a graph that already holds a circle can still be edited; only the edge that would close one is refused', () => {
+  const d = parse(head(`      - {name: a, template: e, depends: c}
+      - {name: b, template: e, depends: a}
+      - {name: c, template: e, depends: b}
+      - {name: d, template: e}
+      - {name: f, template: e}`))
+  assert(validate(d).some((x) => x.code === 'graph/cycle'))
+  // d and f are outside the circle: connecting them is an ordinary edge.
+  assertEquals(task(run(d, { op: 'connect', source: 'd', target: 'f' }), 'f').depends, 'd')
+  assertEquals(task(run(d, { op: 'connect', source: 'a', target: 'd' }), 'd').depends, 'a')
+  // …and the way out of the circle works.
+  assert(!validate(run(d, { op: 'disconnect', source: 'c', target: 'a' })).some((x) => x.code === 'graph/cycle'))
+  // An edge that would close a NEW circle is still refused, directly or through others.
+  const df = run(d, { op: 'connect', source: 'd', target: 'f' })
+  assertEquals(code(() => applyOp(df, { op: 'connect', source: 'f', target: 'd' }, opts)), 'cycle')
+  const chain = run(SMALL, { op: 'addNode', palette: 'timer', name: 'c' }, { op: 'connect', source: 'a', target: 'b' }, { op: 'connect', source: 'b', target: 'c' })
+  assertEquals(code(() => applyOp(chain, { op: 'connect', source: 'c', target: 'a' }, opts)), 'cycle')
+})
+
+Deno.test('addRef of a catalogue step brings the arguments the step requires, and its title', () => {
+  const ref = { name: 'adhar-steps', template: 'wait-healthy', clusterScope: true }
+  const r = applyOp(SMALL, { op: 'addRef', ref }, opts)
+  assertEquals(task(r.doc, 'wait-healthy'), { name: 'wait-healthy', templateRef: ref, arguments: { parameters: [{ name: 'kind', value: '' }, { name: 'name', value: '' }] } })
+  assert(r.changes[0].includes('Wait until healthy'), r.changes[0])
+  // The same step from the palette is the same task.
+  assertEquals(task(run(SMALL, { op: 'addNode', palette: 'step:adhar-steps/wait-healthy' }), 'wait-healthy'), task(r.doc, 'wait-healthy'))
+  // Arguments the caller passes win; an approval added by reference is still an approval.
+  assertEquals(task(run(SMALL, { op: 'addRef', ref, arguments: [{ name: 'kind', value: 'Job' }] }), 'wait-healthy').arguments.parameters, [{ name: 'kind', value: 'Job' }])
+  const approval = applyOp(SMALL, { op: 'addRef', ref: { name: 'adhar-steps', template: 'approval', clusterScope: true } }, opts)
+  assertEquals(task(approval.doc, 'approval').arguments.parameters.map((p: { name: string }) => p.name), ['question', 'approvers'])
+  assertEquals(js(approval.doc).spec.workflowMetadata.labels[HAS_APPROVALS_LABEL], 'true')
+  // Without the catalogue, or for a template that is not in it, nothing is invented.
+  assertEquals(task(applyOp(SMALL, { op: 'addRef', ref }).doc, 'wait-healthy').arguments, undefined)
+  assertEquals(task(run(SMALL, { op: 'addRef', ref: { name: 'adhar-steps', template: 'wait-healthy' } }), 'wait-healthy').arguments, undefined, 'a namespaced template of the same name is not the catalogue step')
+})
+
+const STEPS = `apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: {generateName: steps-}
+spec:
+  entrypoint: main
+  activeDeadlineSeconds: 60
+  x-groups:
+    verify: &verify
+    - {name: verify, template: e}
+    tolerant: &tolerant {template: e, continueOn: {failed: true}}
+  templates:
+  - name: main
+    steps:
+    - - {name: build, template: e}
+      - name: lint
+        template: e
+    - []
+    - - name: test
+        template: e
+    # a group written once and used here
+    - *verify
+    - - {name: 3rd, template: e}
+    - - <<: *tolerant
+        name: again
+    - - {name: end, template: e}
+  - name: e
+    suspend: {}
+`
+
+Deno.test('Convert to DAG: an empty group does not cut the chain, an aliased group is not lost, a digit name is called out', () => {
+  const d = parse(STEPS)
+  assertEquals(d.errors, [])
+  // The projection: four columns, not five, and `test` waits for the group before the empty one.
+  const g = project(d, opts)
+  assertEquals(g.nodes.map((n) => [n.id, n.column]), [['build', 0], ['lint', 0], ['test', 1], ['verify', 2], ['3rd', 3], ['again', 4], ['end', 5]])
+  assertEquals(g.edges.map((e) => `${e.source}>${e.target}`), ['build>test', 'lint>test', 'test>verify', 'verify>3rd', '3rd>again', 'again>end'])
+  const r = applyOp(d, { op: 'convertStepsToDag' }, opts)
+  assertEquals(tasks(r.doc), [
+    { name: 'build', template: 'e' },
+    { name: 'lint', template: 'e' },
+    { name: 'test', template: 'e', depends: 'build && lint' },
+    { name: 'verify', depends: 'test', template: 'e' },
+    { name: '3rd', depends: 'verify', template: 'e' },
+    // `again` INHERITED continueOn through a merge key; a DAG task with depends may not carry it, so it is said in what follows.
+    { template: 'e', name: 'again', depends: '3rd' },
+    { name: 'end', template: 'e', depends: '(again.Succeeded || again.Skipped || again.Daemoned || again.Failed)' },
+  ])
+  assert(!validate(r.doc).some((x) => x.code === 'cel/continue-on-with-depends'))
+  // The group's own definition is untouched (its copy in the DAG is what gained `depends`), and its comment came along.
+  assertEquals(js(r.doc).spec['x-groups'].verify, [{ name: 'verify', template: 'e' }])
+  assert(/# a group written once and used here\n\s+- name: verify/.test(r.doc.source), r.doc.source)
+  // The DAG says what the steps said.
+  assertEquals(project(r.doc, opts).edges.map((e) => `${e.source}>${e.target}`), g.edges.map((e) => `${e.source}>${e.target}`))
+  assert(r.changes.some((c) => c.includes('"3rd" begins with a digit')), JSON.stringify(r.changes))
+  assert(validate(r.doc).some((x) => x.code === 'cel/task-name-digit'))
+  // A step that is not a map cannot become a task: refused, not dropped.
+  assertEquals(code(() => applyOp(parse(STEPS.replace('- []', '- [oops]')), { op: 'convertStepsToDag' }, opts)), 'invalid')
+})
+
+Deno.test('a task renamed to a word YAML 1.1 misreads is quoted everywhere it is written', () => {
+  const d = parse(head(`      - name: a
+        template: e
+      - name: b
+        depends: a
+        template: e
+      - name: c
+        dependencies: [a, b]
+        template: e
+      - name: d
+        depends: a && b
+        template: e`))
+  for (const to of ['no', 'on', 'y', '0755', '2026-12-05']) {
+    const r = applyOp(d, { op: 'rename', node: 'a', to }, opts).doc
+    assertEquals(tasks(r).map((t) => [t.name, t.depends ?? t.dependencies]), [[to, undefined], ['b', to], ['c', [to, 'b']], ['d', `${to} && b`]], to)
+    assert(r.source.includes(`- name: "${to}"`) && r.source.includes(`depends: "${to}"`) && r.source.includes(`dependencies: ["${to}", b]`), r.source)
+  }
+  // A term left alone by a disconnect is quoted too.
+  const no = run(d, { op: 'rename', node: 'b', to: 'no' }, { op: 'disconnect', source: 'a', target: 'd' })
+  assert(no.source.includes('depends: "no"\n        template: e\n  - name: e'), no.source)
+})
+
+const SHARED = `apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: shared
+  labels: &lbl
+    team: a
+  annotations: *lbl
+spec:
+  entrypoint: main
+  activeDeadlineSeconds: 60
+  templates:
+  - name: main
+    dag:
+      tasks:
+      - &first
+        name: a # first
+        template: echo
+        arguments: &args
+          parameters:
+          - {name: msg, value: hi}
+      - &second
+        name: b
+        depends: a
+        template: echo
+        arguments: *args
+      - <<: *first
+        name: c
+        depends: "a && b"
+      - {<<: *second, name: d}
+  - name: echo
+    inputs: {parameters: [{name: msg}]}
+    suspend: {}
+`
+
+Deno.test('operations on a document with anchors change the node they name and no other', () => {
+  const d = parse(SHARED)
+  assertEquals(d.errors, [])
+  const args = (x: WfDoc, name: string) => task(x, name).arguments.parameters[0].value
+  // b's arguments are an alias of a's; c's come through a merge. Each is edited alone.
+  for (const node of ['a', 'b', 'c', 'd']) {
+    const r = run(d, { op: 'setArgument', node, name: 'msg', value: 'yo' })
+    assertEquals(['a', 'b', 'c', 'd'].map((n) => args(r, n)), ['a', 'b', 'c', 'd'].map((n) => (n === node ? 'yo' : 'hi')), node)
+    assertEquals(task(r, node).arguments.parameters, [{ name: 'msg', value: 'yo' }], 'the parameter keeps its name')
+  }
+  // A draft save writes a label and an annotation; `annotations: *lbl` must not make the label an annotation or the annotation a label.
+  const draft = js(run(d, { op: 'stampDraft', expires: '2026-12-05T00:00:00Z' })).metadata
+  assertEquals(draft.labels, { team: 'a', [DRAFT_LABEL]: 'true' })
+  assertEquals(draft.annotations, { team: 'a', [DRAFT_EXPIRES_ANNOTATION]: '2026-12-05T00:00:00Z' })
+  const dragged = js(run(d, { op: 'setPositions', positions: { a: { x: 1, y: 2 } } })).metadata
+  assertEquals(dragged.labels, { team: 'a' })
+  assertEquals(Object.keys(dragged.annotations), ['team', POSITIONS_ANNOTATION])
+  // Removing the task that HOLDS the anchors leaves b and c whole.
+  const removed = applyOp(d, { op: 'removeNode', node: 'a' }, opts).doc
+  assertEquals(removed.errors, [])
+  assertEquals(tasks(removed), [
+    { name: 'b', template: 'echo', arguments: { parameters: [{ name: 'msg', value: 'hi' }] } },
+    { template: 'echo', arguments: { parameters: [{ name: 'msg', value: 'hi' }] }, name: 'c', depends: 'b' },
+    { template: 'echo', arguments: { parameters: [{ name: 'msg', value: 'hi' }] }, name: 'd' },
+  ])
+  // Disconnect on a task that merges another: the inherited keys stay, written out.
+  const cut = run(d, { op: 'disconnect', source: 'a', target: 'c' })
+  assertEquals(task(cut, 'c'), { template: 'echo', arguments: { parameters: [{ name: 'msg', value: 'hi' }] }, name: 'c', depends: 'b' })
+  assertEquals(task(cut, 'a'), task(d, 'a'))
+  // d INHERITS `depends: a` from b: cutting that edge removes it from d alone.
+  const cutInherited = run(d, { op: 'disconnect', source: 'a', target: 'd' })
+  assertEquals(task(cutInherited, 'd'), { template: 'echo', arguments: { parameters: [{ name: 'msg', value: 'hi' }] }, name: 'd' })
+  assertEquals(task(cutInherited, 'b').depends, 'a')
+  assertEquals(project(cutInherited, opts).edges.map((e) => e.id), ['a->b', 'a->c', 'b->c'])
+  // …and an edge added to d does not appear on b.
+  const joined = run(d, { op: 'connect', source: 'c', target: 'd' })
+  assertEquals([task(joined, 'd').depends, task(joined, 'b').depends], ['a && c', 'a'])
+  // A rename of the anchor holder: c keeps its own name and what it inherited, and now waits for the new name.
+  const renamed = run(d, { op: 'rename', node: 'a', to: 'alpha' })
+  assertEquals(tasks(renamed).map((t) => [t.name, t.template, t.depends]), [['alpha', 'echo', undefined], ['b', 'echo', 'alpha'], ['c', 'echo', 'alpha && b'], ['d', 'echo', 'alpha']])
+  // A task that merged the renamed one has the keys written out, not an inline `<<:` map; the merge nobody touched is still a merge.
+  assert(!renamed.source.includes('<<: *first') && !/<<:\s*\n/.test(renamed.source), renamed.source)
+  // The expiry is written as a string in every YAML dialect.
+  assert(run(d, { op: 'stampDraft', expires: '2026-12-05T00:00:00Z' }).source.includes(`${DRAFT_EXPIRES_ANNOTATION}: "2026-12-05T00:00:00Z"`))
+})
+
+Deno.test('publish is not skipped for a change only the cluster can see', () => {
+  const d = parse(SMALL.source.replace('activeDeadlineSeconds: 600', 'activeDeadlineSeconds: 0600'))
+  assertEquals(d.errors, [])
+  assert(!sameContent(d, SMALL), '0600 and 600 are one number here and two to the API server')
 })

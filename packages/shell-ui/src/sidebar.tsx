@@ -255,7 +255,7 @@ function Header({
           )}
           aria-hidden={collapsed}
         >
-          <AdharWordmarkStack fontSize={17} subtitle="Console" />
+          <AdharWordmarkStack fontSize={23} tracking={0.09} subtitle="Console" />
         </div>
       </Link>
       {collapsed ? null : (

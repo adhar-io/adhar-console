@@ -40,6 +40,12 @@ interface World {
   /** CronWorkflow list pages, chosen by the `continue` token (page index). */
   cronPages?: Array<{ items: unknown[]; continue?: string }>
   checks: AccessCheck[]
+  /** Namespace → its labels (the tier check of a test run). A namespace not listed is unreadable (403). */
+  namespaces?: Record<string, Record<string, string>>
+  /** WorkflowTemplates on the cluster, by `ns/name`. */
+  templates?: Map<string, WfObject>
+  /** Answer a gateway call before the defaults (drafts tests). */
+  k8sAnswer?: (c: Call) => Response | undefined
 }
 
 const NOW = Date.parse('2026-11-25T10:00:00Z')
@@ -77,7 +83,35 @@ function deps(w: World): WorkflowsDeps {
     },
     k8s: (_id, path, init) => {
       const method = init?.method ?? 'GET'
-      w.k8s.push({ path, method, query: init?.search, body: init?.body ? JSON.parse(init.body) : undefined })
+      // A server-side apply sends YAML text, not JSON: kept as the string it is.
+      let sent: unknown
+      try {
+        sent = init?.body ? JSON.parse(init.body) : undefined
+      } catch {
+        sent = init?.body
+      }
+      const made: Call & { headers?: Record<string, string> } = { path, method, query: init?.search, body: sent, headers: init?.headers }
+      w.k8s.push(made)
+      const custom = w.k8sAnswer?.(made)
+      if (custom) return Promise.resolve(custom)
+      const nsm = /^\/api\/v1\/namespaces\/([^/]+)$/.exec(path)
+      if (nsm && w.namespaces) {
+        const labels = w.namespaces[nsm[1]]
+        return Promise.resolve(labels ? j({ metadata: { name: nsm[1], labels } }) : j({ message: 'forbidden' }, 403))
+      }
+      const tm = /^\/apis\/argoproj\.io\/v1alpha1\/namespaces\/([^/]+)\/workflowtemplates\/([^/]+)$/.exec(path)
+      if (tm && w.templates) {
+        if (method === 'GET') {
+          const t = w.templates.get(`${tm[1]}/${tm[2]}`)
+          return Promise.resolve(t ? j(t) : j({ message: 'not found' }, 404))
+        }
+        return Promise.resolve(j({ metadata: { name: tm[2], namespace: tm[1] } }))
+      }
+      const wm2 = /^\/apis\/argoproj\.io\/v1alpha1\/namespaces\/([^/]+)\/workflows$/.exec(path)
+      if (wm2 && method === 'POST') {
+        const b = sent as { metadata?: { generateName?: string } }
+        return Promise.resolve(j({ metadata: { name: `${b.metadata?.generateName}x7k2p`, namespace: wm2[1], uid: 'run-uid' }, status: {} }, 201))
+      }
       let m = /^\/apis\/argoproj\.io\/v1alpha1\/namespaces\/([^/]+)\/workflows\/([^/]+)$/.exec(path)
       if (m) {
         const r = w.runs.get(`${m[1]}/${m[2]}`)
@@ -633,4 +667,125 @@ Deno.test('argo-server down: argo-backed routes are 503 argo_unavailable after t
   assertEquals(caps.argoServer, { reachable: false, identity: 'none' })
   assertEquals(caps.archive, false)
   resetCapabilitiesCache()
+})
+
+/* ─────────── drafts: the designer's test run (W2-C3) ─────────── */
+
+const DRAFT_YAML = `apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: nightly
+spec:
+  entrypoint: main
+  templates:
+    - name: main
+      container:
+        image: docker.io/library/busybox:1.37
+        securityContext: {runAsUser: 065532}
+`
+
+const draftWorld = (over: Partial<World> = {}) =>
+  world({ namespaces: { 'shop-dev': { 'adhar.io/tier': 'dev' }, 'shop-prod': { 'adhar.io/tier': 'prod' }, 'adhar-system': {} }, templates: new Map(), ...over })
+
+Deno.test('test run: the draft is applied as the user in a dev namespace, then a run of it is created', async () => {
+  const w = draftWorld()
+  const res = await call(w, 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML, parameters: { env: 'dev' } })
+  assertEquals(res.status, 200)
+  const body = await res.json()
+  assertEquals(body.draft, { name: 'nightly-draft-ana', namespace: 'shop-dev', expires: '2026-12-02T10:00:00Z' })
+  assertEquals(body.workflow.name, 'nightly-draft-ana-x7k2p')
+  // ONE authorization question, in the route's namespace.
+  assertEquals(w.checks.map(keyOf), ['create workflowtemplates@shop-dev'])
+  // Order: tier → existing → apply → submit. Nothing reaches argo-server.
+  assertEquals(w.k8s.map((c) => `${c.method} ${c.path}`), [
+    'GET /api/v1/namespaces/shop-dev',
+    'GET /apis/argoproj.io/v1alpha1/namespaces/shop-dev/workflowtemplates/nightly-draft-ana',
+    'PATCH /apis/argoproj.io/v1alpha1/namespaces/shop-dev/workflowtemplates/nightly-draft-ana',
+    'POST /apis/argoproj.io/v1alpha1/namespaces/shop-dev/workflows',
+  ])
+  assertEquals(w.argo.length, 0)
+  const apply = w.k8s[2] as Call & { headers?: Record<string, string> }
+  assertEquals(apply.headers?.['content-type'], 'application/apply-patch+yaml')
+  const q = new URLSearchParams(apply.query)
+  assertEquals(q.get('fieldManager'), 'adhar-console-designer')
+  assertEquals(q.get('dryRun'), null)
+  // YAML TEXT, with the scalar the API server reads as octal left as typed.
+  assert(typeof apply.body === 'string')
+  assertStringIncludes(apply.body as string, 'runAsUser: 065532')
+  assertStringIncludes(apply.body as string, 'adhar.io/workflow-draft: "true"')
+  assertStringIncludes(apply.body as string, 'adhar.io/draft-expires: "2026-12-02T10:00:00Z"')
+  assertStringIncludes(apply.body as string, 'namespace: shop-dev')
+  const run = w.k8s[3].body as { metadata: Record<string, unknown>; spec: Record<string, unknown> }
+  assertEquals(run.spec, { workflowTemplateRef: { name: 'nightly-draft-ana' }, arguments: { parameters: [{ name: 'env', value: 'dev' }] } })
+  assert(!JSON.stringify(run).toLowerCase().includes('serviceaccount'))
+  assertEquals(w.records.map((r) => `${r.action}:${r.outcome}`), ['workflow.draft.test-run:success'])
+  assertEquals(w.records[0].meta.run, 'nightly-draft-ana-x7k2p')
+})
+
+Deno.test('test run: only in a dev namespace — prod, an unlabelled namespace and one the user cannot read are refused before anything is written', async () => {
+  for (const [ns, code] of [['shop-prod', 'not_dev'], ['adhar-system', 'not_dev'], ['other-team', 'tier_unknown']] as const) {
+    const w = draftWorld()
+    const res = await call(w, 'POST', `/drafts/${ns}/test-run`, { yaml: DRAFT_YAML })
+    assertEquals(res.status, 403, ns)
+    assertEquals((await res.json()).error, code, ns)
+    assert(w.k8s.every((c) => c.method === 'GET'), `${ns}: something was written`)
+    assertEquals(w.k8s.length, 1, ns)
+  }
+})
+
+Deno.test('test run: without create workflowtemplates the route answers 403 and asks the cluster nothing', async () => {
+  const w = draftWorld({ allow: new Set(['create workflows@shop-dev']) })
+  const res = await call(w, 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML })
+  assertEquals(res.status, 403)
+  assertEquals(w.k8s.length, 0)
+})
+
+Deno.test('test run: a template that exists under the draft name and is not a draft is never overwritten', async () => {
+  const w = draftWorld({ templates: new Map([['shop-dev/nightly-draft-ana', { metadata: { name: 'nightly-draft-ana', namespace: 'shop-dev', labels: { 'argocd.argoproj.io/instance': 'shop' } } }]]) })
+  const res = await call(w, 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML })
+  assertEquals(res.status, 409)
+  assertEquals((await res.json()).error, 'not_a_draft')
+  assert(w.k8s.every((c) => c.method === 'GET'))
+  // The user's own earlier draft is updated in place.
+  const mine = draftWorld({ templates: new Map([['shop-dev/nightly-draft-ana', { metadata: { name: 'nightly-draft-ana', namespace: 'shop-dev', labels: { 'adhar.io/workflow-draft': 'true' } } }]]) })
+  assertEquals((await call(mine, 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML })).status, 200)
+})
+
+Deno.test('test run: a dry run asks admission and stores nothing, starts nothing, records nothing', async () => {
+  const w = draftWorld()
+  const res = await call(w, 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML, dryRun: true })
+  assertEquals(res.status, 200)
+  assertEquals((await res.json()).dryRun, true)
+  const writes = w.k8s.filter((c) => c.method !== 'GET')
+  assertEquals(writes.length, 1)
+  assertEquals(new URLSearchParams(writes[0].query).get('dryRun'), 'All')
+  assertEquals(w.records.length, 0)
+})
+
+Deno.test('test run: admission\'s refusal is passed on in its own words, and a refused run still names the saved draft', async () => {
+  const denied = draftWorld({ k8sAnswer: (c) => (c.method === 'PATCH' ? j({ kind: 'Status', message: 'admission webhook "validate.kyverno.svc-fail" denied the request: adhar-workflow-reserved-serviceaccounts' }, 403) : undefined) })
+  const res = await call(denied, 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML })
+  assertEquals(res.status, 403)
+  assertStringIncludes((await res.json()).detail, 'adhar-workflow-reserved-serviceaccounts')
+  assert(!denied.k8s.some((c) => c.method === 'POST'), 'no run after a refused draft')
+  assertEquals(denied.records.map((r) => r.outcome), ['failure'])
+
+  const noRun = draftWorld({ k8sAnswer: (c) => (c.method === 'POST' ? j({ kind: 'Status', message: 'workflows.argoproj.io is forbidden' }, 403) : undefined) })
+  const r2 = await call(noRun, 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML })
+  assertEquals(r2.status, 403)
+  const b2 = await r2.json()
+  assertEquals(b2.draft.name, 'nightly-draft-ana')
+  assertEquals(noRun.records[0].meta.step, 'submit')
+})
+
+Deno.test('test run: a body that is not one WorkflowTemplate for this namespace is 400 before any write', async () => {
+  for (const body of [{}, { yaml: 'kind: Workflow\napiVersion: argoproj.io/v1alpha1\nmetadata: {name: x}\n' }, { yaml: DRAFT_YAML.replace('  name: nightly', '  name: nightly\n  namespace: shop-prod') }, { yaml: DRAFT_YAML, parameters: { 'bad name': 'x' } }]) {
+    const w = draftWorld()
+    const res = await call(w, 'POST', '/drafts/shop-dev/test-run', body)
+    assertEquals(res.status, 400, JSON.stringify(body).slice(0, 60))
+    assert(w.k8s.every((c) => c.method === 'GET'))
+  }
+  assertEquals((await call(draftWorld(), 'GET', '/drafts/shop-dev/test-run')).status, 405)
+  assertEquals((await call(draftWorld(), 'POST', '/drafts/Shop_Dev/test-run', { yaml: DRAFT_YAML })).status, 400)
+  assertEquals((await call(draftWorld({ signedIn: false }), 'POST', '/drafts/shop-dev/test-run', { yaml: DRAFT_YAML })).status, 401)
 })

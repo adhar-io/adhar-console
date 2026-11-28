@@ -234,7 +234,11 @@ function projectSteps(ctx: Ctx, t: TemplateAt, lane: 'main' | 'exit', offsetY = 
   const nodes: DesignerNode[] = []
   const edges: DesignerEdge[] = []
   let bottom = 0
-  groups.forEach((group, column) => {
+  // A group waits for the last group before it that holds a step: an empty one (`- []`) runs nothing and takes no column.
+  let before: TaskAt[] = []
+  let column = 0
+  for (const group of groups) {
+    if (!group.length) continue
     group.forEach((step, row) => {
       const n = nodeOf(ctx, t.name, lane, step, MAX_GROUP_DEPTH, [t.name])
       n.column = column
@@ -242,12 +246,14 @@ function projectSteps(ctx: Ctx, t: TemplateAt, lane: 'main' | 'exit', offsetY = 
       n.position = saved ? { ...saved, fromAnnotation: true } : { x: column * COL_GAP, y: offsetY + row * ROW_GAP, fromAnnotation: false }
       bottom = Math.max(bottom, n.position.y + RUN_CARD_HEIGHT)
       nodes.push(n)
-      for (const prev of column > 0 ? groups[column - 1] : []) {
+      for (const prev of before) {
         const s = uidOf(ctx.shape.entry, t.name, prev.name)
         edges.push({ id: `${s}->${n.uid}`, source: s, target: n.uid, condition: 'Succeeded', bare: true })
       }
     })
-  })
+    before = group
+    column++
+  }
   return { nodes, edges, bottom }
 }
 

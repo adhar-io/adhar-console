@@ -12,8 +12,8 @@ import { RunForm } from './run-form.tsx'
  * The catalogue (design 0026 §6.9): WorkflowTemplates in scope, catalogue
  * ClusterWorkflowTemplates and CronWorkflows — as cards or a table — with the
  * last ten outcomes, the 7-day success rate and p50 duration of each, and Run
- * (the generated form) and History. "Open in designer", "Duplicate" and
- * "Schedule" join with the designer (W2) and schedules (W4).
+ * (the generated form), History and Open in designer (W2). "Duplicate" and
+ * "Schedule" join with publishing (W3) and schedules (W4).
  */
 
 const HOME_TONE: Record<Home, 'brand' | 'violet' | 'emerald' | 'amber' | 'slate'> = {
@@ -30,12 +30,14 @@ const KIND_SHORT: Record<CatalogEntry['kind'], string> = {
   CronWorkflow: 'Schedule',
 }
 
-export function CatalogView({ scope, q, onQuery, onOpenRun, onHistory }: {
+export function CatalogView({ scope, q, onQuery, onOpenRun, onHistory, onDesign }: {
   scope: Scope
   q?: string
   onQuery(q: string): void
   onOpenRun(w: Workflow): void
   onHistory(e: CatalogEntry): void
+  /** Open the template in the designer (W2). */
+  onDesign?(e: CatalogEntry): void
 }) {
   const t = useTemplates(scope)
   const runs = useRuns(scope, undefined)
@@ -93,18 +95,18 @@ export function CatalogView({ scope, q, onQuery, onOpenRun, onHistory }: {
       {t.isLoading ? <Loading label="Loading the catalogue…" /> : t.error ? <ErrorNote title="Could not read the catalogue" error={t.error} /> : !all.length ? (
         <EmptyState
           title={`No templates yet${scope.only ? ` in ${scope.only}` : ''}`}
-          description="Workflow templates arrive through Git: an app's deploy/base/workflows/ or the project's automation/ folder. The designer (next release) will publish them for you."
+          description="Workflow templates arrive through Git: an app's deploy/base/workflows/ or the project's automation/ folder. Or build one in the Designer and test-run it in a dev namespace."
         />
       ) : !shown.length ? (
         <EmptyState compact title="Nothing matches these filters" />
       ) : view === 'cards' ? (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {shown.map((e) => (
-            <EntryCard key={e.key} entry={e} stats={stats.get(e.key)} envs={envs.get(e.name)} onRun={() => setRunning(e)} onHistory={() => onHistory(e)} />
+            <EntryCard key={e.key} entry={e} stats={stats.get(e.key)} envs={envs.get(e.name)} onRun={() => setRunning(e)} onHistory={() => onHistory(e)} onDesign={onDesign ? () => onDesign(e) : undefined} />
           ))}
         </div>
       ) : (
-        <EntryTable rows={shown} stats={stats} onRun={setRunning} onHistory={onHistory} />
+        <EntryTable rows={shown} stats={stats} onRun={setRunning} onHistory={onHistory} onDesign={onDesign} />
       )}
       {running ? (
         <RunForm
@@ -145,7 +147,7 @@ function RunButton({ entry, onRun, size = 'sm' }: { entry: CatalogEntry; onRun()
   )
 }
 
-function EntryCard({ entry, stats, envs, onRun, onHistory }: { entry: CatalogEntry; stats?: RunStats; envs?: string[]; onRun(): void; onHistory(): void }) {
+function EntryCard({ entry, stats, envs, onRun, onHistory, onDesign }: { entry: CatalogEntry; stats?: RunStats; envs?: string[]; onRun(): void; onHistory(): void; onDesign?(): void }) {
   const others = (envs ?? []).filter((n) => n !== entry.namespace)
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-edge-default bg-surface-raised p-4 shadow-sm">
@@ -172,6 +174,7 @@ function EntryCard({ entry, stats, envs, onRun, onHistory }: { entry: CatalogEnt
         <Outcomes stats={stats} />
         <div className="ml-auto flex gap-1.5">
           <Button size="sm" variant="ghost" onClick={onHistory}>History</Button>
+          {onDesign ? <Button size="sm" variant="ghost" onClick={onDesign}>Open in designer</Button> : null}
           <RunButton entry={entry} onRun={onRun} />
         </div>
       </footer>
@@ -179,7 +182,7 @@ function EntryCard({ entry, stats, envs, onRun, onHistory }: { entry: CatalogEnt
   )
 }
 
-function EntryTable({ rows, stats, onRun, onHistory }: { rows: CatalogEntry[]; stats: Map<string, RunStats>; onRun(e: CatalogEntry): void; onHistory(e: CatalogEntry): void }) {
+function EntryTable({ rows, stats, onRun, onHistory, onDesign }: { rows: CatalogEntry[]; stats: Map<string, RunStats>; onRun(e: CatalogEntry): void; onHistory(e: CatalogEntry): void; onDesign?(e: CatalogEntry): void }) {
   const columns: Column<CatalogEntry>[] = [
     { key: 'title', header: 'Template', pinned: true, cell: (e) => <div><div className="font-medium text-content">{e.title}</div><div className="font-mono text-[11px] text-content-subtle">{e.name}</div></div>, value: (e) => e.title },
     { key: 'kind', header: 'Kind', cell: (e) => KIND_SHORT[e.kind], value: (e) => e.kind },
@@ -188,7 +191,7 @@ function EntryTable({ rows, stats, onRun, onHistory }: { rows: CatalogEntry[]; s
     { key: 'params', header: 'Params', numeric: true, cell: (e) => e.params.length, value: (e) => e.params.length },
     { key: 'runs', header: 'Last 10', sortable: false, filter: false, cell: (e) => <Outcomes stats={stats.get(e.key)} /> },
     { key: 'team', header: 'Owner', cell: (e) => e.team ?? '—', value: (e) => e.team ?? '' },
-    { key: 'actions', header: <span className="sr-only">Actions</span>, sortable: false, filter: false, cell: (e) => <div className="flex gap-1" onClick={(ev) => ev.stopPropagation()}><Button size="xs" variant="ghost" onClick={() => onHistory(e)}>History</Button><RunButton entry={e} onRun={() => onRun(e)} size="xs" /></div> },
+    { key: 'actions', header: <span className="sr-only">Actions</span>, sortable: false, filter: false, cell: (e) => <div className="flex gap-1" onClick={(ev) => ev.stopPropagation()}><Button size="xs" variant="ghost" onClick={() => onHistory(e)}>History</Button>{onDesign ? <Button size="xs" variant="ghost" onClick={() => onDesign(e)}>Designer</Button> : null}<RunButton entry={e} onRun={() => onRun(e)} size="xs" /></div> },
   ]
   return <DataTable tableId="workflow-catalog" columns={columns} rows={rows} rowKey={(e) => e.key} features={{ search: false, filters: true, columns: true, export: true }} />
 }
